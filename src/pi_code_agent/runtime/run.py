@@ -1,19 +1,34 @@
 from __future__ import annotations
 
+import json
 from collections.abc import AsyncIterator
 from typing import Any
 from uuid import uuid4
 
-from pydantic_ai import Agent, AgentRunResultEvent, PartDeltaEvent, PartStartEvent
-from pydantic_ai.messages import TextPart, TextPartDelta
+from pydantic import TypeAdapter
+from pydantic_ai import (
+    Agent,
+    AgentRunResultEvent,
+    FunctionToolCallEvent,
+    FunctionToolResultEvent,
+    PartDeltaEvent,
+    PartStartEvent,
+)
+from pydantic_ai.messages import RetryPromptPart, TextPart, TextPartDelta
 
 from pi_code_agent.contracts.run_events import (
     AssistantTextDeltaEvent,
+    JsonValue,
     RunEvent,
     RunFailedEvent,
     RunStartedEvent,
     RunSucceededEvent,
+    ToolCallFailedEvent,
+    ToolCallStartedEvent,
+    ToolCallSucceededEvent,
 )
+
+_JSON_VALUE_ADAPTER = TypeAdapter(JsonValue)
 
 
 async def stream_run_events(
@@ -22,12 +37,53 @@ async def stream_run_events(
     prompt: str,
 ) -> AsyncIterator[RunEvent]:
     run_id = uuid4().hex
+    pending_tool_calls: dict[str, str] = {}
     terminal_emitted = False
 
     yield RunStartedEvent(run_id=run_id)
 
     try:
         async for event in agent.run_stream_events(prompt):
+            if isinstance(event, FunctionToolCallEvent):
+                args = _normalize_tool_args(event.part.args)
+                pending_tool_calls[event.tool_call_id] = event.part.tool_name
+                yield ToolCallStartedEvent(
+                    run_id=run_id,
+                    tool_call_id=event.tool_call_id,
+                    tool_name=event.part.tool_name,
+                    args=args,
+                    args_valid=event.args_valid,
+                )
+                continue
+
+            if isinstance(event, FunctionToolResultEvent):
+                if isinstance(event.result, RetryPromptPart):
+                    tool_name = pending_tool_calls.pop(
+                        event.tool_call_id,
+                        event.result.tool_name or "<unknown-tool>",
+                    )
+                    yield ToolCallFailedEvent(
+                        run_id=run_id,
+                        tool_call_id=event.tool_call_id,
+                        tool_name=tool_name,
+                        error_type="RetryPromptPart",
+                        message=_retry_prompt_message(event.result),
+                    )
+                    continue
+
+                result = _normalize_json_value(event.result.content)
+                tool_name = pending_tool_calls.pop(
+                    event.tool_call_id,
+                    event.result.tool_name,
+                )
+                yield ToolCallSucceededEvent(
+                    run_id=run_id,
+                    tool_call_id=event.tool_call_id,
+                    tool_name=tool_name,
+                    result=result,
+                )
+                continue
+
             text_delta = _extract_text_delta(event)
             if text_delta is not None:
                 yield AssistantTextDeltaEvent(run_id=run_id, delta=text_delta)
@@ -52,6 +108,15 @@ async def stream_run_events(
                 "stream_run_events received an error after terminal success"
             ) from error
 
+        for tool_call_id, tool_name in pending_tool_calls.items():
+            yield ToolCallFailedEvent(
+                run_id=run_id,
+                tool_call_id=tool_call_id,
+                tool_name=tool_name,
+                error_type=type(error).__name__,
+                message=str(error),
+            )
+
         yield RunFailedEvent(
             run_id=run_id,
             error_type=type(error).__name__,
@@ -67,3 +132,29 @@ def _extract_text_delta(event: object) -> str | None:
         return event.delta.content_delta or None
 
     return None
+
+
+def _normalize_tool_args(value: str | dict[str, Any] | None) -> JsonValue | None:
+    if value is None:
+        return None
+
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError as error:
+            raise ValueError("Tool args must be valid JSON") from error
+
+        return _normalize_json_value(parsed)
+
+    return _normalize_json_value(value)
+
+
+def _normalize_json_value(value: Any) -> JsonValue | None:
+    return _JSON_VALUE_ADAPTER.validate_python(value)
+
+
+def _retry_prompt_message(part: RetryPromptPart) -> str:
+    if isinstance(part.content, str):
+        return part.content
+
+    return part.model_response()

@@ -61,6 +61,21 @@ Ordering rules for the initial slice:
 - `run_succeeded` and `run_failed` are mutually exclusive and terminal
 - Consumers must not need to understand raw PydanticAI stream event kinds to consume this contract
 
+Initial tool lifecycle slice:
+
+- `tool_call_started`
+  - fields: `type`, `run_id`, `tool_call_id`, `tool_name`, `args`, `args_valid`
+- `tool_call_succeeded`
+  - fields: `type`, `run_id`, `tool_call_id`, `tool_name`, `result`
+- `tool_call_failed`
+  - fields: `type`, `run_id`, `tool_call_id`, `tool_name`, `error_type`, `message`
+
+Ordering rules for the tool slice:
+
+- Each `tool_call_started` must be followed by exactly one matching `tool_call_succeeded` or `tool_call_failed`
+- A tool exception that aborts the run must emit `tool_call_failed` before `run_failed`
+- Tool args and tool results in the public contract must be JSON-compatible
+
 ## Session Contract
 
 Initial canonical session contract:
