@@ -43,6 +43,24 @@ Rules:
 - The runtime must not emit alternate fallback event shapes for older clients.
 - The public event stream should represent the phases of a coding-agent run, not every internal PydanticAI event verbatim.
 
+Initial executable run slice:
+
+- `run_started`
+  - fields: `type`, `run_id`
+- `assistant_text_delta`
+  - fields: `type`, `run_id`, `delta`
+- `run_succeeded`
+  - fields: `type`, `run_id`, `output_text`
+- `run_failed`
+  - fields: `type`, `run_id`, `error_type`, `message`
+
+Ordering rules for the initial slice:
+
+- Successful text-only run: `run_started`, zero or more `assistant_text_delta`, `run_succeeded`
+- Failed run: `run_started`, zero or more `assistant_text_delta`, `run_failed`
+- `run_succeeded` and `run_failed` are mutually exclusive and terminal
+- Consumers must not need to understand raw PydanticAI stream event kinds to consume this contract
+
 ## Session Contract
 
 Initial canonical session contract:
