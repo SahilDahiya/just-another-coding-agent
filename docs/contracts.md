@@ -186,6 +186,7 @@ Ordering rules for the session slice:
 - Each `session_run` is followed by exactly one `session_messages` line and then zero or more `session_event` lines for the same `run_id`
 - Authoritative session loads must provide the expected workspace root and it must match the persisted `session_header.workspace_root` exactly
 - Session resume semantics must reconstruct conversation context from persisted `session_messages` in chronological order and pass that native history back through PydanticAI `message_history`
+- Session-backed runtime streaming persists only after the run reaches a terminal outcome; partially consumed or cancelled streams must not append a partial run
 - Persisted events for a run must satisfy the streamed run contract, including exactly one terminal outcome
 - Appending a new run must preserve all existing lines and write the header only once
 

@@ -2,17 +2,18 @@ from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator
+from pathlib import Path
 from typing import Any
 
 from pydantic import TypeAdapter, ValidationError
-from pydantic_ai import Agent
 
 from pi_code_agent.contracts.rpc import (
     RpcErrorEnvelope,
     RpcEventEnvelope,
     RunStartRequest,
 )
-from pi_code_agent.runtime.run import stream_run_events
+from pi_code_agent.contracts.tools import CANONICAL_TOOL_NAMES
+from pi_code_agent.runtime.session import stream_session_run_events
 
 _RUN_START_REQUEST_ADAPTER = TypeAdapter(RunStartRequest)
 
@@ -20,7 +21,9 @@ _RUN_START_REQUEST_ADAPTER = TypeAdapter(RunStartRequest)
 async def handle_rpc_json_line(
     *,
     line: str,
-    agent: Agent[Any, Any],
+    model: Any,
+    workspace_root: Path | str,
+    session_path: Path,
 ) -> AsyncIterator[str]:
     try:
         payload = json.loads(line)
@@ -44,7 +47,13 @@ async def handle_rpc_json_line(
         ).model_dump_json()
         return
 
-    async for event in stream_run_events(agent=agent, prompt=request.payload.prompt):
+    async for event in stream_session_run_events(
+        model=model,
+        workspace_root=workspace_root,
+        session_path=session_path,
+        prompt=request.payload.prompt,
+        tool_names=CANONICAL_TOOL_NAMES,
+    ):
         yield RpcEventEnvelope(id=request.id, event=event).model_dump_json()
 
 

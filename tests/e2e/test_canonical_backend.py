@@ -2,7 +2,6 @@ import json
 from collections.abc import AsyncIterator
 
 from pydantic import TypeAdapter
-from pydantic_ai import capture_run_messages
 from pydantic_ai.messages import ModelMessage
 from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 
@@ -14,8 +13,7 @@ from pi_code_agent.contracts.run_events import (
     ToolCallSucceededEvent,
 )
 from pi_code_agent.rpc.stdio import handle_rpc_json_line
-from pi_code_agent.runtime import build_canonical_agent
-from pi_code_agent.session.jsonl import append_run_to_session, load_session
+from pi_code_agent.session.jsonl import load_session
 
 _RUN_EVENT_ADAPTER = TypeAdapter(RunEvent)
 
@@ -71,7 +69,13 @@ async def failing_edit_stream(
     }
 
 
-async def _collect_rpc_events(*, agent, prompt: str) -> list[RunEvent]:
+async def _collect_rpc_events(
+    *,
+    model,
+    workspace_root,
+    session_path,
+    prompt: str,
+) -> list[RunEvent]:
     request_line = json.dumps(
         {
             "id": "req-1",
@@ -81,7 +85,12 @@ async def _collect_rpc_events(*, agent, prompt: str) -> list[RunEvent]:
     )
     messages = [
         json.loads(line)
-        async for line in handle_rpc_json_line(line=request_line, agent=agent)
+        async for line in handle_rpc_json_line(
+            line=request_line,
+            model=model,
+            workspace_root=workspace_root,
+            session_path=session_path,
+        )
     ]
 
     assert [message["type"] for message in messages] == ["rpc_event"] * len(messages)
@@ -96,17 +105,17 @@ async def test_e2e_rpc_runtime_session_uses_explicit_workspace_root(
 ) -> None:
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
+    session_path = tmp_path / "session.jsonl"
     other_dir = tmp_path / "other"
     other_dir.mkdir()
     monkeypatch.chdir(other_dir)
 
-    agent = build_canonical_agent(
+    events = await _collect_rpc_events(
         model=FunctionModel(stream_function=make_write_then_read_stream()),
         workspace_root=workspace_root,
+        session_path=session_path,
+        prompt="go",
     )
-
-    with capture_run_messages() as messages:
-        events = await _collect_rpc_events(agent=agent, prompt="go")
 
     assert [event.type for event in events] == [
         "run_started",
@@ -133,18 +142,10 @@ async def test_e2e_rpc_runtime_session_uses_explicit_workspace_root(
     assert isinstance(terminal, RunSucceededEvent)
     assert terminal.output_text == "done"
 
-    session_path = tmp_path / "session.jsonl"
-    append_run_to_session(
-        path=session_path,
-        workspace_root=workspace_root,
-        prompt="go",
-        events=events,
-        messages=messages,
-    )
     loaded = load_session(path=session_path, workspace_root=workspace_root)
 
     assert loaded.runs[0].prompt == "go"
-    assert loaded.runs[0].messages == messages
+    assert loaded.runs[0].messages
     assert loaded.runs[0].events == events
 
 
@@ -155,17 +156,17 @@ async def test_e2e_failure_round_trips_through_rpc_and_session(
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
     (workspace_root / "note.txt").write_text("hello\nworld\n", encoding="utf-8")
+    session_path = tmp_path / "failed-session.jsonl"
     other_dir = tmp_path / "other"
     other_dir.mkdir()
     monkeypatch.chdir(other_dir)
 
-    agent = build_canonical_agent(
+    events = await _collect_rpc_events(
         model=FunctionModel(stream_function=failing_edit_stream),
         workspace_root=workspace_root,
+        session_path=session_path,
+        prompt="go",
     )
-
-    with capture_run_messages() as messages:
-        events = await _collect_rpc_events(agent=agent, prompt="go")
 
     assert [event.type for event in events] == [
         "run_started",
@@ -184,16 +185,8 @@ async def test_e2e_failure_round_trips_through_rpc_and_session(
     assert terminal.message == tool_failed.message
     assert (workspace_root / "note.txt").read_text(encoding="utf-8") == "hello\nworld\n"
 
-    session_path = tmp_path / "failed-session.jsonl"
-    append_run_to_session(
-        path=session_path,
-        workspace_root=workspace_root,
-        prompt="go",
-        events=events,
-        messages=messages,
-    )
     loaded = load_session(path=session_path, workspace_root=workspace_root)
 
     assert loaded.runs[0].prompt == "go"
-    assert loaded.runs[0].messages == messages
+    assert loaded.runs[0].messages
     assert loaded.runs[0].events == events

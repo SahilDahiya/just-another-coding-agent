@@ -22,6 +22,11 @@ async def stream_session_run_events(
     prompt: str,
     tool_names: Sequence[str] = CANONICAL_TOOL_NAMES,
 ) -> AsyncIterator[RunEvent]:
+    """Stream one run and persist it only after terminal completion.
+
+    Callers that stop consuming before a terminal event do not get a partial
+    session append; append-only persistence requires a fully observed run.
+    """
     normalized_workspace_root = normalize_workspace_root(workspace_root)
     loaded_session = None
     if session_path.exists():

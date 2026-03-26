@@ -49,7 +49,7 @@ Persisted sessions must also bind to that explicit workspace root and store nati
 
 ## Data Flow
 
-1. A caller starts a run through the runtime or RPC layer.
+1. A caller starts a run through the runtime or RPC layer, and RPC delegates to the same session-aware runtime coordinator rather than maintaining a separate execution path.
 2. The runtime creates or resumes a coding-agent run using PydanticAI primitives directly where possible, with an explicit workspace root bound into the canonical toolset and persisted `message_history` supplied for session continuation.
 3. Tools execute through the canonical tool layer.
 4. Events are translated into the public streamed event contract rather than exposing raw framework internals directly.

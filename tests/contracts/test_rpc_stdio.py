@@ -2,23 +2,23 @@ import json
 from collections.abc import AsyncIterator
 
 import pytest
-from pydantic_ai import Agent
 from pydantic_ai.messages import ModelMessage
 from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 
 from pi_code_agent.rpc.stdio import handle_rpc_json_line
+from pi_code_agent.session import load_session
 
 
-async def successful_tool_stream(
+async def successful_write_stream(
     messages: list[ModelMessage],
     _agent_info: object,
 ) -> AsyncIterator[str | dict[int, DeltaToolCall]]:
     if len(messages) == 1:
         yield {
             0: DeltaToolCall(
-                name="add",
-                json_args='{"a": 1, "b": 2}',
-                tool_call_id="call-add",
+                name="write",
+                json_args='{"path": "note.txt", "content": "hello\\n"}',
+                tool_call_id="call-write",
             )
         }
         return
@@ -26,29 +26,35 @@ async def successful_tool_stream(
     yield "done"
 
 
-async def failing_tool_stream(
+async def failing_edit_stream(
     _messages: list[ModelMessage],
     _agent_info: object,
 ) -> AsyncIterator[str | dict[int, DeltaToolCall]]:
     yield {
         0: DeltaToolCall(
-            name="explode",
-            json_args="{}",
-            tool_call_id="call-explode",
+            name="edit",
+            json_args=(
+                '{"path": "note.txt", "old_text": "missing", '
+                '"new_text": "agent"}'
+            ),
+            tool_call_id="call-edit",
         )
     }
 
 
-async def test_handle_rpc_json_line_streams_run_events() -> None:
-    agent = Agent(
-        FunctionModel(stream_function=successful_tool_stream),
-        output_type=str,
-    )
+async def text_only_stream(
+    _messages: list[ModelMessage],
+    _agent_info: object,
+) -> AsyncIterator[str]:
+    yield "done"
 
-    @agent.tool_plain
-    async def add(a: int, b: int) -> int:
-        return a + b
 
+async def test_handle_rpc_json_line_streams_run_events_via_session_runtime(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    session_path = tmp_path / "session.jsonl"
     request_line = json.dumps(
         {
             "id": "req-1",
@@ -56,9 +62,15 @@ async def test_handle_rpc_json_line_streams_run_events() -> None:
             "payload": {"prompt": "go"},
         }
     )
+
     messages = [
         json.loads(line)
-        async for line in handle_rpc_json_line(line=request_line, agent=agent)
+        async for line in handle_rpc_json_line(
+            line=request_line,
+            model=FunctionModel(stream_function=successful_write_stream),
+            workspace_root=workspace_root,
+            session_path=session_path,
+        )
     ]
 
     assert [message["type"] for message in messages] == ["rpc_event"] * 5
@@ -70,21 +82,28 @@ async def test_handle_rpc_json_line_streams_run_events() -> None:
         "assistant_text_delta",
         "run_succeeded",
     ]
-    assert messages[1]["event"]["tool_name"] == "add"
-    assert messages[2]["event"]["result"] == 3
+    assert messages[1]["event"]["tool_name"] == "write"
+    assert messages[2]["event"]["result"] == f"Wrote {workspace_root / 'note.txt'}"
     assert messages[4]["event"]["output_text"] == "done"
 
+    loaded = load_session(path=session_path, workspace_root=workspace_root)
+    assert loaded.runs[0].prompt == "go"
+    assert [event.type for event in loaded.runs[0].events] == [
+        "run_started",
+        "tool_call_started",
+        "tool_call_succeeded",
+        "assistant_text_delta",
+        "run_succeeded",
+    ]
 
-async def test_handle_rpc_json_line_keeps_run_failure_in_event_stream() -> None:
-    agent = Agent(
-        FunctionModel(stream_function=failing_tool_stream),
-        output_type=str,
-    )
 
-    @agent.tool_plain
-    async def explode() -> str:
-        raise RuntimeError("tool boom")
-
+async def test_handle_rpc_json_line_keeps_run_failure_in_event_stream_and_session(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    (workspace_root / "note.txt").write_text("hello\nworld\n", encoding="utf-8")
+    session_path = tmp_path / "session.jsonl"
     request_line = json.dumps(
         {
             "id": "req-2",
@@ -92,9 +111,15 @@ async def test_handle_rpc_json_line_keeps_run_failure_in_event_stream() -> None:
             "payload": {"prompt": "go"},
         }
     )
+
     messages = [
         json.loads(line)
-        async for line in handle_rpc_json_line(line=request_line, agent=agent)
+        async for line in handle_rpc_json_line(
+            line=request_line,
+            model=FunctionModel(stream_function=failing_edit_stream),
+            workspace_root=workspace_root,
+            session_path=session_path,
+        )
     ]
 
     assert [message["type"] for message in messages] == ["rpc_event"] * 4
@@ -104,18 +129,31 @@ async def test_handle_rpc_json_line_keeps_run_failure_in_event_stream() -> None:
         "tool_call_failed",
         "run_failed",
     ]
-    assert messages[-1]["event"]["message"] == "tool boom"
+    assert "found 0 occurrences" in messages[-1]["event"]["message"]
+
+    loaded = load_session(path=session_path, workspace_root=workspace_root)
+    assert loaded.runs[0].prompt == "go"
+    assert [event.type for event in loaded.runs[0].events] == [
+        "run_started",
+        "tool_call_started",
+        "tool_call_failed",
+        "run_failed",
+    ]
 
 
-async def test_handle_rpc_json_line_returns_invalid_json_error() -> None:
-    agent = Agent(
-        FunctionModel(stream_function=successful_tool_stream),
-        output_type=str,
-    )
+async def test_handle_rpc_json_line_returns_invalid_json_error(tmp_path) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    session_path = tmp_path / "session.jsonl"
 
     messages = [
         json.loads(line)
-        async for line in handle_rpc_json_line(line="{", agent=agent)
+        async for line in handle_rpc_json_line(
+            line="{",
+            model=FunctionModel(stream_function=text_only_stream),
+            workspace_root=workspace_root,
+            session_path=session_path,
+        )
     ]
 
     assert messages == [
@@ -126,6 +164,7 @@ async def test_handle_rpc_json_line_returns_invalid_json_error() -> None:
             "message": "Invalid JSON request",
         }
     ]
+    assert not session_path.exists()
 
 
 @pytest.mark.parametrize(
@@ -216,18 +255,23 @@ async def test_handle_rpc_json_line_returns_invalid_json_error() -> None:
     ],
 )
 async def test_handle_rpc_json_line_returns_invalid_request_error(
+    tmp_path,
     request_payload: object,
     expected_id: str | None,
 ) -> None:
-    agent = Agent(
-        FunctionModel(stream_function=successful_tool_stream),
-        output_type=str,
-    )
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    session_path = tmp_path / "session.jsonl"
     request_line = json.dumps(request_payload)
 
     messages = [
         json.loads(line)
-        async for line in handle_rpc_json_line(line=request_line, agent=agent)
+        async for line in handle_rpc_json_line(
+            line=request_line,
+            model=FunctionModel(stream_function=text_only_stream),
+            workspace_root=workspace_root,
+            session_path=session_path,
+        )
     ]
 
     assert messages == [
@@ -238,3 +282,4 @@ async def test_handle_rpc_json_line_returns_invalid_request_error(
             "message": "Invalid RPC request",
         }
     ]
+    assert not session_path.exists()

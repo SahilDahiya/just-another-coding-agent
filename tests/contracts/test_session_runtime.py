@@ -1,3 +1,5 @@
+from collections.abc import AsyncIterator
+
 import pytest
 from pydantic_ai.messages import (
     ModelMessage,
@@ -103,6 +105,13 @@ async def failing_edit_stream(_messages, _agent_info):
             tool_call_id="call-edit",
         )
     }
+
+
+async def text_only_stream(
+    _messages: list[ModelMessage],
+    _agent_info: object,
+) -> AsyncIterator[str]:
+    yield "done"
 
 
 async def test_stream_session_run_events_persists_authoritative_session(
@@ -255,3 +264,24 @@ async def test_stream_session_run_events_persists_failed_run(
     loaded = load_session(path=session_path, workspace_root=workspace_root)
     assert loaded.runs[0].events == events
     assert loaded.runs[0].messages
+
+
+async def test_stream_session_run_events_does_not_persist_partial_consumption(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    session_path = tmp_path / "session.jsonl"
+    stream = stream_session_run_events(
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        session_path=session_path,
+        prompt="go",
+    )
+
+    first_event = await anext(stream)
+    assert isinstance(first_event, RunStartedEvent)
+
+    await stream.aclose()
+
+    assert not session_path.exists()

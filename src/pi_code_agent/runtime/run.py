@@ -55,11 +55,10 @@ async def stream_run_events(
     yield RunStartedEvent(run_id=run_id)
 
     try:
-        run_kwargs: dict[str, Any] = {}
-        if message_history is not None:
-            run_kwargs["message_history"] = message_history
-
-        async for event in agent.run_stream_events(prompt, **run_kwargs):
+        async for event in agent.run_stream_events(
+            prompt,
+            message_history=message_history,
+        ):
             if isinstance(event, FunctionToolCallEvent):
                 args = _normalize_tool_args(event.part.args)
                 pending_tool_calls[event.tool_call_id] = event.part.tool_name

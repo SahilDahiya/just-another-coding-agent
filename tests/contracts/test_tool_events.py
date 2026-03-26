@@ -32,7 +32,13 @@ class StubStreamAgent:
         self._events = events
         self._error = error
 
-    async def run_stream_events(self, _prompt: str) -> AsyncIterator[object]:
+    async def run_stream_events(
+        self,
+        _prompt: str,
+        *,
+        message_history: list[ModelMessage] | None = None,
+    ) -> AsyncIterator[object]:
+        assert message_history is None
         for event in self._events:
             yield event
 
