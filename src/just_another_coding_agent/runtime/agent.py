@@ -41,6 +41,25 @@ CANONICAL_AGENT_INSTRUCTIONS = "\n".join(
 )
 
 
+def _load_workspace_agents_context(*, workspace_root: Path) -> str | None:
+    agents_path = workspace_root / "AGENTS.md"
+    if not agents_path.exists():
+        return None
+    if not agents_path.is_file():
+        raise RuntimeError(f"Workspace AGENTS.md is not a file: {agents_path}")
+
+    try:
+        return agents_path.read_text(encoding="utf-8").rstrip()
+    except UnicodeDecodeError as error:
+        raise RuntimeError(
+            f"Workspace AGENTS.md is not valid UTF-8: {agents_path}"
+        ) from error
+    except OSError as error:
+        raise RuntimeError(
+            f"Workspace AGENTS.md could not be read: {agents_path}"
+        ) from error
+
+
 def build_canonical_instructions(
     *,
     workspace_root: Path | str,
@@ -48,14 +67,22 @@ def build_canonical_instructions(
 ) -> str:
     root = normalize_workspace_root(workspace_root)
     resolved_date = current_date or date.today()
+    workspace_agents_context = _load_workspace_agents_context(workspace_root=root)
 
-    return "\n".join(
-        [
-            CANONICAL_AGENT_INSTRUCTIONS,
-            f"Current date: {resolved_date.isoformat()}",
-            f"Current workspace root: {root}",
-        ]
-    )
+    sections = [
+        CANONICAL_AGENT_INSTRUCTIONS,
+        f"Current date: {resolved_date.isoformat()}",
+        f"Current workspace root: {root}",
+    ]
+    if workspace_agents_context:
+        sections.extend(
+            [
+                "# Project Context",
+                workspace_agents_context,
+            ]
+        )
+
+    return "\n".join(sections)
 
 
 def build_canonical_agent(

@@ -8,6 +8,23 @@ This document defines the canonical external contract for the coding-agent backe
 
 The contract preserves the backend-facing behavior of a pi-style coding agent while remaining independent from pi-mono's internal architecture. Internally, the implementation should prefer direct PydanticAI primitives and expose one simplified, stable public contract.
 
+## Prompt Context Contract
+
+Canonical prompt context for the maintained version:
+
+- static baseline instructions
+- dynamic current date
+- dynamic resolved workspace root
+- optional workspace-root `AGENTS.md` content
+
+Rules:
+
+- the canonical agent prompt must be assembled through one builder path
+- dynamic prompt context must be explicit and reproducible
+- if `AGENTS.md` exists at the workspace root, it must be injected under a clearly delimited `# Project Context` section
+- if workspace-root `AGENTS.md` is unreadable, not a regular file, or not valid UTF-8, agent construction must fail explicitly
+- missing workspace-root `AGENTS.md` is allowed and must not inject an empty project-context section
+
 ## Tool Contract
 
 Canonical tool set for the first maintained version:
