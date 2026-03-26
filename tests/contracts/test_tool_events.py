@@ -192,6 +192,33 @@ async def recovering_bash_stream(
     yield "done"
 
 
+async def recovering_non_zero_bash_stream(
+    messages: list[ModelMessage],
+    _agent_info: object,
+) -> AsyncIterator[str | dict[int, DeltaToolCall]]:
+    if len(messages) == 1:
+        yield {
+            0: DeltaToolCall(
+                name="bash",
+                json_args='{"command":"printf boom >&2; exit 7"}',
+                tool_call_id="call-bash-1",
+            )
+        }
+        return
+
+    if len(messages) == 3:
+        yield {
+            0: DeltaToolCall(
+                name="bash",
+                json_args='{"command":"printf ok"}',
+                tool_call_id="call-bash-2",
+            )
+        }
+        return
+
+    yield "done"
+
+
 async def looping_edit_stream(
     messages: list[ModelMessage],
     _agent_info: object,
@@ -558,7 +585,41 @@ async def test_stream_run_events_recovers_from_bash_timeout_within_one_run(
     assert events[2].result == {
         "ok": False,
         "error_type": "TimeoutError",
-        "message": "Bash command timed out after 1 seconds",
+        "message": "Command timed out after 1 seconds",
+    }
+    assert isinstance(events[4], ToolCallSucceededEvent)
+    assert events[4].result == {"exit_code": 0, "output": "ok"}
+    assert events[6].output_text == "done"
+
+
+async def test_stream_run_events_recovers_from_non_zero_bash_exit_within_one_run(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    agent = build_canonical_agent(
+        model=FunctionModel(stream_function=recovering_non_zero_bash_stream),
+        workspace_root=workspace_root,
+        tool_names=("bash",),
+    )
+
+    events = [event async for event in stream_run_events(agent=agent, prompt="go")]
+
+    assert [event.type for event in events] == [
+        "run_started",
+        "tool_call_started",
+        "tool_call_succeeded",
+        "tool_call_started",
+        "tool_call_succeeded",
+        "assistant_text_delta",
+        "run_succeeded",
+    ]
+    assert isinstance(events[2], ToolCallSucceededEvent)
+    assert events[2].result == {
+        "ok": False,
+        "error_type": "RuntimeError",
+        "message": "boom\n\nCommand exited with code 7",
     }
     assert isinstance(events[4], ToolCallSucceededEvent)
     assert events[4].result == {"exit_code": 0, "output": "ok"}

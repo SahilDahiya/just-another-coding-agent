@@ -111,10 +111,14 @@ Initial executable tool slice:
 
 - executes one local `bash -lc` command in the configured workspace root
 - sets command cwd to the configured workspace root, but does not sandbox filesystem access outside that root
-- returns a JSON-compatible result with fields `exit_code` and `output`
+- returns a JSON-compatible success result with fields `exit_code` and `output`
+- successful `bash` results always use `exit_code: 0`
 - `output` is the combined stdout and stderr decoded as UTF-8
-- non-zero `exit_code` is part of the tool result, not a transport fallback or alternate event shape
-- timeout, shell spawn failure, and invalid UTF-8 output return an explicit tool error result
+- large `output` is tail-bounded to the last `2000` lines or `50 KiB`, whichever is hit first
+- when `output` is truncated, the result must include an explicit notice with the temp-file path holding the full output
+- non-zero exits return an explicit tool error result instead of a success payload
+- timeout returns an explicit tool error result and includes captured output when available
+- shell spawn failure and invalid UTF-8 output return an explicit tool error result
 - no shell fallback, alternate decoder, or hidden retry path
 
 ## Streamed Event Contract

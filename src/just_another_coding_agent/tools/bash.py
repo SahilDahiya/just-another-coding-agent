@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+import tempfile
 from pathlib import Path
 
 from pydantic_ai import Tool
@@ -10,6 +11,105 @@ from just_another_coding_agent.contracts.tools import (
     make_tool_error_result,
 )
 from just_another_coding_agent.tools._workspace import normalize_workspace_root
+
+BASH_MAX_LINES = 2000
+BASH_MAX_BYTES = 50 * 1024
+
+
+def _append_bash_note(output: str, note: str) -> str:
+    if not output:
+        return note
+    return f"{output.rstrip('\n')}\n\n{note}"
+
+
+def _format_bash_failure(output: str, failure_message: str) -> str:
+    if output:
+        return f"{output}\n\n{failure_message}"
+    return failure_message
+
+
+def _truncate_last_bytes(text: str, max_bytes: int) -> str:
+    chars: list[str] = []
+    bytes_used = 0
+
+    for char in reversed(text):
+        char_bytes = len(char.encode("utf-8"))
+        if bytes_used + char_bytes > max_bytes:
+            break
+        chars.append(char)
+        bytes_used += char_bytes
+
+    return "".join(reversed(chars))
+
+
+def _write_full_output(output: str) -> str:
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        prefix="just-another-coding-agent-bash-",
+        suffix=".log",
+        delete=False,
+    ) as file_handle:
+        file_handle.write(output)
+        return file_handle.name
+
+
+def _truncate_bash_output(output: str) -> str:
+    if not output:
+        return ""
+
+    output_lines = output.splitlines(keepends=True)
+    output_bytes = len(output.encode("utf-8"))
+    if len(output_lines) <= BASH_MAX_LINES and output_bytes <= BASH_MAX_BYTES:
+        return output
+
+    full_output_path = _write_full_output(output)
+    tail_lines: list[str] = []
+    tail_bytes = 0
+    last_line_partial = False
+    truncated_by = "lines"
+
+    for line in reversed(output_lines):
+        if len(tail_lines) >= BASH_MAX_LINES:
+            truncated_by = "lines"
+            break
+
+        line_bytes = len(line.encode("utf-8"))
+        if not tail_lines and line_bytes > BASH_MAX_BYTES:
+            tail_lines.append(_truncate_last_bytes(line, BASH_MAX_BYTES))
+            last_line_partial = True
+            truncated_by = "bytes"
+            break
+
+        if tail_bytes + line_bytes > BASH_MAX_BYTES:
+            truncated_by = "bytes"
+            break
+
+        tail_lines.append(line)
+        tail_bytes += line_bytes
+
+    displayed_lines = list(reversed(tail_lines))
+    displayed_output = "".join(displayed_lines)
+    end_line = len(output_lines)
+    start_line = end_line - len(displayed_lines) + 1
+
+    if last_line_partial:
+        note = (
+            f"[Showing last {BASH_MAX_BYTES} bytes of line {end_line} "
+            f"(line exceeds limit). Full output: {full_output_path}]"
+        )
+    elif truncated_by == "lines":
+        note = (
+            f"[Showing lines {start_line}-{end_line} of {len(output_lines)}. "
+            f"Full output: {full_output_path}]"
+        )
+    else:
+        note = (
+            f"[Showing lines {start_line}-{end_line} of {len(output_lines)} "
+            f"({BASH_MAX_BYTES} byte limit). Full output: {full_output_path}]"
+        )
+
+    return _append_bash_note(displayed_output, note)
 
 
 def execute_bash(
@@ -29,12 +129,26 @@ def execute_bash(
             timeout=tool_input.timeout,
         )
     except subprocess.TimeoutExpired as error:
+        output_bytes = error.output or b""
+        output = _truncate_bash_output(output_bytes.decode("utf-8"))
         raise TimeoutError(
-            f"Bash command timed out after {tool_input.timeout} seconds"
+            _format_bash_failure(
+                output,
+                f"Command timed out after {tool_input.timeout} seconds",
+            )
         ) from error
 
     output_bytes = completed.stdout or b""
-    output = output_bytes.decode("utf-8")
+    output = _truncate_bash_output(output_bytes.decode("utf-8"))
+
+    if completed.returncode != 0:
+        raise RuntimeError(
+            _format_bash_failure(
+                output,
+                f"Command exited with code {completed.returncode}",
+            )
+        )
+
     return {
         "exit_code": completed.returncode,
         "output": output,
@@ -48,16 +162,17 @@ def create_bash_tool(*, workspace_root: Path | str) -> Tool:
         command: str,
         timeout: int | None = None,
     ) -> dict[str, int | str] | dict[str, bool | str]:
-        """Run a local bash command and return exit code plus combined output."""
+        """Run a local bash command and return success output or an error result."""
 
         try:
             return execute_bash(
                 tool_input=BashToolInput(command=command, timeout=timeout),
                 workspace_root=root,
             )
-        except (TimeoutError, OSError, UnicodeError) as error:
+        except (RuntimeError, TimeoutError, OSError, UnicodeError) as error:
             return make_tool_error_result(error)
 
     return Tool(bash, name="bash", strict=True)
+
 
 __all__ = ["create_bash_tool", "execute_bash"]

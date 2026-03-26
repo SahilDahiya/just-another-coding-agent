@@ -24,7 +24,6 @@ CANONICAL_AGENT_INSTRUCTIONS = "\n".join(
             "Use read with offset and limit for large files instead of "
             "pulling everything at once."
         ),
-        "Check bash exit_code in tool results; non-zero means the command failed.",
         (
             "If a tool returns an object with ok: false, treat it as an "
             "operational error and decide the next corrective step yourself."
