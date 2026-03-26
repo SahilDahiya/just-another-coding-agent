@@ -23,9 +23,10 @@ test = [
 
 [project.scripts]
 pi-code-agent = "pi_code_agent.__main__:main"
+pi-code-agent-exec-prompt = "pi_code_agent_adapters.bench.exec_prompt:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/pi_code_agent"]
+packages = ["src/pi_code_agent", "src/pi_code_agent_adapters"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
