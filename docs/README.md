@@ -6,6 +6,7 @@ read_when: start here, onboarding, or you need to find the right doc quickly
 
 - Repository overview and setup: [../README.md](../README.md)
 - Repo-specific agent instructions: [../AGENTS.md](../AGENTS.md)
+- Mental model and core concepts: [mental-model.md](mental-model.md)
 - Product scope and non-goals: [goal.md](goal.md)
 - Target architecture: [architecture.md](architecture.md)
 - Canonical public contract: [contracts.md](contracts.md)
@@ -17,6 +18,7 @@ read_when: start here, onboarding, or you need to find the right doc quickly
 
 - [../README.md](../README.md) - repository overview, scope, and setup
 - [../AGENTS.md](../AGENTS.md) - repo-specific coding and grounding instructions
+- [mental-model.md](mental-model.md) - mental model, core concepts, and how the pieces fit together
 - [goal.md](goal.md) - product target, scope, and non-goals
 - [architecture.md](architecture.md) - package layout and architectural boundaries
 - [contracts.md](contracts.md) - canonical coding-agent contract
