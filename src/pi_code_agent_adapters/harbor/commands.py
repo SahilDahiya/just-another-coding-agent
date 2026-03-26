@@ -26,9 +26,11 @@ def build_harbor_exec_command(
     sessions_root: str = "/tmp/pi-code-agent-sessions",
 ) -> str:
     prompt_b64 = base64.b64encode(instruction.encode("utf-8")).decode("ascii")
+    python_executable = "/installed-agent/pi-code-agent/.venv/bin/python"
     return (
         f"printf %s {shlex.quote(prompt_b64)} | base64 -d | "
-        "python3 -m pi_code_agent_adapters.bench.exec_prompt "
+        f"{shlex.quote(python_executable)} -m "
+        "pi_code_agent_adapters.bench.exec_prompt "
         f"--model {shlex.quote(model)} "
         f"--sessions-root {shlex.quote(sessions_root)} "
         f"-C {shlex.quote(workspace_root)} - "

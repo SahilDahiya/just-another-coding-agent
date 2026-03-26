@@ -29,5 +29,6 @@ def test_build_harbor_exec_command_preserves_exact_model_string() -> None:
     assert "openai-responses:gpt-5.3-codex" in command
     assert "printf %s " in command
     assert " base64 -d | " in command
+    assert "/installed-agent/pi-code-agent/.venv/bin/python -m " in command
     assert " --sessions-root /tmp/pi-code-agent-sessions " in command
     assert " -C . -" in command
