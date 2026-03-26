@@ -1,4 +1,4 @@
-from pi_code_agent import __version__
+from just_another_coding_agent import __version__
 
 
 def test_package_exposes_version() -> None:

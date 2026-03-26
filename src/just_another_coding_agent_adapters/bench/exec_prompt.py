@@ -23,7 +23,7 @@ def build_server_command(
     return [
         sys.executable,
         "-m",
-        "pi_code_agent",
+        "just_another_coding_agent",
         "--model",
         model,
         "--workspace-root",
@@ -59,7 +59,9 @@ def run_exec_prompt(
         raise ExecPromptError(f"Directory does not exist: {resolved_workspace_root}")
 
     if sessions_root is None:
-        with TemporaryDirectory(prefix="pi-code-agent-sessions.") as temporary_root:
+        with TemporaryDirectory(
+            prefix="just-another-coding-agent-sessions."
+        ) as temporary_root:
             return _run_exec_prompt(
                 prompt=prompt,
                 model=model,
@@ -100,7 +102,9 @@ def _run_exec_prompt(
     )
 
     if process.stdin is None or process.stdout is None:
-        raise ExecPromptError("pi-code-agent subprocess must expose stdin and stdout")
+        raise ExecPromptError(
+            "just-another-coding-agent subprocess must expose stdin and stdout"
+        )
 
     try:
         _write_json_line(
@@ -224,7 +228,10 @@ def main(
     error_stream = sys.stderr if stderr is None else stderr
 
     parser = argparse.ArgumentParser(
-        description="Run one prompt through the canonical pi-code-agent stdio backend.",
+        description=(
+            "Run one prompt through the canonical "
+            "just-another-coding-agent stdio backend."
+        ),
     )
     parser.add_argument(
         "prompt",

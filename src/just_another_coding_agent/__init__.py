@@ -1,4 +1,4 @@
-"""pi_code_agent package."""
+"""just_another_coding_agent package."""
 
 __all__ = ["__version__"]
 

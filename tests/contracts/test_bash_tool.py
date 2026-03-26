@@ -1,8 +1,8 @@
 import pytest
 from pydantic import ValidationError
 
-from pi_code_agent.contracts.tools import BashToolInput
-from pi_code_agent.tools.bash import execute_bash
+from just_another_coding_agent.contracts.tools import BashToolInput
+from just_another_coding_agent.tools.bash import execute_bash
 
 
 def test_bash_tool_runs_in_explicit_workspace_root(tmp_path, monkeypatch) -> None:

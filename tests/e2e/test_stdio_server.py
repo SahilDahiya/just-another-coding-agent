@@ -7,10 +7,10 @@ import pytest
 from pydantic_ai.messages import ModelMessage, ToolReturnPart, UserPromptPart
 from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 
-from pi_code_agent.__main__ import main
-from pi_code_agent.rpc import serve_rpc_stdio
-from pi_code_agent.rpc.session_store import session_path_for_id
-from pi_code_agent.session import load_session
+from just_another_coding_agent.__main__ import main
+from just_another_coding_agent.rpc import serve_rpc_stdio
+from just_another_coding_agent.rpc.session_store import session_path_for_id
+from just_another_coding_agent.session import load_session
 
 
 def _all_parts(messages: list[ModelMessage]):
@@ -108,7 +108,7 @@ async def test_serve_rpc_stdio_handles_multiple_lines_in_one_process(
     )
     output_stream = io.StringIO()
     monkeypatch.setattr(
-        "pi_code_agent.rpc.session_store.uuid4",
+        "just_another_coding_agent.rpc.session_store.uuid4",
         lambda: SimpleNamespace(hex=fixed_session_id),
     )
 
@@ -163,7 +163,10 @@ def test_main_parses_args_and_runs_stdio_server(tmp_path, monkeypatch) -> None:
     async def fake_serve_rpc_stdio(**kwargs) -> None:
         captured.update(kwargs)
 
-    monkeypatch.setattr("pi_code_agent.__main__.serve_rpc_stdio", fake_serve_rpc_stdio)
+    monkeypatch.setattr(
+        "just_another_coding_agent.__main__.serve_rpc_stdio",
+        fake_serve_rpc_stdio,
+    )
 
     exit_code = main(
         [
@@ -220,7 +223,10 @@ def test_main_exits_cleanly_on_keyboard_interrupt(
         awaitable.close()
         raise KeyboardInterrupt
 
-    monkeypatch.setattr("pi_code_agent.__main__.asyncio.run", fake_asyncio_run)
+    monkeypatch.setattr(
+        "just_another_coding_agent.__main__.asyncio.run",
+        fake_asyncio_run,
+    )
 
     exit_code = main(
         [

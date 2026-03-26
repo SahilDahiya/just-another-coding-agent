@@ -6,17 +6,17 @@ def test_install_script_uses_virtualenv_for_local_package_install() -> None:
         Path(__file__)
         .resolve()
         .parents[2]
-        .joinpath("src/pi_code_agent_adapters/harbor/install-pi-code-agent.sh.j2")
+        .joinpath("src/just_another_coding_agent_adapters/harbor/install-just-another-coding-agent.sh.j2")
         .read_text()
     )
 
-    assert 'PACKAGE_ROOT=/installed-agent/pi-code-agent' in script
+    assert 'PACKAGE_ROOT=/installed-agent/just-another-coding-agent' in script
     assert 'VENV_PATH="$PACKAGE_ROOT/.venv"' in script
     assert 'BOOTSTRAP_PYTHON=python3' in script
     assert '"$BOOTSTRAP_PYTHON" -m venv "$VENV_PATH"' in script
     assert 'VENV_PYTHON="$VENV_PATH/bin/python"' in script
     assert '"$VENV_PYTHON" -m pip install "$PACKAGE_ROOT"' in script
-    assert '"$VENV_PYTHON" -m pi_code_agent --help' in script
+    assert '"$VENV_PYTHON" -m just_another_coding_agent --help' in script
 
 
 def test_install_script_retries_venv_creation_after_installing_python3_venv() -> None:
@@ -24,7 +24,7 @@ def test_install_script_retries_venv_creation_after_installing_python3_venv() ->
         Path(__file__)
         .resolve()
         .parents[2]
-        .joinpath("src/pi_code_agent_adapters/harbor/install-pi-code-agent.sh.j2")
+        .joinpath("src/just_another_coding_agent_adapters/harbor/install-just-another-coding-agent.sh.j2")
         .read_text()
     )
 
@@ -39,7 +39,7 @@ def test_install_script_bootstraps_python_312_with_uv_when_system_python_is_too_
         Path(__file__)
         .resolve()
         .parents[2]
-        .joinpath("src/pi_code_agent_adapters/harbor/install-pi-code-agent.sh.j2")
+        .joinpath("src/just_another_coding_agent_adapters/harbor/install-just-another-coding-agent.sh.j2")
         .read_text()
     )
 

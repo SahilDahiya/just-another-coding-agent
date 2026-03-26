@@ -5,12 +5,15 @@ from pathlib import Path
 
 from pydantic_ai import FunctionToolset
 
-from pi_code_agent.contracts.tools import CANONICAL_TOOL_NAMES, CanonicalToolName
-from pi_code_agent.tools._workspace import normalize_workspace_root
-from pi_code_agent.tools.bash import create_bash_tool
-from pi_code_agent.tools.edit import create_edit_tool
-from pi_code_agent.tools.read import create_read_tool
-from pi_code_agent.tools.write import create_write_tool
+from just_another_coding_agent.contracts.tools import (
+    CANONICAL_TOOL_NAMES,
+    CanonicalToolName,
+)
+from just_another_coding_agent.tools._workspace import normalize_workspace_root
+from just_another_coding_agent.tools.bash import create_bash_tool
+from just_another_coding_agent.tools.edit import create_edit_tool
+from just_another_coding_agent.tools.read import create_read_tool
+from just_another_coding_agent.tools.write import create_write_tool
 
 
 class UnknownToolError(KeyError):

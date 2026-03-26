@@ -1,8 +1,8 @@
 import pytest
 from pydantic import ValidationError
 
-from pi_code_agent.contracts.tools import ReadToolInput
-from pi_code_agent.tools.read import execute_read
+from just_another_coding_agent.contracts.tools import ReadToolInput
+from just_another_coding_agent.tools.read import execute_read
 
 
 def test_read_tool_reads_utf8_text_file(tmp_path) -> None:

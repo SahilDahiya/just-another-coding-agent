@@ -4,13 +4,13 @@ from pydantic_ai import Agent
 from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 from pydantic_ai.usage import UsageLimits
 
-from pi_code_agent.contracts.run_events import (
+from just_another_coding_agent.contracts.run_events import (
     AssistantTextDeltaEvent,
     RunFailedEvent,
     RunStartedEvent,
     RunSucceededEvent,
 )
-from pi_code_agent.runtime.run import stream_run_events
+from just_another_coding_agent.runtime.run import stream_run_events
 
 
 async def hello_stream(_messages: object, _agent_info: object) -> AsyncIterator[str]:

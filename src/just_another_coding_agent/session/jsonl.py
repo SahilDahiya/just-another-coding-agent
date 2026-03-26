@@ -8,7 +8,7 @@ from typing import TextIO
 from pydantic import TypeAdapter, ValidationError
 from pydantic_ai.messages import ModelMessage
 
-from pi_code_agent.contracts.run_events import (
+from just_another_coding_agent.contracts.run_events import (
     RunEvent,
     RunFailedEvent,
     RunStartedEvent,
@@ -17,7 +17,7 @@ from pi_code_agent.contracts.run_events import (
     ToolCallStartedEvent,
     ToolCallSucceededEvent,
 )
-from pi_code_agent.contracts.session import (
+from just_another_coding_agent.contracts.session import (
     SESSION_FORMAT_VERSION,
     LoadedSession,
     SessionEntry,
@@ -27,7 +27,7 @@ from pi_code_agent.contracts.session import (
     SessionRunEntry,
     SessionRunRecord,
 )
-from pi_code_agent.tools._workspace import normalize_workspace_root
+from just_another_coding_agent.tools._workspace import normalize_workspace_root
 
 _SESSION_ENTRY_ADAPTER = TypeAdapter(SessionEntry)
 

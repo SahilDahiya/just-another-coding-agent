@@ -477,6 +477,32 @@ wheels = [
 ]
 
 [[package]]
+name = "just-another-coding-agent"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "pydantic-ai-slim", extra = ["anthropic", "mcp", "openai"] },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "ruff" },
+]
+test = [
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "pydantic-ai-slim", extras = ["anthropic", "mcp", "openai"], specifier = ">=1.71.0,<2.0" },
+    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3.0" },
+    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.24.0" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.11.0" },
+]
+provides-extras = ["dev", "test"]
+
+[[package]]
 name = "logfire-api"
 version = "4.30.0"
 source = { registry = "https://pypi.org/simple" }
@@ -550,32 +576,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/65/ee/299d360cdc32edc7d
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b7/b9/c538f279a4e237a006a2c98387d081e9eb060d203d8ed34467cc0f0b9b53/packaging-26.0-py3-none-any.whl", hash = "sha256:b36f1fef9334a5588b4166f8bcd26a14e521f2b55e6b9de3aaa80d3ff7a37529", size = 74366, upload-time = "2026-01-21T20:50:37.788Z" },
 ]
-
-[[package]]
-name = "pi-coding-agent"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "pydantic-ai-slim", extra = ["anthropic", "mcp", "openai"] },
-]
-
-[package.optional-dependencies]
-dev = [
-    { name = "ruff" },
-]
-test = [
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "pydantic-ai-slim", extras = ["anthropic", "mcp", "openai"], specifier = ">=1.71.0,<2.0" },
-    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3.0" },
-    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.24.0" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.11.0" },
-]
-provides-extras = ["dev", "test"]
 
 [[package]]
 name = "pluggy"

@@ -1,4 +1,4 @@
-# pi-coding-agent
+# just-another-coding-agent
 
 read_when: you need the repo overview, scope, or setup commands
 
@@ -25,12 +25,12 @@ It is intentionally narrow: coding-agent backend, strict contracts, no fallbacks
 
 ## Project Layout
 
-- `src/pi_code_agent/` - canonical Python package
-- `src/pi_code_agent/runtime/` - runtime and orchestration entrypoints
-- `src/pi_code_agent/tools/` - coding tools
-- `src/pi_code_agent/session/` - session persistence
-- `src/pi_code_agent/rpc/` - RPC transport
-- `src/pi_code_agent/contracts/` - public contract helpers and schemas
+- `src/just_another_coding_agent/` - canonical Python package
+- `src/just_another_coding_agent/runtime/` - runtime and orchestration entrypoints
+- `src/just_another_coding_agent/tools/` - coding tools
+- `src/just_another_coding_agent/session/` - session persistence
+- `src/just_another_coding_agent/rpc/` - RPC transport
+- `src/just_another_coding_agent/contracts/` - public contract helpers and schemas
 - `tests/` - unit tests first, e2e later
 - `docs/` - scope, architecture, contracts, ADRs, development
 
@@ -47,7 +47,7 @@ uv run pytest
 Launch the long-lived stdio RPC server with explicit backend configuration:
 
 ```bash
-uv run pi-code-agent \
+uv run just-another-coding-agent \
   --model <provider:model> \
   --workspace-root /abs/path/to/workspace \
   --sessions-root /abs/path/to/sessions

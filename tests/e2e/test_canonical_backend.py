@@ -5,16 +5,16 @@ from pydantic import TypeAdapter
 from pydantic_ai.messages import ModelMessage
 from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 
-from pi_code_agent.contracts.run_events import (
+from just_another_coding_agent.contracts.run_events import (
     RunEvent,
     RunFailedEvent,
     RunSucceededEvent,
     ToolCallFailedEvent,
     ToolCallSucceededEvent,
 )
-from pi_code_agent.rpc.session_store import session_path_for_id
-from pi_code_agent.rpc.stdio import handle_rpc_json_line
-from pi_code_agent.session.jsonl import load_session
+from just_another_coding_agent.rpc.session_store import session_path_for_id
+from just_another_coding_agent.rpc.stdio import handle_rpc_json_line
+from just_another_coding_agent.session.jsonl import load_session
 
 _RUN_EVENT_ADAPTER = TypeAdapter(RunEvent)
 

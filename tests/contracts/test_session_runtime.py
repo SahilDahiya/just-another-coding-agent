@@ -10,15 +10,15 @@ from pydantic_ai.messages import (
 from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 from pydantic_ai.usage import UsageLimits
 
-from pi_code_agent.contracts.run_events import (
+from just_another_coding_agent.contracts.run_events import (
     RunFailedEvent,
     RunStartedEvent,
     RunSucceededEvent,
     ToolCallFailedEvent,
     ToolCallSucceededEvent,
 )
-from pi_code_agent.runtime import stream_session_run_events
-from pi_code_agent.session import (
+from just_another_coding_agent.runtime import stream_session_run_events
+from just_another_coding_agent.session import (
     SessionFormatError,
     append_run_to_session,
     load_session,

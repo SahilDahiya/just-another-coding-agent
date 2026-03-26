@@ -1,6 +1,6 @@
 import pytest
 
-from pi_code_agent.tools._workspace import (
+from just_another_coding_agent.tools._workspace import (
     normalize_workspace_root,
     resolve_workspace_path,
 )

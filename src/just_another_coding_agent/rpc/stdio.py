@@ -8,7 +8,7 @@ from typing import Any, TextIO
 
 from pydantic import TypeAdapter, ValidationError
 
-from pi_code_agent.contracts.rpc import (
+from just_another_coding_agent.contracts.rpc import (
     RpcErrorEnvelope,
     RpcEventEnvelope,
     RpcRequest,
@@ -17,10 +17,13 @@ from pi_code_agent.contracts.rpc import (
     SessionCreateRequest,
     SessionCreateResponse,
 )
-from pi_code_agent.contracts.tools import CANONICAL_TOOL_NAMES
-from pi_code_agent.rpc.session_store import create_session, session_path_for_id
-from pi_code_agent.runtime.session import stream_session_run_events
-from pi_code_agent.session import SessionFormatError
+from just_another_coding_agent.contracts.tools import CANONICAL_TOOL_NAMES
+from just_another_coding_agent.rpc.session_store import (
+    create_session,
+    session_path_for_id,
+)
+from just_another_coding_agent.runtime.session import stream_session_run_events
+from just_another_coding_agent.session import SessionFormatError
 
 _RPC_REQUEST_ADAPTER = TypeAdapter(RpcRequest)
 

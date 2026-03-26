@@ -11,7 +11,7 @@ from pydantic_ai.messages import ModelMessage, RetryPromptPart, ToolCallPart
 from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 from pydantic_ai.usage import UsageLimits
 
-from pi_code_agent.contracts.run_events import (
+from just_another_coding_agent.contracts.run_events import (
     AssistantTextDeltaEvent,
     RunFailedEvent,
     RunStartedEvent,
@@ -20,7 +20,7 @@ from pi_code_agent.contracts.run_events import (
     ToolCallStartedEvent,
     ToolCallSucceededEvent,
 )
-from pi_code_agent.runtime.run import stream_run_events
+from just_another_coding_agent.runtime.run import stream_run_events
 
 
 class StubStreamAgent:

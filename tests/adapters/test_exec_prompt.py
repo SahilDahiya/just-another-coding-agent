@@ -4,7 +4,7 @@ import sys
 
 import pytest
 
-from pi_code_agent_adapters.bench.exec_prompt import (
+from just_another_coding_agent_adapters.bench.exec_prompt import (
     ExecPromptError,
     main,
     read_prompt,
@@ -108,7 +108,7 @@ def test_run_exec_prompt_returns_terminal_output(tmp_path) -> None:
     assert captured["command"] == [
         sys.executable,
         "-m",
-        "pi_code_agent",
+        "just_another_coding_agent",
         "--model",
         "openai-responses:gpt-5.3-codex",
         "--workspace-root",
@@ -215,7 +215,7 @@ def test_main_prints_output_and_returns_zero(tmp_path, monkeypatch) -> None:
         return "done"
 
     monkeypatch.setattr(
-        "pi_code_agent_adapters.bench.exec_prompt.run_exec_prompt",
+        "just_another_coding_agent_adapters.bench.exec_prompt.run_exec_prompt",
         fake_run_exec_prompt,
     )
 
@@ -244,7 +244,7 @@ def test_main_prints_error_and_returns_one(tmp_path, monkeypatch) -> None:
         raise ExecPromptError("RuntimeError: boom")
 
     monkeypatch.setattr(
-        "pi_code_agent_adapters.bench.exec_prompt.run_exec_prompt",
+        "just_another_coding_agent_adapters.bench.exec_prompt.run_exec_prompt",
         fake_run_exec_prompt,
     )
 

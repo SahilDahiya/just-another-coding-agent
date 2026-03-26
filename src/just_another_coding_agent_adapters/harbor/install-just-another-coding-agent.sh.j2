@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-PACKAGE_ROOT=/installed-agent/pi-code-agent
+PACKAGE_ROOT=/installed-agent/just-another-coding-agent
 VENV_PATH="$PACKAGE_ROOT/.venv"
 BOOTSTRAP_PYTHON=python3
 VENV_PYTHON="$VENV_PATH/bin/python"
@@ -47,5 +47,5 @@ fi
 "$VENV_PYTHON" -m pip install --upgrade pip
 "$VENV_PYTHON" -m pip install "$PACKAGE_ROOT"
 
-"$VENV_PYTHON" -m pi_code_agent --help >/dev/null
-"$VENV_PYTHON" -m pi_code_agent_adapters.bench.exec_prompt --help >/dev/null
+"$VENV_PYTHON" -m just_another_coding_agent --help >/dev/null
+"$VENV_PYTHON" -m just_another_coding_agent_adapters.bench.exec_prompt --help >/dev/null

@@ -3,7 +3,7 @@ requires = ["hatchling>=1.27.0"]
 build-backend = "hatchling.build"
 
 [project]
-name = "pi-coding-agent"
+name = "just-another-coding-agent"
 version = "0.1.0"
 description = "Python-native headless coding-agent backend built around PydanticAI"
 readme = "README.md"
@@ -22,11 +22,11 @@ test = [
 ]
 
 [project.scripts]
-pi-code-agent = "pi_code_agent.__main__:main"
-pi-code-agent-exec-prompt = "pi_code_agent_adapters.bench.exec_prompt:main"
+just-another-coding-agent = "just_another_coding_agent.__main__:main"
+just-another-coding-agent-exec-prompt = "just_another_coding_agent_adapters.bench.exec_prompt:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/pi_code_agent", "src/pi_code_agent_adapters"]
+packages = ["src/just_another_coding_agent", "src/just_another_coding_agent_adapters"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

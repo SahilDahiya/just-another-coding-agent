@@ -1,8 +1,8 @@
 import pytest
 from pydantic import ValidationError
 
-from pi_code_agent.contracts.tools import EditToolInput
-from pi_code_agent.tools.edit import execute_edit
+from just_another_coding_agent.contracts.tools import EditToolInput
+from just_another_coding_agent.tools.edit import execute_edit
 
 
 def test_edit_tool_replaces_exact_unique_text(tmp_path) -> None:

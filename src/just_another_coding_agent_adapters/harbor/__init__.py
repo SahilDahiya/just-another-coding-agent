@@ -1,4 +1,4 @@
-"""Harbor-specific adapter code for running pi_code_agent in task containers."""
+"""Harbor-specific adapter code for the benchmark adapter package."""
 
 from .commands import build_harbor_exec_command, build_provider_env
 

@@ -5,8 +5,8 @@ from uuid import uuid4
 
 from pydantic import TypeAdapter
 
-from pi_code_agent.contracts.rpc import SessionId
-from pi_code_agent.session import initialize_session
+from just_another_coding_agent.contracts.rpc import SessionId
+from just_another_coding_agent.session import initialize_session
 
 _SESSION_ID_ADAPTER = TypeAdapter(SessionId)
 

@@ -2,7 +2,7 @@ from pydantic_ai import capture_run_messages
 from pydantic_ai.messages import ModelMessage, ModelRequest, UserPromptPart
 from pydantic_ai.models.function import FunctionModel
 
-from pi_code_agent.runtime import (
+from just_another_coding_agent.runtime import (
     CANONICAL_AGENT_INSTRUCTIONS,
     build_canonical_agent,
 )

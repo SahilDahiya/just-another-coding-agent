@@ -25,16 +25,16 @@ def build_harbor_exec_command(
     instruction: str,
     model: str,
     workspace_root: str = ".",
-    sessions_root: str = "/tmp/pi-code-agent-sessions",
+    sessions_root: str = "/tmp/just-another-coding-agent-sessions",
 ) -> str:
     prompt_b64 = base64.b64encode(instruction.encode("utf-8")).decode("ascii")
-    python_executable = "/installed-agent/pi-code-agent/.venv/bin/python"
+    python_executable = "/installed-agent/just-another-coding-agent/.venv/bin/python"
     return (
         f"printf %s {shlex.quote(prompt_b64)} | base64 -d | "
         f"{shlex.quote(python_executable)} -m "
-        "pi_code_agent_adapters.bench.exec_prompt "
+        "just_another_coding_agent_adapters.bench.exec_prompt "
         f"--model {shlex.quote(model)} "
         f"--sessions-root {shlex.quote(sessions_root)} "
         f"-C {shlex.quote(workspace_root)} - "
-        "2>&1 | stdbuf -oL tee /logs/agent/pi-code-agent.txt"
+        "2>&1 | stdbuf -oL tee /logs/agent/just-another-coding-agent.txt"
     )

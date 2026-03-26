@@ -11,14 +11,14 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 
-from pi_code_agent.contracts.run_events import (
+from just_another_coding_agent.contracts.run_events import (
     AssistantTextDeltaEvent,
     RunFailedEvent,
     RunStartedEvent,
     RunSucceededEvent,
 )
-from pi_code_agent.runtime.run import stream_run_events
-from pi_code_agent.session.jsonl import (
+from just_another_coding_agent.runtime.run import stream_run_events
+from just_another_coding_agent.session.jsonl import (
     SessionFormatError,
     append_run_to_session,
     load_session,

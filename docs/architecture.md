@@ -24,24 +24,24 @@ The canonical runtime must also apply per-run PydanticAI `UsageLimits` so reques
 
 ## Canonical Package Layout
 
-- `src/pi_code_agent/runtime/`
+- `src/just_another_coding_agent/runtime/`
   - agent construction
   - orchestration entrypoints
   - event translation from PydanticAI into the public contract
-- `src/pi_code_agent/tools/`
+- `src/just_another_coding_agent/tools/`
   - canonical coding tools
   - tool execution policy
-- `src/pi_code_agent/session/`
+- `src/just_another_coding_agent/session/`
   - session persistence
   - session load/save helpers
-- `src/pi_code_agent/rpc/`
+- `src/just_another_coding_agent/rpc/`
   - JSON-over-stdio protocol
   - command handlers
-- `src/pi_code_agent/contracts/`
+- `src/just_another_coding_agent/contracts/`
   - contract types, constants, and schema helpers
-- `src/pi_code_agent_adapters/`
+- `src/just_another_coding_agent_adapters/`
   - external harness and benchmark adapters such as Harbor or Terminal Bench
-  - depends on `pi_code_agent`; core backend packages must not depend on adapters
+  - depends on `just_another_coding_agent`; core backend packages must not depend on adapters
 
 ## Boundaries
 
@@ -51,7 +51,7 @@ The canonical runtime must also apply per-run PydanticAI `UsageLimits` so reques
 - Keep tool behavior strict and explicit.
 - Keep sessions and RPC stable only when deliberately chosen as public contracts.
 - Do not import pi-mono's package layout, UI model, or extension architecture into this repo.
-- Keep Harbor, Terminal Bench, and similar external harness bindings out of `pi_code_agent` core packages.
+- Keep Harbor, Terminal Bench, and similar external harness bindings out of `just_another_coding_agent` core packages.
 - External adapters may wrap the canonical stdio/session/runtime path, but they must not create a second execution contract.
 
 ## Data Flow

@@ -2,7 +2,7 @@ import pytest
 from pydantic_ai import Agent
 from pydantic_ai.models.test import TestModel
 
-from pi_code_agent.tools.registry import (
+from just_another_coding_agent.tools.registry import (
     UnknownToolError,
     build_canonical_toolset,
     list_canonical_tool_names,

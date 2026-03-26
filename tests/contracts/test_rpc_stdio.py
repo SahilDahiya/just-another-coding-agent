@@ -5,9 +5,9 @@ import pytest
 from pydantic_ai.messages import ModelMessage, ToolReturnPart, UserPromptPart
 from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 
-from pi_code_agent.rpc.session_store import session_path_for_id
-from pi_code_agent.rpc.stdio import handle_rpc_json_line
-from pi_code_agent.session import load_session
+from just_another_coding_agent.rpc.session_store import session_path_for_id
+from just_another_coding_agent.rpc.stdio import handle_rpc_json_line
+from just_another_coding_agent.session import load_session
 
 
 def _all_parts(messages: list[ModelMessage]):

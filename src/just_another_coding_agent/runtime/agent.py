@@ -6,8 +6,8 @@ from typing import Any
 
 from pydantic_ai import Agent
 
-from pi_code_agent.contracts.tools import CANONICAL_TOOL_NAMES
-from pi_code_agent.tools.registry import build_canonical_toolset
+from just_another_coding_agent.contracts.tools import CANONICAL_TOOL_NAMES
+from just_another_coding_agent.tools.registry import build_canonical_toolset
 
 CANONICAL_AGENT_INSTRUCTIONS = "\n".join(
     [

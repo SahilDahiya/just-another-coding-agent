@@ -6,8 +6,8 @@ import sys
 from collections.abc import Sequence
 from typing import TextIO
 
-from pi_code_agent.rpc import serve_rpc_stdio
-from pi_code_agent.tools._workspace import normalize_workspace_root
+from just_another_coding_agent.rpc import serve_rpc_stdio
+from just_another_coding_agent.tools._workspace import normalize_workspace_root
 
 
 def main(
@@ -17,7 +17,7 @@ def main(
     output_stream: TextIO | None = None,
 ) -> int:
     parser = argparse.ArgumentParser(
-        prog="pi-code-agent",
+        prog="just-another-coding-agent",
         description="Serve the coding-agent JSON-over-stdio RPC backend.",
     )
     parser.add_argument("--model", required=True)

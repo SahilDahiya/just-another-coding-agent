@@ -5,8 +5,8 @@ from pathlib import Path
 
 from pydantic_ai import Tool
 
-from pi_code_agent.contracts.tools import BashToolInput
-from pi_code_agent.tools._workspace import normalize_workspace_root
+from just_another_coding_agent.contracts.tools import BashToolInput
+from just_another_coding_agent.tools._workspace import normalize_workspace_root
 
 
 def execute_bash(

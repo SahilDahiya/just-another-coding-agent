@@ -7,12 +7,12 @@ from typing import Any
 from pydantic_ai import capture_run_messages
 from pydantic_ai.usage import UsageLimits
 
-from pi_code_agent.contracts.run_events import RunEvent
-from pi_code_agent.contracts.tools import CANONICAL_TOOL_NAMES
-from pi_code_agent.runtime.agent import build_canonical_agent
-from pi_code_agent.runtime.run import stream_run_events
-from pi_code_agent.session.jsonl import append_run_to_session, load_session
-from pi_code_agent.tools._workspace import normalize_workspace_root
+from just_another_coding_agent.contracts.run_events import RunEvent
+from just_another_coding_agent.contracts.tools import CANONICAL_TOOL_NAMES
+from just_another_coding_agent.runtime.agent import build_canonical_agent
+from just_another_coding_agent.runtime.run import stream_run_events
+from just_another_coding_agent.session.jsonl import append_run_to_session, load_session
+from just_another_coding_agent.tools._workspace import normalize_workspace_root
 
 
 async def stream_session_run_events(

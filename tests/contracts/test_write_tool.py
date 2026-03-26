@@ -1,8 +1,8 @@
 import pytest
 from pydantic import ValidationError
 
-from pi_code_agent.contracts.tools import WriteToolInput
-from pi_code_agent.tools.write import execute_write
+from just_another_coding_agent.contracts.tools import WriteToolInput
+from just_another_coding_agent.tools.write import execute_write
 
 
 def test_write_tool_writes_utf8_text_file(tmp_path) -> None:

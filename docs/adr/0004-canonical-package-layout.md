@@ -12,7 +12,7 @@ The old multi-package layout from the prior repo reflected legacy architecture. 
 
 ## Decision
 
-Use one root package: `pi_code_agent`.
+Use one root package: `just_another_coding_agent`.
 
 Subpackages:
 

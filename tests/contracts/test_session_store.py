@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from pi_code_agent.rpc.session_store import session_path_for_id
+from just_another_coding_agent.rpc.session_store import session_path_for_id
 
 
 @pytest.mark.parametrize(

@@ -4,8 +4,8 @@ from pathlib import Path
 
 from pydantic_ai import Tool
 
-from pi_code_agent.contracts.tools import WriteToolInput
-from pi_code_agent.tools._workspace import (
+from just_another_coding_agent.contracts.tools import WriteToolInput
+from just_another_coding_agent.tools._workspace import (
     normalize_workspace_root,
     resolve_workspace_path,
 )

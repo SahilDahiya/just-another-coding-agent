@@ -22,7 +22,7 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.usage import UsageLimits
 
-from pi_code_agent.contracts.run_events import (
+from just_another_coding_agent.contracts.run_events import (
     AssistantTextDeltaEvent,
     JsonValue,
     RunEvent,
