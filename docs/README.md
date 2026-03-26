@@ -12,6 +12,7 @@ read_when: start here, onboarding, or you need to find the right doc quickly
 - Canonical public contract: [contracts.md](contracts.md)
 - PydanticAI grounding sources: [grounding.md](grounding.md)
 - Development workflow and commands: [development.md](development.md)
+- Harbor and Terminal Bench workflow: [harbor-terminal-bench.md](harbor-terminal-bench.md)
 - Architectural decisions: [adr/](adr/)
 
 ## Document Index
@@ -24,6 +25,7 @@ read_when: start here, onboarding, or you need to find the right doc quickly
 - [contracts.md](contracts.md) - canonical coding-agent contract
 - [grounding.md](grounding.md) - official PydanticAI grounding sources
 - [development.md](development.md) - environment, commands, CI, and test workflow
+- [harbor-terminal-bench.md](harbor-terminal-bench.md) - Harbor adapter usage and Terminal Bench workflow
 - [adr/0001-use-pydanticai-as-engine.md](adr/0001-use-pydanticai-as-engine.md) - engine choice
 - [adr/0002-headless-coding-agent-is-the-product.md](adr/0002-headless-coding-agent-is-the-product.md) - product boundary
 - [adr/0003-canonical-session-and-rpc-contract.md](adr/0003-canonical-session-and-rpc-contract.md) - external contract decision
