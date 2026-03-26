@@ -8,6 +8,7 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 from pydantic_ai.models.function import DeltaToolCall, FunctionModel
+from pydantic_ai.usage import UsageLimits
 
 from pi_code_agent.contracts.run_events import (
     RunFailedEvent,
@@ -112,6 +113,16 @@ async def text_only_stream(
     _agent_info: object,
 ) -> AsyncIterator[str]:
     yield "done"
+
+
+async def looping_read_stream(_messages, _agent_info):
+    yield {
+        0: DeltaToolCall(
+            name="read",
+            json_args='{"path": "note.txt"}',
+            tool_call_id="call-read",
+        )
+    }
 
 
 async def test_stream_session_run_events_persists_authoritative_session(
@@ -285,3 +296,39 @@ async def test_stream_session_run_events_does_not_persist_partial_consumption(
     await stream.aclose()
 
     assert not session_path.exists()
+
+
+async def test_stream_session_run_events_persists_usage_limit_failure(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    (workspace_root / "note.txt").write_text("hello\n", encoding="utf-8")
+    session_path = tmp_path / "session.jsonl"
+
+    events = [
+        event
+        async for event in stream_session_run_events(
+            model=FunctionModel(stream_function=looping_read_stream),
+            workspace_root=workspace_root,
+            session_path=session_path,
+            prompt="go",
+            usage_limits=UsageLimits(request_limit=1),
+        )
+    ]
+
+    assert [event.type for event in events] == [
+        "run_started",
+        "tool_call_started",
+        "tool_call_succeeded",
+        "run_failed",
+    ]
+
+    terminal = events[-1]
+    assert isinstance(terminal, RunFailedEvent)
+    assert terminal.error_type == "UsageLimitExceeded"
+    assert terminal.message == "The next request would exceed the request_limit of 1"
+
+    loaded = load_session(path=session_path, workspace_root=workspace_root)
+    assert loaded.runs[0].events == events
+    assert loaded.runs[0].messages

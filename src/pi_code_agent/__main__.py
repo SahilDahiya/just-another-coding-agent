@@ -26,15 +26,18 @@ def main(
     args = parser.parse_args(list(argv) if argv is not None else None)
     workspace_root = normalize_workspace_root(args.workspace_root)
 
-    asyncio.run(
-        serve_rpc_stdio(
-            input_stream=sys.stdin if input_stream is None else input_stream,
-            output_stream=sys.stdout if output_stream is None else output_stream,
-            model=args.model,
-            workspace_root=workspace_root,
-            sessions_root=args.sessions_root,
+    try:
+        asyncio.run(
+            serve_rpc_stdio(
+                input_stream=sys.stdin if input_stream is None else input_stream,
+                output_stream=sys.stdout if output_stream is None else output_stream,
+                model=args.model,
+                workspace_root=workspace_root,
+                sessions_root=args.sessions_root,
+            )
         )
-    )
+    except KeyboardInterrupt:
+        return 130
     return 0
 
 

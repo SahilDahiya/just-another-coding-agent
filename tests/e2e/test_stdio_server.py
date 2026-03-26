@@ -206,3 +206,31 @@ def test_main_fails_fast_when_workspace_root_is_missing(tmp_path) -> None:
                 str(sessions_root),
             ]
         )
+
+
+def test_main_exits_cleanly_on_keyboard_interrupt(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+
+    def fake_asyncio_run(awaitable) -> None:
+        awaitable.close()
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr("pi_code_agent.__main__.asyncio.run", fake_asyncio_run)
+
+    exit_code = main(
+        [
+            "--model",
+            "openai:test-model",
+            "--workspace-root",
+            str(workspace_root),
+            "--sessions-root",
+            str(sessions_root),
+        ]
+    )
+
+    assert exit_code == 130

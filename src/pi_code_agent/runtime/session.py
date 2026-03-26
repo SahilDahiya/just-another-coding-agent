@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from pydantic_ai import capture_run_messages
+from pydantic_ai.usage import UsageLimits
 
 from pi_code_agent.contracts.run_events import RunEvent
 from pi_code_agent.contracts.tools import CANONICAL_TOOL_NAMES
@@ -21,6 +22,7 @@ async def stream_session_run_events(
     session_path: Path,
     prompt: str,
     tool_names: Sequence[str] = CANONICAL_TOOL_NAMES,
+    usage_limits: UsageLimits | None = None,
 ) -> AsyncIterator[RunEvent]:
     """Stream one run and persist it only after terminal completion.
 
@@ -49,6 +51,7 @@ async def stream_session_run_events(
             message_history=(
                 loaded_session.message_history if loaded_session is not None else None
             ),
+            usage_limits=usage_limits,
         ):
             emitted_events.append(event)
             yield event

@@ -9,6 +9,7 @@ from pydantic_ai import (
 )
 from pydantic_ai.messages import ModelMessage, RetryPromptPart, ToolCallPart
 from pydantic_ai.models.function import DeltaToolCall, FunctionModel
+from pydantic_ai.usage import UsageLimits
 
 from pi_code_agent.contracts.run_events import (
     AssistantTextDeltaEvent,
@@ -37,8 +38,10 @@ class StubStreamAgent:
         _prompt: str,
         *,
         message_history: list[ModelMessage] | None = None,
+        usage_limits: UsageLimits | None = None,
     ) -> AsyncIterator[object]:
         assert message_history is None
+        assert usage_limits is not None
         for event in self._events:
             yield event
 
