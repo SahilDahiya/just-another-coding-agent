@@ -26,6 +26,26 @@ Rules:
 - The runtime must not provide fallback tools or alternate tool behavior behind the same name.
 - Tool registration and validation should prefer PydanticAI-native mechanisms unless the public contract requires a local wrapper.
 
+Initial executable tool slice:
+
+- canonical registry names: `read`, `write`, `edit`, `bash`
+- unknown tool names fail explicitly
+- canonical names without an implementation fail explicitly
+- initial concrete tool implementation: `read`
+
+`read` input contract:
+
+- fields: `path`
+- `path` must be a non-empty string
+
+`read` behavior contract:
+
+- reads one existing UTF-8 text file and returns its full contents as a string
+- missing files fail explicitly
+- directory paths fail explicitly
+- invalid UTF-8 content fails explicitly
+- no silent truncation, binary fallback, or alternate decoding path
+
 ## Streamed Event Contract
 
 Initial canonical event families:

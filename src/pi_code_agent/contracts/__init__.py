@@ -21,11 +21,15 @@ from .session import (
     SessionRunEntry,
     SessionRunRecord,
 )
+from .tools import CANONICAL_TOOL_NAMES, CanonicalToolName, ReadToolInput
 
 __all__ = [
     "AssistantTextDeltaEvent",
+    "CANONICAL_TOOL_NAMES",
+    "CanonicalToolName",
     "JsonValue",
     "LoadedSession",
+    "ReadToolInput",
     "RpcErrorEnvelope",
     "RpcEventEnvelope",
     "RunEvent",
