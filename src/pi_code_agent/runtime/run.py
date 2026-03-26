@@ -36,6 +36,12 @@ async def stream_run_events(
     agent: Agent[Any, Any],
     prompt: str,
 ) -> AsyncIterator[RunEvent]:
+    """Translate one PydanticAI run into the canonical streamed event contract.
+
+    Runtime exceptions before a terminal run event are converted into canonical
+    failure events by design. Any exception after terminal success is invalid
+    state and is raised.
+    """
     run_id = uuid4().hex
     pending_tool_calls: dict[str, str] = {}
     terminal_emitted = False
@@ -58,9 +64,10 @@ async def stream_run_events(
 
             if isinstance(event, FunctionToolResultEvent):
                 if isinstance(event.result, RetryPromptPart):
-                    tool_name = pending_tool_calls.pop(
-                        event.tool_call_id,
-                        event.result.tool_name or "<unknown-tool>",
+                    tool_name = _resolve_pending_tool_name(
+                        pending_tool_calls=pending_tool_calls,
+                        tool_call_id=event.tool_call_id,
+                        result_tool_name=event.result.tool_name,
                     )
                     yield ToolCallFailedEvent(
                         run_id=run_id,
@@ -72,9 +79,10 @@ async def stream_run_events(
                     continue
 
                 result = _normalize_json_value(event.result.content)
-                tool_name = pending_tool_calls.pop(
-                    event.tool_call_id,
-                    event.result.tool_name,
+                tool_name = _resolve_pending_tool_name(
+                    pending_tool_calls=pending_tool_calls,
+                    tool_call_id=event.tool_call_id,
+                    result_tool_name=event.result.tool_name,
                 )
                 yield ToolCallSucceededEvent(
                     run_id=run_id,
@@ -132,6 +140,29 @@ def _extract_text_delta(event: object) -> str | None:
         return event.delta.content_delta or None
 
     return None
+
+
+def _resolve_pending_tool_name(
+    *,
+    pending_tool_calls: dict[str, str],
+    tool_call_id: str,
+    result_tool_name: str | None,
+) -> str:
+    pending_tool_name = pending_tool_calls.get(tool_call_id)
+    if pending_tool_name is None:
+        raise RuntimeError(
+            f"Tool result must match a pending tool_call_started: {tool_call_id}"
+        )
+
+    if result_tool_name is not None and result_tool_name != pending_tool_name:
+        raise RuntimeError(
+            "Tool result tool_name mismatch for tool_call_id "
+            f"{tool_call_id!r}: expected {pending_tool_name!r}, got "
+            f"{result_tool_name!r}"
+        )
+
+    pending_tool_calls.pop(tool_call_id)
+    return pending_tool_name
 
 
 def _normalize_tool_args(value: str | dict[str, Any] | None) -> JsonValue | None:

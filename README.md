@@ -1,5 +1,7 @@
 # pi-coding-agent
 
+read_when: you need the repo overview, scope, or setup commands
+
 Python-native, headless coding-agent backend built around PydanticAI.
 
 This repo preserves the backend product shape of pi's coding agent while rebuilding it as a clean Python implementation around PydanticAI. It does not inherit pi-mono's monorepo layout, UI layers, extension ecosystem, or migration burden.

@@ -1,6 +1,7 @@
 import json
 from collections.abc import AsyncIterator
 
+import pytest
 from pydantic_ai import Agent
 from pydantic_ai.messages import ModelMessage
 from pydantic_ai.models.function import DeltaToolCall, FunctionModel
@@ -127,18 +128,102 @@ async def test_handle_rpc_json_line_returns_invalid_json_error() -> None:
     ]
 
 
-async def test_handle_rpc_json_line_returns_invalid_request_error() -> None:
+@pytest.mark.parametrize(
+    ("request_payload", "expected_id"),
+    [
+        (
+            {
+                "id": "req-3",
+                "command": "run.nope",
+                "payload": {"prompt": "go"},
+            },
+            "req-3",
+        ),
+        (
+            {
+                "command": "run.start",
+                "payload": {"prompt": "go"},
+            },
+            None,
+        ),
+        (
+            {
+                "id": 3,
+                "command": "run.start",
+                "payload": {"prompt": "go"},
+            },
+            None,
+        ),
+        (
+            {
+                "id": "req-4",
+                "payload": {"prompt": "go"},
+            },
+            "req-4",
+        ),
+        (
+            {
+                "id": "req-5",
+                "command": "run.start",
+            },
+            "req-5",
+        ),
+        (
+            {
+                "id": "req-6",
+                "command": "run.start",
+                "payload": "go",
+            },
+            "req-6",
+        ),
+        (
+            {
+                "id": "req-7",
+                "command": "run.start",
+                "payload": {},
+            },
+            "req-7",
+        ),
+        (
+            {
+                "id": "req-8",
+                "command": "run.start",
+                "payload": {"prompt": 7},
+            },
+            "req-8",
+        ),
+        (
+            {
+                "id": "req-9",
+                "command": "run.start",
+                "payload": {"prompt": "go"},
+                "extra": True,
+            },
+            "req-9",
+        ),
+        (
+            {
+                "id": "req-10",
+                "command": "run.start",
+                "payload": {"prompt": "go", "extra": True},
+            },
+            "req-10",
+        ),
+        (
+            [],
+            None,
+        ),
+    ],
+)
+async def test_handle_rpc_json_line_returns_invalid_request_error(
+    request_payload: object,
+    expected_id: str | None,
+) -> None:
     agent = Agent(
         FunctionModel(stream_function=successful_tool_stream),
         output_type=str,
     )
-    request_line = json.dumps(
-        {
-            "id": "req-3",
-            "command": "run.nope",
-            "payload": {"prompt": "go"},
-        }
-    )
+    request_line = json.dumps(request_payload)
 
     messages = [
         json.loads(line)
@@ -148,7 +233,7 @@ async def test_handle_rpc_json_line_returns_invalid_request_error() -> None:
     assert messages == [
         {
             "type": "rpc_error",
-            "id": "req-3",
+            "id": expected_id,
             "error_type": "InvalidRequest",
             "message": "Invalid RPC request",
         }

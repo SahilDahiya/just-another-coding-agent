@@ -107,6 +107,59 @@ def test_load_session_fails_without_header(tmp_path) -> None:
         load_session(path=path)
 
 
+def test_load_session_fails_when_file_is_empty(tmp_path) -> None:
+    path = tmp_path / "session.jsonl"
+    path.write_text("", encoding="utf-8")
+
+    with pytest.raises(SessionFormatError, match="Session file is empty"):
+        load_session(path=path)
+
+
+def test_load_session_fails_on_duplicate_run_id(tmp_path) -> None:
+    path = tmp_path / "session.jsonl"
+    lines = [
+        {"type": "session_header", "version": 1},
+        {"type": "session_run", "run_id": "run-1", "prompt": "first"},
+        {
+            "type": "session_event",
+            "run_id": "run-1",
+            "event": {"type": "run_started", "run_id": "run-1"},
+        },
+        {
+            "type": "session_event",
+            "run_id": "run-1",
+            "event": {
+                "type": "run_failed",
+                "run_id": "run-1",
+                "error_type": "RuntimeError",
+                "message": "boom",
+            },
+        },
+        {"type": "session_run", "run_id": "run-1", "prompt": "second"},
+    ]
+    path.write_text(
+        "".join(json.dumps(line) + "\n" for line in lines),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SessionFormatError, match="Duplicate session run_id: run-1"):
+        load_session(path=path)
+
+
+def test_load_session_fails_on_unsupported_header_version(tmp_path) -> None:
+    path = tmp_path / "session.jsonl"
+    path.write_text(
+        json.dumps({"type": "session_header", "version": 2}) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        SessionFormatError,
+        match="Unsupported session format version on line 1: 2",
+    ):
+        load_session(path=path)
+
+
 def test_load_session_fails_when_run_event_order_is_invalid(tmp_path) -> None:
     path = tmp_path / "session.jsonl"
     lines = [

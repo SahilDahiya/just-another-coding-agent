@@ -94,6 +94,7 @@ Ordering rules for the tool slice:
 
 - Each `tool_call_started` must be followed by exactly one matching `tool_call_succeeded` or `tool_call_failed`
 - A tool exception that aborts the run must emit `tool_call_failed` before `run_failed`
+- A tool result must match an existing pending `tool_call_started`; tool name mismatches or orphaned tool results are invalid state and fail the run explicitly
 - Tool args and tool results in the public contract must be JSON-compatible
 
 ## Session Contract
@@ -170,3 +171,6 @@ Ordering rules for the RPC slice:
 - Fail hard on invalid state, invalid inputs, and unsupported operations.
 - Prefer explicit recovery instructions in error payloads over automatic retries or silent behavior changes.
 - The canonical path should be the only path.
+- `stream_run_events` intentionally converts pre-terminal runtime exceptions into canonical failure events instead of leaking raw exceptions through the public stream.
+- If a pre-terminal exception occurs while tool calls are still pending, each pending tool call emits `tool_call_failed` before the terminal `run_failed`.
+- An exception after `run_succeeded` is invalid state and is raised instead of being re-encoded as another event.

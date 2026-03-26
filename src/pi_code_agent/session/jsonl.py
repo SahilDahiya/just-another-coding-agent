@@ -17,6 +17,7 @@ from pi_code_agent.contracts.run_events import (
     ToolCallSucceededEvent,
 )
 from pi_code_agent.contracts.session import (
+    SESSION_FORMAT_VERSION,
     LoadedSession,
     SessionEntry,
     SessionEventEntry,
@@ -203,6 +204,16 @@ def _parse_entry(*, raw_line: str, line_number: int) -> SessionEntry:
         payload = json.loads(raw_line)
     except json.JSONDecodeError as error:
         raise SessionFormatError(f"Invalid JSON on line {line_number}") from error
+
+    if (
+        isinstance(payload, dict)
+        and payload.get("type") == "session_header"
+        and payload.get("version") != SESSION_FORMAT_VERSION
+    ):
+        raise SessionFormatError(
+            f"Unsupported session format version on line {line_number}: "
+            f"{payload.get('version')}"
+        )
 
     try:
         return _SESSION_ENTRY_ADAPTER.validate_python(payload)

@@ -17,7 +17,7 @@ class RunStartPayload(_RpcModel):
 
 class RunStartRequest(_RpcModel):
     id: str
-    command: Literal["run.start"] = "run.start"
+    command: Literal["run.start"]
     payload: RunStartPayload
 
 

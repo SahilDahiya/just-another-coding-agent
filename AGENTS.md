@@ -1,5 +1,7 @@
 # Repository Guidelines
 
+read_when: you are starting work in this repo or need repo-specific coding rules
+
 ## Start Here
 - Read `docs/README.md` first.
 - The active direction is in `docs/goal.md`, `docs/architecture.md`, and `docs/contracts.md`.
