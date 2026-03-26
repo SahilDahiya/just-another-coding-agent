@@ -97,6 +97,13 @@ async def handle_rpc_json_line(
             message=str(error),
         ).model_dump_json()
         return
+    except Exception as error:
+        yield RpcErrorEnvelope(
+            id=request.id,
+            error_type="InternalError",
+            message=str(error),
+        ).model_dump_json()
+        return
 
 
 async def serve_rpc_stdio(

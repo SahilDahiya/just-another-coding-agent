@@ -244,6 +244,7 @@ Ordering rules for the RPC slice:
 - Invalid command or payload yields exactly one `rpc_error` with the parsed request `id` when available and `error_type: InvalidRequest`
 - Unknown `session_id` yields exactly one `rpc_error` with `error_type: UnknownSession`
 - Persisted-but-invalid session state yields exactly one `rpc_error` with `error_type: InvalidSession`
+- Unexpected internal server failures yield exactly one `rpc_error` with `error_type: InternalError`
 
 ## Failure Semantics
 

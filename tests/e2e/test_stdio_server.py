@@ -182,12 +182,13 @@ def test_main_parses_args_and_runs_stdio_server(tmp_path, monkeypatch) -> None:
     )
 
     assert exit_code == 0
+    assert sessions_root.is_dir()
     assert captured == {
         "input_stream": input_stream,
         "output_stream": output_stream,
         "model": "openai:test-model",
         "workspace_root": workspace_root.resolve(),
-        "sessions_root": str(sessions_root),
+        "sessions_root": sessions_root.resolve(),
     }
 
 
@@ -198,13 +199,35 @@ def test_main_fails_fast_when_workspace_root_is_missing(tmp_path) -> None:
     with pytest.raises(
         FileNotFoundError,
         match=f"Workspace root does not exist: {missing_workspace_root.resolve()}",
-    ):
+        ):
         main(
             [
                 "--model",
                 "openai:test-model",
                 "--workspace-root",
                 str(missing_workspace_root),
+                "--sessions-root",
+                str(sessions_root),
+            ]
+        )
+
+
+def test_main_fails_fast_when_sessions_root_is_a_file(tmp_path) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions-file"
+    sessions_root.write_text("not a directory", encoding="utf-8")
+
+    with pytest.raises(
+        NotADirectoryError,
+        match=f"Sessions root is not a directory: {sessions_root.resolve()}",
+    ):
+        main(
+            [
+                "--model",
+                "openai:test-model",
+                "--workspace-root",
+                str(workspace_root),
                 "--sessions-root",
                 str(sessions_root),
             ]

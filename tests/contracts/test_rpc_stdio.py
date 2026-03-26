@@ -85,6 +85,11 @@ async def text_only_stream(
     yield "done"
 
 
+async def exploding_session_stream(*_args, **_kwargs):
+    raise RuntimeError("internal boom")
+    yield  # pragma: no cover
+
+
 async def _rpc_messages(
     *,
     request_payload: object,
@@ -320,6 +325,43 @@ async def test_handle_rpc_json_line_returns_invalid_session_error_on_workspace_m
                 f"expected {second_workspace_root.resolve()}, got "
                 f"{first_workspace_root.resolve()}"
             ),
+        }
+    ]
+
+
+async def test_handle_rpc_json_line_returns_internal_error_for_unexpected_exception(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    session_id = await _create_session_id(
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+    monkeypatch.setattr(
+        "just_another_coding_agent.rpc.stdio.stream_session_run_events",
+        exploding_session_stream,
+    )
+
+    messages = await _rpc_messages(
+        request_payload={
+            "id": "req-internal",
+            "command": "run.start",
+            "payload": {"session_id": session_id, "prompt": "go"},
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    assert messages == [
+        {
+            "type": "rpc_error",
+            "id": "req-internal",
+            "error_type": "InternalError",
+            "message": "internal boom",
         }
     ]
 

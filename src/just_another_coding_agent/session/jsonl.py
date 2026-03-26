@@ -193,7 +193,8 @@ def load_session(
 
         current_run.events.append(entry.event)
 
-    assert header is not None
+    if header is None:
+        raise SessionFormatError("Session header must be first entry")
     if current_run is not None and not current_run_has_messages:
         raise SessionFormatError(
             "session_run must be followed by exactly one session_messages entry"
