@@ -60,14 +60,17 @@ def test_read_tool_fails_for_invalid_utf8(tmp_path) -> None:
         )
 
 
-def test_read_tool_fails_when_path_escapes_workspace_root(tmp_path) -> None:
+def test_read_tool_allows_relative_path_that_resolves_outside_workspace(
+    tmp_path,
+) -> None:
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
     outside = tmp_path / "outside.txt"
     outside.write_text("secret", encoding="utf-8")
 
-    with pytest.raises(ValueError, match="Path escapes workspace root"):
-        execute_read(
-            tool_input=ReadToolInput(path="../outside.txt"),
-            workspace_root=workspace_root,
-        )
+    result = execute_read(
+        tool_input=ReadToolInput(path="../outside.txt"),
+        workspace_root=workspace_root,
+    )
+
+    assert result == "secret"

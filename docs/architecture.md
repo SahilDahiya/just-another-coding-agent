@@ -18,7 +18,7 @@ Prefer direct use of PydanticAI primitives before creating local abstractions:
 
 Local code should translate those primitives into the canonical backend contract for tools, events, sessions, RPC, and failure semantics.
 
-The canonical agent assembly must take an explicit workspace root. Tool behavior must be scoped from that root rather than relying on process cwd or other implicit global state.
+The canonical agent assembly must take an explicit workspace root. Tool behavior uses that root as the default base for relative paths and bash cwd rather than relying on process cwd or other implicit global state.
 Persisted sessions must also bind to that explicit workspace root and store native PydanticAI message history so later runs can resume through `message_history` instead of reconstructing context from public events.
 The canonical runtime must also apply per-run PydanticAI `UsageLimits` so request and tool loops fail hard instead of running unbounded. The current operational defaults are `request_limit=50` and `tool_calls_limit=200`.
 

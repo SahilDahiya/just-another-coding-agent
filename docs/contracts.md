@@ -26,6 +26,7 @@ Rules:
 - The runtime must not provide fallback tools or alternate tool behavior behind the same name.
 - Tool registration and validation should prefer PydanticAI-native mechanisms unless the public contract requires a local wrapper.
 - Workspace root is explicit backend configuration, not implicit process state.
+- Workspace root sets the default base for relative paths; it is not a filesystem sandbox.
 
 Initial executable tool slice:
 
@@ -42,7 +43,7 @@ Initial executable tool slice:
 
 - reads one existing UTF-8 text file and returns its full contents as a string
 - resolves relative paths against the configured workspace root
-- path traversal or absolute paths outside the workspace root fail explicitly
+- allows absolute paths and relative paths that resolve outside the workspace root
 - missing files fail explicitly
 - directory paths fail explicitly
 - invalid UTF-8 content fails explicitly
@@ -58,7 +59,7 @@ Initial executable tool slice:
 
 - writes one UTF-8 text file and returns an explicit success message
 - resolves relative paths against the configured workspace root
-- path traversal or absolute paths outside the workspace root fail explicitly
+- allows absolute paths and relative paths that resolve outside the workspace root
 - creates parent directories as needed
 - overwrites an existing file completely
 - directory targets fail explicitly
@@ -75,7 +76,7 @@ Initial executable tool slice:
 
 - edits one existing UTF-8 text file by replacing exactly one occurrence of `old_text`
 - resolves relative paths against the configured workspace root
-- path traversal or absolute paths outside the workspace root fail explicitly
+- allows absolute paths and relative paths that resolve outside the workspace root
 - succeeds only when `old_text` matches exactly once
 - allows deletion by using an empty `new_text`
 - missing files, directory targets, and invalid UTF-8 fail explicitly

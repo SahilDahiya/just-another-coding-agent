@@ -37,7 +37,23 @@ def test_resolve_workspace_path_accepts_absolute_path_inside_workspace(
     assert resolved == note.resolve()
 
 
-def test_resolve_workspace_path_rejects_symlink_that_points_outside_workspace(
+def test_resolve_workspace_path_accepts_relative_path_that_resolves_outside_workspace(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    outside = tmp_path / "outside.txt"
+    outside.write_text("secret", encoding="utf-8")
+
+    resolved = resolve_workspace_path(
+        workspace_root=workspace_root,
+        tool_path="../outside.txt",
+    )
+
+    assert resolved == outside.resolve()
+
+
+def test_resolve_workspace_path_accepts_symlink_that_points_outside_workspace(
     tmp_path,
 ) -> None:
     workspace_root = tmp_path / "workspace"
@@ -47,8 +63,9 @@ def test_resolve_workspace_path_rejects_symlink_that_points_outside_workspace(
     link = workspace_root / "link.txt"
     link.symlink_to(outside)
 
-    with pytest.raises(ValueError, match="Path escapes workspace root"):
-        resolve_workspace_path(
-            workspace_root=workspace_root,
-            tool_path="link.txt",
-        )
+    resolved = resolve_workspace_path(
+        workspace_root=workspace_root,
+        tool_path="link.txt",
+    )
+
+    assert resolved == outside.resolve()

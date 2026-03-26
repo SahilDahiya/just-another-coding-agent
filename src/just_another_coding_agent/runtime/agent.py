@@ -26,8 +26,8 @@ CANONICAL_AGENT_INSTRUCTIONS = "\n".join(
         "If a tool call fails, treat it as a real failure.",
         "Keep responses concise and task-focused.",
         "Refer to files clearly by path.",
-        "read, write, and edit are scoped to the configured workspace root.",
-        "bash runs in the workspace root but is not a filesystem sandbox.",
+        "For read, write, and edit, relative paths resolve from the workspace root.",
+        "bash runs in the workspace root and no tool is a filesystem sandbox.",
     ]
 )
 

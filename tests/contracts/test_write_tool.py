@@ -81,12 +81,16 @@ def test_write_tool_fails_for_directory_target(tmp_path) -> None:
         )
 
 
-def test_write_tool_fails_when_path_escapes_workspace_root(tmp_path) -> None:
+def test_write_tool_allows_relative_path_that_resolves_outside_workspace(
+    tmp_path,
+) -> None:
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
+    outside = tmp_path / "outside.txt"
 
-    with pytest.raises(ValueError, match="Path escapes workspace root"):
-        execute_write(
-            tool_input=WriteToolInput(path="../outside.txt", content="hello"),
-            workspace_root=workspace_root,
-        )
+    execute_write(
+        tool_input=WriteToolInput(path="../outside.txt", content="hello"),
+        workspace_root=workspace_root,
+    )
+
+    assert outside.read_text(encoding="utf-8") == "hello"

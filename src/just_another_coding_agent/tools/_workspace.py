@@ -16,16 +16,9 @@ def resolve_workspace_path(*, workspace_root: Path | str, tool_path: str) -> Pat
     root = normalize_workspace_root(workspace_root)
     candidate = Path(tool_path)
     if candidate.is_absolute():
-        resolved = candidate.resolve()
-    else:
-        resolved = (root / candidate).resolve()
+        return candidate.resolve()
 
-    try:
-        resolved.relative_to(root)
-    except ValueError as error:
-        raise ValueError(f"Path escapes workspace root: {tool_path}") from error
-
-    return resolved
+    return (root / candidate).resolve()
 
 
 __all__ = ["normalize_workspace_root", "resolve_workspace_path"]

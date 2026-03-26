@@ -151,18 +151,22 @@ def test_edit_tool_fails_when_replacement_is_no_op(tmp_path) -> None:
         )
 
 
-def test_edit_tool_fails_when_path_escapes_workspace_root(tmp_path) -> None:
+def test_edit_tool_allows_relative_path_that_resolves_outside_workspace(
+    tmp_path,
+) -> None:
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
     outside = tmp_path / "outside.txt"
     outside.write_bytes(b"hello\nworld\n")
 
-    with pytest.raises(ValueError, match="Path escapes workspace root"):
-        execute_edit(
-            tool_input=EditToolInput(
-                path="../outside.txt",
-                old_text="world",
-                new_text="agent",
-            ),
-            workspace_root=workspace_root,
-        )
+    result = execute_edit(
+        tool_input=EditToolInput(
+            path="../outside.txt",
+            old_text="world",
+            new_text="agent",
+        ),
+        workspace_root=workspace_root,
+    )
+
+    assert result == f"Edited {outside.resolve()}"
+    assert outside.read_bytes() == b"hello\nagent\n"
