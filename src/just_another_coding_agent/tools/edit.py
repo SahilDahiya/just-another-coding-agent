@@ -4,7 +4,10 @@ from pathlib import Path
 
 from pydantic_ai import Tool
 
-from just_another_coding_agent.contracts.tools import EditToolInput
+from just_another_coding_agent.contracts.tools import (
+    EditToolInput,
+    make_tool_error_result,
+)
 from just_another_coding_agent.tools._workspace import (
     normalize_workspace_root,
     resolve_workspace_path,
@@ -36,17 +39,20 @@ def execute_edit(*, tool_input: EditToolInput, workspace_root: Path | str) -> st
 def create_edit_tool(*, workspace_root: Path | str) -> Tool:
     root = normalize_workspace_root(workspace_root)
 
-    def edit(path: str, old_text: str, new_text: str) -> str:
+    def edit(path: str, old_text: str, new_text: str) -> str | dict[str, bool | str]:
         """Replace one exact text match in a UTF-8 text file."""
 
-        return execute_edit(
-            tool_input=EditToolInput(
-                path=path,
-                old_text=old_text,
-                new_text=new_text,
-            ),
-            workspace_root=root,
-        )
+        try:
+            return execute_edit(
+                tool_input=EditToolInput(
+                    path=path,
+                    old_text=old_text,
+                    new_text=new_text,
+                ),
+                workspace_root=root,
+            )
+        except (OSError, UnicodeError, ValueError) as error:
+            return make_tool_error_result(error)
 
     return Tool(edit, name="edit", strict=True)
 

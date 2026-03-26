@@ -4,7 +4,10 @@ from pathlib import Path
 
 from pydantic_ai import Tool
 
-from just_another_coding_agent.contracts.tools import WriteToolInput
+from just_another_coding_agent.contracts.tools import (
+    WriteToolInput,
+    make_tool_error_result,
+)
 from just_another_coding_agent.tools._workspace import (
     normalize_workspace_root,
     resolve_workspace_path,
@@ -24,13 +27,16 @@ def execute_write(*, tool_input: WriteToolInput, workspace_root: Path | str) -> 
 def create_write_tool(*, workspace_root: Path | str) -> Tool:
     root = normalize_workspace_root(workspace_root)
 
-    def write(path: str, content: str) -> str:
+    def write(path: str, content: str) -> str | dict[str, bool | str]:
         """Write a UTF-8 text file, creating parent directories as needed."""
 
-        return execute_write(
-            tool_input=WriteToolInput(path=path, content=content),
-            workspace_root=root,
-        )
+        try:
+            return execute_write(
+                tool_input=WriteToolInput(path=path, content=content),
+                workspace_root=root,
+            )
+        except (OSError, UnicodeError) as error:
+            return make_tool_error_result(error)
 
     return Tool(write, name="write", strict=True)
 

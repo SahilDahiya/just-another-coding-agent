@@ -21,12 +21,19 @@ Rules:
 
 - Tool names are stable once published.
 - Tool inputs must be explicit and validated.
-- Tool failures are errors, not soft warnings.
+- Expected tool-domain failures must be explicit, model-visible results.
 - Tools do not silently recover from invalid parameters or unsafe state.
 - The runtime must not provide fallback tools or alternate tool behavior behind the same name.
 - Tool registration and validation should prefer PydanticAI-native mechanisms unless the public contract requires a local wrapper.
 - Workspace root is explicit backend configuration, not implicit process state.
 - Workspace root sets the default base for relative paths; it is not a filesystem sandbox.
+
+Expected tool-domain error result:
+
+- fields: `ok`, `error_type`, `message`
+- `ok` is always `false`
+- ordinary operational failures should use this result shape instead of terminating the run
+- uncaught exceptions and invalid state remain runtime failures
 
 Initial executable tool slice:
 
@@ -44,9 +51,9 @@ Initial executable tool slice:
 - reads one existing UTF-8 text file and returns its full contents as a string
 - resolves relative paths against the configured workspace root
 - allows absolute paths and relative paths that resolve outside the workspace root
-- missing files fail explicitly
-- directory paths fail explicitly
-- invalid UTF-8 content fails explicitly
+- missing files return an explicit tool error result
+- directory paths return an explicit tool error result
+- invalid UTF-8 content returns an explicit tool error result
 - no silent truncation, binary fallback, or alternate decoding path
 
 `write` input contract:
@@ -62,7 +69,7 @@ Initial executable tool slice:
 - allows absolute paths and relative paths that resolve outside the workspace root
 - creates parent directories as needed
 - overwrites an existing file completely
-- directory targets fail explicitly
+- directory targets return an explicit tool error result
 - no append mode, merge mode, backup file, or silent alternate write path
 
 `edit` input contract:
@@ -78,9 +85,10 @@ Initial executable tool slice:
 - resolves relative paths against the configured workspace root
 - allows absolute paths and relative paths that resolve outside the workspace root
 - succeeds only when `old_text` matches exactly once
+- exact-match misses, ambiguous matches, and no-op replacements return an explicit tool error result
 - allows deletion by using an empty `new_text`
-- missing files, directory targets, and invalid UTF-8 fail explicitly
-- ambiguous matches, missing matches, and no-op replacements fail explicitly
+- missing files, directory targets, and invalid UTF-8 return an explicit tool error result
+- ambiguous matches, missing matches, and no-op replacements return an explicit tool error result
 - no fuzzy matching, normalized matching, or alternate replacement heuristic
 
 `bash` input contract:
@@ -96,7 +104,7 @@ Initial executable tool slice:
 - returns a JSON-compatible result with fields `exit_code` and `output`
 - `output` is the combined stdout and stderr decoded as UTF-8
 - non-zero `exit_code` is part of the tool result, not a transport fallback or alternate event shape
-- timeout, shell spawn failure, and invalid UTF-8 output fail explicitly
+- timeout, shell spawn failure, and invalid UTF-8 output return an explicit tool error result
 - no shell fallback, alternate decoder, or hidden retry path
 
 ## Streamed Event Contract
@@ -146,6 +154,8 @@ Initial tool lifecycle slice:
 Ordering rules for the tool slice:
 
 - Each `tool_call_started` must be followed by exactly one matching `tool_call_succeeded` or `tool_call_failed`
+- Expected tool-domain failures should normally be represented as `tool_call_succeeded` with an explicit error result object
+- `tool_call_failed` is reserved for uncaught tool failures or invalid runtime state and is terminal for the current run
 - A tool exception that aborts the run must emit `tool_call_failed` before `run_failed`
 - A tool result must match an existing pending `tool_call_started`; tool name mismatches or orphaned tool results are invalid state and fail the run explicitly
 - Tool args and tool results in the public contract must be JSON-compatible
@@ -242,6 +252,7 @@ Ordering rules for the RPC slice:
 - Prefer explicit recovery instructions in error payloads over automatic retries or silent behavior changes.
 - The canonical path should be the only path.
 - The canonical runtime applies per-run PydanticAI `UsageLimits` to bound model requests and tool calls; exceeding a limit ends the run explicitly with `run_failed` and `error_type: UsageLimitExceeded`.
+- Expected tool-domain failures should be returned to the model as explicit tool result objects instead of ending the run immediately.
 - `stream_run_events` intentionally converts pre-terminal runtime exceptions into canonical failure events instead of leaking raw exceptions through the public stream.
 - If a pre-terminal exception occurs while tool calls are still pending, each pending tool call emits `tool_call_failed` before the terminal `run_failed`.
 - An exception after `run_succeeded` is invalid state and is raised instead of being re-encoded as another event.

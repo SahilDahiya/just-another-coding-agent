@@ -4,6 +4,7 @@ from collections.abc import AsyncIterator
 import pytest
 from pydantic_ai.messages import ModelMessage, ToolReturnPart, UserPromptPart
 from pydantic_ai.models.function import DeltaToolCall, FunctionModel
+from pydantic_ai.usage import UsageLimits
 
 from just_another_coding_agent.rpc.session_store import session_path_for_id
 from just_another_coding_agent.rpc.stdio import handle_rpc_json_line
@@ -61,8 +62,8 @@ async def resume_aware_write_stream(
     raise AssertionError(f"unexpected prompt: {latest_prompt!r}")
 
 
-async def failing_edit_stream(
-    _messages: list[ModelMessage],
+async def looping_edit_stream(
+    messages: list[ModelMessage],
     _agent_info: object,
 ) -> AsyncIterator[str | dict[int, DeltaToolCall]]:
     yield {
@@ -72,7 +73,7 @@ async def failing_edit_stream(
                 '{"path": "note.txt", "old_text": "missing", '
                 '"new_text": "agent"}'
             ),
-            tool_call_id="call-edit",
+            tool_call_id=f"call-edit-{len(messages)}",
         )
     }
 
@@ -191,11 +192,19 @@ async def test_handle_rpc_json_line_creates_session_and_resumes_runs(
 
 async def test_handle_rpc_json_line_keeps_run_failure_in_event_stream_and_session(
     tmp_path,
+    monkeypatch,
 ) -> None:
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
     (workspace_root / "note.txt").write_text("hello\nworld\n", encoding="utf-8")
     sessions_root = tmp_path / "sessions"
+    monkeypatch.setattr(
+        "just_another_coding_agent.runtime.run.build_canonical_usage_limits",
+        lambda: UsageLimits(
+            request_limit=2,
+            tool_calls_limit=10,
+        ),
+    )
     session_id = await _create_session_id(
         workspace_root=workspace_root,
         sessions_root=sessions_root,
@@ -207,19 +216,32 @@ async def test_handle_rpc_json_line_keeps_run_failure_in_event_stream_and_sessio
             "command": "run.start",
             "payload": {"session_id": session_id, "prompt": "go"},
         },
-        model=FunctionModel(stream_function=failing_edit_stream),
+        model=FunctionModel(stream_function=looping_edit_stream),
         workspace_root=workspace_root,
         sessions_root=sessions_root,
     )
 
-    assert [message["type"] for message in messages] == ["rpc_event"] * 4
+    assert [message["type"] for message in messages] == ["rpc_event"] * 6
     assert [message["event"]["type"] for message in messages] == [
         "run_started",
         "tool_call_started",
-        "tool_call_failed",
+        "tool_call_succeeded",
+        "tool_call_started",
+        "tool_call_succeeded",
         "run_failed",
     ]
-    assert "found 0 occurrences" in messages[-1]["event"]["message"]
+    assert messages[2]["event"]["result"] == {
+        "ok": False,
+        "error_type": "ValueError",
+        "message": (
+            "old_text must match exactly once in "
+            f"{workspace_root / 'note.txt'}; found 0 occurrences"
+        ),
+    }
+    assert messages[-1]["event"]["error_type"] == "UsageLimitExceeded"
+    assert messages[-1]["event"]["message"] == (
+        "The next request would exceed the request_limit of 2"
+    )
 
     session_path = session_path_for_id(
         sessions_root=sessions_root,
@@ -230,7 +252,9 @@ async def test_handle_rpc_json_line_keeps_run_failure_in_event_stream_and_sessio
     assert [event.type for event in loaded.runs[0].events] == [
         "run_started",
         "tool_call_started",
-        "tool_call_failed",
+        "tool_call_succeeded",
+        "tool_call_started",
+        "tool_call_succeeded",
         "run_failed",
     ]
 

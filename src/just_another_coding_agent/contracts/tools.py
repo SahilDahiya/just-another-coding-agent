@@ -36,11 +36,28 @@ class BashToolInput(BaseModel):
     timeout: int | None = Field(default=None, gt=0)
 
 
+class ToolErrorResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    ok: Literal[False] = False
+    error_type: str
+    message: str
+
+
+def make_tool_error_result(error: Exception) -> dict[str, bool | str]:
+    return ToolErrorResult(
+        error_type=type(error).__name__,
+        message=str(error),
+    ).model_dump(mode="json")
+
+
 __all__ = [
     "BashToolInput",
     "CANONICAL_TOOL_NAMES",
     "CanonicalToolName",
     "EditToolInput",
     "ReadToolInput",
+    "ToolErrorResult",
     "WriteToolInput",
+    "make_tool_error_result",
 ]

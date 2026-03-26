@@ -5,7 +5,10 @@ from pathlib import Path
 
 from pydantic_ai import Tool
 
-from just_another_coding_agent.contracts.tools import BashToolInput
+from just_another_coding_agent.contracts.tools import (
+    BashToolInput,
+    make_tool_error_result,
+)
 from just_another_coding_agent.tools._workspace import normalize_workspace_root
 
 
@@ -41,13 +44,19 @@ def execute_bash(
 def create_bash_tool(*, workspace_root: Path | str) -> Tool:
     root = normalize_workspace_root(workspace_root)
 
-    def bash(command: str, timeout: int | None = None) -> dict[str, int | str]:
+    def bash(
+        command: str,
+        timeout: int | None = None,
+    ) -> dict[str, int | str] | dict[str, bool | str]:
         """Run a local bash command and return exit code plus combined output."""
 
-        return execute_bash(
-            tool_input=BashToolInput(command=command, timeout=timeout),
-            workspace_root=root,
-        )
+        try:
+            return execute_bash(
+                tool_input=BashToolInput(command=command, timeout=timeout),
+                workspace_root=root,
+            )
+        except (TimeoutError, OSError, UnicodeError) as error:
+            return make_tool_error_result(error)
 
     return Tool(bash, name="bash", strict=True)
 

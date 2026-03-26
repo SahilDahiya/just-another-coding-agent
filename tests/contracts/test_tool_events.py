@@ -20,6 +20,7 @@ from just_another_coding_agent.contracts.run_events import (
     ToolCallStartedEvent,
     ToolCallSucceededEvent,
 )
+from just_another_coding_agent.runtime.agent import build_canonical_agent
 from just_another_coding_agent.runtime.run import stream_run_events
 
 
@@ -75,6 +76,131 @@ async def failing_tool_stream(
             name="explode",
             json_args="{}",
             tool_call_id="call-explode",
+        )
+    }
+
+
+async def recovering_edit_stream(
+    messages: list[ModelMessage],
+    _agent_info: object,
+) -> AsyncIterator[str | dict[int, DeltaToolCall]]:
+    if len(messages) == 1:
+        yield {
+            0: DeltaToolCall(
+                name="edit",
+                json_args=(
+                    '{"path":"note.txt","old_text":"missing","new_text":"agent"}'
+                ),
+                tool_call_id="call-edit-1",
+            )
+        }
+        return
+
+    if len(messages) == 3:
+        yield {
+            0: DeltaToolCall(
+                name="edit",
+                json_args=(
+                    '{"path":"note.txt","old_text":"world","new_text":"agent"}'
+                ),
+                tool_call_id="call-edit-2",
+            )
+        }
+        return
+
+    yield "done"
+
+
+async def recovering_read_stream(
+    messages: list[ModelMessage],
+    _agent_info: object,
+) -> AsyncIterator[str | dict[int, DeltaToolCall]]:
+    if len(messages) == 1:
+        yield {
+            0: DeltaToolCall(
+                name="read",
+                json_args='{"path":"missing.txt"}',
+                tool_call_id="call-read-1",
+            )
+        }
+        return
+
+    if len(messages) == 3:
+        yield {
+            0: DeltaToolCall(
+                name="read",
+                json_args='{"path":"note.txt"}',
+                tool_call_id="call-read-2",
+            )
+        }
+        return
+
+    yield "done"
+
+
+async def recovering_write_stream(
+    messages: list[ModelMessage],
+    _agent_info: object,
+) -> AsyncIterator[str | dict[int, DeltaToolCall]]:
+    if len(messages) == 1:
+        yield {
+            0: DeltaToolCall(
+                name="write",
+                json_args='{"path":"nested","content":"hello"}',
+                tool_call_id="call-write-1",
+            )
+        }
+        return
+
+    if len(messages) == 3:
+        yield {
+            0: DeltaToolCall(
+                name="write",
+                json_args='{"path":"nested/note.txt","content":"hello"}',
+                tool_call_id="call-write-2",
+            )
+        }
+        return
+
+    yield "done"
+
+
+async def recovering_bash_stream(
+    messages: list[ModelMessage],
+    _agent_info: object,
+) -> AsyncIterator[str | dict[int, DeltaToolCall]]:
+    if len(messages) == 1:
+        yield {
+            0: DeltaToolCall(
+                name="bash",
+                json_args='{"command":"sleep 2","timeout":1}',
+                tool_call_id="call-bash-1",
+            )
+        }
+        return
+
+    if len(messages) == 3:
+        yield {
+            0: DeltaToolCall(
+                name="bash",
+                json_args='{"command":"printf ok"}',
+                tool_call_id="call-bash-2",
+            )
+        }
+        return
+
+    yield "done"
+
+
+async def looping_edit_stream(
+    messages: list[ModelMessage],
+    _agent_info: object,
+) -> AsyncIterator[str | dict[int, DeltaToolCall]]:
+    yield {
+        0: DeltaToolCall(
+            name="edit",
+            json_args='{"path":"note.txt","old_text":"missing","new_text":"agent"}',
+            tool_call_id=f"call-edit-{len(messages)}",
         )
     }
 
@@ -278,3 +404,210 @@ async def test_stream_run_events_marks_all_pending_tool_calls_failed_before_run_
     assert [events[3].tool_name, events[4].tool_name] == ["read", "bash"]
     assert [events[3].message, events[4].message] == ["stream boom", "stream boom"]
     assert events[5].message == "stream boom"
+
+
+async def test_stream_run_events_recovers_from_edit_mismatch_within_one_run(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    note = workspace_root / "note.txt"
+    note.write_text("hello\nworld\n", encoding="utf-8")
+
+    agent = build_canonical_agent(
+        model=FunctionModel(stream_function=recovering_edit_stream),
+        workspace_root=workspace_root,
+        tool_names=("edit",),
+    )
+
+    events = [event async for event in stream_run_events(agent=agent, prompt="go")]
+
+    assert [event.type for event in events] == [
+        "run_started",
+        "tool_call_started",
+        "tool_call_succeeded",
+        "tool_call_started",
+        "tool_call_succeeded",
+        "assistant_text_delta",
+        "run_succeeded",
+    ]
+    assert isinstance(events[0], RunStartedEvent)
+    assert isinstance(events[1], ToolCallStartedEvent)
+    assert isinstance(events[2], ToolCallSucceededEvent)
+    assert isinstance(events[3], ToolCallStartedEvent)
+    assert isinstance(events[4], ToolCallSucceededEvent)
+    assert isinstance(events[5], AssistantTextDeltaEvent)
+    assert isinstance(events[6], RunSucceededEvent)
+    assert events[2].tool_call_id == "call-edit-1"
+    assert events[2].tool_name == "edit"
+    assert events[2].result == {
+        "ok": False,
+        "error_type": "ValueError",
+        "message": (
+            "old_text must match exactly once in "
+            f"{note}; found 0 occurrences"
+        ),
+    }
+    assert events[4].tool_call_id == "call-edit-2"
+    assert events[4].tool_name == "edit"
+    assert events[4].result == f"Edited {note}"
+    assert events[6].output_text == "done"
+    assert note.read_text(encoding="utf-8") == "hello\nagent\n"
+
+
+async def test_stream_run_events_recovers_from_missing_read_within_one_run(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    note = workspace_root / "note.txt"
+    note.write_text("hello\nworld\n", encoding="utf-8")
+
+    agent = build_canonical_agent(
+        model=FunctionModel(stream_function=recovering_read_stream),
+        workspace_root=workspace_root,
+        tool_names=("read",),
+    )
+
+    events = [event async for event in stream_run_events(agent=agent, prompt="go")]
+
+    assert [event.type for event in events] == [
+        "run_started",
+        "tool_call_started",
+        "tool_call_succeeded",
+        "tool_call_started",
+        "tool_call_succeeded",
+        "assistant_text_delta",
+        "run_succeeded",
+    ]
+    assert isinstance(events[2], ToolCallSucceededEvent)
+    assert events[2].result == {
+        "ok": False,
+        "error_type": "FileNotFoundError",
+        "message": (
+            "[Errno 2] No such file or directory: "
+            f"'{workspace_root / 'missing.txt'}'"
+        ),
+    }
+    assert isinstance(events[4], ToolCallSucceededEvent)
+    assert events[4].result == "hello\nworld\n"
+    assert events[6].output_text == "done"
+
+
+async def test_stream_run_events_recovers_from_write_directory_error_within_one_run(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    nested = workspace_root / "nested"
+    nested.mkdir()
+
+    agent = build_canonical_agent(
+        model=FunctionModel(stream_function=recovering_write_stream),
+        workspace_root=workspace_root,
+        tool_names=("write",),
+    )
+
+    events = [event async for event in stream_run_events(agent=agent, prompt="go")]
+
+    assert [event.type for event in events] == [
+        "run_started",
+        "tool_call_started",
+        "tool_call_succeeded",
+        "tool_call_started",
+        "tool_call_succeeded",
+        "assistant_text_delta",
+        "run_succeeded",
+    ]
+    assert isinstance(events[2], ToolCallSucceededEvent)
+    assert events[2].result == {
+        "ok": False,
+        "error_type": "IsADirectoryError",
+        "message": f"[Errno 21] Is a directory: '{nested}'",
+    }
+    assert isinstance(events[4], ToolCallSucceededEvent)
+    assert events[4].result == f"Wrote {nested / 'note.txt'}"
+    assert (nested / "note.txt").read_text(encoding="utf-8") == "hello"
+    assert events[6].output_text == "done"
+
+
+async def test_stream_run_events_recovers_from_bash_timeout_within_one_run(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    agent = build_canonical_agent(
+        model=FunctionModel(stream_function=recovering_bash_stream),
+        workspace_root=workspace_root,
+        tool_names=("bash",),
+    )
+
+    events = [event async for event in stream_run_events(agent=agent, prompt="go")]
+
+    assert [event.type for event in events] == [
+        "run_started",
+        "tool_call_started",
+        "tool_call_succeeded",
+        "tool_call_started",
+        "tool_call_succeeded",
+        "assistant_text_delta",
+        "run_succeeded",
+    ]
+    assert isinstance(events[2], ToolCallSucceededEvent)
+    assert events[2].result == {
+        "ok": False,
+        "error_type": "TimeoutError",
+        "message": "Bash command timed out after 1 seconds",
+    }
+    assert isinstance(events[4], ToolCallSucceededEvent)
+    assert events[4].result == {"exit_code": 0, "output": "ok"}
+    assert events[6].output_text == "done"
+
+
+async def test_stream_run_events_fails_only_when_usage_limits_are_exhausted(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    note = workspace_root / "note.txt"
+    note.write_text("hello\nworld\n", encoding="utf-8")
+
+    agent = build_canonical_agent(
+        model=FunctionModel(stream_function=looping_edit_stream),
+        workspace_root=workspace_root,
+        tool_names=("edit",),
+    )
+
+    events = [
+        event
+        async for event in stream_run_events(
+            agent=agent,
+            prompt="go",
+            usage_limits=UsageLimits(request_limit=2, tool_calls_limit=10),
+        )
+    ]
+
+    assert [event.type for event in events] == [
+        "run_started",
+        "tool_call_started",
+        "tool_call_succeeded",
+        "tool_call_started",
+        "tool_call_succeeded",
+        "run_failed",
+    ]
+    assert isinstance(events[2], ToolCallSucceededEvent)
+    assert events[2].result == {
+        "ok": False,
+        "error_type": "ValueError",
+        "message": (
+            "old_text must match exactly once in "
+            f"{note}; found 0 occurrences"
+        ),
+    }
+    assert isinstance(events[4], ToolCallSucceededEvent)
+    assert events[4].result == events[2].result
+    assert isinstance(events[5], RunFailedEvent)
+    assert events[5].error_type == "UsageLimitExceeded"
+    assert "request_limit" in events[5].message
+    assert note.read_text(encoding="utf-8") == "hello\nworld\n"

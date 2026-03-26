@@ -21,9 +21,13 @@ CANONICAL_AGENT_INSTRUCTIONS = "\n".join(
         "Use write only for new files or full rewrites.",
         "Use bash for search, inspection, and commands.",
         "Check bash exit_code in tool results; non-zero means the command failed.",
+        (
+            "If a tool returns an object with ok: false, treat it as an "
+            "operational error and decide the next corrective step yourself."
+        ),
         "Do not invent tools or alternate behaviors.",
         "Do not rely on fallbacks.",
-        "If a tool call fails, treat it as a real failure.",
+        "Only uncaught tool failures end the run automatically.",
         "Keep responses concise and task-focused.",
         "Refer to files clearly by path.",
         "For read, write, and edit, relative paths resolve from the workspace root.",

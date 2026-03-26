@@ -14,7 +14,6 @@ from just_another_coding_agent.contracts.run_events import (
     RunFailedEvent,
     RunStartedEvent,
     RunSucceededEvent,
-    ToolCallFailedEvent,
     ToolCallSucceededEvent,
 )
 from just_another_coding_agent.runtime import stream_session_run_events
@@ -95,7 +94,7 @@ async def resume_aware_write_stream(messages, _agent_info):
     raise AssertionError(f"unexpected prompt: {latest_prompt!r}")
 
 
-async def failing_edit_stream(_messages, _agent_info):
+async def looping_edit_stream(messages, _agent_info):
     yield {
         0: DeltaToolCall(
             name="edit",
@@ -103,7 +102,7 @@ async def failing_edit_stream(_messages, _agent_info):
                 '{"path": "note.txt", "old_text": "missing", '
                 '"new_text": "agent"}'
             ),
-            tool_call_id="call-edit",
+            tool_call_id=f"call-edit-{len(messages)}",
         )
     }
 
@@ -249,28 +248,39 @@ async def test_stream_session_run_events_persists_failed_run(
     events = [
         event
         async for event in stream_session_run_events(
-            model=FunctionModel(stream_function=failing_edit_stream),
+            model=FunctionModel(stream_function=looping_edit_stream),
             workspace_root=workspace_root,
             session_path=session_path,
             prompt="go",
+            usage_limits=UsageLimits(request_limit=2, tool_calls_limit=10),
         )
     ]
 
     assert [event.type for event in events] == [
         "run_started",
         "tool_call_started",
-        "tool_call_failed",
+        "tool_call_succeeded",
+        "tool_call_started",
+        "tool_call_succeeded",
         "run_failed",
     ]
 
-    tool_failed = events[2]
-    assert isinstance(tool_failed, ToolCallFailedEvent)
-    assert tool_failed.tool_name == "edit"
-    assert "found 0 occurrences" in tool_failed.message
+    tool_result = events[2]
+    assert isinstance(tool_result, ToolCallSucceededEvent)
+    assert tool_result.tool_name == "edit"
+    assert tool_result.result == {
+        "ok": False,
+        "error_type": "ValueError",
+        "message": (
+            "old_text must match exactly once in "
+            f"{workspace_root / 'note.txt'}; found 0 occurrences"
+        ),
+    }
 
     terminal = events[-1]
     assert isinstance(terminal, RunFailedEvent)
-    assert terminal.message == tool_failed.message
+    assert terminal.error_type == "UsageLimitExceeded"
+    assert terminal.message == "The next request would exceed the request_limit of 2"
 
     loaded = load_session(path=session_path, workspace_root=workspace_root)
     assert loaded.runs[0].events == events
