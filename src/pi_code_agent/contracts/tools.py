@@ -29,7 +29,15 @@ class EditToolInput(BaseModel):
     new_text: str
 
 
+class BashToolInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    command: str = Field(min_length=1)
+    timeout: int | None = Field(default=None, gt=0)
+
+
 __all__ = [
+    "BashToolInput",
     "CANONICAL_TOOL_NAMES",
     "CanonicalToolName",
     "EditToolInput",

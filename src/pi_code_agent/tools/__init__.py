@@ -1,5 +1,6 @@
 """Canonical coding tools package."""
 
+from .bash import BASH_TOOL, bash, execute_bash
 from .edit import EDIT_TOOL, edit, execute_edit
 from .read import READ_TOOL, execute_read, read
 from .registry import (
@@ -11,12 +12,15 @@ from .registry import (
 from .write import WRITE_TOOL, execute_write, write
 
 __all__ = [
+    "BASH_TOOL",
     "EDIT_TOOL",
     "READ_TOOL",
     "WRITE_TOOL",
     "ToolNotImplementedError",
     "UnknownToolError",
+    "bash",
     "build_canonical_toolset",
+    "execute_bash",
     "edit",
     "execute_edit",
     "execute_read",

@@ -23,6 +23,7 @@ from .session import (
 )
 from .tools import (
     CANONICAL_TOOL_NAMES,
+    BashToolInput,
     CanonicalToolName,
     EditToolInput,
     ReadToolInput,
@@ -31,6 +32,7 @@ from .tools import (
 
 __all__ = [
     "AssistantTextDeltaEvent",
+    "BashToolInput",
     "CANONICAL_TOOL_NAMES",
     "CanonicalToolName",
     "EditToolInput",

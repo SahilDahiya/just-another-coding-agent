@@ -3,7 +3,6 @@ from pydantic_ai import Agent
 from pydantic_ai.models.test import TestModel
 
 from pi_code_agent.tools.registry import (
-    ToolNotImplementedError,
     UnknownToolError,
     build_canonical_toolset,
     list_canonical_tool_names,
@@ -19,17 +18,15 @@ def test_build_canonical_toolset_rejects_unknown_tool_name() -> None:
         build_canonical_toolset(["nope"])
 
 
-def test_build_canonical_toolset_rejects_unimplemented_canonical_tool() -> None:
-    with pytest.raises(ToolNotImplementedError, match="bash"):
-        build_canonical_toolset(["bash"])
-
-
 def test_build_canonical_toolset_registers_implemented_tools_with_pydanticai() -> None:
     model = TestModel(call_tools=[], custom_output_text="ok")
-    agent = Agent(model, toolsets=[build_canonical_toolset(["read", "write", "edit"])])
+    agent = Agent(
+        model,
+        toolsets=[build_canonical_toolset(["read", "write", "edit", "bash"])],
+    )
 
     agent.run_sync("What tools are available?")
 
     function_tools = model.last_model_request_parameters.function_tools
     tool_names = [tool.name for tool in function_tools]
-    assert tool_names == ["read", "write", "edit"]
+    assert tool_names == ["read", "write", "edit", "bash"]

@@ -30,8 +30,7 @@ Initial executable tool slice:
 
 - canonical registry names: `read`, `write`, `edit`, `bash`
 - unknown tool names fail explicitly
-- canonical names without an implementation fail explicitly
-- initial concrete tool implementations: `read`, `write`, `edit`
+- initial concrete tool implementations: `read`, `write`, `edit`, `bash`
 
 `read` input contract:
 
@@ -75,6 +74,21 @@ Initial executable tool slice:
 - missing files, directory targets, and invalid UTF-8 fail explicitly
 - ambiguous matches, missing matches, and no-op replacements fail explicitly
 - no fuzzy matching, normalized matching, or alternate replacement heuristic
+
+`bash` input contract:
+
+- fields: `command`, `timeout`
+- `command` must be a non-empty string
+- `timeout` is optional and, when present, must be a positive integer number of seconds
+
+`bash` behavior contract:
+
+- executes one local `bash -lc` command in the backend process working directory
+- returns a JSON-compatible result with fields `exit_code` and `output`
+- `output` is the combined stdout and stderr decoded as UTF-8
+- non-zero `exit_code` is part of the tool result, not a transport fallback or alternate event shape
+- timeout, shell spawn failure, and invalid UTF-8 output fail explicitly
+- no shell fallback, alternate decoder, or hidden retry path
 
 ## Streamed Event Contract
 
