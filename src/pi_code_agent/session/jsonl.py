@@ -36,6 +36,23 @@ class SessionFormatError(ValueError):
     """Raised when persisted session data violates the canonical JSONL contract."""
 
 
+def initialize_session(
+    *,
+    path: Path,
+    workspace_root: Path | str,
+) -> None:
+    normalized_workspace_root = normalize_workspace_root(workspace_root)
+    if path.exists():
+        raise FileExistsError(f"Session already exists: {path}")
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as file_handle:
+        _write_entry(
+            file_handle,
+            SessionHeaderEntry(workspace_root=str(normalized_workspace_root)),
+        )
+
+
 def append_run_to_session(
     *,
     path: Path,

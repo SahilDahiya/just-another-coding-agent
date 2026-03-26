@@ -197,6 +197,7 @@ Initial canonical RPC transport:
 - JSON over stdio
 - explicit command names
 - explicit response and event payloads
+- server-generated opaque session ids
 - strict error responses for invalid commands or invalid state
 
 Rules:
@@ -210,8 +211,12 @@ Initial executable RPC slice:
 
 - request line
   - fields: `id`, `command`, `payload`
-  - initial command: `run.start`
-  - initial payload: `{"prompt": <string>}`
+  - initial commands:
+    - `session.create` with payload `{}`
+    - `run.start` with payload `{"session_id": <opaque-lowercase-hex-string>, "prompt": <string>}`
+- `rpc_response`
+  - fields: `type`, `id`, `response`
+  - initial response payload: `{"session_id": <opaque-lowercase-hex-string>}`
 - `rpc_event`
   - fields: `type`, `id`, `event`
   - `event` must be one canonical streamed run event payload
@@ -220,10 +225,14 @@ Initial executable RPC slice:
 
 Ordering rules for the RPC slice:
 
-- A valid `run.start` request yields zero or more `rpc_event` lines whose embedded events satisfy the streamed run contract
+- A valid `session.create` request yields exactly one `rpc_response` containing a server-generated opaque `session_id`
+- A valid `run.start` request must reference an existing `session_id` and yields zero or more `rpc_event` lines whose embedded events satisfy the streamed run contract
 - A valid request that ends in run failure still yields `rpc_event` lines ending in `run_failed`; it does not switch to `rpc_error`
+- Clients must not provide filesystem paths or workspace identifiers in the RPC session contract
 - Invalid JSON yields exactly one `rpc_error` with `id: null` and `error_type: InvalidJSON`
 - Invalid command or payload yields exactly one `rpc_error` with the parsed request `id` when available and `error_type: InvalidRequest`
+- Unknown `session_id` yields exactly one `rpc_error` with `error_type: UnknownSession`
+- Persisted-but-invalid session state yields exactly one `rpc_error` with `error_type: InvalidSession`
 
 ## Failure Semantics
 

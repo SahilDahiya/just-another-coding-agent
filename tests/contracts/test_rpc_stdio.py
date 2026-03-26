@@ -2,18 +2,43 @@ import json
 from collections.abc import AsyncIterator
 
 import pytest
-from pydantic_ai.messages import ModelMessage
+from pydantic_ai.messages import ModelMessage, ToolReturnPart, UserPromptPart
 from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 
+from pi_code_agent.rpc.session_store import session_path_for_id
 from pi_code_agent.rpc.stdio import handle_rpc_json_line
 from pi_code_agent.session import load_session
 
 
-async def successful_write_stream(
+def _all_parts(messages: list[ModelMessage]):
+    for message in messages:
+        for part in message.parts:
+            yield part
+
+
+def _last_user_prompt(messages: list[ModelMessage]) -> str | None:
+    prompt: str | None = None
+    for part in _all_parts(messages):
+        if isinstance(part, UserPromptPart):
+            prompt = part.content
+    return prompt
+
+
+def _has_tool_return(messages: list[ModelMessage], *, tool_name: str) -> bool:
+    return any(
+        isinstance(part, ToolReturnPart) and part.tool_name == tool_name
+        for part in _all_parts(messages)
+    )
+
+
+async def resume_aware_write_stream(
     messages: list[ModelMessage],
     _agent_info: object,
 ) -> AsyncIterator[str | dict[int, DeltaToolCall]]:
-    if len(messages) == 1:
+    latest_prompt = _last_user_prompt(messages)
+    saw_write = _has_tool_return(messages, tool_name="write")
+
+    if latest_prompt == "create note" and not saw_write:
         yield {
             0: DeltaToolCall(
                 name="write",
@@ -23,7 +48,17 @@ async def successful_write_stream(
         }
         return
 
-    yield "done"
+    if latest_prompt == "create note" and saw_write:
+        yield "created"
+        return
+
+    if latest_prompt == "what did you do?":
+        if not saw_write:
+            raise AssertionError("missing prior message history")
+        yield "I created note.txt"
+        return
+
+    raise AssertionError(f"unexpected prompt: {latest_prompt!r}")
 
 
 async def failing_edit_stream(
@@ -49,52 +84,109 @@ async def text_only_stream(
     yield "done"
 
 
-async def test_handle_rpc_json_line_streams_run_events_via_session_runtime(
+async def _rpc_messages(
+    *,
+    request_payload: object,
+    model,
+    workspace_root,
+    sessions_root,
+) -> list[dict[str, object]]:
+    request_line = json.dumps(request_payload)
+    return [
+        json.loads(line)
+        async for line in handle_rpc_json_line(
+            line=request_line,
+            model=model,
+            workspace_root=workspace_root,
+            sessions_root=sessions_root,
+        )
+    ]
+
+
+async def _create_session_id(*, workspace_root, sessions_root) -> str:
+    messages = await _rpc_messages(
+        request_payload={
+            "id": "req-create",
+            "command": "session.create",
+            "payload": {},
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    assert messages[0]["type"] == "rpc_response"
+    assert messages[0]["id"] == "req-create"
+    session_id = str(messages[0]["response"]["session_id"])
+    assert len(session_id) == 32
+    session_path = session_path_for_id(
+        sessions_root=sessions_root,
+        session_id=session_id,
+    )
+    assert session_path.exists()
+    loaded = load_session(path=session_path, workspace_root=workspace_root)
+    assert loaded.runs == []
+    return session_id
+
+
+async def test_handle_rpc_json_line_creates_session_and_resumes_runs(
     tmp_path,
 ) -> None:
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
-    session_path = tmp_path / "session.jsonl"
-    request_line = json.dumps(
-        {
-            "id": "req-1",
-            "command": "run.start",
-            "payload": {"prompt": "go"},
-        }
+    sessions_root = tmp_path / "sessions"
+    model = FunctionModel(stream_function=resume_aware_write_stream)
+
+    session_id = await _create_session_id(
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
     )
 
-    messages = [
-        json.loads(line)
-        async for line in handle_rpc_json_line(
-            line=request_line,
-            model=FunctionModel(stream_function=successful_write_stream),
-            workspace_root=workspace_root,
-            session_path=session_path,
-        )
-    ]
+    first_messages = await _rpc_messages(
+        request_payload={
+            "id": "req-1",
+            "command": "run.start",
+            "payload": {"session_id": session_id, "prompt": "create note"},
+        },
+        model=model,
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+    second_messages = await _rpc_messages(
+        request_payload={
+            "id": "req-2",
+            "command": "run.start",
+            "payload": {"session_id": session_id, "prompt": "what did you do?"},
+        },
+        model=model,
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
 
-    assert [message["type"] for message in messages] == ["rpc_event"] * 5
-    assert [message["id"] for message in messages] == ["req-1"] * 5
-    assert [message["event"]["type"] for message in messages] == [
+    assert [message["type"] for message in first_messages] == ["rpc_event"] * 5
+    assert [message["event"]["type"] for message in first_messages] == [
         "run_started",
         "tool_call_started",
         "tool_call_succeeded",
         "assistant_text_delta",
         "run_succeeded",
     ]
-    assert messages[1]["event"]["tool_name"] == "write"
-    assert messages[2]["event"]["result"] == f"Wrote {workspace_root / 'note.txt'}"
-    assert messages[4]["event"]["output_text"] == "done"
+    assert first_messages[-1]["event"]["output_text"] == "created"
 
+    assert [message["type"] for message in second_messages] == ["rpc_event"] * 3
+    assert [message["event"]["type"] for message in second_messages] == [
+        "run_started",
+        "assistant_text_delta",
+        "run_succeeded",
+    ]
+    assert second_messages[-1]["event"]["output_text"] == "I created note.txt"
+
+    session_path = session_path_for_id(
+        sessions_root=sessions_root,
+        session_id=session_id,
+    )
     loaded = load_session(path=session_path, workspace_root=workspace_root)
-    assert loaded.runs[0].prompt == "go"
-    assert [event.type for event in loaded.runs[0].events] == [
-        "run_started",
-        "tool_call_started",
-        "tool_call_succeeded",
-        "assistant_text_delta",
-        "run_succeeded",
-    ]
+    assert [run.prompt for run in loaded.runs] == ["create note", "what did you do?"]
 
 
 async def test_handle_rpc_json_line_keeps_run_failure_in_event_stream_and_session(
@@ -103,24 +195,22 @@ async def test_handle_rpc_json_line_keeps_run_failure_in_event_stream_and_sessio
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
     (workspace_root / "note.txt").write_text("hello\nworld\n", encoding="utf-8")
-    session_path = tmp_path / "session.jsonl"
-    request_line = json.dumps(
-        {
-            "id": "req-2",
-            "command": "run.start",
-            "payload": {"prompt": "go"},
-        }
+    sessions_root = tmp_path / "sessions"
+    session_id = await _create_session_id(
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
     )
 
-    messages = [
-        json.loads(line)
-        async for line in handle_rpc_json_line(
-            line=request_line,
-            model=FunctionModel(stream_function=failing_edit_stream),
-            workspace_root=workspace_root,
-            session_path=session_path,
-        )
-    ]
+    messages = await _rpc_messages(
+        request_payload={
+            "id": "req-2",
+            "command": "run.start",
+            "payload": {"session_id": session_id, "prompt": "go"},
+        },
+        model=FunctionModel(stream_function=failing_edit_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
 
     assert [message["type"] for message in messages] == ["rpc_event"] * 4
     assert [message["event"]["type"] for message in messages] == [
@@ -131,6 +221,10 @@ async def test_handle_rpc_json_line_keeps_run_failure_in_event_stream_and_sessio
     ]
     assert "found 0 occurrences" in messages[-1]["event"]["message"]
 
+    session_path = session_path_for_id(
+        sessions_root=sessions_root,
+        session_id=session_id,
+    )
     loaded = load_session(path=session_path, workspace_root=workspace_root)
     assert loaded.runs[0].prompt == "go"
     assert [event.type for event in loaded.runs[0].events] == [
@@ -141,10 +235,75 @@ async def test_handle_rpc_json_line_keeps_run_failure_in_event_stream_and_sessio
     ]
 
 
+async def test_handle_rpc_json_line_returns_unknown_session_error(tmp_path) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+
+    messages = await _rpc_messages(
+        request_payload={
+            "id": "req-unknown",
+            "command": "run.start",
+            "payload": {"session_id": "0" * 32, "prompt": "go"},
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    assert messages == [
+        {
+            "type": "rpc_error",
+            "id": "req-unknown",
+            "error_type": "UnknownSession",
+            "message": f"Unknown session_id: {'0' * 32}",
+        }
+    ]
+
+
+async def test_handle_rpc_json_line_returns_invalid_session_error_on_workspace_mismatch(
+    tmp_path,
+) -> None:
+    first_workspace_root = tmp_path / "workspace-a"
+    first_workspace_root.mkdir()
+    second_workspace_root = tmp_path / "workspace-b"
+    second_workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+
+    session_id = await _create_session_id(
+        workspace_root=first_workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    messages = await _rpc_messages(
+        request_payload={
+            "id": "req-mismatch",
+            "command": "run.start",
+            "payload": {"session_id": session_id, "prompt": "go"},
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=second_workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    assert messages == [
+        {
+            "type": "rpc_error",
+            "id": "req-mismatch",
+            "error_type": "InvalidSession",
+            "message": (
+                "Session workspace_root mismatch: "
+                f"expected {second_workspace_root.resolve()}, got "
+                f"{first_workspace_root.resolve()}"
+            ),
+        }
+    ]
+
+
 async def test_handle_rpc_json_line_returns_invalid_json_error(tmp_path) -> None:
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
-    session_path = tmp_path / "session.jsonl"
+    sessions_root = tmp_path / "sessions"
 
     messages = [
         json.loads(line)
@@ -152,7 +311,7 @@ async def test_handle_rpc_json_line_returns_invalid_json_error(tmp_path) -> None
             line="{",
             model=FunctionModel(stream_function=text_only_stream),
             workspace_root=workspace_root,
-            session_path=session_path,
+            sessions_root=sessions_root,
         )
     ]
 
@@ -164,7 +323,7 @@ async def test_handle_rpc_json_line_returns_invalid_json_error(tmp_path) -> None
             "message": "Invalid JSON request",
         }
     ]
-    assert not session_path.exists()
+    assert not sessions_root.exists()
 
 
 @pytest.mark.parametrize(
@@ -181,7 +340,7 @@ async def test_handle_rpc_json_line_returns_invalid_json_error(tmp_path) -> None
         (
             {
                 "command": "run.start",
-                "payload": {"prompt": "go"},
+                "payload": {"session_id": "s", "prompt": "go"},
             },
             None,
         ),
@@ -189,7 +348,7 @@ async def test_handle_rpc_json_line_returns_invalid_json_error(tmp_path) -> None
             {
                 "id": 3,
                 "command": "run.start",
-                "payload": {"prompt": "go"},
+                "payload": {"session_id": "s", "prompt": "go"},
             },
             None,
         ),
@@ -227,7 +386,7 @@ async def test_handle_rpc_json_line_returns_invalid_json_error(tmp_path) -> None
             {
                 "id": "req-8",
                 "command": "run.start",
-                "payload": {"prompt": 7},
+                "payload": {"prompt": "go"},
             },
             "req-8",
         ),
@@ -235,8 +394,7 @@ async def test_handle_rpc_json_line_returns_invalid_json_error(tmp_path) -> None
             {
                 "id": "req-9",
                 "command": "run.start",
-                "payload": {"prompt": "go"},
-                "extra": True,
+                "payload": {"session_id": 7, "prompt": "go"},
             },
             "req-9",
         ),
@@ -244,9 +402,41 @@ async def test_handle_rpc_json_line_returns_invalid_json_error(tmp_path) -> None
             {
                 "id": "req-10",
                 "command": "run.start",
-                "payload": {"prompt": "go", "extra": True},
+                "payload": {"session_id": "s", "prompt": 7},
             },
             "req-10",
+        ),
+        (
+            {
+                "id": "req-11",
+                "command": "run.start",
+                "payload": {"session_id": "s", "prompt": "go"},
+                "extra": True,
+            },
+            "req-11",
+        ),
+        (
+            {
+                "id": "req-12",
+                "command": "run.start",
+                "payload": {"session_id": "s", "prompt": "go", "extra": True},
+            },
+            "req-12",
+        ),
+        (
+            {
+                "id": "req-13",
+                "command": "session.create",
+                "payload": {"extra": True},
+            },
+            "req-13",
+        ),
+        (
+            {
+                "id": "req-14",
+                "command": "session.create",
+            },
+            "req-14",
         ),
         (
             [],
@@ -261,18 +451,14 @@ async def test_handle_rpc_json_line_returns_invalid_request_error(
 ) -> None:
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
-    session_path = tmp_path / "session.jsonl"
-    request_line = json.dumps(request_payload)
+    sessions_root = tmp_path / "sessions"
 
-    messages = [
-        json.loads(line)
-        async for line in handle_rpc_json_line(
-            line=request_line,
-            model=FunctionModel(stream_function=text_only_stream),
-            workspace_root=workspace_root,
-            session_path=session_path,
-        )
-    ]
+    messages = await _rpc_messages(
+        request_payload=request_payload,
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
 
     assert messages == [
         {
@@ -282,4 +468,4 @@ async def test_handle_rpc_json_line_returns_invalid_request_error(
             "message": "Invalid RPC request",
         }
     ]
-    assert not session_path.exists()
+    assert not sessions_root.exists()

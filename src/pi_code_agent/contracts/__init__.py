@@ -1,6 +1,17 @@
 """Public contract helpers and types."""
 
-from .rpc import RpcErrorEnvelope, RpcEventEnvelope, RunStartPayload, RunStartRequest
+from .rpc import (
+    RpcErrorEnvelope,
+    RpcEventEnvelope,
+    RpcRequest,
+    RpcResponseEnvelope,
+    RunStartPayload,
+    RunStartRequest,
+    SessionCreatePayload,
+    SessionCreateRequest,
+    SessionCreateResponse,
+    SessionId,
+)
 from .run_events import (
     AssistantTextDeltaEvent,
     JsonValue,
@@ -43,6 +54,8 @@ __all__ = [
     "WriteToolInput",
     "RpcErrorEnvelope",
     "RpcEventEnvelope",
+    "RpcRequest",
+    "RpcResponseEnvelope",
     "RunEvent",
     "RunFailedEvent",
     "RunStartedEvent",
@@ -50,6 +63,10 @@ __all__ = [
     "RunStartPayload",
     "RunStartRequest",
     "SESSION_FORMAT_VERSION",
+    "SessionId",
+    "SessionCreatePayload",
+    "SessionCreateRequest",
+    "SessionCreateResponse",
     "SessionEntry",
     "SessionEventEntry",
     "SessionHeaderEntry",

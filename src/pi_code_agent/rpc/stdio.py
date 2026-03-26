@@ -10,12 +10,18 @@ from pydantic import TypeAdapter, ValidationError
 from pi_code_agent.contracts.rpc import (
     RpcErrorEnvelope,
     RpcEventEnvelope,
+    RpcRequest,
+    RpcResponseEnvelope,
     RunStartRequest,
+    SessionCreateRequest,
+    SessionCreateResponse,
 )
 from pi_code_agent.contracts.tools import CANONICAL_TOOL_NAMES
+from pi_code_agent.rpc.session_store import create_session, session_path_for_id
 from pi_code_agent.runtime.session import stream_session_run_events
+from pi_code_agent.session import SessionFormatError
 
-_RUN_START_REQUEST_ADAPTER = TypeAdapter(RunStartRequest)
+_RPC_REQUEST_ADAPTER = TypeAdapter(RpcRequest)
 
 
 async def handle_rpc_json_line(
@@ -23,7 +29,7 @@ async def handle_rpc_json_line(
     line: str,
     model: Any,
     workspace_root: Path | str,
-    session_path: Path,
+    sessions_root: Path | str,
 ) -> AsyncIterator[str]:
     try:
         payload = json.loads(line)
@@ -38,7 +44,7 @@ async def handle_rpc_json_line(
     request_id = _extract_request_id(payload)
 
     try:
-        request = _RUN_START_REQUEST_ADAPTER.validate_python(payload)
+        request = _RPC_REQUEST_ADAPTER.validate_python(payload)
     except ValidationError:
         yield RpcErrorEnvelope(
             id=request_id,
@@ -47,14 +53,46 @@ async def handle_rpc_json_line(
         ).model_dump_json()
         return
 
-    async for event in stream_session_run_events(
-        model=model,
-        workspace_root=workspace_root,
-        session_path=session_path,
-        prompt=request.payload.prompt,
-        tool_names=CANONICAL_TOOL_NAMES,
-    ):
-        yield RpcEventEnvelope(id=request.id, event=event).model_dump_json()
+    if isinstance(request, SessionCreateRequest):
+        session_id = create_session(
+            sessions_root=sessions_root,
+            workspace_root=workspace_root,
+        )
+        yield RpcResponseEnvelope(
+            id=request.id,
+            response=SessionCreateResponse(session_id=session_id),
+        ).model_dump_json()
+        return
+
+    assert isinstance(request, RunStartRequest)
+    session_path = session_path_for_id(
+        sessions_root=sessions_root,
+        session_id=request.payload.session_id,
+    )
+    if not session_path.exists():
+        yield RpcErrorEnvelope(
+            id=request.id,
+            error_type="UnknownSession",
+            message=f"Unknown session_id: {request.payload.session_id}",
+        ).model_dump_json()
+        return
+
+    try:
+        async for event in stream_session_run_events(
+            model=model,
+            workspace_root=workspace_root,
+            session_path=session_path,
+            prompt=request.payload.prompt,
+            tool_names=CANONICAL_TOOL_NAMES,
+        ):
+            yield RpcEventEnvelope(id=request.id, event=event).model_dump_json()
+    except SessionFormatError as error:
+        yield RpcErrorEnvelope(
+            id=request.id,
+            error_type="InvalidSession",
+            message=str(error),
+        ).model_dump_json()
+        return
 
 
 def _extract_request_id(payload: Any) -> str | None:
