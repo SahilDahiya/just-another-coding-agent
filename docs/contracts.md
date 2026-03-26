@@ -82,7 +82,7 @@ Initial canonical session contract:
 
 - append-only JSONL
 - explicit session header
-- explicit run and message entries
+- explicit run and event entries
 - no automatic migration of old local session states
 
 Rules:
@@ -91,6 +91,23 @@ Rules:
 - Session format changes require an ADR and test updates.
 - Do not add silent repair logic.
 - Session persistence should preserve coding-agent continuity without importing legacy session-tree or migration behavior by default.
+
+Initial executable session slice:
+
+- `session_header`
+  - fields: `type`, `version`
+- `session_run`
+  - fields: `type`, `run_id`, `prompt`
+- `session_event`
+  - fields: `type`, `run_id`, `event`
+  - `event` must be one canonical streamed run event payload
+
+Ordering rules for the session slice:
+
+- The first line must be exactly one `session_header`
+- Each `session_run` is followed by zero or more `session_event` lines for the same `run_id`
+- Persisted events for a run must satisfy the streamed run contract, including exactly one terminal outcome
+- Appending a new run must preserve all existing lines and write the header only once
 
 ## RPC Contract
 
