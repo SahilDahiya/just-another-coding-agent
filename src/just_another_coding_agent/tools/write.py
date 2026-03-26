@@ -28,7 +28,12 @@ def create_write_tool(*, workspace_root: Path | str) -> Tool:
     root = normalize_workspace_root(workspace_root)
 
     def write(path: str, content: str) -> str | dict[str, bool | str]:
-        """Write a UTF-8 text file, creating parent directories as needed."""
+        """Create or overwrite a UTF-8 text file.
+
+        Args:
+            path: Path to the file to write, relative to the workspace root or absolute.
+            content: Full UTF-8 file contents to write.
+        """
 
         try:
             return execute_write(
@@ -38,6 +43,17 @@ def create_write_tool(*, workspace_root: Path | str) -> Tool:
         except (OSError, UnicodeError) as error:
             return make_tool_error_result(error)
 
-    return Tool(write, name="write", strict=True)
+    return Tool(
+        write,
+        name="write",
+        description=(
+            "Create or overwrite an entire UTF-8 text file. Creates parent "
+            "directories automatically. Use write for new files or complete "
+            "rewrites."
+        ),
+        docstring_format="google",
+        require_parameter_descriptions=True,
+        strict=True,
+    )
 
 __all__ = ["create_write_tool", "execute_write"]

@@ -108,7 +108,14 @@ def create_read_tool(*, workspace_root: Path | str) -> Tool:
         offset: int | None = None,
         limit: int | None = None,
     ) -> str | dict[str, bool | str]:
-        """Read a UTF-8 text file with optional line-based offset and limit."""
+        """Read a UTF-8 text file in bounded line windows.
+
+        Args:
+            path: Path to the file to read, relative to the workspace root or absolute.
+            offset: Optional 1-indexed line number to start reading from.
+            limit: Optional maximum number of lines to read before read's own
+                truncation ceiling.
+        """
 
         try:
             return execute_read(
@@ -118,7 +125,18 @@ def create_read_tool(*, workspace_root: Path | str) -> Tool:
         except (OSError, UnicodeError, ValueError) as error:
             return make_tool_error_result(error)
 
-    return Tool(read, name="read", strict=True)
+    return Tool(
+        read,
+        name="read",
+        description=(
+            "Read a UTF-8 text file. Supports line-based offset and limit. "
+            "When limit is omitted, output is bounded to 2000 lines or 50 KiB "
+            "with continuation hints using offset."
+        ),
+        docstring_format="google",
+        require_parameter_descriptions=True,
+        strict=True,
+    )
 
 
 __all__ = ["create_read_tool", "execute_read"]

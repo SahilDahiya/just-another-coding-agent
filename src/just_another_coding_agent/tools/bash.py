@@ -162,7 +162,12 @@ def create_bash_tool(*, workspace_root: Path | str) -> Tool:
         command: str,
         timeout: int | None = None,
     ) -> dict[str, int | str] | dict[str, bool | str]:
-        """Run a local bash command and return success output or an error result."""
+        """Execute one local bash command in the workspace root.
+
+        Args:
+            command: Bash command to execute with `bash -lc`.
+            timeout: Optional timeout in seconds before the command is stopped.
+        """
 
         try:
             return execute_bash(
@@ -172,7 +177,20 @@ def create_bash_tool(*, workspace_root: Path | str) -> Tool:
         except (RuntimeError, TimeoutError, OSError, UnicodeError) as error:
             return make_tool_error_result(error)
 
-    return Tool(bash, name="bash", strict=True)
+    return Tool(
+        bash,
+        name="bash",
+        description=(
+            "Execute a local bash command in the workspace root. Returns "
+            "combined stdout and stderr on success. Non-zero exits and "
+            "timeouts become error results. Large output is truncated to the "
+            "last 2000 lines or 50 KiB, and the full output is saved to a "
+            "temp file."
+        ),
+        docstring_format="google",
+        require_parameter_descriptions=True,
+        strict=True,
+    )
 
 
 __all__ = ["create_bash_tool", "execute_bash"]

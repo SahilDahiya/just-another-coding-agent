@@ -37,3 +37,84 @@ def test_build_canonical_toolset_registers_implemented_tools_with_pydanticai(
     function_tools = model.last_model_request_parameters.function_tools
     tool_names = [tool.name for tool in function_tools]
     assert tool_names == ["read", "write", "edit", "bash"]
+
+
+def test_build_canonical_toolset_exposes_rich_model_facing_tool_descriptions(
+    tmp_path,
+) -> None:
+    model = TestModel(call_tools=[], custom_output_text="ok")
+    agent = Agent(
+        model,
+        toolsets=[
+            build_canonical_toolset(
+                ["read", "write", "edit", "bash"],
+                workspace_root=tmp_path,
+            )
+        ],
+    )
+
+    agent.run_sync("What tools are available?")
+
+    function_tools = {
+        tool.name: tool for tool in model.last_model_request_parameters.function_tools
+    }
+
+    assert function_tools["read"].description == (
+        "Read a UTF-8 text file. Supports line-based offset and limit. "
+        "When limit is omitted, output is bounded to 2000 lines or 50 KiB "
+        "with continuation hints using offset."
+    )
+    assert (
+        function_tools["read"].parameters_json_schema["properties"]["offset"][
+            "description"
+        ]
+        == "Optional 1-indexed line number to start reading from."
+    )
+    assert (
+        function_tools["read"].parameters_json_schema["properties"]["limit"][
+            "description"
+        ]
+        == (
+            "Optional maximum number of lines to read before read's own\n"
+            "truncation ceiling."
+        )
+    )
+
+    assert function_tools["write"].description == (
+        "Create or overwrite an entire UTF-8 text file. Creates parent "
+        "directories automatically. Use write for new files or complete "
+        "rewrites."
+    )
+    assert (
+        function_tools["write"].parameters_json_schema["properties"]["content"][
+            "description"
+        ]
+        == "Full UTF-8 file contents to write."
+    )
+
+    assert function_tools["edit"].description == (
+        "Edit a UTF-8 text file by replacing exactly one occurrence of "
+        "old_text with new_text. Zero or multiple matches return an error "
+        "result. new_text may be empty to delete the matched text. Use "
+        "this for precise surgical changes."
+    )
+    assert (
+        function_tools["edit"].parameters_json_schema["properties"]["old_text"][
+            "description"
+        ]
+        == "Exact existing text to replace; it must match exactly once."
+    )
+
+    assert function_tools["bash"].description == (
+        "Execute a local bash command in the workspace root. Returns "
+        "combined stdout and stderr on success. Non-zero exits and "
+        "timeouts become error results. Large output is truncated to the "
+        "last 2000 lines or 50 KiB, and the full output is saved to a "
+        "temp file."
+    )
+    assert (
+        function_tools["bash"].parameters_json_schema["properties"]["timeout"][
+            "description"
+        ]
+        == "Optional timeout in seconds before the command is stopped."
+    )

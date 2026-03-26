@@ -38,6 +38,7 @@ Rules:
 
 - Tool names are stable once published.
 - Tool inputs must be explicit and validated.
+- Tool definitions sent to the model must have explicit top-level descriptions and parameter descriptions.
 - Expected tool-domain failures must be explicit, model-visible results.
 - Tools do not silently recover from invalid parameters or unsafe state.
 - The runtime must not provide fallback tools or alternate tool behavior behind the same name.
