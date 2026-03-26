@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import date
 from pathlib import Path
 from typing import Any
 
 from pydantic_ai import Agent
 
 from just_another_coding_agent.contracts.tools import CANONICAL_TOOL_NAMES
+from just_another_coding_agent.tools._workspace import normalize_workspace_root
 from just_another_coding_agent.tools.registry import build_canonical_toolset
 
 CANONICAL_AGENT_INSTRUCTIONS = "\n".join(
@@ -16,10 +18,10 @@ CANONICAL_AGENT_INSTRUCTIONS = "\n".join(
             "configured workspace."
         ),
         "Use only these tools: read, write, edit, bash.",
-        "Prefer read before edit.",
-        "Use edit for precise changes.",
-        "Use write only for new files or full rewrites.",
-        "Use bash for search, inspection, and commands.",
+        "Prefer read to examine files instead of bash cat or sed.",
+        "Use edit for precise surgical changes; old_text must match exactly.",
+        "Use write only for new files or complete rewrites.",
+        "Use bash for search, inspection, builds, and commands (ls, rg, find, grep).",
         (
             "Use read with offset and limit for large files instead of "
             "pulling everything at once."
@@ -39,23 +41,46 @@ CANONICAL_AGENT_INSTRUCTIONS = "\n".join(
 )
 
 
+def build_canonical_instructions(
+    *,
+    workspace_root: Path | str,
+    current_date: date | None = None,
+) -> str:
+    root = normalize_workspace_root(workspace_root)
+    resolved_date = current_date or date.today()
+
+    return "\n".join(
+        [
+            CANONICAL_AGENT_INSTRUCTIONS,
+            f"Current date: {resolved_date.isoformat()}",
+            f"Current workspace root: {root}",
+        ]
+    )
+
+
 def build_canonical_agent(
     *,
     model: Any,
     workspace_root: Path | str,
     tool_names: Sequence[str] = CANONICAL_TOOL_NAMES,
 ) -> Agent[Any, str]:
+    root = normalize_workspace_root(workspace_root)
+
     return Agent(
         model,
         output_type=str,
-        instructions=CANONICAL_AGENT_INSTRUCTIONS,
+        instructions=build_canonical_instructions(workspace_root=root),
         toolsets=[
             build_canonical_toolset(
                 tool_names,
-                workspace_root=workspace_root,
+                workspace_root=root,
             )
         ],
     )
 
 
-__all__ = ["CANONICAL_AGENT_INSTRUCTIONS", "build_canonical_agent"]
+__all__ = [
+    "CANONICAL_AGENT_INSTRUCTIONS",
+    "build_canonical_agent",
+    "build_canonical_instructions",
+]

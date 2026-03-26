@@ -13,7 +13,7 @@ Prefer direct use of PydanticAI primitives before creating local abstractions:
 - use PydanticAI agent runs and streaming as the execution core
 - use PydanticAI function tools and toolsets as the default tool substrate
 - use PydanticAI message-history primitives as the default conversation substrate
-- use PydanticAI static `instructions` for the canonical baseline agent prompt unless preserving prompt messages in history is explicitly required
+- use PydanticAI `instructions` for the canonical agent prompt; keep a static baseline plus explicit dynamic runtime context rather than preserving prompt messages in history unless that is explicitly required
 - use PydanticAI testing primitives for unit and contract tests
 
 Local code should translate those primitives into the canonical backend contract for tools, events, sessions, RPC, and failure semantics.
@@ -21,6 +21,7 @@ Local code should translate those primitives into the canonical backend contract
 The canonical agent assembly must take an explicit workspace root. Tool behavior uses that root as the default base for relative paths and bash cwd rather than relying on process cwd or other implicit global state.
 Persisted sessions must also bind to that explicit workspace root and store native PydanticAI message history so later runs can resume through `message_history` instead of reconstructing context from public events.
 The canonical runtime must also apply per-run PydanticAI `UsageLimits` so request and tool loops fail hard instead of running unbounded. The current operational defaults are `request_limit=50` and `tool_calls_limit=200`.
+The canonical prompt should inject the current date and resolved workspace root dynamically at agent-build time so the model can reason about time and paths without inferring hidden process state.
 
 ## Canonical Package Layout
 
