@@ -31,7 +31,7 @@ Initial executable tool slice:
 - canonical registry names: `read`, `write`, `edit`, `bash`
 - unknown tool names fail explicitly
 - canonical names without an implementation fail explicitly
-- initial concrete tool implementation: `read`
+- initial concrete tool implementations: `read`, `write`
 
 `read` input contract:
 
@@ -45,6 +45,20 @@ Initial executable tool slice:
 - directory paths fail explicitly
 - invalid UTF-8 content fails explicitly
 - no silent truncation, binary fallback, or alternate decoding path
+
+`write` input contract:
+
+- fields: `path`, `content`
+- `path` must be a non-empty string
+- `content` must be a string and may be empty
+
+`write` behavior contract:
+
+- writes one UTF-8 text file and returns an explicit success message
+- creates parent directories as needed
+- overwrites an existing file completely
+- directory targets fail explicitly
+- no append mode, merge mode, backup file, or silent alternate write path
 
 ## Streamed Event Contract
 

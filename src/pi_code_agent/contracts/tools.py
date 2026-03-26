@@ -14,4 +14,16 @@ class ReadToolInput(BaseModel):
     path: str = Field(min_length=1)
 
 
-__all__ = ["CANONICAL_TOOL_NAMES", "CanonicalToolName", "ReadToolInput"]
+class WriteToolInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    path: str = Field(min_length=1)
+    content: str
+
+
+__all__ = [
+    "CANONICAL_TOOL_NAMES",
+    "CanonicalToolName",
+    "ReadToolInput",
+    "WriteToolInput",
+]

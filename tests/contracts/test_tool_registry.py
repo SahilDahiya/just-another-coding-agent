@@ -20,16 +20,16 @@ def test_build_canonical_toolset_rejects_unknown_tool_name() -> None:
 
 
 def test_build_canonical_toolset_rejects_unimplemented_canonical_tool() -> None:
-    with pytest.raises(ToolNotImplementedError, match="write"):
-        build_canonical_toolset(["write"])
+    with pytest.raises(ToolNotImplementedError, match="edit"):
+        build_canonical_toolset(["edit"])
 
 
-def test_build_canonical_toolset_registers_read_with_pydanticai() -> None:
+def test_build_canonical_toolset_registers_read_and_write_with_pydanticai() -> None:
     model = TestModel(call_tools=[], custom_output_text="ok")
-    agent = Agent(model, toolsets=[build_canonical_toolset(["read"])])
+    agent = Agent(model, toolsets=[build_canonical_toolset(["read", "write"])])
 
     agent.run_sync("What tools are available?")
 
     function_tools = model.last_model_request_parameters.function_tools
     tool_names = [tool.name for tool in function_tools]
-    assert tool_names == ["read"]
+    assert tool_names == ["read", "write"]

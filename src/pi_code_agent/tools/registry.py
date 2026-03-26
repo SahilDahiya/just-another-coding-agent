@@ -6,6 +6,7 @@ from pydantic_ai import FunctionToolset
 
 from pi_code_agent.contracts.tools import CANONICAL_TOOL_NAMES, CanonicalToolName
 from pi_code_agent.tools.read import READ_TOOL
+from pi_code_agent.tools.write import WRITE_TOOL
 
 
 class UnknownToolError(KeyError):
@@ -18,6 +19,7 @@ class ToolNotImplementedError(NotImplementedError):
 
 _IMPLEMENTED_TOOLS = {
     "read": READ_TOOL,
+    "write": WRITE_TOOL,
 }
 
 
