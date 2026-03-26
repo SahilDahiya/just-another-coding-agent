@@ -125,6 +125,25 @@ Rules:
 - Protocol changes require an ADR and tests.
 - RPC exposes the backend contract only; UI-specific command surfaces are out of scope unless deliberately added later.
 
+Initial executable RPC slice:
+
+- request line
+  - fields: `id`, `command`, `payload`
+  - initial command: `run.start`
+  - initial payload: `{"prompt": <string>}`
+- `rpc_event`
+  - fields: `type`, `id`, `event`
+  - `event` must be one canonical streamed run event payload
+- `rpc_error`
+  - fields: `type`, `id`, `error_type`, `message`
+
+Ordering rules for the RPC slice:
+
+- A valid `run.start` request yields zero or more `rpc_event` lines whose embedded events satisfy the streamed run contract
+- A valid request that ends in run failure still yields `rpc_event` lines ending in `run_failed`; it does not switch to `rpc_error`
+- Invalid JSON yields exactly one `rpc_error` with `id: null` and `error_type: InvalidJSON`
+- Invalid command or payload yields exactly one `rpc_error` with the parsed request `id` when available and `error_type: InvalidRequest`
+
 ## Failure Semantics
 
 - No fallback behavior, ever.
