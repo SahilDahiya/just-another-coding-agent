@@ -24,6 +24,7 @@ from .session import (
 from .tools import (
     CANONICAL_TOOL_NAMES,
     CanonicalToolName,
+    EditToolInput,
     ReadToolInput,
     WriteToolInput,
 )
@@ -32,6 +33,7 @@ __all__ = [
     "AssistantTextDeltaEvent",
     "CANONICAL_TOOL_NAMES",
     "CanonicalToolName",
+    "EditToolInput",
     "JsonValue",
     "LoadedSession",
     "ReadToolInput",

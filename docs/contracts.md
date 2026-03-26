@@ -31,7 +31,7 @@ Initial executable tool slice:
 - canonical registry names: `read`, `write`, `edit`, `bash`
 - unknown tool names fail explicitly
 - canonical names without an implementation fail explicitly
-- initial concrete tool implementations: `read`, `write`
+- initial concrete tool implementations: `read`, `write`, `edit`
 
 `read` input contract:
 
@@ -59,6 +59,22 @@ Initial executable tool slice:
 - overwrites an existing file completely
 - directory targets fail explicitly
 - no append mode, merge mode, backup file, or silent alternate write path
+
+`edit` input contract:
+
+- fields: `path`, `old_text`, `new_text`
+- `path` must be a non-empty string
+- `old_text` must be a non-empty string
+- `new_text` must be a string and may be empty
+
+`edit` behavior contract:
+
+- edits one existing UTF-8 text file by replacing exactly one occurrence of `old_text`
+- succeeds only when `old_text` matches exactly once
+- allows deletion by using an empty `new_text`
+- missing files, directory targets, and invalid UTF-8 fail explicitly
+- ambiguous matches, missing matches, and no-op replacements fail explicitly
+- no fuzzy matching, normalized matching, or alternate replacement heuristic
 
 ## Streamed Event Contract
 

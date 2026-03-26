@@ -1,0 +1,126 @@
+import pytest
+from pydantic import ValidationError
+
+from pi_code_agent.contracts.tools import EditToolInput
+from pi_code_agent.tools.edit import execute_edit
+
+
+def test_edit_tool_replaces_exact_unique_text(tmp_path) -> None:
+    path = tmp_path / "note.txt"
+    path.write_bytes(b"hello\nworld\n")
+
+    result = execute_edit(
+        EditToolInput(
+            path=str(path),
+            old_text="world",
+            new_text="agent",
+        )
+    )
+
+    assert path.read_bytes() == b"hello\nagent\n"
+    assert result == f"Edited {path}"
+
+
+def test_edit_tool_allows_deleting_text(tmp_path) -> None:
+    path = tmp_path / "note.txt"
+    path.write_bytes(b"hello\nworld\n")
+
+    execute_edit(
+        EditToolInput(
+            path=str(path),
+            old_text="world\n",
+            new_text="",
+        )
+    )
+
+    assert path.read_bytes() == b"hello\n"
+
+
+def test_edit_tool_rejects_non_string_input() -> None:
+    with pytest.raises(ValidationError):
+        EditToolInput(path=123, old_text="old", new_text="new")
+
+
+def test_edit_tool_rejects_empty_old_text() -> None:
+    with pytest.raises(ValidationError):
+        EditToolInput(path="note.txt", old_text="", new_text="new")
+
+
+def test_edit_tool_fails_for_missing_file(tmp_path) -> None:
+    path = tmp_path / "missing.txt"
+
+    with pytest.raises(FileNotFoundError):
+        execute_edit(
+            EditToolInput(
+                path=str(path),
+                old_text="old",
+                new_text="new",
+            )
+        )
+
+
+def test_edit_tool_fails_for_directory_target(tmp_path) -> None:
+    with pytest.raises(IsADirectoryError):
+        execute_edit(
+            EditToolInput(
+                path=str(tmp_path),
+                old_text="old",
+                new_text="new",
+            )
+        )
+
+
+def test_edit_tool_fails_for_invalid_utf8(tmp_path) -> None:
+    path = tmp_path / "binary.bin"
+    path.write_bytes(b"\xff\xfe\x00")
+
+    with pytest.raises(UnicodeDecodeError):
+        execute_edit(
+            EditToolInput(
+                path=str(path),
+                old_text="old",
+                new_text="new",
+            )
+        )
+
+
+def test_edit_tool_fails_when_old_text_is_missing(tmp_path) -> None:
+    path = tmp_path / "note.txt"
+    path.write_bytes(b"hello\nworld\n")
+
+    with pytest.raises(ValueError, match="old_text must match exactly once"):
+        execute_edit(
+            EditToolInput(
+                path=str(path),
+                old_text="missing",
+                new_text="agent",
+            )
+        )
+
+
+def test_edit_tool_fails_when_old_text_is_ambiguous(tmp_path) -> None:
+    path = tmp_path / "note.txt"
+    path.write_bytes(b"hello\nworld\nworld\n")
+
+    with pytest.raises(ValueError, match="old_text must match exactly once"):
+        execute_edit(
+            EditToolInput(
+                path=str(path),
+                old_text="world",
+                new_text="agent",
+            )
+        )
+
+
+def test_edit_tool_fails_when_replacement_is_no_op(tmp_path) -> None:
+    path = tmp_path / "note.txt"
+    path.write_bytes(b"hello\nworld\n")
+
+    with pytest.raises(ValueError, match="Edit would not change file contents"):
+        execute_edit(
+            EditToolInput(
+                path=str(path),
+                old_text="world",
+                new_text="world",
+            )
+        )

@@ -21,9 +21,18 @@ class WriteToolInput(BaseModel):
     content: str
 
 
+class EditToolInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    path: str = Field(min_length=1)
+    old_text: str = Field(min_length=1)
+    new_text: str
+
+
 __all__ = [
     "CANONICAL_TOOL_NAMES",
     "CanonicalToolName",
+    "EditToolInput",
     "ReadToolInput",
     "WriteToolInput",
 ]
