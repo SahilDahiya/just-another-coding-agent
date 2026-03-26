@@ -3,28 +3,47 @@ set -euo pipefail
 
 PACKAGE_ROOT=/installed-agent/pi-code-agent
 VENV_PATH="$PACKAGE_ROOT/.venv"
+BOOTSTRAP_PYTHON=python3
 VENV_PYTHON="$VENV_PATH/bin/python"
 
-if ! command -v python3 >/dev/null 2>&1; then
+ensure_apt_package() {
+  local package="$1"
   if ! command -v apt-get >/dev/null 2>&1; then
-    echo "python3 is required but apt-get is unavailable" >&2
+    echo "$package is required but apt-get is unavailable" >&2
     exit 1
   fi
   apt-get update
-  apt-get install -y python3 python3-venv
+  apt-get install -y "$package"
+}
+
+if ! command -v python3 >/dev/null 2>&1; then
+  ensure_apt_package python3
+  ensure_apt_package python3-venv
 fi
 
-if ! python3 -m venv --help >/dev/null 2>&1; then
-  if command -v apt-get >/dev/null 2>&1; then
-    apt-get update
-    apt-get install -y python3-venv
-  else
+if ! python3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 12) else 1)'; then
+  if ! command -v curl >/dev/null 2>&1; then
+    ensure_apt_package curl
+  fi
+  if ! command -v uv >/dev/null 2>&1; then
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    export PATH="$HOME/.local/bin:$PATH"
+  fi
+  uv python install 3.12
+  BOOTSTRAP_PYTHON="$(uv python find 3.12)"
+fi
+
+if ! "$BOOTSTRAP_PYTHON" -m venv "$VENV_PATH"; then
+  if ! command -v apt-get >/dev/null 2>&1; then
     echo "python3 venv support is required but unavailable" >&2
     exit 1
   fi
+  apt-get update
+  apt-get install -y python3-venv
+  rm -rf "$VENV_PATH"
+  "$BOOTSTRAP_PYTHON" -m venv "$VENV_PATH"
 fi
 
-python3 -m venv "$VENV_PATH"
 "$VENV_PYTHON" -m pip install --upgrade pip
 "$VENV_PYTHON" -m pip install "$PACKAGE_ROOT"
 
