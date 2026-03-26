@@ -38,6 +38,15 @@ Optional:
 export OPENAI_BASE_URL=...
 ```
 
+For Ollama-backed runs through PydanticAI's `ollama:` provider:
+
+```bash
+export OLLAMA_BASE_URL=https://ollama.com/v1
+export OLLAMA_API_KEY=...
+```
+
+If you are using a self-hosted Ollama server instead of Ollama Cloud, the base URL must be reachable from inside the Harbor task container. `http://localhost:11434/v1` will not work from a Docker-isolated benchmark container unless that `localhost` is inside the same container.
+
 ## Canonical Model String
 
 Use the exact backend model string that PydanticAI expects.
@@ -49,6 +58,14 @@ openai-responses:gpt-5.3-codex
 ```
 
 Do not rewrite this into Harbor-style provider/model syntax. The adapter passes the string through unchanged to the backend.
+
+For Ollama Cloud, use the exact Ollama provider model string, for example:
+
+```text
+ollama:kimi-k2:1t-cloud
+```
+
+The adapter still passes that string through unchanged.
 
 ## Container Paths
 
@@ -96,6 +113,20 @@ PYTHONPATH=$PWD/src harbor run \
   --task-name <task-name> \
   --agent-import-path pi_code_agent_adapters.harbor.agent:PiCodeAgentHarborAgent \
   --model openai-responses:gpt-5.3-codex \
+  --n-concurrent 1 \
+  --job-name pi-code-agent-<task-name> \
+  --artifact /logs/agent/pi-code-agent.txt \
+  --artifact /tmp/pi-code-agent-sessions
+```
+
+For Ollama Cloud, swap the model string and ensure `OLLAMA_BASE_URL` plus `OLLAMA_API_KEY` are exported in the Harbor host process:
+
+```bash
+PYTHONPATH=$PWD/src harbor run \
+  --dataset terminal-bench@2.0 \
+  --task-name <task-name> \
+  --agent-import-path pi_code_agent_adapters.harbor.agent:PiCodeAgentHarborAgent \
+  --model 'ollama:kimi-k2:1t-cloud' \
   --n-concurrent 1 \
   --job-name pi-code-agent-<task-name> \
   --artifact /logs/agent/pi-code-agent.txt \

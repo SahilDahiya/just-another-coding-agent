@@ -4,11 +4,13 @@ from pi_code_agent_adapters.harbor.commands import (
 )
 
 
-def test_build_provider_env_passes_openai_env_only() -> None:
+def test_build_provider_env_passes_supported_provider_env() -> None:
     env = build_provider_env(
         {
             "OPENAI_API_KEY": "secret",
             "OPENAI_BASE_URL": "https://example.test/v1",
+            "OLLAMA_BASE_URL": "https://ollama.com/v1",
+            "OLLAMA_API_KEY": "ollama-secret",
             "UNRELATED": "ignored",
         }
     )
@@ -16,6 +18,8 @@ def test_build_provider_env_passes_openai_env_only() -> None:
     assert env == {
         "OPENAI_API_KEY": "secret",
         "OPENAI_BASE_URL": "https://example.test/v1",
+        "OLLAMA_BASE_URL": "https://ollama.com/v1",
+        "OLLAMA_API_KEY": "ollama-secret",
     }
 
 

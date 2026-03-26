@@ -8,6 +8,8 @@ from collections.abc import Mapping
 _PROVIDER_ENV_KEYS = (
     "OPENAI_API_KEY",
     "OPENAI_BASE_URL",
+    "OLLAMA_API_KEY",
+    "OLLAMA_BASE_URL",
 )
 
 
