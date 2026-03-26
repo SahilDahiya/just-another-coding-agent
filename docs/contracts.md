@@ -43,16 +43,26 @@ Initial executable tool slice:
 
 `read` input contract:
 
-- fields: `path`
+- fields: `path`, `offset`, `limit`
 - `path` must be a non-empty string
+- `offset` is optional and, when present, must be a positive integer line number
+- `limit` is optional and, when present, must be a positive integer line count
 
 `read` behavior contract:
 
-- reads one existing UTF-8 text file and returns its full contents as a string
+- reads one existing UTF-8 text file and returns a string
 - resolves relative paths against the configured workspace root
 - allows absolute paths and relative paths that resolve outside the workspace root
+- `offset` is 1-indexed and line-based
+- `limit` bounds the number of lines returned before any truncation ceiling is applied
+- when `offset` or `limit` stops before end of file, the result must include an explicit continuation hint using the next `offset`
+- when `limit` is omitted, `read` must still bound output size explicitly instead of dumping arbitrarily large files
+- the canonical bounded-read ceiling is `2000` lines or `50 KiB`, whichever is hit first
+- when the bounded-read ceiling is hit, the result must include an explicit continuation hint using the next `offset`
+- if the first requested line alone exceeds the byte ceiling, the result must return an explicit recovery instruction telling the model to use `bash` for a narrower read
 - missing files return an explicit tool error result
 - directory paths return an explicit tool error result
+- offsets beyond end-of-file return an explicit tool error result
 - invalid UTF-8 content returns an explicit tool error result
 - no silent truncation, binary fallback, or alternate decoding path
 

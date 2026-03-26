@@ -13,27 +13,109 @@ from just_another_coding_agent.tools._workspace import (
     resolve_workspace_path,
 )
 
+READ_MAX_LINES = 2000
+READ_MAX_BYTES = 50 * 1024
+
+
+def _truncate_line_window(lines: list[str]) -> tuple[str, int, bool, bool]:
+    output_lines: list[str] = []
+    output_bytes = 0
+
+    for line in lines:
+        if len(output_lines) >= READ_MAX_LINES:
+            return ("".join(output_lines), len(output_lines), True, False)
+
+        line_bytes = len(line.encode("utf-8"))
+        if not output_lines and line_bytes > READ_MAX_BYTES:
+            return ("", 0, True, True)
+        if output_bytes + line_bytes > READ_MAX_BYTES:
+            return ("".join(output_lines), len(output_lines), True, False)
+
+        output_lines.append(line)
+        output_bytes += line_bytes
+
+    return ("".join(output_lines), len(output_lines), False, False)
+
+
+def _append_read_note(text: str, note: str) -> str:
+    if not text:
+        return note
+    return f"{text.rstrip('\n')}\n\n{note}"
+
 
 def execute_read(*, tool_input: ReadToolInput, workspace_root: Path | str) -> str:
     path = resolve_workspace_path(
         workspace_root=workspace_root,
         tool_path=tool_input.path,
     )
-    return path.read_text(encoding="utf-8")
+    lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+    if not lines:
+        if tool_input.offset not in (None, 1):
+            raise ValueError(
+                f"Offset {tool_input.offset} is beyond end of file (0 lines total)"
+            )
+        return ""
+
+    start_line = tool_input.offset or 1
+    start_index = start_line - 1
+    if start_index >= len(lines):
+        raise ValueError(
+            f"Offset {start_line} is beyond end of file ({len(lines)} lines total)"
+        )
+
+    selected_lines = lines[start_index:]
+    if tool_input.limit is not None:
+        selected_lines = selected_lines[: tool_input.limit]
+
+    output_text, output_line_count, truncated, first_line_exceeds_limit = (
+        _truncate_line_window(selected_lines)
+    )
+    if first_line_exceeds_limit:
+        return (
+            f"[Line {start_line} exceeds {READ_MAX_BYTES} byte limit. "
+            "Use bash to read a narrower slice.]"
+        )
+
+    if truncated:
+        end_line = start_index + output_line_count
+        return _append_read_note(
+            output_text,
+            (
+                f"[Showing lines {start_line}-{end_line} of {len(lines)}. "
+                f"Use offset={end_line + 1} to continue.]"
+            ),
+        )
+
+    if tool_input.limit is not None and start_index + len(selected_lines) < len(lines):
+        next_offset = start_index + len(selected_lines) + 1
+        remaining_lines = len(lines) - (start_index + len(selected_lines))
+        return _append_read_note(
+            output_text,
+            (
+                f"[{remaining_lines} more lines in file. "
+                f"Use offset={next_offset} to continue.]"
+            ),
+        )
+
+    return output_text
 
 
 def create_read_tool(*, workspace_root: Path | str) -> Tool:
     root = normalize_workspace_root(workspace_root)
 
-    def read(path: str) -> str | dict[str, bool | str]:
-        """Read a UTF-8 text file and return its full contents."""
+    def read(
+        path: str,
+        offset: int | None = None,
+        limit: int | None = None,
+    ) -> str | dict[str, bool | str]:
+        """Read a UTF-8 text file with optional line-based offset and limit."""
 
         try:
             return execute_read(
-                tool_input=ReadToolInput(path=path),
+                tool_input=ReadToolInput(path=path, offset=offset, limit=limit),
                 workspace_root=root,
             )
-        except (OSError, UnicodeError) as error:
+        except (OSError, UnicodeError, ValueError) as error:
             return make_tool_error_result(error)
 
     return Tool(read, name="read", strict=True)

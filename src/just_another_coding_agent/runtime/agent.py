@@ -20,6 +20,10 @@ CANONICAL_AGENT_INSTRUCTIONS = "\n".join(
         "Use edit for precise changes.",
         "Use write only for new files or full rewrites.",
         "Use bash for search, inspection, and commands.",
+        (
+            "Use read with offset and limit for large files instead of "
+            "pulling everything at once."
+        ),
         "Check bash exit_code in tool results; non-zero means the command failed.",
         (
             "If a tool returns an object with ok: false, treat it as an "

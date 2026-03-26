@@ -12,6 +12,8 @@ class ReadToolInput(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
     path: str = Field(min_length=1)
+    offset: int | None = Field(default=None, ge=1)
+    limit: int | None = Field(default=None, ge=1)
 
 
 class WriteToolInput(BaseModel):

@@ -19,9 +19,55 @@ def test_read_tool_reads_utf8_text_file(tmp_path) -> None:
     assert result == "hello\nworld\n"
 
 
+def test_read_tool_reads_requested_line_window(tmp_path) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    path = workspace_root / "note.txt"
+    path.write_text("line1\nline2\nline3\nline4\n", encoding="utf-8")
+
+    result = execute_read(
+        tool_input=ReadToolInput(path="note.txt", offset=2, limit=2),
+        workspace_root=workspace_root,
+    )
+
+    assert result == "line2\nline3\n\n[1 more lines in file. Use offset=4 to continue.]"
+
+
+def test_read_tool_truncates_large_file_and_returns_continuation_hint(tmp_path) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    path = workspace_root / "large.txt"
+    path.write_text(
+        "".join(f"line {number}\n" for number in range(1, 2105)),
+        encoding="utf-8",
+    )
+
+    result = execute_read(
+        tool_input=ReadToolInput(path="large.txt"),
+        workspace_root=workspace_root,
+    )
+
+    assert result.startswith("line 1\nline 2\n")
+    assert "\nline 2000\n" in result
+    assert "\nline 2001\n" not in result
+    assert result.endswith(
+        "\n\n[Showing lines 1-2000 of 2104. Use offset=2001 to continue.]"
+    )
+
+
 def test_read_tool_rejects_non_string_input() -> None:
     with pytest.raises(ValidationError):
         ReadToolInput(path=123)
+
+
+def test_read_tool_rejects_non_positive_offset() -> None:
+    with pytest.raises(ValidationError):
+        ReadToolInput(path="note.txt", offset=0)
+
+
+def test_read_tool_rejects_non_positive_limit() -> None:
+    with pytest.raises(ValidationError):
+        ReadToolInput(path="note.txt", limit=0)
 
 
 def test_read_tool_fails_for_missing_file(tmp_path) -> None:
@@ -56,6 +102,22 @@ def test_read_tool_fails_for_invalid_utf8(tmp_path) -> None:
     with pytest.raises(UnicodeDecodeError):
         execute_read(
             tool_input=ReadToolInput(path="binary.bin"),
+            workspace_root=workspace_root,
+        )
+
+
+def test_read_tool_fails_when_offset_is_beyond_end_of_file(tmp_path) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    path = workspace_root / "note.txt"
+    path.write_text("line1\nline2\n", encoding="utf-8")
+
+    with pytest.raises(
+        ValueError,
+        match="Offset 5 is beyond end of file \\(2 lines total\\)",
+    ):
+        execute_read(
+            tool_input=ReadToolInput(path="note.txt", offset=5),
             workspace_root=workspace_root,
         )
 
