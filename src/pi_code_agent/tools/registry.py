@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from pathlib import Path
 
 from pydantic_ai import FunctionToolset
 
 from pi_code_agent.contracts.tools import CANONICAL_TOOL_NAMES, CanonicalToolName
-from pi_code_agent.tools.bash import BASH_TOOL
-from pi_code_agent.tools.edit import EDIT_TOOL
-from pi_code_agent.tools.read import READ_TOOL
-from pi_code_agent.tools.write import WRITE_TOOL
+from pi_code_agent.tools._workspace import normalize_workspace_root
+from pi_code_agent.tools.bash import create_bash_tool
+from pi_code_agent.tools.edit import create_edit_tool
+from pi_code_agent.tools.read import create_read_tool
+from pi_code_agent.tools.write import create_write_tool
 
 
 class UnknownToolError(KeyError):
@@ -19,11 +21,11 @@ class ToolNotImplementedError(NotImplementedError):
     """Raised when a canonical tool name exists but has no implementation yet."""
 
 
-_IMPLEMENTED_TOOLS = {
-    "bash": BASH_TOOL,
-    "edit": EDIT_TOOL,
-    "read": READ_TOOL,
-    "write": WRITE_TOOL,
+_TOOL_FACTORIES = {
+    "bash": create_bash_tool,
+    "edit": create_edit_tool,
+    "read": create_read_tool,
+    "write": create_write_tool,
 }
 
 
@@ -31,7 +33,12 @@ def list_canonical_tool_names() -> tuple[CanonicalToolName, ...]:
     return CANONICAL_TOOL_NAMES
 
 
-def build_canonical_toolset(tool_names: Sequence[str]) -> FunctionToolset[None]:
+def build_canonical_toolset(
+    tool_names: Sequence[str],
+    *,
+    workspace_root: Path | str,
+) -> FunctionToolset[None]:
+    root = normalize_workspace_root(workspace_root)
     resolved_tools = []
     seen_names: set[str] = set()
 
@@ -43,13 +50,13 @@ def build_canonical_toolset(tool_names: Sequence[str]) -> FunctionToolset[None]:
         if tool_name not in CANONICAL_TOOL_NAMES:
             raise UnknownToolError(f"Unknown canonical tool: {tool_name}")
 
-        tool = _IMPLEMENTED_TOOLS.get(tool_name)
-        if tool is None:
+        tool_factory = _TOOL_FACTORIES.get(tool_name)
+        if tool_factory is None:
             raise ToolNotImplementedError(
                 f"Canonical tool not implemented yet: {tool_name}"
             )
 
-        resolved_tools.append(tool)
+        resolved_tools.append(tool_factory(workspace_root=root))
 
     return FunctionToolset(resolved_tools, strict=True)
 

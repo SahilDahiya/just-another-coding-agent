@@ -15,14 +15,21 @@ def test_registry_exposes_canonical_tool_names() -> None:
 
 def test_build_canonical_toolset_rejects_unknown_tool_name() -> None:
     with pytest.raises(UnknownToolError, match="nope"):
-        build_canonical_toolset(["nope"])
+        build_canonical_toolset(["nope"], workspace_root=".")
 
 
-def test_build_canonical_toolset_registers_implemented_tools_with_pydanticai() -> None:
+def test_build_canonical_toolset_registers_implemented_tools_with_pydanticai(
+    tmp_path,
+) -> None:
     model = TestModel(call_tools=[], custom_output_text="ok")
     agent = Agent(
         model,
-        toolsets=[build_canonical_toolset(["read", "write", "edit", "bash"])],
+        toolsets=[
+            build_canonical_toolset(
+                ["read", "write", "edit", "bash"],
+                workspace_root=tmp_path,
+            )
+        ],
     )
 
     agent.run_sync("What tools are available?")

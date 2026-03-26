@@ -17,6 +17,8 @@ Prefer direct use of PydanticAI primitives before creating local abstractions:
 
 Local code should translate those primitives into the canonical backend contract for tools, events, sessions, RPC, and failure semantics.
 
+The canonical agent assembly must take an explicit workspace root. Tool behavior must be scoped from that root rather than relying on process cwd or other implicit global state.
+
 ## Canonical Package Layout
 
 - `src/pi_code_agent/runtime/`
@@ -47,7 +49,7 @@ Local code should translate those primitives into the canonical backend contract
 ## Data Flow
 
 1. A caller starts a run through the runtime or RPC layer.
-2. The runtime creates or resumes a coding-agent run using PydanticAI primitives directly where possible.
+2. The runtime creates or resumes a coding-agent run using PydanticAI primitives directly where possible, with an explicit workspace root bound into the canonical toolset.
 3. Tools execute through the canonical tool layer.
 4. Events are translated into the public streamed event contract rather than exposing raw framework internals directly.
 5. Session entries are persisted through the session layer.

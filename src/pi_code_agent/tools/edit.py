@@ -5,10 +5,17 @@ from pathlib import Path
 from pydantic_ai import Tool
 
 from pi_code_agent.contracts.tools import EditToolInput
+from pi_code_agent.tools._workspace import (
+    normalize_workspace_root,
+    resolve_workspace_path,
+)
 
 
-def execute_edit(tool_input: EditToolInput) -> str:
-    path = Path(tool_input.path)
+def execute_edit(*, tool_input: EditToolInput, workspace_root: Path | str) -> str:
+    path = resolve_workspace_path(
+        workspace_root=workspace_root,
+        tool_path=tool_input.path,
+    )
     content = path.read_bytes().decode("utf-8")
     occurrences = content.count(tool_input.old_text)
 
@@ -26,18 +33,21 @@ def execute_edit(tool_input: EditToolInput) -> str:
     return f"Edited {path}"
 
 
-def edit(path: str, old_text: str, new_text: str) -> str:
-    """Replace one exact text match in a UTF-8 text file."""
+def create_edit_tool(*, workspace_root: Path | str) -> Tool:
+    root = normalize_workspace_root(workspace_root)
 
-    return execute_edit(
-        EditToolInput(
-            path=path,
-            old_text=old_text,
-            new_text=new_text,
+    def edit(path: str, old_text: str, new_text: str) -> str:
+        """Replace one exact text match in a UTF-8 text file."""
+
+        return execute_edit(
+            tool_input=EditToolInput(
+                path=path,
+                old_text=old_text,
+                new_text=new_text,
+            ),
+            workspace_root=root,
         )
-    )
 
+    return Tool(edit, name="edit", strict=True)
 
-EDIT_TOOL = Tool(edit, name="edit", strict=True)
-
-__all__ = ["EDIT_TOOL", "edit", "execute_edit"]
+__all__ = ["create_edit_tool", "execute_edit"]

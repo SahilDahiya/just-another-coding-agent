@@ -25,6 +25,7 @@ Rules:
 - Tools do not silently recover from invalid parameters or unsafe state.
 - The runtime must not provide fallback tools or alternate tool behavior behind the same name.
 - Tool registration and validation should prefer PydanticAI-native mechanisms unless the public contract requires a local wrapper.
+- Workspace root is explicit backend configuration, not implicit process state.
 
 Initial executable tool slice:
 
@@ -40,6 +41,8 @@ Initial executable tool slice:
 `read` behavior contract:
 
 - reads one existing UTF-8 text file and returns its full contents as a string
+- resolves relative paths against the configured workspace root
+- path traversal or absolute paths outside the workspace root fail explicitly
 - missing files fail explicitly
 - directory paths fail explicitly
 - invalid UTF-8 content fails explicitly
@@ -54,6 +57,8 @@ Initial executable tool slice:
 `write` behavior contract:
 
 - writes one UTF-8 text file and returns an explicit success message
+- resolves relative paths against the configured workspace root
+- path traversal or absolute paths outside the workspace root fail explicitly
 - creates parent directories as needed
 - overwrites an existing file completely
 - directory targets fail explicitly
@@ -69,6 +74,8 @@ Initial executable tool slice:
 `edit` behavior contract:
 
 - edits one existing UTF-8 text file by replacing exactly one occurrence of `old_text`
+- resolves relative paths against the configured workspace root
+- path traversal or absolute paths outside the workspace root fail explicitly
 - succeeds only when `old_text` matches exactly once
 - allows deletion by using an empty `new_text`
 - missing files, directory targets, and invalid UTF-8 fail explicitly
@@ -83,7 +90,8 @@ Initial executable tool slice:
 
 `bash` behavior contract:
 
-- executes one local `bash -lc` command in the backend process working directory
+- executes one local `bash -lc` command in the configured workspace root
+- sets command cwd to the configured workspace root, but does not sandbox filesystem access outside that root
 - returns a JSON-compatible result with fields `exit_code` and `output`
 - `output` is the combined stdout and stderr decoded as UTF-8
 - non-zero `exit_code` is part of the tool result, not a transport fallback or alternate event shape

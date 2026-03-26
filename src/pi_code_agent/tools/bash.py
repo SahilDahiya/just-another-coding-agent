@@ -1,17 +1,26 @@
 from __future__ import annotations
 
 import subprocess
+from pathlib import Path
 
 from pydantic_ai import Tool
 
 from pi_code_agent.contracts.tools import BashToolInput
+from pi_code_agent.tools._workspace import normalize_workspace_root
 
 
-def execute_bash(tool_input: BashToolInput) -> dict[str, int | str]:
+def execute_bash(
+    *,
+    tool_input: BashToolInput,
+    workspace_root: Path | str,
+) -> dict[str, int | str]:
+    root = normalize_workspace_root(workspace_root)
+
     try:
         completed = subprocess.run(
             ["bash", "-lc", tool_input.command],
             check=False,
+            cwd=root,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             timeout=tool_input.timeout,
@@ -29,12 +38,17 @@ def execute_bash(tool_input: BashToolInput) -> dict[str, int | str]:
     }
 
 
-def bash(command: str, timeout: int | None = None) -> dict[str, int | str]:
-    """Run a local bash command and return exit code plus combined output."""
+def create_bash_tool(*, workspace_root: Path | str) -> Tool:
+    root = normalize_workspace_root(workspace_root)
 
-    return execute_bash(BashToolInput(command=command, timeout=timeout))
+    def bash(command: str, timeout: int | None = None) -> dict[str, int | str]:
+        """Run a local bash command and return exit code plus combined output."""
 
+        return execute_bash(
+            tool_input=BashToolInput(command=command, timeout=timeout),
+            workspace_root=root,
+        )
 
-BASH_TOOL = Tool(bash, name="bash", strict=True)
+    return Tool(bash, name="bash", strict=True)
 
-__all__ = ["BASH_TOOL", "bash", "execute_bash"]
+__all__ = ["create_bash_tool", "execute_bash"]
