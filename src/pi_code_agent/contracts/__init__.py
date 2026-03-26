@@ -18,6 +18,7 @@ from .session import (
     SessionEntry,
     SessionEventEntry,
     SessionHeaderEntry,
+    SessionMessagesEntry,
     SessionRunEntry,
     SessionRunRecord,
 )
@@ -52,6 +53,7 @@ __all__ = [
     "SessionEntry",
     "SessionEventEntry",
     "SessionHeaderEntry",
+    "SessionMessagesEntry",
     "SessionRunEntry",
     "SessionRunRecord",
     "ToolCallFailedEvent",

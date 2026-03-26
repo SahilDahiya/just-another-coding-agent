@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import TextIO
 
 from pydantic import TypeAdapter, ValidationError
+from pydantic_ai.messages import ModelMessage
 
 from pi_code_agent.contracts.run_events import (
     RunEvent,
@@ -22,9 +23,11 @@ from pi_code_agent.contracts.session import (
     SessionEntry,
     SessionEventEntry,
     SessionHeaderEntry,
+    SessionMessagesEntry,
     SessionRunEntry,
     SessionRunRecord,
 )
+from pi_code_agent.tools._workspace import normalize_workspace_root
 
 _SESSION_ENTRY_ADAPTER = TypeAdapter(SessionEntry)
 
@@ -36,21 +39,24 @@ class SessionFormatError(ValueError):
 def append_run_to_session(
     *,
     path: Path,
+    workspace_root: Path | str,
     prompt: str,
     events: Sequence[RunEvent],
+    messages: Sequence[ModelMessage],
 ) -> None:
     run_events = list(events)
+    run_messages = list(messages)
     run_record = SessionRunRecord(
         run_id=_extract_run_id(run_events),
         prompt=prompt,
+        messages=run_messages,
         events=run_events,
     )
-    run_id = _validate_run_record(
-        run_record
-    )
+    run_id = _validate_run_record(run_record)
+    normalized_workspace_root = normalize_workspace_root(workspace_root)
 
     if path.exists():
-        load_session(path=path)
+        load_session(path=path, workspace_root=normalized_workspace_root)
         should_write_header = False
     else:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -58,9 +64,16 @@ def append_run_to_session(
 
     with path.open("a", encoding="utf-8") as file_handle:
         if should_write_header:
-            _write_entry(file_handle, SessionHeaderEntry())
+            _write_entry(
+                file_handle,
+                SessionHeaderEntry(workspace_root=str(normalized_workspace_root)),
+            )
 
         _write_entry(file_handle, SessionRunEntry(run_id=run_id, prompt=prompt))
+        _write_entry(
+            file_handle,
+            SessionMessagesEntry(run_id=run_id, messages=run_messages),
+        )
         for event in run_events:
             _write_entry(
                 file_handle,
@@ -68,7 +81,11 @@ def append_run_to_session(
             )
 
 
-def load_session(*, path: Path) -> LoadedSession:
+def load_session(
+    *,
+    path: Path,
+    workspace_root: Path | str | None = None,
+) -> LoadedSession:
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
     except FileNotFoundError:
@@ -80,7 +97,13 @@ def load_session(*, path: Path) -> LoadedSession:
     header: SessionHeaderEntry | None = None
     runs: list[SessionRunRecord] = []
     current_run: SessionRunRecord | None = None
+    current_run_has_messages = False
     known_run_ids: set[str] = set()
+    expected_workspace_root = (
+        str(normalize_workspace_root(workspace_root))
+        if workspace_root is not None
+        else None
+    )
 
     for line_number, raw_line in enumerate(lines, start=1):
         entry = _parse_entry(raw_line=raw_line, line_number=line_number)
@@ -91,27 +114,63 @@ def load_session(*, path: Path) -> LoadedSession:
                     "Session header must be first and appear only once"
                 )
             header = entry
+            if (
+                expected_workspace_root is not None
+                and header.workspace_root != expected_workspace_root
+            ):
+                raise SessionFormatError(
+                    "Session workspace_root mismatch: "
+                    f"expected {expected_workspace_root}, got "
+                    f"{header.workspace_root}"
+                )
             continue
 
         if header is None:
             raise SessionFormatError("Session header must be first entry")
 
         if isinstance(entry, SessionRunEntry):
+            if current_run is not None and not current_run_has_messages:
+                raise SessionFormatError(
+                    "session_run must be followed by exactly one session_messages entry"
+                )
             if entry.run_id in known_run_ids:
                 raise SessionFormatError(f"Duplicate session run_id: {entry.run_id}")
 
             current_run = SessionRunRecord(
                 run_id=entry.run_id,
                 prompt=entry.prompt,
+                messages=[],
                 events=[],
             )
+            current_run_has_messages = False
             known_run_ids.add(entry.run_id)
             runs.append(current_run)
+            continue
+
+        if isinstance(entry, SessionMessagesEntry):
+            if current_run is None:
+                raise SessionFormatError(
+                    "Session messages entry must follow a session_run entry"
+                )
+            if current_run_has_messages:
+                raise SessionFormatError(
+                    "session_run must be followed by exactly one session_messages entry"
+                )
+            if entry.run_id != current_run.run_id:
+                raise SessionFormatError(
+                    "Session messages entry must belong to the current run"
+                )
+            current_run.messages.extend(entry.messages)
+            current_run_has_messages = True
             continue
 
         if current_run is None:
             raise SessionFormatError(
                 "Session event entry must follow a session_run entry"
+            )
+        if not current_run_has_messages:
+            raise SessionFormatError(
+                "session_run must be followed by exactly one session_messages entry"
             )
 
         if entry.run_id != current_run.run_id:
@@ -125,6 +184,10 @@ def load_session(*, path: Path) -> LoadedSession:
         current_run.events.append(entry.event)
 
     assert header is not None
+    if current_run is not None and not current_run_has_messages:
+        raise SessionFormatError(
+            "session_run must be followed by exactly one session_messages entry"
+        )
 
     for run in runs:
         _validate_run_record(run)
@@ -225,7 +288,12 @@ def _parse_entry(*, raw_line: str, line_number: int) -> SessionEntry:
 
 def _write_entry(
     file_handle: TextIO,
-    entry: SessionHeaderEntry | SessionRunEntry | SessionEventEntry,
+    entry: (
+        SessionHeaderEntry
+        | SessionRunEntry
+        | SessionMessagesEntry
+        | SessionEventEntry
+    ),
 ) -> None:
     file_handle.write(entry.model_dump_json())
     file_handle.write("\n")

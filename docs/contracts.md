@@ -154,8 +154,8 @@ Ordering rules for the tool slice:
 Initial canonical session contract:
 
 - append-only JSONL
-- explicit session header
-- explicit run and event entries
+- explicit session header with authoritative workspace metadata
+- explicit run, native message-history, and event entries
 - no automatic migration of old local session states
 
 Rules:
@@ -164,13 +164,18 @@ Rules:
 - Session format changes require an ADR and test updates.
 - Do not add silent repair logic.
 - Session persistence should preserve coding-agent continuity without importing legacy session-tree or migration behavior by default.
+- A session belongs to exactly one resolved workspace root; loading it against a different workspace root is invalid state.
+- Public run events remain part of the persisted contract, but resume-capable conversation state must use the native PydanticAI `ModelMessage` history persisted alongside them.
 
 Initial executable session slice:
 
 - `session_header`
-  - fields: `type`, `version`
+  - fields: `type`, `version`, `workspace_root`
 - `session_run`
   - fields: `type`, `run_id`, `prompt`
+- `session_messages`
+  - fields: `type`, `run_id`, `messages`
+  - `messages` must be the native PydanticAI `ModelMessage` list for that run
 - `session_event`
   - fields: `type`, `run_id`, `event`
   - `event` must be one canonical streamed run event payload
@@ -178,7 +183,9 @@ Initial executable session slice:
 Ordering rules for the session slice:
 
 - The first line must be exactly one `session_header`
-- Each `session_run` is followed by zero or more `session_event` lines for the same `run_id`
+- Each `session_run` is followed by exactly one `session_messages` line and then zero or more `session_event` lines for the same `run_id`
+- Session loads that provide an expected workspace root must match the persisted `session_header.workspace_root` exactly
+- Session resume semantics must reconstruct conversation context from persisted `session_messages` in chronological order and pass that native history back through PydanticAI `message_history`
 - Persisted events for a run must satisfy the streamed run contract, including exactly one terminal outcome
 - Appending a new run must preserve all existing lines and write the header only once
 

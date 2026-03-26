@@ -2,6 +2,7 @@ import json
 from collections.abc import AsyncIterator
 
 from pydantic import TypeAdapter
+from pydantic_ai import capture_run_messages
 from pydantic_ai.messages import ModelMessage
 from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 
@@ -104,7 +105,8 @@ async def test_e2e_rpc_runtime_session_uses_explicit_workspace_root(
         workspace_root=workspace_root,
     )
 
-    events = await _collect_rpc_events(agent=agent, prompt="go")
+    with capture_run_messages() as messages:
+        events = await _collect_rpc_events(agent=agent, prompt="go")
 
     assert [event.type for event in events] == [
         "run_started",
@@ -132,10 +134,17 @@ async def test_e2e_rpc_runtime_session_uses_explicit_workspace_root(
     assert terminal.output_text == "done"
 
     session_path = tmp_path / "session.jsonl"
-    append_run_to_session(path=session_path, prompt="go", events=events)
-    loaded = load_session(path=session_path)
+    append_run_to_session(
+        path=session_path,
+        workspace_root=workspace_root,
+        prompt="go",
+        events=events,
+        messages=messages,
+    )
+    loaded = load_session(path=session_path, workspace_root=workspace_root)
 
     assert loaded.runs[0].prompt == "go"
+    assert loaded.runs[0].messages == messages
     assert loaded.runs[0].events == events
 
 
@@ -155,7 +164,8 @@ async def test_e2e_failure_round_trips_through_rpc_and_session(
         workspace_root=workspace_root,
     )
 
-    events = await _collect_rpc_events(agent=agent, prompt="go")
+    with capture_run_messages() as messages:
+        events = await _collect_rpc_events(agent=agent, prompt="go")
 
     assert [event.type for event in events] == [
         "run_started",
@@ -175,8 +185,15 @@ async def test_e2e_failure_round_trips_through_rpc_and_session(
     assert (workspace_root / "note.txt").read_text(encoding="utf-8") == "hello\nworld\n"
 
     session_path = tmp_path / "failed-session.jsonl"
-    append_run_to_session(path=session_path, prompt="go", events=events)
-    loaded = load_session(path=session_path)
+    append_run_to_session(
+        path=session_path,
+        workspace_root=workspace_root,
+        prompt="go",
+        events=events,
+        messages=messages,
+    )
+    loaded = load_session(path=session_path, workspace_root=workspace_root)
 
     assert loaded.runs[0].prompt == "go"
+    assert loaded.runs[0].messages == messages
     assert loaded.runs[0].events == events
