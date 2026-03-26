@@ -164,7 +164,7 @@ Rules:
 - Session format changes require an ADR and test updates.
 - Do not add silent repair logic.
 - Session persistence should preserve coding-agent continuity without importing legacy session-tree or migration behavior by default.
-- A session belongs to exactly one resolved workspace root; loading it against a different workspace root is invalid state.
+- A session belongs to exactly one resolved workspace root; authoritative session loads must provide that workspace root and fail on mismatch.
 - Public run events remain part of the persisted contract, but resume-capable conversation state must use the native PydanticAI `ModelMessage` history persisted alongside them.
 
 Initial executable session slice:
@@ -184,7 +184,7 @@ Ordering rules for the session slice:
 
 - The first line must be exactly one `session_header`
 - Each `session_run` is followed by exactly one `session_messages` line and then zero or more `session_event` lines for the same `run_id`
-- Session loads that provide an expected workspace root must match the persisted `session_header.workspace_root` exactly
+- Authoritative session loads must provide the expected workspace root and it must match the persisted `session_header.workspace_root` exactly
 - Session resume semantics must reconstruct conversation context from persisted `session_messages` in chronological order and pass that native history back through PydanticAI `message_history`
 - Persisted events for a run must satisfy the streamed run contract, including exactly one terminal outcome
 - Appending a new run must preserve all existing lines and write the header only once

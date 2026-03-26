@@ -84,7 +84,7 @@ def append_run_to_session(
 def load_session(
     *,
     path: Path,
-    workspace_root: Path | str | None = None,
+    workspace_root: Path | str,
 ) -> LoadedSession:
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
@@ -99,11 +99,7 @@ def load_session(
     current_run: SessionRunRecord | None = None
     current_run_has_messages = False
     known_run_ids: set[str] = set()
-    expected_workspace_root = (
-        str(normalize_workspace_root(workspace_root))
-        if workspace_root is not None
-        else None
-    )
+    expected_workspace_root = str(normalize_workspace_root(workspace_root))
 
     for line_number, raw_line in enumerate(lines, start=1):
         entry = _parse_entry(raw_line=raw_line, line_number=line_number)
@@ -114,10 +110,7 @@ def load_session(
                     "Session header must be first and appear only once"
                 )
             header = entry
-            if (
-                expected_workspace_root is not None
-                and header.workspace_root != expected_workspace_root
-            ):
+            if header.workspace_root != expected_workspace_root:
                 raise SessionFormatError(
                     "Session workspace_root mismatch: "
                     f"expected {expected_workspace_root}, got "

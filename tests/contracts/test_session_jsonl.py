@@ -132,6 +132,8 @@ def test_append_run_to_session_appends_without_rewriting_header(tmp_path) -> Non
 
 def test_load_session_fails_without_header(tmp_path) -> None:
     path = tmp_path / "session.jsonl"
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
     path.write_text(
         json.dumps(
             {
@@ -145,24 +147,28 @@ def test_load_session_fails_without_header(tmp_path) -> None:
     )
 
     with pytest.raises(SessionFormatError, match="Session header must be first"):
-        load_session(path=path)
+        load_session(path=path, workspace_root=workspace_root)
 
 
 def test_load_session_fails_when_file_is_empty(tmp_path) -> None:
     path = tmp_path / "session.jsonl"
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
     path.write_text("", encoding="utf-8")
 
     with pytest.raises(SessionFormatError, match="Session file is empty"):
-        load_session(path=path)
+        load_session(path=path, workspace_root=workspace_root)
 
 
 def test_load_session_fails_on_duplicate_run_id(tmp_path) -> None:
     path = tmp_path / "session.jsonl"
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
     lines = [
         {
             "type": "session_header",
             "version": 2,
-            "workspace_root": str(tmp_path.resolve()),
+            "workspace_root": str(workspace_root.resolve()),
         },
         {"type": "session_run", "run_id": "run-1", "prompt": "first"},
         {
@@ -202,17 +208,19 @@ def test_load_session_fails_on_duplicate_run_id(tmp_path) -> None:
     )
 
     with pytest.raises(SessionFormatError, match="Duplicate session run_id: run-1"):
-        load_session(path=path)
+        load_session(path=path, workspace_root=workspace_root)
 
 
 def test_load_session_fails_on_unsupported_header_version(tmp_path) -> None:
     path = tmp_path / "session.jsonl"
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
     path.write_text(
         json.dumps(
             {
                 "type": "session_header",
                 "version": 999,
-                "workspace_root": str(tmp_path.resolve()),
+                "workspace_root": str(workspace_root.resolve()),
             }
         )
         + "\n",
@@ -223,16 +231,18 @@ def test_load_session_fails_on_unsupported_header_version(tmp_path) -> None:
         SessionFormatError,
         match="Unsupported session format version on line 1: 999",
     ):
-        load_session(path=path)
+        load_session(path=path, workspace_root=workspace_root)
 
 
 def test_load_session_fails_when_run_event_order_is_invalid(tmp_path) -> None:
     path = tmp_path / "session.jsonl"
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
     lines = [
         {
             "type": "session_header",
             "version": 2,
-            "workspace_root": str(tmp_path.resolve()),
+            "workspace_root": str(workspace_root.resolve()),
         },
         {"type": "session_run", "run_id": "run-1", "prompt": "go"},
         {
@@ -265,18 +275,20 @@ def test_load_session_fails_when_run_event_order_is_invalid(tmp_path) -> None:
     )
 
     with pytest.raises(SessionFormatError, match="Run must start with run_started"):
-        load_session(path=path)
+        load_session(path=path, workspace_root=workspace_root)
 
 
 def test_load_session_fails_when_header_has_no_workspace_root(tmp_path) -> None:
     path = tmp_path / "session.jsonl"
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
     path.write_text(
         json.dumps({"type": "session_header", "version": 2}) + "\n",
         encoding="utf-8",
     )
 
     with pytest.raises(SessionFormatError, match="Invalid session entry on line 1"):
-        load_session(path=path)
+        load_session(path=path, workspace_root=workspace_root)
 
 
 def test_load_session_fails_when_expected_workspace_root_mismatches(tmp_path) -> None:
@@ -305,11 +317,13 @@ def test_load_session_fails_when_expected_workspace_root_mismatches(tmp_path) ->
 
 def test_load_session_fails_when_session_messages_are_missing(tmp_path) -> None:
     path = tmp_path / "session.jsonl"
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
     lines = [
         {
             "type": "session_header",
             "version": 2,
-            "workspace_root": str(tmp_path.resolve()),
+            "workspace_root": str(workspace_root.resolve()),
         },
         {"type": "session_run", "run_id": "run-1", "prompt": "go"},
         {
@@ -336,4 +350,23 @@ def test_load_session_fails_when_session_messages_are_missing(tmp_path) -> None:
         SessionFormatError,
         match="session_run must be followed by exactly one session_messages entry",
     ):
+        load_session(path=path, workspace_root=workspace_root)
+
+
+def test_load_session_requires_workspace_root(tmp_path) -> None:
+    path = tmp_path / "session.jsonl"
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    append_run_to_session(
+        path=path,
+        workspace_root=workspace_root,
+        prompt="go",
+        events=[
+            RunStartedEvent(run_id="run-1"),
+            RunSucceededEvent(run_id="run-1", output_text="done"),
+        ],
+        messages=[ModelRequest(parts=[UserPromptPart(content="go")])],
+    )
+
+    with pytest.raises(TypeError):
         load_session(path=path)

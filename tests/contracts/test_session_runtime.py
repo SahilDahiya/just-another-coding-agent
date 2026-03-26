@@ -8,8 +8,10 @@ from pydantic_ai.messages import (
 from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 
 from pi_code_agent.contracts.run_events import (
+    RunFailedEvent,
     RunStartedEvent,
     RunSucceededEvent,
+    ToolCallFailedEvent,
     ToolCallSucceededEvent,
 )
 from pi_code_agent.runtime import stream_session_run_events
@@ -88,6 +90,19 @@ async def resume_aware_write_stream(messages, _agent_info):
         return
 
     raise AssertionError(f"unexpected prompt: {latest_prompt!r}")
+
+
+async def failing_edit_stream(_messages, _agent_info):
+    yield {
+        0: DeltaToolCall(
+            name="edit",
+            json_args=(
+                '{"path": "note.txt", "old_text": "missing", '
+                '"new_text": "agent"}'
+            ),
+            tool_call_id="call-edit",
+        )
+    }
 
 
 async def test_stream_session_run_events_persists_authoritative_session(
@@ -201,3 +216,42 @@ async def test_stream_session_run_events_resumes_with_pydanticai_message_history
     loaded = load_session(path=session_path, workspace_root=workspace_root)
     assert [run.prompt for run in loaded.runs] == ["create note", "what did you do?"]
     assert _has_tool_return(loaded.message_history, tool_name="write")
+
+
+async def test_stream_session_run_events_persists_failed_run(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    (workspace_root / "note.txt").write_text("hello\nworld\n", encoding="utf-8")
+    session_path = tmp_path / "session.jsonl"
+
+    events = [
+        event
+        async for event in stream_session_run_events(
+            model=FunctionModel(stream_function=failing_edit_stream),
+            workspace_root=workspace_root,
+            session_path=session_path,
+            prompt="go",
+        )
+    ]
+
+    assert [event.type for event in events] == [
+        "run_started",
+        "tool_call_started",
+        "tool_call_failed",
+        "run_failed",
+    ]
+
+    tool_failed = events[2]
+    assert isinstance(tool_failed, ToolCallFailedEvent)
+    assert tool_failed.tool_name == "edit"
+    assert "found 0 occurrences" in tool_failed.message
+
+    terminal = events[-1]
+    assert isinstance(terminal, RunFailedEvent)
+    assert terminal.message == tool_failed.message
+
+    loaded = load_session(path=session_path, workspace_root=workspace_root)
+    assert loaded.runs[0].events == events
+    assert loaded.runs[0].messages
