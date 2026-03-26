@@ -9,6 +9,28 @@ from pydantic_ai import Agent
 from pi_code_agent.contracts.tools import CANONICAL_TOOL_NAMES
 from pi_code_agent.tools.registry import build_canonical_toolset
 
+CANONICAL_AGENT_INSTRUCTIONS = "\n".join(
+    [
+        (
+            "You are a headless coding assistant operating inside one "
+            "configured workspace."
+        ),
+        "Use only these tools: read, write, edit, bash.",
+        "Prefer read before edit.",
+        "Use edit for precise changes.",
+        "Use write only for new files or full rewrites.",
+        "Use bash for search, inspection, and commands.",
+        "Check bash exit_code in tool results; non-zero means the command failed.",
+        "Do not invent tools or alternate behaviors.",
+        "Do not rely on fallbacks.",
+        "If a tool call fails, treat it as a real failure.",
+        "Keep responses concise and task-focused.",
+        "Refer to files clearly by path.",
+        "read, write, and edit are scoped to the configured workspace root.",
+        "bash runs in the workspace root but is not a filesystem sandbox.",
+    ]
+)
+
 
 def build_canonical_agent(
     *,
@@ -19,6 +41,7 @@ def build_canonical_agent(
     return Agent(
         model,
         output_type=str,
+        instructions=CANONICAL_AGENT_INSTRUCTIONS,
         toolsets=[
             build_canonical_toolset(
                 tool_names,
@@ -28,4 +51,4 @@ def build_canonical_agent(
     )
 
 
-__all__ = ["build_canonical_agent"]
+__all__ = ["CANONICAL_AGENT_INSTRUCTIONS", "build_canonical_agent"]

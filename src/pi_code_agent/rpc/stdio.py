@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import Any
+from typing import Any, TextIO
 
 from pydantic import TypeAdapter, ValidationError
 
@@ -93,6 +94,30 @@ async def handle_rpc_json_line(
             message=str(error),
         ).model_dump_json()
         return
+
+
+async def serve_rpc_stdio(
+    *,
+    input_stream: TextIO,
+    output_stream: TextIO,
+    model: Any,
+    workspace_root: Path | str,
+    sessions_root: Path | str,
+) -> None:
+    while True:
+        line = await asyncio.to_thread(input_stream.readline)
+        if line == "":
+            return
+
+        async for response_line in handle_rpc_json_line(
+            line=line,
+            model=model,
+            workspace_root=workspace_root,
+            sessions_root=sessions_root,
+        ):
+            output_stream.write(response_line)
+            output_stream.write("\n")
+            output_stream.flush()
 
 
 def _extract_request_id(payload: Any) -> str | None:

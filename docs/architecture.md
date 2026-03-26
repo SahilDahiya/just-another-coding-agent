@@ -13,6 +13,7 @@ Prefer direct use of PydanticAI primitives before creating local abstractions:
 - use PydanticAI agent runs and streaming as the execution core
 - use PydanticAI function tools and toolsets as the default tool substrate
 - use PydanticAI message-history primitives as the default conversation substrate
+- use PydanticAI static `instructions` for the canonical baseline agent prompt unless preserving prompt messages in history is explicitly required
 - use PydanticAI testing primitives for unit and contract tests
 
 Local code should translate those primitives into the canonical backend contract for tools, events, sessions, RPC, and failure semantics.

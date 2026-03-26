@@ -42,6 +42,19 @@ uv run ruff check .
 uv run pytest
 ```
 
+## Run
+
+Launch the long-lived stdio RPC server with explicit backend configuration:
+
+```bash
+uv run pi-code-agent \
+  --model <provider:model> \
+  --workspace-root /abs/path/to/workspace \
+  --sessions-root /abs/path/to/sessions
+```
+
+The process reads one JSON RPC request per stdin line and writes one or more JSON lines to stdout.
+
 ## Docs
 
 - `docs/README.md`
