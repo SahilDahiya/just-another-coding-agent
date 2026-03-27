@@ -320,12 +320,14 @@ Ordering rules for the session slice:
 - `session_compaction` may appear only at a completed run boundary, never in the middle of a run
 - `session_compaction` entries are append-only and must not move the summary boundary backward
 - Authoritative session loads must provide the expected workspace root and it must match the persisted `session_header.workspace_root` exactly
-- Session resume semantics must reconstruct conversation context from persisted `session_messages` in chronological order and pass that native history back through PydanticAI `message_history`
+- Session resume semantics must reconstruct effective conversation context from the latest compaction summary plus retained `session_messages` after that summary boundary when a compaction entry exists; otherwise they replay all persisted `session_messages` in chronological order
+- Runtime compaction must be applied through PydanticAI `history_processors` while keeping the durable session file in full-fidelity append-only form
 - When a new run omits `thinking`, the session-backed runtime inherits the most recent persisted non-null thinking setting from that session
 - Session-backed runtime streaming persists only after the run reaches a terminal outcome; partially consumed or cancelled streams must not append a partial run
 - Persisted events for a run must satisfy the streamed run contract, including exactly one terminal outcome
 - Appending a new run must preserve all existing lines and write the header only once
-- Defining a compaction entry does not, by itself, change the runtime's effective `message_history`; later runtime compaction behavior is a separate slice
+- Synthetic compaction-summary messages used at runtime must not be persisted back into `session_messages`
+- Before a resumed run starts, the runtime may append one automatic `session_compaction` entry when at least five completed runs have accumulated since the latest compaction boundary
 
 ## RPC Contract
 

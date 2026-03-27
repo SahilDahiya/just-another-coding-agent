@@ -10,8 +10,17 @@ from just_another_coding_agent.contracts.run_events import RunEvent
 from just_another_coding_agent.contracts.thinking import ThinkingSetting
 from just_another_coding_agent.contracts.tools import CANONICAL_TOOL_NAMES
 from just_another_coding_agent.runtime.agent import build_canonical_agent
+from just_another_coding_agent.runtime.compaction import (
+    build_session_history_processor,
+    should_auto_compact_session,
+    strip_compaction_summary_from_messages,
+)
 from just_another_coding_agent.runtime.run import stream_run_events
-from just_another_coding_agent.session.jsonl import append_run_to_session, load_session
+from just_another_coding_agent.session.jsonl import (
+    append_compaction_to_session,
+    append_run_to_session,
+    load_session,
+)
 from just_another_coding_agent.tools._workspace import normalize_workspace_root
 
 
@@ -36,16 +45,33 @@ async def stream_session_run_events(
             path=session_path,
             workspace_root=normalized_workspace_root,
         )
+        if should_auto_compact_session(loaded_session):
+            append_compaction_to_session(
+                path=session_path,
+                workspace_root=normalized_workspace_root,
+            )
+            loaded_session = load_session(
+                path=session_path,
+                workspace_root=normalized_workspace_root,
+            )
     resolved_thinking = (
         thinking
         if thinking is not None
         else (loaded_session.thinking if loaded_session is not None else None)
+    )
+    history_processor = (
+        build_session_history_processor(loaded_session)
+        if loaded_session is not None
+        else None
     )
 
     agent = build_canonical_agent(
         model=model,
         workspace_root=normalized_workspace_root,
         tool_names=tool_names,
+        history_processors=(
+            [history_processor] if history_processor is not None else None
+        ),
     )
     emitted_events: list[RunEvent] = []
 
@@ -67,7 +93,7 @@ async def stream_session_run_events(
         prompt=prompt,
         thinking=resolved_thinking,
         events=emitted_events,
-        messages=messages,
+        messages=strip_compaction_summary_from_messages(list(messages)),
     )
 
 

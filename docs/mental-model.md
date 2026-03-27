@@ -103,15 +103,17 @@ Example:
 Rules: header appears exactly once, no duplicate run IDs, events must satisfy the same ordering rules as the streaming contract, and compaction entries may appear only at completed run boundaries. Invalid files fail hard on load. Loading a session against a different workspace root than the one persisted is invalid state.
 
 Sessions persist both public contract events (for consumers) and native PydanticAI message history (for resume). They also persist the effective per-run thinking setting. These serve different purposes and neither can replace the other.
-Compaction entries are durable session metadata only for now; they do not yet change the runtime's effective `message_history` by themselves.
+Compaction entries stay durable session metadata, but they now also change the runtime's effective replayed history: resumed runs inject a synthetic compaction summary plus any retained post-compaction native messages instead of replaying the summarized raw prefix.
 
 ### Session Resume
 
-When a session already exists, the runtime loads all persisted `ModelMessage` entries across prior runs and passes them as `message_history` to PydanticAI. This gives the model full conversation context from previous runs without re-executing anything.
+When a session already exists, the runtime loads all persisted `ModelMessage` entries across prior runs. If no compaction entry exists, it replays that full history into PydanticAI. If a compaction entry exists, it uses a PydanticAI `history_processor` to replace the summarized raw prefix with a synthetic compaction-summary message plus any retained post-compaction native messages. The durable session file stays append-only and full-fidelity even though the model sees the compacted view.
 
 If a new run omits `thinking`, the session runtime inherits the most recent persisted non-null thinking setting from that session. This makes thinking stateful across runs without encoding it in the prompt.
 
-The coordinator `stream_session_run_events()` handles the full lifecycle: load session, build agent, stream events, capture messages, persist both events and messages after the run completes. Persistence only happens after terminal completion -- partially consumed streams do not append.
+The coordinator `stream_session_run_events()` handles the full lifecycle: load session, optionally auto-compact stale history, build the agent, stream events, capture messages, strip synthetic compaction-summary messages back out, then persist both events and messages after the run completes. Persistence only happens after terminal completion -- partially consumed streams do not append.
+
+The current deterministic auto-compaction trigger is simple: before a resumed run starts, the runtime appends one automatic compaction entry when at least five completed runs have accumulated since the latest compaction boundary.
 
 ### Session Store
 

@@ -54,14 +54,15 @@ The rule of thumb is:
 
 ## Compaction Direction
 
-Compaction is the planned answer for long-lived session growth, not for bounding a live run.
+Compaction is the answer for long-lived session growth, not for bounding a live run.
 
-Planned sequence:
+Current sequence:
 
 1. Add manual session compaction first.
 2. Persist a compaction entry alongside existing session entries.
 3. Rebuild resumed `message_history` from a compaction summary plus retained recent native messages.
-4. Add optional automatic compaction later on explicit thresholds or overflow recovery.
+4. Add deterministic automatic compaction before resumed runs when at least five completed runs have accumulated since the latest compaction boundary.
+5. Evaluate hook-based live-run recovery later if the streamed event contract can support it without hidden inner attempts.
 
 The important boundary is:
 

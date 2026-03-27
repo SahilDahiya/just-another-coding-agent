@@ -86,6 +86,27 @@ So the right split is:
 - durable compaction state is stored in our session file
 - runtime compaction application is done via `history_processors`
 
+Today that means:
+
+- the session file keeps full-fidelity native messages plus explicit
+  `session_compaction` entries
+- resumed runs inject a synthetic compaction-summary message at runtime and keep
+  only native messages after the latest compaction boundary
+- that synthetic summary is stripped back out before the new run's
+  `session_messages` are persisted
+
+## Auto-Compaction Triggers
+
+The current automatic trigger is intentionally narrow and deterministic:
+
+- before a resumed run starts, append one automatic compaction entry when at
+  least five completed runs have accumulated since the latest compaction
+  boundary
+
+This is cross-run session management, not live-run recovery. It happens before
+the next run starts so the streamed event contract does not need to hide failed
+inner attempts.
+
 ## Recommended Sequence
 
 1. Define the durable compaction contract first.
@@ -94,8 +115,10 @@ So the right split is:
 3. Rebuild resumed `message_history` from the latest compaction entry plus
    retained native messages.
 4. Use `history_processors` to apply the compacted history view at runtime.
-5. Add explicit continue semantics.
-6. Add bounded recovery hooks and optional auto-compaction triggers later.
+5. Add deterministic pre-run auto-compaction triggers.
+6. Add explicit continue semantics.
+7. Add bounded hook-based live-run recovery later only if the streamed event
+   contract can support it cleanly.
 
 ## Non-Goals
 

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import date
 from pathlib import Path
 from typing import Any
 
 from pydantic_ai import Agent
+from pydantic_ai.messages import ModelMessage
 from pydantic_ai.settings import ModelSettings
 
 from just_another_coding_agent.contracts.thinking import ThinkingSetting
@@ -89,6 +90,8 @@ def build_canonical_agent(
     model: Any,
     workspace_root: Path | str,
     tool_names: Sequence[str] = CANONICAL_TOOL_NAMES,
+    history_processors: Sequence[Callable[[list[ModelMessage]], list[ModelMessage]]]
+    | None = None,
 ) -> Agent[Any, str]:
     root = normalize_workspace_root(workspace_root)
 
@@ -102,6 +105,7 @@ def build_canonical_agent(
                 workspace_root=root,
             )
         ],
+        history_processors=history_processors,
     )
 
 

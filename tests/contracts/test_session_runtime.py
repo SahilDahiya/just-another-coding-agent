@@ -4,6 +4,7 @@ import pytest
 from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
+    SystemPromptPart,
     ToolReturnPart,
     UserPromptPart,
 )
@@ -17,6 +18,7 @@ from just_another_coding_agent.contracts.run_events import (
 from just_another_coding_agent.runtime import stream_session_run_events
 from just_another_coding_agent.session import (
     SessionFormatError,
+    append_compaction_to_session,
     append_run_to_session,
     load_session,
 )
@@ -41,6 +43,14 @@ def _has_tool_return(messages: list[ModelMessage], *, tool_name: str) -> bool:
         isinstance(part, ToolReturnPart) and part.tool_name == tool_name
         for part in _all_parts(messages)
     )
+
+
+def _system_prompt_contents(messages: list[ModelMessage]) -> list[str]:
+    return [
+        part.content
+        for part in _all_parts(messages)
+        if isinstance(part, SystemPromptPart)
+    ]
 
 
 def make_write_stream():
@@ -96,6 +106,34 @@ async def text_only_stream(
     _messages: list[ModelMessage],
     _agent_info: object,
 ) -> AsyncIterator[str]:
+    yield "done"
+
+
+async def compacted_history_probe_stream(
+    messages: list[ModelMessage],
+    _agent_info: object,
+) -> AsyncIterator[str]:
+    all_user_prompts = [
+        part.content
+        for part in _all_parts(messages)
+        if isinstance(part, UserPromptPart)
+    ]
+    system_prompts = _system_prompt_contents(messages)
+
+    if "first" in all_user_prompts:
+        raise AssertionError("raw pre-compaction history should not be replayed")
+    if "second" not in all_user_prompts:
+        raise AssertionError("retained post-compaction history should be replayed")
+    if "third" not in all_user_prompts:
+        raise AssertionError("current prompt should be present")
+    if not _has_tool_return(messages, tool_name="write"):
+        raise AssertionError("retained post-compaction tool history should be replayed")
+    if not any(
+        prompt.startswith("Session compaction summary:")
+        for prompt in system_prompts
+    ):
+        raise AssertionError("compaction summary should be injected")
+
     yield "done"
 
 
@@ -269,6 +307,118 @@ async def test_stream_session_run_events_inherits_last_persisted_thinking_when_o
     loaded = load_session(path=session_path, workspace_root=workspace_root)
     assert [run.thinking for run in loaded.runs] == ["high", "high"]
     assert loaded.thinking == "high"
+
+
+async def test_stream_session_run_events_replays_compacted_history_keeps_messages_raw(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    session_path = tmp_path / "session.jsonl"
+
+    append_run_to_session(
+        path=session_path,
+        workspace_root=workspace_root,
+        prompt="first",
+        thinking=None,
+        messages=[ModelRequest(parts=[UserPromptPart(content="first")])],
+        events=[
+            RunStartedEvent(run_id="run-1"),
+            RunSucceededEvent(run_id="run-1", output_text="done"),
+        ],
+    )
+    append_compaction_to_session(path=session_path, workspace_root=workspace_root)
+    append_run_to_session(
+        path=session_path,
+        workspace_root=workspace_root,
+        prompt="second",
+        thinking=None,
+        messages=[
+            ModelRequest(parts=[UserPromptPart(content="second")]),
+            ModelRequest(
+                parts=[
+                    ToolReturnPart(
+                        tool_name="write",
+                        content="Wrote note.txt",
+                        tool_call_id="call-write",
+                    )
+                ]
+            ),
+        ],
+        events=[
+            RunStartedEvent(run_id="run-2"),
+            RunSucceededEvent(run_id="run-2", output_text="done"),
+        ],
+    )
+
+    events = [
+        event
+        async for event in stream_session_run_events(
+            model=FunctionModel(stream_function=compacted_history_probe_stream),
+            workspace_root=workspace_root,
+            session_path=session_path,
+            prompt="third",
+        )
+    ]
+
+    assert [event.type for event in events] == [
+        "run_started",
+        "assistant_text_delta",
+        "run_succeeded",
+    ]
+
+    loaded = load_session(path=session_path, workspace_root=workspace_root)
+    latest_messages = loaded.runs[-1].messages
+    assert _system_prompt_contents(latest_messages) == []
+    assert [run.prompt for run in loaded.runs] == ["first", "second", "third"]
+    assert len(loaded.compactions) == 1
+
+
+async def test_stream_session_run_events_auto_compacts_stale_session_before_resuming(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    session_path = tmp_path / "session.jsonl"
+
+    for index in range(5):
+        run_id = f"run-{index + 1}"
+        append_run_to_session(
+            path=session_path,
+            workspace_root=workspace_root,
+            prompt=f"prompt-{index + 1}",
+            thinking=None,
+            messages=[
+                ModelRequest(parts=[UserPromptPart(content=f"prompt-{index + 1}")])
+            ],
+            events=[
+                RunStartedEvent(run_id=run_id),
+                RunSucceededEvent(run_id=run_id, output_text="done"),
+            ],
+        )
+
+    events = [
+        event
+        async for event in stream_session_run_events(
+            model=FunctionModel(stream_function=text_only_stream),
+            workspace_root=workspace_root,
+            session_path=session_path,
+            prompt="follow-up",
+        )
+    ]
+
+    assert [event.type for event in events] == [
+        "run_started",
+        "assistant_text_delta",
+        "run_succeeded",
+    ]
+
+    loaded = load_session(path=session_path, workspace_root=workspace_root)
+    assert len(loaded.compactions) == 1
+    assert loaded.latest_compaction is not None
+    assert loaded.latest_compaction.summarized_through_run_id == "run-5"
+
+
 async def test_stream_session_run_events_does_not_persist_partial_consumption(
     tmp_path,
 ) -> None:
