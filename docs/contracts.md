@@ -370,6 +370,7 @@ Ordering rules for the RPC slice:
 - A valid `session.create` request yields exactly one `rpc_response` containing a server-generated opaque `session_id`
 - A valid `session.compact` request must reference an existing `session_id` and yields exactly one `rpc_response` describing the newly appended compaction entry
 - A valid `run.start` request must reference an existing `session_id` and yields zero or more `rpc_event` lines whose embedded events satisfy the streamed run contract
+- `run.start` on an existing session is the canonical continue operation; there is no separate `session.continue` command
 - A valid `run.start` request may include `thinking`; when omitted, session-backed execution inherits the latest persisted thinking setting for that session when present
 - A valid request that ends in run failure still yields `rpc_event` lines ending in `run_failed`; it does not switch to `rpc_error`
 - Clients must not provide filesystem paths or workspace identifiers in the RPC session contract

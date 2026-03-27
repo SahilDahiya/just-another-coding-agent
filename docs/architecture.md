@@ -70,6 +70,7 @@ The important boundary is:
 - it does not replace external timeouts for live runs
 - durable compaction state lives in our session file, while PydanticAI
   `history_processors` are the runtime seam that applies the compacted view
+- `run.start` on an existing session is the canonical continue operation; there is no second continue command today
 
 ## Canonical Package Layout
 

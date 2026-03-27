@@ -111,6 +111,8 @@ When a session already exists, the runtime loads all persisted `ModelMessage` en
 
 If a new run omits `thinking`, the session runtime inherits the most recent persisted non-null thinking setting from that session. This makes thinking stateful across runs without encoding it in the prompt.
 
+`run.start` against an existing session is the canonical continue operation. There is no separate `session.continue` command.
+
 The coordinator `stream_session_run_events()` handles the full lifecycle: load session, optionally auto-compact stale history, build the agent, stream events, capture messages, strip synthetic compaction-summary messages back out, then persist both events and messages after the run completes. Persistence only happens after terminal completion -- partially consumed streams do not append.
 
 The current deterministic auto-compaction trigger is simple: before a resumed run starts, the runtime appends one automatic compaction entry when at least five completed runs have accumulated since the latest compaction boundary.

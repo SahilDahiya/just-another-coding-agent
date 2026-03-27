@@ -95,6 +95,16 @@ Today that means:
 - that synthetic summary is stripped back out before the new run's
   `session_messages` are persisted
 
+## Continue Semantics
+
+The current product decision is:
+
+- `run.start` on an existing session is the canonical continue operation
+- there is no separate `session.continue` command today
+
+That keeps one public way to resume a session while compaction and thinking
+inheritance continue to evolve underneath it.
+
 ## Auto-Compaction Triggers
 
 The current automatic trigger is intentionally narrow and deterministic:
@@ -115,8 +125,8 @@ inner attempts.
 3. Rebuild resumed `message_history` from the latest compaction entry plus
    retained native messages.
 4. Use `history_processors` to apply the compacted history view at runtime.
-5. Add deterministic pre-run auto-compaction triggers.
-6. Add explicit continue semantics.
+5. Define explicit continue semantics as `run.start` on an existing session.
+6. Add deterministic pre-run auto-compaction triggers.
 7. Add bounded hook-based live-run recovery later only if the streamed event
    contract can support it cleanly.
 
