@@ -21,6 +21,8 @@ agenda.
 - No fourth zone will be added.
 - No sidebars, drawers, file browsers, split panes, inspector panels, or terminal-IDE surfaces.
 - If a capability cannot be expressed through the transcript or a slash command, it does not belong in the canonical TUI.
+- Maintain a single global terminal background shade.
+- Build structure with borders, spacing, typography, and color hierarchy, not stacked background fills.
 
 ## Product Bar
 

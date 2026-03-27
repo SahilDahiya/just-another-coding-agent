@@ -10,10 +10,6 @@ class ThemeTokens:
     """Named visual tokens for the one-column TUI."""
 
     background: str
-    surface: str
-    surface_alt: str
-    input_bg: str
-    input_focus_bg: str
     border: str
     border_strong: str
     text: str
@@ -25,10 +21,6 @@ class ThemeTokens:
 
 DEFAULT_THEME = ThemeTokens(
     background="#0f1115",
-    surface="#15181d",
-    surface_alt="#1b1f26",
-    input_bg="#11141a",
-    input_focus_bg="#1a1f27",
     border="#2a313c",
     border_strong="#4a596d",
     text="#f1ede4",
@@ -50,7 +42,7 @@ StatusBar {{
     dock: top;
     height: 1;
     padding: 0 1;
-    background: {theme.surface_alt};
+    background: {theme.background};
     color: {theme.text_muted};
     border-bottom: solid {theme.border};
 }}
@@ -62,7 +54,7 @@ StatusBar {{
 
 #output-scroll {{
     height: 1fr;
-    background: {theme.surface};
+    background: {theme.background};
     border-top: solid {theme.border_strong};
     border-bottom: solid {theme.border};
 }}
@@ -72,14 +64,14 @@ StatusBar {{
     min-height: 1;
     padding: 1 2;
     color: {theme.text};
-    background: {theme.surface};
+    background: {theme.background};
 }}
 
 #prompt-row {{
     dock: bottom;
     height: auto;
     padding: 1 1 1 1;
-    background: {theme.surface_alt};
+    background: {theme.background};
     border-top: solid {theme.border};
 }}
 
@@ -95,14 +87,14 @@ StatusBar {{
     width: 1fr;
     border: none;
     padding: 0 1;
-    background: {theme.input_bg};
+    background: {theme.background};
     color: {theme.text};
 }}
 
 #prompt-input:focus {{
     border: none;
-    background: {theme.input_focus_bg};
     color: {theme.accent_soft};
+    text-style: bold;
 }}
 """
 
