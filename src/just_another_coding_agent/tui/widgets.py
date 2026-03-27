@@ -84,6 +84,9 @@ class TranscriptLog(RichLog):
         self._live_part_index: int | None = None
         self._live_dirty = False
         self._live_flush_timer: Timer | None = None
+        self._tool_batch_index: int | None = None
+        self._tool_batch_name: str | None = None
+        self._tool_batch_count = 0
 
     can_focus = False
 
@@ -126,6 +129,44 @@ class TranscriptLog(RichLog):
         self.flush_live_text()
         self._live_part_index = None
 
+    def start_tool_activity(self, tool_name: str, preview: str | None = None) -> None:
+        """Append or update a compact tool-activity summary line."""
+        self.flush_live_text()
+        preview = preview.strip() if preview else None
+        if self._tool_batch_index is not None and self._tool_batch_name == tool_name:
+            self._tool_batch_count += 1
+            self._parts[self._tool_batch_index] = self._format_tool_activity_line(
+                tool_name,
+                self._tool_batch_count,
+                preview,
+            )
+            self._rerender()
+            return
+
+        self.end_tool_activity()
+        if self._parts and not self.plain_text.endswith("\n"):
+            self._parts.append("\n")
+        self._tool_batch_name = tool_name
+        self._tool_batch_count = 1
+        self._parts.append(self._format_tool_activity_line(tool_name, 1, preview))
+        self._tool_batch_index = len(self._parts) - 1
+        self._rerender()
+
+    def end_tool_activity(self) -> None:
+        """Stop compacting subsequent tool calls into the current summary line."""
+        self._tool_batch_index = None
+        self._tool_batch_name = None
+        self._tool_batch_count = 0
+
+    def write_tool_error(self, tool_name: str, message: str) -> None:
+        """Write a compact tool-error line into the transcript."""
+        self.flush_live_text()
+        self.end_tool_activity()
+        if self._parts and not self.plain_text.endswith("\n"):
+            self._parts.append("\n")
+        self._parts.append(f"{tool_name} error  {message}\n")
+        self._rerender()
+
     def clear(self) -> TranscriptLog:
         if self._live_flush_timer is not None:
             self._live_flush_timer.stop()
@@ -133,6 +174,7 @@ class TranscriptLog(RichLog):
         self._parts.clear()
         self._live_part_index = None
         self._live_dirty = False
+        self.end_tool_activity()
         return super().clear()
 
     def write(
@@ -145,6 +187,7 @@ class TranscriptLog(RichLog):
         animate: bool = False,
     ) -> Self:
         self.flush_live_text()
+        self.end_tool_activity()
         if isinstance(content, str):
             self._parts.append(content)
         return super().write(
@@ -168,6 +211,18 @@ class TranscriptLog(RichLog):
         super().clear()
         for part in self._parts:
             super().write(part, scroll_end=True)
+
+    @staticmethod
+    def _format_tool_activity_line(
+        tool_name: str,
+        count: int,
+        preview: str | None,
+    ) -> str:
+        if count > 1:
+            return f"{tool_name} x{count}\n"
+        if preview:
+            return f"{tool_name}  {preview}\n"
+        return f"{tool_name}\n"
 
 
 __all__ = ["APP_CSS", "ComposerInput", "StatusBar", "TranscriptLog"]

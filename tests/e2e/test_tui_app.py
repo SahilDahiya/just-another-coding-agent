@@ -45,7 +45,8 @@ async def test_tui_app_starts_and_focuses_prompt(tmp_path: Path) -> None:
         assert status_bar.styles.opacity == 1
         assert transcript.styles.opacity == 1
         assert prompt_row.styles.opacity == 1
-        assert transcript.plain_text.startswith("system\n\njaca")
+        assert transcript.plain_text.startswith("jaca  ")
+        assert "system" not in transcript.plain_text
         assert "idle" in str(status_bar.renderable)
         assert "ollama:test" in str(status_bar.renderable)
 
@@ -221,8 +222,8 @@ async def test_prompt_submission_keeps_spaces_and_streams_single_line(
 
         transcript = app.query_one("#output", TranscriptLog)
         assert "> hello world" in transcript.plain_text
-        assert "assistant" in transcript.plain_text
         assert "Hello world" in transcript.plain_text
+        assert "assistant" not in transcript.plain_text
 
 
 @pytest.mark.asyncio
@@ -242,8 +243,97 @@ async def test_slash_help_renders_as_system_block(tmp_path: Path) -> None:
     async with app.run_test() as pilot:
         await pilot.press("slash", "h", "e", "l", "p", "enter")
         transcript = app.query_one("#output", TranscriptLog)
-        assert "system\n\ncommands" in transcript.plain_text
+        assert "note  commands" in transcript.plain_text
         assert "keyboard" in transcript.plain_text
+
+
+@pytest.mark.asyncio
+async def test_tool_activity_is_compacted_into_summary_rows(tmp_path: Path) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    sessions_root.mkdir()
+
+    app = CodingAgentApp(
+        model="ollama:test",
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+        thinking=None,
+    )
+
+    async with app.run_test() as _pilot:
+        transcript = app.query_one("#output", TranscriptLog)
+        write_stream_event(
+            transcript,
+            SimpleNamespace(
+                type="tool_call_started",
+                tool_name="bash",
+                tool_call_id="call-1",
+                args={"command": "git show HEAD --stat"},
+                args_valid=True,
+            ),
+        )
+        write_stream_event(
+            transcript,
+            SimpleNamespace(
+                type="tool_call_succeeded",
+                tool_name="bash",
+                tool_call_id="call-1",
+                result={"ok": True},
+            ),
+        )
+        write_stream_event(
+            transcript,
+            SimpleNamespace(
+                type="tool_call_started",
+                tool_name="bash",
+                tool_call_id="call-2",
+                args={"command": "git diff --stat"},
+                args_valid=True,
+            ),
+        )
+        write_stream_event(
+            transcript,
+            SimpleNamespace(
+                type="tool_call_succeeded",
+                tool_name="bash",
+                tool_call_id="call-2",
+                result={"ok": True},
+            ),
+        )
+
+        assert "bash x2" in transcript.plain_text
+        assert "tool bash" not in transcript.plain_text
+
+
+@pytest.mark.asyncio
+async def test_tool_failures_render_as_compact_error_rows(tmp_path: Path) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    sessions_root.mkdir()
+
+    app = CodingAgentApp(
+        model="ollama:test",
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+        thinking=None,
+    )
+
+    async with app.run_test() as _pilot:
+        transcript = app.query_one("#output", TranscriptLog)
+        write_stream_event(
+            transcript,
+            SimpleNamespace(
+                type="tool_call_failed",
+                tool_name="bash",
+                tool_call_id="call-1",
+                error_type="RuntimeError",
+                message="Command timed out after 60 seconds",
+            ),
+        )
+
+        assert "bash error  Command timed out after 60 seconds" in transcript.plain_text
 
 
 @pytest.mark.asyncio

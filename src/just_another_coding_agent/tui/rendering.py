@@ -81,12 +81,10 @@ def write_startup_banner(
     thinking: str | None,
 ) -> None:
     """Render the initial banner and provider hints."""
-    output.write_line("system")
-    output.write("\n")
-    output.write_line(f"jaca  {display_path(workspace_root)}")
-    output.write_line(f"model {model}")
+    headline = f"jaca  {display_path(workspace_root)}  |  model {model}"
     if thinking:
-        output.write_line(f"thinking {thinking}")
+        headline += f"  |  thinking {thinking}"
+    output.write_line(headline)
 
     model_str = str(model)
     if model_str.startswith("ollama"):
@@ -108,6 +106,49 @@ def write_startup_banner(
     output.write("\n")
 
 
+def write_user_turn(output: TranscriptLog, prompt: str) -> None:
+    """Render one user prompt as the start of a compact transcript turn."""
+    output.ensure_block_gap()
+    output.write_line(f"> {prompt}")
+
+
+def build_tool_preview(
+    tool_name: str,
+    args: Any,
+    *,
+    args_valid: bool | None,
+) -> str | None:
+    """Build a short human-readable preview for a tool call."""
+    if args_valid is False or not isinstance(args, dict):
+        return None
+    if tool_name == "bash":
+        command = args.get("command")
+        if isinstance(command, str) and command.strip():
+            return _truncate_inline(command)
+        return None
+    key_by_tool = {
+        "read": "path",
+        "write": "path",
+        "edit": "path",
+        "grep": "pattern",
+        "ls": "path",
+        "find": "pattern",
+    }
+    key = key_by_tool.get(tool_name)
+    value = args.get(key) if key is not None else None
+    if isinstance(value, str) and value.strip():
+        return _truncate_inline(value)
+    return None
+
+
+def _truncate_inline(text: str, *, limit: int = 56) -> str:
+    """Collapse whitespace and truncate for compact transcript rows."""
+    normalized = " ".join(text.split())
+    if len(normalized) <= limit:
+        return normalized
+    return normalized[: limit - 3].rstrip() + "..."
+
+
 def resolve_thinking_setting(thinking: str | None) -> ThinkingSetting | None:
     """Convert TUI thinking strings into the runtime contract value."""
     if thinking is None:
@@ -122,21 +163,36 @@ def resolve_thinking_setting(thinking: str | None) -> ThinkingSetting | None:
 def write_stream_event(output: TranscriptLog, event: Any) -> None:
     """Render one streamed runtime event into the transcript."""
     if event.type == "assistant_text_delta":
+        output.end_tool_activity()
         output.append_live_text(event.delta)  # type: ignore[union-attr]
     elif event.type == "tool_call_started":
-        output.write_line(f"tool {event.tool_name}")  # type: ignore[union-attr]
+        output.start_tool_activity(
+            event.tool_name,  # type: ignore[union-attr]
+            build_tool_preview(
+                event.tool_name,  # type: ignore[union-attr]
+                event.args,  # type: ignore[union-attr]
+                args_valid=event.args_valid,  # type: ignore[union-attr]
+            ),
+        )
     elif event.type == "tool_call_succeeded":
         result = event.result  # type: ignore[union-attr]
         if isinstance(result, dict) and result.get("ok") is False:
-            output.write_line(f"tool error: {result.get('message', '')}")
+            output.write_tool_error(
+                event.tool_name,  # type: ignore[union-attr]
+                str(result.get("message", "")),
+            )
+    elif event.type == "tool_call_failed":
+        output.write_tool_error(
+            event.tool_name,  # type: ignore[union-attr]
+            event.message,  # type: ignore[union-attr]
+        )
     elif event.type == "run_failed":
         output.end_live_text()
-        output.ensure_block_gap()
-        output.write_line("error")
-        output.write("\n")
-        output.write_line(f"ERROR: {event.message}")  # type: ignore[union-attr]
+        output.end_tool_activity()
+        output.write_line(f"error  {event.message}")  # type: ignore[union-attr]
     elif event.type == "run_succeeded":
         output.end_live_text()
+        output.end_tool_activity()
         output.write("\n")
 
 
@@ -145,8 +201,10 @@ __all__ = [
     "build_phase_label",
     "build_prompt_marker_text",
     "build_status_text",
+    "build_tool_preview",
     "resolve_thinking_setting",
     "update_status_bar",
     "write_startup_banner",
     "write_stream_event",
+    "write_user_turn",
 ]

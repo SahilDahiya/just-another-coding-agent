@@ -83,7 +83,7 @@ StatusBar.phase-error {{
 
 #output {{
     height: 1fr;
-    padding: 1 2;
+    padding: 0 2;
     color: {theme.text};
     background: {theme.background};
     border-top: solid {theme.border_strong};
@@ -93,7 +93,7 @@ StatusBar.phase-error {{
 #prompt-row {{
     dock: bottom;
     height: auto;
-    padding: 1 1 1 1;
+    padding: 0 1;
     background: {theme.background};
     border-top: solid {theme.border};
 }}
