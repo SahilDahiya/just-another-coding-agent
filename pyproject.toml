@@ -10,6 +10,8 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
   "pydantic-ai-slim[anthropic,mcp,openai]>=1.71.0,<2.0",
+  "python-dotenv>=1.0.0",
+  "textual>=3.0.0,<4.0",
 ]
 
 [project.optional-dependencies]
