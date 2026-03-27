@@ -62,19 +62,22 @@ async def test_append_and_load_session_with_runtime_events(tmp_path) -> None:
         path=path,
         workspace_root=workspace_root,
         prompt="go",
+        thinking="high",
         events=events,
         messages=messages,
     )
     loaded = load_session(path=path, workspace_root=workspace_root)
 
-    assert loaded.header.version == 2
+    assert loaded.header.version == 3
     assert loaded.header.workspace_root == str(workspace_root.resolve())
     assert len(loaded.runs) == 1
     assert loaded.runs[0].run_id == events[0].run_id
     assert loaded.runs[0].prompt == "go"
+    assert loaded.runs[0].thinking == "high"
     assert loaded.runs[0].messages == messages
     assert loaded.runs[0].events == events
     assert loaded.message_history == messages
+    assert loaded.thinking == "high"
 
 
 def test_append_run_to_session_appends_without_rewriting_header(tmp_path) -> None:
@@ -106,6 +109,7 @@ def test_append_run_to_session_appends_without_rewriting_header(tmp_path) -> Non
         path=path,
         workspace_root=workspace_root,
         prompt="first",
+        thinking=None,
         events=first_events,
         messages=first_messages,
     )
@@ -113,6 +117,7 @@ def test_append_run_to_session_appends_without_rewriting_header(tmp_path) -> Non
         path=path,
         workspace_root=workspace_root,
         prompt="second",
+        thinking="medium",
         events=second_events,
         messages=second_messages,
     )
@@ -128,6 +133,8 @@ def test_append_run_to_session_appends_without_rewriting_header(tmp_path) -> Non
     loaded = load_session(path=path, workspace_root=workspace_root)
     assert [run.prompt for run in loaded.runs] == ["first", "second"]
     assert loaded.message_history == first_messages + second_messages
+    assert [run.thinking for run in loaded.runs] == [None, "medium"]
+    assert loaded.thinking == "medium"
 
 
 def test_load_session_fails_without_header(tmp_path) -> None:
@@ -167,7 +174,7 @@ def test_load_session_fails_on_duplicate_run_id(tmp_path) -> None:
     lines = [
         {
             "type": "session_header",
-            "version": 2,
+            "version": 3,
             "workspace_root": str(workspace_root.resolve()),
         },
         {"type": "session_run", "run_id": "run-1", "prompt": "first"},
@@ -241,7 +248,7 @@ def test_load_session_fails_when_run_event_order_is_invalid(tmp_path) -> None:
     lines = [
         {
             "type": "session_header",
-            "version": 2,
+            "version": 3,
             "workspace_root": str(workspace_root.resolve()),
         },
         {"type": "session_run", "run_id": "run-1", "prompt": "go"},
@@ -283,7 +290,7 @@ def test_load_session_fails_when_header_has_no_workspace_root(tmp_path) -> None:
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
     path.write_text(
-        json.dumps({"type": "session_header", "version": 2}) + "\n",
+        json.dumps({"type": "session_header", "version": 3}) + "\n",
         encoding="utf-8",
     )
 
@@ -307,6 +314,7 @@ def test_load_session_fails_when_expected_workspace_root_mismatches(tmp_path) ->
         path=path,
         workspace_root=workspace_root,
         prompt="go",
+        thinking=None,
         events=run_events,
         messages=run_messages,
     )
@@ -322,7 +330,7 @@ def test_load_session_fails_when_session_messages_are_missing(tmp_path) -> None:
     lines = [
         {
             "type": "session_header",
-            "version": 2,
+            "version": 3,
             "workspace_root": str(workspace_root.resolve()),
         },
         {"type": "session_run", "run_id": "run-1", "prompt": "go"},

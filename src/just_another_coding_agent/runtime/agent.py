@@ -6,7 +6,9 @@ from pathlib import Path
 from typing import Any
 
 from pydantic_ai import Agent
+from pydantic_ai.settings import ModelSettings
 
+from just_another_coding_agent.contracts.thinking import ThinkingSetting
 from just_another_coding_agent.contracts.tools import CANONICAL_TOOL_NAMES
 from just_another_coding_agent.tools._workspace import normalize_workspace_root
 from just_another_coding_agent.tools.registry import build_canonical_toolset
@@ -72,6 +74,16 @@ def build_canonical_instructions(
     return "\n".join(sections)
 
 
+def build_canonical_model_settings(
+    *,
+    thinking: ThinkingSetting | None = None,
+) -> ModelSettings | None:
+    if thinking is None:
+        return None
+
+    return {"thinking": thinking}
+
+
 def build_canonical_agent(
     *,
     model: Any,
@@ -97,4 +109,5 @@ __all__ = [
     "CANONICAL_AGENT_INSTRUCTIONS",
     "build_canonical_agent",
     "build_canonical_instructions",
+    "build_canonical_model_settings",
 ]

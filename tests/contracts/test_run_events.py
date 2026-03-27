@@ -1,6 +1,6 @@
 from collections.abc import AsyncIterator
 
-from pydantic_ai import Agent
+from pydantic_ai import Agent, AgentRunResult, AgentRunResultEvent
 from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 
 from just_another_coding_agent.contracts.run_events import (
@@ -37,6 +37,22 @@ async def looping_tool_stream(
     }
 
 
+class RecordingStreamAgent:
+    def __init__(self) -> None:
+        self.last_model_settings = None
+
+    async def run_stream_events(
+        self,
+        _prompt: str,
+        *,
+        message_history=None,
+        model_settings=None,
+    ) -> AsyncIterator[object]:
+        assert message_history is None
+        self.last_model_settings = model_settings
+        yield AgentRunResultEvent(result=AgentRunResult("done"))
+
+
 async def test_stream_run_events_success() -> None:
     agent = Agent(FunctionModel(stream_function=hello_stream), output_type=str)
 
@@ -66,3 +82,19 @@ async def test_stream_run_events_failure_is_terminal_error_event() -> None:
     assert events[1].run_id == events[0].run_id
     assert events[1].error_type == "RuntimeError"
     assert events[1].message == "boom"
+
+
+async def test_stream_run_events_passes_thinking_as_model_settings() -> None:
+    agent = RecordingStreamAgent()
+
+    events = [
+        event
+        async for event in stream_run_events(
+            agent=agent,
+            prompt="go",
+            thinking="high",
+        )
+    ]
+
+    assert [event.type for event in events] == ["run_started", "run_succeeded"]
+    assert agent.last_model_settings == {"thinking": "high"}

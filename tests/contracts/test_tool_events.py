@@ -38,8 +38,10 @@ class StubStreamAgent:
         _prompt: str,
         *,
         message_history: list[ModelMessage] | None = None,
+        model_settings: object | None = None,
     ) -> AsyncIterator[object]:
         assert message_history is None
+        assert model_settings is None
         for event in self._events:
             yield event
 

@@ -23,6 +23,26 @@ Rules:
 - the canonical agent prompt must explicitly forbid claiming file side effects without tool evidence
 - the canonical agent prompt must explicitly instruct the model to verify code changes or required file outputs before concluding
 
+## Model Settings Contract
+
+Initial canonical model-setting slice:
+
+- `thinking`
+
+Rules:
+
+- Model settings must be explicit run inputs, not hidden prompt text.
+- The canonical runtime may expose only deliberately chosen settings instead of leaking arbitrary provider settings through the public contract.
+- When `thinking` is omitted, the runtime uses model default behavior unless a resumed session has a persisted thinking level to inherit.
+
+`thinking` contract:
+
+- allowed values: `true`, `false`, `"minimal"`, `"low"`, `"medium"`, `"high"`, `"xhigh"`
+- `true` means enable provider-default thinking effort
+- `false` means disable thinking where the provider supports turning it off
+- string values request an explicit thinking effort level
+- the canonical runtime passes `thinking` through PydanticAI model settings instead of encoding it in instructions
+
 ## Tool Contract
 
 Canonical tool set for the first maintained version:
@@ -280,7 +300,8 @@ Initial executable session slice:
 - `session_header`
   - fields: `type`, `version`, `workspace_root`
 - `session_run`
-  - fields: `type`, `run_id`, `prompt`
+  - fields: `type`, `run_id`, `prompt`, `thinking`
+  - `thinking` is optional and stores the effective thinking setting for that run
 - `session_messages`
   - fields: `type`, `run_id`, `messages`
   - `messages` must be the native PydanticAI `ModelMessage` list for that run
@@ -294,6 +315,7 @@ Ordering rules for the session slice:
 - Each `session_run` is followed by exactly one `session_messages` line and then zero or more `session_event` lines for the same `run_id`
 - Authoritative session loads must provide the expected workspace root and it must match the persisted `session_header.workspace_root` exactly
 - Session resume semantics must reconstruct conversation context from persisted `session_messages` in chronological order and pass that native history back through PydanticAI `message_history`
+- When a new run omits `thinking`, the session-backed runtime inherits the most recent persisted non-null thinking setting from that session
 - Session-backed runtime streaming persists only after the run reaches a terminal outcome; partially consumed or cancelled streams must not append a partial run
 - Persisted events for a run must satisfy the streamed run contract, including exactly one terminal outcome
 - Appending a new run must preserve all existing lines and write the header only once
@@ -321,7 +343,7 @@ Initial executable RPC slice:
   - fields: `id`, `command`, `payload`
   - initial commands:
     - `session.create` with payload `{}`
-    - `run.start` with payload `{"session_id": <opaque-lowercase-hex-string>, "prompt": <string>}`
+    - `run.start` with payload `{"session_id": <opaque-lowercase-hex-string>, "prompt": <string>, "thinking": <optional-thinking-setting>}`
 - `rpc_response`
   - fields: `type`, `id`, `response`
   - initial response payload: `{"session_id": <opaque-lowercase-hex-string>}`
@@ -335,6 +357,7 @@ Ordering rules for the RPC slice:
 
 - A valid `session.create` request yields exactly one `rpc_response` containing a server-generated opaque `session_id`
 - A valid `run.start` request must reference an existing `session_id` and yields zero or more `rpc_event` lines whose embedded events satisfy the streamed run contract
+- A valid `run.start` request may include `thinking`; when omitted, session-backed execution inherits the latest persisted thinking setting for that session when present
 - A valid request that ends in run failure still yields `rpc_event` lines ending in `run_failed`; it does not switch to `rpc_error`
 - Clients must not provide filesystem paths or workspace identifiers in the RPC session contract
 - Invalid JSON yields exactly one `rpc_error` with `id: null` and `error_type: InvalidJSON`

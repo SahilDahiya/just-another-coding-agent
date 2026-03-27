@@ -27,6 +27,7 @@ from just_another_coding_agent.contracts.session import (
     SessionRunEntry,
     SessionRunRecord,
 )
+from just_another_coding_agent.contracts.thinking import ThinkingSetting
 from just_another_coding_agent.tools._workspace import normalize_workspace_root
 
 _SESSION_ENTRY_ADAPTER = TypeAdapter(SessionEntry)
@@ -58,6 +59,7 @@ def append_run_to_session(
     path: Path,
     workspace_root: Path | str,
     prompt: str,
+    thinking: ThinkingSetting | None = None,
     events: Sequence[RunEvent],
     messages: Sequence[ModelMessage],
 ) -> None:
@@ -66,6 +68,7 @@ def append_run_to_session(
     run_record = SessionRunRecord(
         run_id=_extract_run_id(run_events),
         prompt=prompt,
+        thinking=thinking,
         messages=run_messages,
         events=run_events,
     )
@@ -86,7 +89,10 @@ def append_run_to_session(
                 SessionHeaderEntry(workspace_root=str(normalized_workspace_root)),
             )
 
-        _write_entry(file_handle, SessionRunEntry(run_id=run_id, prompt=prompt))
+        _write_entry(
+            file_handle,
+            SessionRunEntry(run_id=run_id, prompt=prompt, thinking=thinking),
+        )
         _write_entry(
             file_handle,
             SessionMessagesEntry(run_id=run_id, messages=run_messages),
@@ -149,6 +155,7 @@ def load_session(
             current_run = SessionRunRecord(
                 run_id=entry.run_id,
                 prompt=entry.prompt,
+                thinking=entry.thinking,
                 messages=[],
                 events=[],
             )

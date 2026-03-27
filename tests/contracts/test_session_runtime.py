@@ -132,6 +132,7 @@ async def test_stream_session_run_events_persists_authoritative_session(
     loaded = load_session(path=session_path, workspace_root=workspace_root)
     assert loaded.header.workspace_root == str(workspace_root.resolve())
     assert loaded.runs[0].prompt == "go"
+    assert loaded.runs[0].thinking is None
     assert loaded.runs[0].events == events
     assert loaded.runs[0].messages
     assert loaded.message_history == loaded.runs[0].messages
@@ -150,6 +151,7 @@ async def test_stream_session_run_events_rejects_mismatched_existing_workspace(
         path=session_path,
         workspace_root=workspace_root,
         prompt="first",
+        thinking=None,
         messages=[ModelRequest(parts=[UserPromptPart(content="first")])],
         events=[
             RunStartedEvent(run_id="run-1"),
@@ -210,6 +212,63 @@ async def test_stream_session_run_events_resumes_with_pydanticai_message_history
     loaded = load_session(path=session_path, workspace_root=workspace_root)
     assert [run.prompt for run in loaded.runs] == ["create note", "what did you do?"]
     assert _has_tool_return(loaded.message_history, tool_name="write")
+
+
+async def test_stream_session_run_events_inherits_last_persisted_thinking_when_omitted(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    session_path = tmp_path / "session.jsonl"
+    append_run_to_session(
+        path=session_path,
+        workspace_root=workspace_root,
+        prompt="first",
+        thinking="high",
+        messages=[ModelRequest(parts=[UserPromptPart(content="first")])],
+        events=[
+            RunStartedEvent(run_id="run-1"),
+            RunSucceededEvent(run_id="run-1", output_text="done"),
+        ],
+    )
+
+    captured: dict[str, object] = {}
+
+    async def fake_stream_run_events(
+        *,
+        agent,
+        prompt,
+        message_history=None,
+        thinking=None,
+    ):
+        captured["prompt"] = prompt
+        captured["thinking"] = thinking
+        captured["message_history"] = message_history
+        yield RunStartedEvent(run_id="run-2")
+        yield RunSucceededEvent(run_id="run-2", output_text="done")
+
+    monkeypatch.setattr(
+        "just_another_coding_agent.runtime.session.stream_run_events",
+        fake_stream_run_events,
+    )
+
+    events = [
+        event
+        async for event in stream_session_run_events(
+            model=FunctionModel(stream_function=text_only_stream),
+            workspace_root=workspace_root,
+            session_path=session_path,
+            prompt="second",
+        )
+    ]
+
+    assert [event.type for event in events] == ["run_started", "run_succeeded"]
+    assert captured["prompt"] == "second"
+    assert captured["thinking"] == "high"
+    loaded = load_session(path=session_path, workspace_root=workspace_root)
+    assert [run.thinking for run in loaded.runs] == ["high", "high"]
+    assert loaded.thinking == "high"
 async def test_stream_session_run_events_does_not_persist_partial_consumption(
     tmp_path,
 ) -> None:

@@ -88,6 +88,7 @@ async def handle_rpc_json_line(
             session_path=session_path,
             prompt=request.payload.prompt,
             tool_names=CANONICAL_TOOL_NAMES,
+            thinking=request.payload.thinking,
         ):
             yield RpcEventEnvelope(id=request.id, event=event).model_dump_json()
     except SessionFormatError as error:

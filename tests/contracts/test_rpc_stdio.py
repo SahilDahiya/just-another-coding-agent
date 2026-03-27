@@ -155,7 +155,11 @@ async def test_handle_rpc_json_line_creates_session_and_resumes_runs(
         request_payload={
             "id": "req-1",
             "command": "run.start",
-            "payload": {"session_id": session_id, "prompt": "create note"},
+            "payload": {
+                "session_id": session_id,
+                "prompt": "create note",
+                "thinking": "high",
+            },
         },
         model=model,
         workspace_root=workspace_root,
@@ -196,6 +200,61 @@ async def test_handle_rpc_json_line_creates_session_and_resumes_runs(
     )
     loaded = load_session(path=session_path, workspace_root=workspace_root)
     assert [run.prompt for run in loaded.runs] == ["create note", "what did you do?"]
+    assert [run.thinking for run in loaded.runs] == ["high", "high"]
+
+
+async def test_handle_rpc_json_line_forwards_explicit_thinking_to_session_runtime(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    session_id = await _create_session_id(
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+    captured: dict[str, object] = {}
+
+    async def fake_stream_session_run_events(
+        *,
+        model,
+        workspace_root,
+        session_path,
+        prompt,
+        tool_names,
+        thinking=None,
+    ):
+        captured["thinking"] = thinking
+        captured["prompt"] = prompt
+        yield {"type": "run_started", "run_id": "run-1"}
+        yield {"type": "run_succeeded", "run_id": "run-1", "output_text": "done"}
+
+    monkeypatch.setattr(
+        "just_another_coding_agent.rpc.stdio.stream_session_run_events",
+        fake_stream_session_run_events,
+    )
+
+    messages = await _rpc_messages(
+        request_payload={
+            "id": "req-thinking",
+            "command": "run.start",
+            "payload": {
+                "session_id": session_id,
+                "prompt": "go",
+                "thinking": "high",
+            },
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    assert captured == {"thinking": "high", "prompt": "go"}
+    assert [message["event"]["type"] for message in messages] == [
+        "run_started",
+        "run_succeeded",
+    ]
 
 
 async def test_handle_rpc_json_line_keeps_run_failure_in_event_stream_and_session(
@@ -489,6 +548,18 @@ async def test_handle_rpc_json_line_returns_invalid_json_error(tmp_path) -> None
                 "payload": {"session_id": "s", "prompt": "go", "extra": True},
             },
             "req-12",
+        ),
+        (
+            {
+                "id": "req-12b",
+                "command": "run.start",
+                "payload": {
+                    "session_id": "0" * 32,
+                    "prompt": "go",
+                    "thinking": "extreme",
+                },
+            },
+            "req-12b",
         ),
         (
             {

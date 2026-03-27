@@ -8,6 +8,7 @@ from just_another_coding_agent.runtime import (
     CANONICAL_AGENT_INSTRUCTIONS,
     build_canonical_agent,
     build_canonical_instructions,
+    build_canonical_model_settings,
 )
 
 
@@ -97,3 +98,9 @@ def test_build_canonical_instructions_include_truthfulness_and_verification_rule
         "relevant verification step before concluding."
         in instructions
     )
+
+
+def test_build_canonical_model_settings_include_thinking_when_set() -> None:
+    assert build_canonical_model_settings(thinking="high") == {"thinking": "high"}
+    assert build_canonical_model_settings(thinking=True) == {"thinking": True}
+    assert build_canonical_model_settings() is None

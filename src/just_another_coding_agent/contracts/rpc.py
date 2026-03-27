@@ -5,6 +5,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from .run_events import RunEvent
+from .thinking import ThinkingSetting
 
 SessionId = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{32}$")]
 
@@ -26,6 +27,7 @@ class SessionCreateRequest(_RpcModel):
 class RunStartPayload(_RpcModel):
     session_id: SessionId
     prompt: str
+    thinking: ThinkingSetting | None = None
 
 
 class RunStartRequest(_RpcModel):

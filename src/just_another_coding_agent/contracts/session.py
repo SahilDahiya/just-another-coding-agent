@@ -6,8 +6,9 @@ from pydantic import BaseModel, ConfigDict, Field
 from pydantic_ai.messages import ModelMessage
 
 from .run_events import RunEvent
+from .thinking import ThinkingSetting
 
-SESSION_FORMAT_VERSION = 2
+SESSION_FORMAT_VERSION = 3
 
 
 class _SessionEntryBase(BaseModel):
@@ -24,6 +25,7 @@ class SessionRunEntry(_SessionEntryBase):
     type: Literal["session_run"] = "session_run"
     run_id: str
     prompt: str
+    thinking: ThinkingSetting | None = None
 
 
 class SessionMessagesEntry(_SessionEntryBase):
@@ -47,6 +49,7 @@ SessionEntry = Annotated[
 class SessionRunRecord(_SessionEntryBase):
     run_id: str
     prompt: str
+    thinking: ThinkingSetting | None = None
     messages: list[ModelMessage]
     events: list[RunEvent]
 
@@ -58,6 +61,13 @@ class LoadedSession(_SessionEntryBase):
     @property
     def message_history(self) -> list[ModelMessage]:
         return [message for run in self.runs for message in run.messages]
+
+    @property
+    def thinking(self) -> ThinkingSetting | None:
+        for run in reversed(self.runs):
+            if run.thinking is not None:
+                return run.thinking
+        return None
 
 
 __all__ = [

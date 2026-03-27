@@ -47,7 +47,7 @@ RPC (Remote Procedure Call) is how non-Python programs talk to this backend. The
 Two commands:
 
 - `session.create` -- creates a new session, returns a server-generated opaque `session_id`
-- `run.start` -- runs a prompt against an existing session, streams run events back
+- `run.start` -- runs a prompt against an existing session, streams run events back, and may carry an optional `thinking` setting
 
 Example flow:
 
@@ -58,7 +58,7 @@ Example flow:
 {"type": "rpc_response", "id": "req-1", "response": {"session_id": "a1b2c3..."}}
 ```
 ```json
-{"id": "req-2", "command": "run.start", "payload": {"session_id": "a1b2c3...", "prompt": "fix the bug"}}
+{"id": "req-2", "command": "run.start", "payload": {"session_id": "a1b2c3...", "prompt": "fix the bug", "thinking": "high"}}
 ```
 ```json
 {"type": "rpc_event", "id": "req-2", "event": {"type": "run_started", ...}}
@@ -78,15 +78,15 @@ Clients never see filesystem paths or workspace identifiers. Session identity is
 A session is the append-only JSONL file that records what happened across multiple runs. It is bound to exactly one workspace root. Each line is one of:
 
 - `session_header` -- written once, first line, contains format version and workspace root
-- `session_run` -- marks start of a run (run_id and prompt)
+- `session_run` -- marks start of a run (run_id, prompt, and effective thinking setting)
 - `session_messages` -- the native PydanticAI `ModelMessage` list for that run (used for resume)
 - `session_event` -- wraps one run event
 
 Example:
 
 ```json
-{"type":"session_header","version":2,"workspace_root":"/abs/path/to/workspace"}
-{"type":"session_run","run_id":"abc","prompt":"fix bug"}
+{"type":"session_header","version":3,"workspace_root":"/abs/path/to/workspace"}
+{"type":"session_run","run_id":"abc","prompt":"fix bug","thinking":"high"}
 {"type":"session_messages","run_id":"abc","messages":[...]}
 {"type":"session_event","run_id":"abc","event":{"type":"run_started","run_id":"abc"}}
 {"type":"session_event","run_id":"abc","event":{"type":"run_succeeded","run_id":"abc","output_text":"done"}}
@@ -94,11 +94,13 @@ Example:
 
 Rules: header appears exactly once, no duplicate run IDs, events must satisfy the same ordering rules as the streaming contract. Invalid files fail hard on load. Loading a session against a different workspace root than the one persisted is invalid state.
 
-Sessions persist both public contract events (for consumers) and native PydanticAI message history (for resume). These serve different purposes and neither can replace the other.
+Sessions persist both public contract events (for consumers) and native PydanticAI message history (for resume). They also persist the effective per-run thinking setting. These serve different purposes and neither can replace the other.
 
 ### Session Resume
 
 When a session already exists, the runtime loads all persisted `ModelMessage` entries across prior runs and passes them as `message_history` to PydanticAI. This gives the model full conversation context from previous runs without re-executing anything.
+
+If a new run omits `thinking`, the session runtime inherits the most recent persisted non-null thinking setting from that session. This makes thinking stateful across runs without encoding it in the prompt.
 
 The coordinator `stream_session_run_events()` handles the full lifecycle: load session, build agent, stream events, capture messages, persist both events and messages after the run completes. Persistence only happens after terminal completion -- partially consumed streams do not append.
 
@@ -130,6 +132,7 @@ The registry (`tools/registry.py`) maps canonical names to factories. `build_can
 
 The system prompt tells the model what tools it has, how to approach coding tasks, and that read/write/edit are workspace-scoped while bash is not sandboxed. The runtime also appends dynamic context at build time: the current date and the resolved workspace root.
 That prompt layer also carries two behavioral rules that matter for benchmark and real coding tasks alike: do not claim a file was created or changed without tool evidence, and verify code changes or required file outputs before concluding.
+Thinking is not carried in the prompt. The runtime passes it through PydanticAI model settings as an explicit run input.
 
 ### Runtime
 
@@ -137,7 +140,7 @@ The runtime (`runtime/run.py`) is the bridge between PydanticAI and the public c
 
 1. Creates a unique `run_id`
 2. Yields `RunStartedEvent`
-3. Streams the run without a default per-run request or tool-call ceiling
+3. Streams the run without a default per-run request or tool-call ceiling, optionally passing an explicit `thinking` setting through PydanticAI model settings
 4. Iterates PydanticAI's internal event stream, translating each into a public contract event
 5. Tracks pending tool calls so failures cascade correctly
 6. Guarantees exactly one terminal event
@@ -187,7 +190,7 @@ The `just_another_coding_agent_adapters` package contains external harness bindi
 
 ### exec-prompt
 
-A one-shot CLI (`just-another-coding-agent-exec-prompt`) that spawns the stdio server as a subprocess, sends `session.create` + `run.start`, collects the terminal output, and exits. This is the bridge between benchmark harnesses that expect "run one prompt, get one answer" and the session-based RPC server.
+A one-shot CLI (`just-another-coding-agent-exec-prompt`) that spawns the stdio server as a subprocess, sends `session.create` + `run.start`, collects the terminal output, and exits. It also supports forwarding an optional `thinking` setting. This is the bridge between benchmark harnesses that expect "run one prompt, get one answer" and the session-based RPC server.
 
 ### Harbor
 

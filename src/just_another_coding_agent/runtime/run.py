@@ -32,6 +32,8 @@ from just_another_coding_agent.contracts.run_events import (
     ToolCallStartedEvent,
     ToolCallSucceededEvent,
 )
+from just_another_coding_agent.contracts.thinking import ThinkingSetting
+from just_another_coding_agent.runtime.agent import build_canonical_model_settings
 
 _JSON_VALUE_ADAPTER = TypeAdapter(JsonValue)
 
@@ -41,6 +43,7 @@ async def stream_run_events(
     agent: Agent[Any, Any],
     prompt: str,
     message_history: Sequence[ModelMessage] | None = None,
+    thinking: ThinkingSetting | None = None,
 ) -> AsyncIterator[RunEvent]:
     """Translate one PydanticAI run into the canonical streamed event contract.
 
@@ -58,6 +61,7 @@ async def stream_run_events(
         async for event in agent.run_stream_events(
             prompt,
             message_history=message_history,
+            model_settings=build_canonical_model_settings(thinking=thinking),
         ):
             if isinstance(event, FunctionToolCallEvent):
                 args = _normalize_tool_args(event.part.args)

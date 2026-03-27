@@ -33,6 +33,7 @@ from .session import (
     SessionRunEntry,
     SessionRunRecord,
 )
+from .thinking import ThinkingSetting
 from .tools import (
     CANONICAL_TOOL_NAMES,
     BashToolInput,
@@ -76,4 +77,5 @@ __all__ = [
     "ToolCallFailedEvent",
     "ToolCallStartedEvent",
     "ToolCallSucceededEvent",
+    "ThinkingSetting",
 ]

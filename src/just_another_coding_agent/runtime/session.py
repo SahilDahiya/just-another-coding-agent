@@ -7,6 +7,7 @@ from typing import Any
 from pydantic_ai import capture_run_messages
 
 from just_another_coding_agent.contracts.run_events import RunEvent
+from just_another_coding_agent.contracts.thinking import ThinkingSetting
 from just_another_coding_agent.contracts.tools import CANONICAL_TOOL_NAMES
 from just_another_coding_agent.runtime.agent import build_canonical_agent
 from just_another_coding_agent.runtime.run import stream_run_events
@@ -21,6 +22,7 @@ async def stream_session_run_events(
     session_path: Path,
     prompt: str,
     tool_names: Sequence[str] = CANONICAL_TOOL_NAMES,
+    thinking: ThinkingSetting | None = None,
 ) -> AsyncIterator[RunEvent]:
     """Stream one run and persist it only after terminal completion.
 
@@ -34,6 +36,11 @@ async def stream_session_run_events(
             path=session_path,
             workspace_root=normalized_workspace_root,
         )
+    resolved_thinking = (
+        thinking
+        if thinking is not None
+        else (loaded_session.thinking if loaded_session is not None else None)
+    )
 
     agent = build_canonical_agent(
         model=model,
@@ -49,6 +56,7 @@ async def stream_session_run_events(
             message_history=(
                 loaded_session.message_history if loaded_session is not None else None
             ),
+            thinking=resolved_thinking,
         ):
             emitted_events.append(event)
             yield event
@@ -57,6 +65,7 @@ async def stream_session_run_events(
         path=session_path,
         workspace_root=normalized_workspace_root,
         prompt=prompt,
+        thinking=resolved_thinking,
         events=emitted_events,
         messages=messages,
     )
