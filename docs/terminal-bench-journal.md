@@ -146,6 +146,113 @@ It is intentionally narrow:
   - note: the agent reached the merge conflict state cleanly but did not resolve the conflicting implementations before verifier timeout
   - artifacts: `/tmp/pi-kimi-terminal-bench-merge-arc.f3fa0f/just-another-coding-agent-merge-diff-arc-kimi`
 
+## GPT-5.3 Codex via OpenAI Responses
+
+### Initial Tracked Codex Baseline
+
+- batch: `jaca-codex-nine-20260326121757`
+- summary: `/tmp/jaca-codex-nine-20260326121757.tsv`
+- result: `7/9` green
+
+Green in the initial tracked Codex baseline:
+
+- `fix-git`
+- `git-leak-recovery`
+- `log-summary-date-ranges`
+- `modernize-scientific-stack`
+- `openssl-selfsigned-cert`
+- `pypi-server`
+- `query-optimize`
+
+Red in the initial tracked Codex baseline:
+
+- `cancel-async-tasks`
+- `regex-log`
+
+### Targeted Failure Analysis Reruns
+
+- `regex-log`
+  - model: `openai-responses:gpt-5.3-codex`
+  - result: `2/5` green in `jaca-regex-log-codex-x5`
+  - note: after prompt/runtime improvements the old fabricated-success failure disappeared, but the remaining reds were still semantic regex failures rather than tool failures
+  - artifacts: `/home/dahiy/repos/urban-octo-guacamole/jobs/jaca-regex-log-codex-x5`
+- `cancel-async-tasks`
+  - model: `openai-responses:gpt-5.3-codex`
+  - result: `0/5` green in `jaca-cancel-async-codex-x5`
+  - note: the dominant failure is weak verification and the wrong asyncio cancellation pattern, not harness/tool failure
+  - artifacts: `/home/dahiy/repos/urban-octo-guacamole/jobs/jaca-cancel-async-codex-x5`
+
+### Exploratory 20-Task Harbor Batch
+
+- batch: `jaca-harbor-next20.thv1lw`
+- summary: `/tmp/jaca-harbor-next20.thv1lw/batch-results.tsv`
+- canaries:
+  - `fix-git` -> green
+  - `log-summary-date-ranges` -> red
+- main batch result: `4/20` green
+
+Green in the exploratory 20-task batch:
+
+- `count-dataset-tokens`
+- `prove-plus-comm`
+- `fix-code-vulnerability`
+- `cobol-modernization`
+
+Red in the exploratory 20-task batch:
+
+- `filter-js-from-html`
+- `break-filter-js-from-html`
+- `model-extraction-relu-logits`
+- `extract-elf`
+- `large-scale-text-editing`
+- `sparql-university`
+- `build-cython-ext`
+- `polyglot-c-py`
+- `polyglot-rust-c`
+- `pytorch-model-cli`
+- `financial-document-processor`
+- `bn-fit-modify`
+- `distribution-search`
+- `circuit-fibsqrt`
+- `dna-insert`
+- `rstan-to-pystan`
+
+### Thinking High Failed-Task Rerun
+
+- batch: `thinking-failed-rerun-20260326223900`
+- model: `openai-responses:gpt-5.3-codex`
+- setting: `thinking=high`
+- result: `10/18` green, mean `0.556`
+- result file: `/home/dahiy/repos/urban-octo-guacamole/jobs/thinking-failed-rerun-20260326223900/thinking-failed-rerun-20260326223900/result.json`
+
+Green flips from the previously-red set:
+
+- `bn-fit-modify`
+- `break-filter-js-from-html`
+- `circuit-fibsqrt`
+- `distribution-search`
+- `financial-document-processor`
+- `model-extraction-relu-logits`
+- `pytorch-model-cli`
+- `regex-log`
+- `rstan-to-pystan`
+- `sparql-university`
+
+Still red under `thinking=high`:
+
+- `build-cython-ext`
+- `cancel-async-tasks`
+- `dna-insert`
+- `extract-elf`
+- `filter-js-from-html`
+- `large-scale-text-editing`
+- `polyglot-c-py`
+- `polyglot-rust-c`
+
+Notable detail:
+
+- `extract-elf` recorded `reward=0.0` and also the batch-level lone `AgentTimeoutError`; Harbor still counted it as a completed red trial in the aggregate reward distribution.
+
 ## Operational Learnings
 
 - For Harbor-backed Ollama Cloud runs, the container must receive both `OLLAMA_BASE_URL` and `OLLAMA_API_KEY`.
@@ -164,15 +271,30 @@ It is intentionally narrow:
 - Modernization and packaging tasks can be viable Kimi picks when the verifier is anchored to one runnable entrypoint rather than a large hidden behavioral surface.
 - Interface-implementation tasks are riskier than they look when the model can satisfy the spirit of the prompt while still missing the exact contract names the verifier expects.
 - Merge-resolution tasks with conflicting but individually plausible implementations are not low-risk Kimi picks; they burn time and often fail late.
+- For Codex, a single green x1 run is not stable enough to treat as submission-ready. `log-summary-date-ranges` went green in the initial tracked batch and later red in the canary rerun.
+- The recent prompt and tooling changes removed the old `regex-log` fabricated-success failure mode. The remaining failures are now about semantic correctness and weak behavioral checks.
+- The recent prompt and tooling changes did not flip `cancel-async-tasks`; that task still fails because the model does not reliably choose the real SIGINT acceptance check.
+- Several tasks that looked like low-risk extraction or transformation work were not actually low-risk under Codex in the 20-task scan: `filter-js-from-html`, `model-extraction-relu-logits`, `extract-elf`, and `large-scale-text-editing` all stayed red.
+- The best new Codex candidates from the 20-task scan are `count-dataset-tokens`, `prove-plus-comm`, `fix-code-vulnerability`, and `cobol-modernization`.
+- The official full-run Harbor command shape is now smoke-tested: a submission-safe `terminal-bench@2.0` run on `fix-git` completed green with `timeout_multiplier: 1.0`, no timeout overrides, and no resource overrides.
+- Explicit `thinking=high` materially changed the failed-task picture: `10/18` previously-red tasks flipped green in one x1 rerun batch.
+- The biggest thinking-enabled wins were task families that previously looked close but brittle: `distribution-search`, `pytorch-model-cli`, `break-filter-js-from-html`, `circuit-fibsqrt`, and `model-extraction-relu-logits`.
+- `cancel-async-tasks` stayed red even with `thinking=high`, so that task is still blocked on verification or reasoning quality rather than lack of deliberation budget alone.
 
 ## Candidate Queue
 
 Current lower-risk next picks:
 
-- `model-extraction-relu-logits`
-- `extract-elf`
-- `filter-js-from-html`
 - `count-dataset-tokens`
+- `prove-plus-comm`
+- `fix-code-vulnerability`
+- `cobol-modernization`
+- `fix-git`
+- `git-leak-recovery`
+- `modernize-scientific-stack`
+- `openssl-selfsigned-cert`
+- `pypi-server`
+- `query-optimize`
 
 Current avoid-for-now picks:
 
@@ -189,6 +311,23 @@ Current avoid-for-now picks:
 - `vulnerable-secret`
 - `sqlite-db-truncate`
 - `crack-7z-hash`
+- `model-extraction-relu-logits`
+- `extract-elf`
+- `break-filter-js-from-html`
+- `large-scale-text-editing`
+- `sparql-university`
+- `build-cython-ext`
+- `polyglot-c-py`
+- `polyglot-rust-c`
+- `pytorch-model-cli`
+- `financial-document-processor`
+- `bn-fit-modify`
+- `distribution-search`
+- `circuit-fibsqrt`
+- `dna-insert`
+- `rstan-to-pystan`
+- `cancel-async-tasks`
+- `regex-log`
 
 ## Deferred Follow-Up
 

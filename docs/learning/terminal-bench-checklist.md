@@ -8,57 +8,58 @@ This file is the lightweight checklist for the current Terminal Bench baseline.
 
 It answers three questions clearly:
 
-- which tasks passed in the current tracked baseline
-- which tasks were tried and failed in the current tracked baseline
-- which tasks have not been tried in the current tracked baseline
+- which tasks passed at least once in the current tracked Codex exploration
+- which tasks were tried in the current tracked Codex exploration and have no green run yet
+- which tasks have not been tried in the current tracked Codex exploration
 
 For run details, artifacts, historical green runs, and task-picking notes, see [../terminal-bench-journal.md](../terminal-bench-journal.md).
 
 ## Legend
 
-- `[x]` passed in the current tracked baseline
-- `[-]` tried in the current tracked baseline and failed
-- `[ ]` not yet tried in the current tracked baseline
+- `[x]` passed at least once in the current tracked Codex exploration
+- `[-]` tried in the current tracked Codex exploration and still red
+- `[ ]` not yet tried in the current tracked Codex exploration
 
 ## Summary
 
 - Total cached `terminal-bench@2.0` tasks: `89`
-- Current tracked baseline: Codex 9-task batch `jaca-codex-nine-20260326121757`
-- Passed in current baseline: `7`
-- Failed in current baseline: `2`
-- Untried in current baseline: `80`
+- Current tracked baseline: Codex Harbor exploration through the `thinking=high` failed-task rerun on `2026-03-26`
+  - sources: `jaca-codex-nine-20260326121757`, `jaca-harbor-next20.thv1lw`, the related canary reruns, and `thinking-failed-rerun-20260326223900`
+- Passed in current tracked baseline: `21`
+- Failed in current tracked baseline: `8`
+- Untried in current tracked baseline: `60`
 
 ## Tasks
 
 - [ ] `adaptive-rejection-sampler`
-- [ ] `bn-fit-modify`
-- [ ] `break-filter-js-from-html`
-- [ ] `build-cython-ext`
+- [x] `bn-fit-modify`
+- [x] `break-filter-js-from-html`
+- [-] `build-cython-ext`
 - [ ] `build-pmars`
 - [ ] `build-pov-ray`
 - [ ] `caffe-cifar-10`
 - [-] `cancel-async-tasks`
 - [ ] `chess-best-move`
-- [ ] `circuit-fibsqrt`
-- [ ] `cobol-modernization`
+- [x] `circuit-fibsqrt`
+- [x] `cobol-modernization`
 - [ ] `code-from-image`
 - [ ] `compile-compcert`
 - [ ] `configure-git-webserver`
 - [ ] `constraints-scheduling`
-- [ ] `count-dataset-tokens`
+- [x] `count-dataset-tokens`
 - [ ] `crack-7z-hash`
 - [ ] `custom-memory-heap-crash`
 - [ ] `db-wal-recovery`
-- [ ] `distribution-search`
+- [x] `distribution-search`
 - [ ] `dna-assembly`
-- [ ] `dna-insert`
-- [ ] `extract-elf`
+- [-] `dna-insert`
+- [-] `extract-elf`
 - [ ] `extract-moves-from-video`
 - [ ] `feal-differential-cryptanalysis`
 - [ ] `feal-linear-cryptanalysis`
-- [ ] `filter-js-from-html`
-- [ ] `financial-document-processor`
-- [ ] `fix-code-vulnerability`
+- [-] `filter-js-from-html`
+- [x] `financial-document-processor`
+- [x] `fix-code-vulnerability`
 - [x] `fix-git`
 - [ ] `fix-ocaml-gc`
 - [ ] `gcode-to-text`
@@ -69,7 +70,7 @@ For run details, artifacts, historical green runs, and task-picking notes, see [
 - [ ] `hf-model-inference`
 - [ ] `install-windows-3.11`
 - [ ] `kv-store-grpc`
-- [ ] `large-scale-text-editing`
+- [-] `large-scale-text-editing`
 - [ ] `largest-eigenval`
 - [ ] `llm-inference-batching-scheduler`
 - [x] `log-summary-date-ranges`
@@ -78,7 +79,7 @@ For run details, artifacts, historical green runs, and task-picking notes, see [
 - [ ] `make-mips-interpreter`
 - [ ] `mcmc-sampling-stan`
 - [ ] `merge-diff-arc-agi-task`
-- [ ] `model-extraction-relu-logits`
+- [x] `model-extraction-relu-logits`
 - [x] `modernize-scientific-stack`
 - [ ] `mteb-leaderboard`
 - [ ] `mteb-retrieve`
@@ -89,26 +90,26 @@ For run details, artifacts, historical green runs, and task-picking notes, see [
 - [ ] `password-recovery`
 - [ ] `path-tracing`
 - [ ] `path-tracing-reverse`
-- [ ] `polyglot-c-py`
-- [ ] `polyglot-rust-c`
+- [-] `polyglot-c-py`
+- [-] `polyglot-rust-c`
 - [ ] `portfolio-optimization`
 - [ ] `protein-assembly`
-- [ ] `prove-plus-comm`
+- [x] `prove-plus-comm`
 - [x] `pypi-server`
-- [ ] `pytorch-model-cli`
+- [x] `pytorch-model-cli`
 - [ ] `pytorch-model-recovery`
 - [ ] `qemu-alpine-ssh`
 - [ ] `qemu-startup`
 - [x] `query-optimize`
 - [ ] `raman-fitting`
 - [ ] `regex-chess`
-- [-] `regex-log`
+- [x] `regex-log`
 - [ ] `reshard-c4-data`
-- [ ] `rstan-to-pystan`
+- [x] `rstan-to-pystan`
 - [ ] `sam-cell-seg`
 - [ ] `sanitize-git-repo`
 - [ ] `schemelike-metacircular-eval`
-- [ ] `sparql-university`
+- [x] `sparql-university`
 - [ ] `sqlite-db-truncate`
 - [ ] `sqlite-with-gcov`
 - [ ] `torch-pipeline-parallelism`
@@ -124,7 +125,8 @@ For run details, artifacts, historical green runs, and task-picking notes, see [
 
 When a task is run in the current tracked baseline:
 
-1. Mark it `[x]` if it passed or `[-]` if it failed.
-2. Leave all untouched tasks as `[ ]`.
-3. Add the run details and learning to [../terminal-bench-journal.md](../terminal-bench-journal.md).
-4. If the tracked baseline changes, update the summary line and then refresh the task statuses consistently.
+1. Mark it `[x]` if it has any green run in the tracked baseline.
+2. Mark it `[-]` only if it has been tried and still has no green run in the tracked baseline.
+3. Leave all untouched tasks as `[ ]`.
+4. Add the run details and learning to [../terminal-bench-journal.md](../terminal-bench-journal.md).
+5. If the tracked baseline changes, update the summary line and then refresh the task statuses consistently.
