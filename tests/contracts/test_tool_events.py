@@ -15,6 +15,7 @@ from just_another_coding_agent.contracts.run_events import (
     RunFailedEvent,
     RunStartedEvent,
     RunSucceededEvent,
+    ToolActivity,
     ToolCallFailedEvent,
     ToolCallStartedEvent,
     ToolCallSucceededEvent,
@@ -41,10 +42,12 @@ class StubStreamAgent:
         message_history: list[ModelMessage] | None = None,
         deps: object | None = None,
         model_settings: object | None = None,
+        usage_limits: object | None = None,
     ) -> AsyncIterator[object]:
         assert message_history is None
         assert deps is None
         assert model_settings is None
+        assert usage_limits is not None
         for event in self._events:
             yield event
 
@@ -259,9 +262,14 @@ async def test_stream_run_events_tool_success() -> None:
     assert events[1].tool_name == "add"
     assert events[1].args == {"a": 1, "b": 2}
     assert events[1].args_valid is True
+    assert events[1].activity == ToolActivity(title="add")
     assert events[2].tool_call_id == "call-add"
     assert events[2].tool_name == "add"
     assert events[2].result == 3
+    assert events[2].activity is not None
+    assert events[2].activity.title == "add"
+    assert events[2].activity.duration_ms is not None
+    assert events[2].activity.duration_ms >= 0
     assert events[3].delta == "done"
     assert events[4].output_text == "done"
 
@@ -550,6 +558,16 @@ async def test_stream_run_events_recovers_from_missing_read_within_one_run(
         "assistant_text_delta",
         "run_succeeded",
     ]
+    assert isinstance(events[1], ToolCallStartedEvent)
+    assert events[1].activity == ToolActivity(
+        title="read missing.txt",
+        details={
+            "kind": "read",
+            "path": "missing.txt",
+            "offset": None,
+            "limit": None,
+        },
+    )
     assert isinstance(events[2], ToolCallSucceededEvent)
     assert events[2].result == {
         "ok": False,
@@ -559,8 +577,44 @@ async def test_stream_run_events_recovers_from_missing_read_within_one_run(
             f"'{workspace_root / 'missing.txt'}'"
         ),
     }
+    assert events[2].activity is not None
+    assert events[2].activity.title == "read missing.txt"
+    assert events[2].activity.summary == (
+        f"[Errno 2] No such file or directory: '{workspace_root / 'missing.txt'}'"
+    )
+    assert events[2].activity.duration_ms is not None
+    assert events[2].activity.duration_ms >= 0
+    assert events[2].activity.details is not None
+    assert events[2].activity.details.model_dump() == {
+        "kind": "read",
+        "path": "missing.txt",
+        "offset": None,
+        "limit": None,
+    }
+    assert isinstance(events[3], ToolCallStartedEvent)
+    assert events[3].activity == ToolActivity(
+        title="read note.txt",
+        details={
+            "kind": "read",
+            "path": "note.txt",
+            "offset": None,
+            "limit": None,
+        },
+    )
     assert isinstance(events[4], ToolCallSucceededEvent)
     assert events[4].result == "hello\nworld\n"
+    assert events[4].activity is not None
+    assert events[4].activity.title == "read note.txt"
+    assert events[4].activity.summary == "read completed"
+    assert events[4].activity.duration_ms is not None
+    assert events[4].activity.duration_ms >= 0
+    assert events[4].activity.details is not None
+    assert events[4].activity.details.model_dump() == {
+        "kind": "read",
+        "path": "note.txt",
+        "offset": None,
+        "limit": None,
+    }
     assert events[6].output_text == "done"
 
 
@@ -638,14 +692,58 @@ async def test_stream_run_events_recovers_from_bash_timeout_within_one_run(
         "assistant_text_delta",
         "run_succeeded",
     ]
+    assert isinstance(events[1], ToolCallStartedEvent)
+    assert events[1].activity == ToolActivity(
+        title="bash sleep 2",
+        details={
+            "kind": "bash",
+            "command_preview": "sleep 2",
+            "timeout": 1,
+            "exit_code": None,
+        },
+    )
     assert isinstance(events[2], ToolCallSucceededEvent)
     assert events[2].result == {
         "ok": False,
         "error_type": "ToolCommandError",
         "message": "Command timed out after 1 seconds",
     }
+    assert events[2].activity is not None
+    assert events[2].activity.title == "bash sleep 2"
+    assert events[2].activity.summary == "Command timed out after 1 seconds"
+    assert events[2].activity.duration_ms is not None
+    assert events[2].activity.duration_ms >= 0
+    assert events[2].activity.details is not None
+    assert events[2].activity.details.model_dump() == {
+        "kind": "bash",
+        "command_preview": "sleep 2",
+        "timeout": 1,
+        "exit_code": None,
+    }
+    assert isinstance(events[3], ToolCallStartedEvent)
+    assert events[3].activity == ToolActivity(
+        title="bash printf ok",
+        details={
+            "kind": "bash",
+            "command_preview": "printf ok",
+            "timeout": None,
+            "exit_code": None,
+        },
+    )
     assert isinstance(events[4], ToolCallSucceededEvent)
     assert events[4].result == {"exit_code": 0, "output": "ok"}
+    assert events[4].activity is not None
+    assert events[4].activity.title == "bash printf ok"
+    assert events[4].activity.summary == "command exited 0"
+    assert events[4].activity.duration_ms is not None
+    assert events[4].activity.duration_ms >= 0
+    assert events[4].activity.details is not None
+    assert events[4].activity.details.model_dump() == {
+        "kind": "bash",
+        "command_preview": "printf ok",
+        "timeout": None,
+        "exit_code": 0,
+    }
     assert events[6].output_text == "done"
 
 

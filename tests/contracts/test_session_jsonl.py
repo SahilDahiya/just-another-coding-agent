@@ -16,6 +16,9 @@ from just_another_coding_agent.contracts.run_events import (
     RunFailedEvent,
     RunStartedEvent,
     RunSucceededEvent,
+    ToolActivity,
+    ToolCallStartedEvent,
+    ToolCallSucceededEvent,
 )
 from just_another_coding_agent.contracts.session import SessionCompactionSummary
 from just_another_coding_agent.runtime.run import stream_run_events
@@ -138,6 +141,63 @@ def test_append_run_to_session_appends_without_rewriting_header(tmp_path) -> Non
     assert loaded.message_history == first_messages + second_messages
     assert [run.thinking for run in loaded.runs] == [None, "medium"]
     assert loaded.thinking == "medium"
+
+
+def test_append_and_load_session_preserves_tool_activity_metadata(tmp_path) -> None:
+    path = tmp_path / "session.jsonl"
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    run_events = [
+        RunStartedEvent(run_id="run-1"),
+        ToolCallStartedEvent(
+            run_id="run-1",
+            tool_call_id="call-read",
+            tool_name="read",
+            args={"path": "note.txt"},
+            args_valid=True,
+            activity=ToolActivity(
+                title="read note.txt",
+                details={
+                    "kind": "read",
+                    "path": "note.txt",
+                    "offset": None,
+                    "limit": None,
+                },
+            ),
+        ),
+        ToolCallSucceededEvent(
+            run_id="run-1",
+            tool_call_id="call-read",
+            tool_name="read",
+            result="hello\nworld\n",
+            activity=ToolActivity(
+                title="read note.txt",
+                summary="read completed",
+                duration_ms=12,
+                details={
+                    "kind": "read",
+                    "path": "note.txt",
+                    "offset": None,
+                    "limit": None,
+                },
+            ),
+        ),
+        RunSucceededEvent(run_id="run-1", output_text="done"),
+    ]
+
+    append_run_to_session(
+        path=path,
+        workspace_root=workspace_root,
+        prompt="go",
+        thinking=None,
+        events=run_events,
+        messages=[ModelRequest(parts=[UserPromptPart(content="go")])],
+    )
+
+    loaded = load_session(path=path, workspace_root=workspace_root)
+
+    assert loaded.runs[0].events == run_events
 
 
 def test_load_session_fails_without_header(tmp_path) -> None:

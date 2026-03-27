@@ -15,6 +15,81 @@ class _RunEventBase(BaseModel):
     run_id: str
 
 
+class _ToolActivityDetailsBase(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: str
+
+
+class BashActivityDetails(_ToolActivityDetailsBase):
+    kind: Literal["bash"] = "bash"
+    command_preview: str
+    timeout: int | None = None
+    exit_code: int | None = None
+
+
+class ReadActivityDetails(_ToolActivityDetailsBase):
+    kind: Literal["read"] = "read"
+    path: str
+    offset: int | None = None
+    limit: int | None = None
+
+
+class WriteActivityDetails(_ToolActivityDetailsBase):
+    kind: Literal["write"] = "write"
+    path: str
+    bytes_written: int | None = None
+
+
+class EditActivityDetails(_ToolActivityDetailsBase):
+    kind: Literal["edit"] = "edit"
+    path: str
+
+
+class GrepActivityDetails(_ToolActivityDetailsBase):
+    kind: Literal["grep"] = "grep"
+    pattern: str
+    path: str | None = None
+    glob: str | None = None
+    ignore_case: bool = False
+    literal: bool = False
+    limit: int | None = None
+
+
+class LsActivityDetails(_ToolActivityDetailsBase):
+    kind: Literal["ls"] = "ls"
+    path: str | None = None
+    limit: int | None = None
+
+
+class FindActivityDetails(_ToolActivityDetailsBase):
+    kind: Literal["find"] = "find"
+    pattern: str
+    path: str | None = None
+    limit: int | None = None
+
+
+ToolActivityDetails = Annotated[
+    BashActivityDetails
+    | ReadActivityDetails
+    | WriteActivityDetails
+    | EditActivityDetails
+    | GrepActivityDetails
+    | LsActivityDetails
+    | FindActivityDetails,
+    Field(discriminator="kind"),
+]
+
+
+class ToolActivity(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    title: str
+    summary: str | None = None
+    duration_ms: int | None = None
+    details: ToolActivityDetails | None = None
+
+
 class RunStartedEvent(_RunEventBase):
     type: Literal["run_started"] = "run_started"
 
@@ -30,6 +105,7 @@ class ToolCallStartedEvent(_RunEventBase):
     tool_name: str
     args: JsonValue | None
     args_valid: bool | None
+    activity: ToolActivity | None = None
 
 
 class ToolCallSucceededEvent(_RunEventBase):
@@ -37,6 +113,7 @@ class ToolCallSucceededEvent(_RunEventBase):
     tool_call_id: str
     tool_name: str
     result: JsonValue | None
+    activity: ToolActivity | None = None
 
 
 class ToolCallFailedEvent(_RunEventBase):
@@ -45,6 +122,7 @@ class ToolCallFailedEvent(_RunEventBase):
     tool_name: str
     error_type: str
     message: str
+    activity: ToolActivity | None = None
 
 
 class RunSucceededEvent(_RunEventBase):
@@ -71,12 +149,21 @@ RunEvent = Annotated[
 
 __all__ = [
     "AssistantTextDeltaEvent",
+    "BashActivityDetails",
+    "EditActivityDetails",
+    "FindActivityDetails",
+    "GrepActivityDetails",
     "JsonValue",
+    "LsActivityDetails",
+    "ReadActivityDetails",
     "RunEvent",
     "RunFailedEvent",
     "RunStartedEvent",
     "RunSucceededEvent",
+    "ToolActivity",
+    "ToolActivityDetails",
     "ToolCallFailedEvent",
     "ToolCallStartedEvent",
     "ToolCallSucceededEvent",
+    "WriteActivityDetails",
 ]

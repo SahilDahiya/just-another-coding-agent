@@ -272,11 +272,52 @@ Ordering rules for the initial slice:
 Initial tool lifecycle slice:
 
 - `tool_call_started`
-  - fields: `type`, `run_id`, `tool_call_id`, `tool_name`, `args`, `args_valid`
+  - fields: `type`, `run_id`, `tool_call_id`, `tool_name`, `args`, `args_valid`, `activity`
 - `tool_call_succeeded`
-  - fields: `type`, `run_id`, `tool_call_id`, `tool_name`, `result`
+  - fields: `type`, `run_id`, `tool_call_id`, `tool_name`, `result`, `activity`
 - `tool_call_failed`
-  - fields: `type`, `run_id`, `tool_call_id`, `tool_name`, `error_type`, `message`
+  - fields: `type`, `run_id`, `tool_call_id`, `tool_name`, `error_type`, `message`, `activity`
+
+`activity` metadata contract:
+
+- `activity` is optional and additive on tool lifecycle events
+- it is backend-owned activity metadata for client rendering, replay, and traces
+- when present, it must be typed and stable enough for non-TUI clients to consume without tool-specific heuristics
+- v1 common fields:
+  - `title`
+  - `summary`
+  - `duration_ms`
+  - `details`
+- `title` is a terse backend-owned label for the tool action
+- `summary` is optional and should stay trustworthy rather than aspirational
+- `duration_ms` belongs on finished tool events and may be omitted on `tool_call_started`
+- `details` is optional and must use typed per-tool metadata rather than an untyped bag
+
+Initial typed `details` slice:
+
+- `bash`
+  - `kind`, `command_preview`, `timeout`, `exit_code`
+- `read`
+  - `kind`, `path`, `offset`, `limit`
+- `write`
+  - `kind`, `path`, `bytes_written`
+- `edit`
+  - `kind`, `path`
+- `grep`
+  - `kind`, `pattern`, `path`, `glob`, `ignore_case`, `literal`, `limit`
+- `ls`
+  - `kind`, `path`, `limit`
+- `find`
+  - `kind`, `pattern`, `path`, `limit`
+
+Rules for the initial activity slice:
+
+- v1 remains within the existing event families; no group or timeline events are added
+- `activity` must be derived from canonical tool semantics in the backend, not guessed in the frontend
+- v1 must only expose metadata that is derivable from current structured args/results
+- no untyped `artifacts` bag
+- no absolute timestamps in the persisted public event contract
+- existing consumers that ignore `activity` must continue to work unchanged
 
 Ordering rules for the tool slice:
 
@@ -336,6 +377,7 @@ Ordering rules for the session slice:
 - When a new run omits `thinking`, the session-backed runtime inherits the most recent persisted non-null thinking setting from that session
 - Session-backed runtime streaming persists only after the run reaches a terminal outcome; partially consumed or cancelled streams must not append a partial run
 - Persisted events for a run must satisfy the streamed run contract, including exactly one terminal outcome
+- Persisted `session_event` payloads must preserve any tool `activity` metadata unchanged
 - Appending a new run must preserve all existing lines and write the header only once
 - Synthetic compaction-summary messages used at runtime must not be persisted back into `session_messages`
 - Before a resumed run starts, the runtime may append one automatic `session_compaction` entry when at least five completed runs have accumulated since the latest compaction boundary

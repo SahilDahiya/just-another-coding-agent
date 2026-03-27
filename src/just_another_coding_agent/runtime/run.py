@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import AsyncIterator, Sequence
+from dataclasses import dataclass
+from time import monotonic
 from typing import Any
 from uuid import uuid4
 
@@ -35,12 +37,25 @@ from just_another_coding_agent.contracts.run_events import (
     ToolCallSucceededEvent,
 )
 from just_another_coding_agent.contracts.thinking import ThinkingSetting
+from just_another_coding_agent.runtime.activity import (
+    build_failed_tool_activity,
+    build_started_tool_activity,
+    build_succeeded_tool_activity,
+)
 from just_another_coding_agent.runtime.models import build_canonical_model_settings
 from just_another_coding_agent.runtime.recovery import should_retry_run_error
 from just_another_coding_agent.tools.deps import WorkspaceDeps
 
 _JSON_VALUE_ADAPTER = TypeAdapter(JsonValue)
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class _PendingToolCall:
+    tool_name: str
+    args: JsonValue | None
+    args_valid: bool | None
+    started_at: float
 
 
 def _build_unbounded_usage_limits() -> UsageLimits:
@@ -74,7 +89,7 @@ async def stream_run_events(
     yield RunStartedEvent(run_id=run_id)
 
     while True:
-        pending_tool_calls: dict[str, str] = {}
+        pending_tool_calls: dict[str, _PendingToolCall] = {}
         saw_streamed_event = False
         terminal_emitted = False
 
@@ -93,33 +108,53 @@ async def stream_run_events(
                 saw_streamed_event = True
                 if isinstance(event, FunctionToolCallEvent):
                     args = _normalize_tool_args(event.part.args)
-                    pending_tool_calls[event.tool_call_id] = event.part.tool_name
+                    pending_tool_calls[event.tool_call_id] = _PendingToolCall(
+                        tool_name=event.part.tool_name,
+                        args=args,
+                        args_valid=event.args_valid,
+                        started_at=monotonic(),
+                    )
                     yield ToolCallStartedEvent(
                         run_id=run_id,
                         tool_call_id=event.tool_call_id,
                         tool_name=event.part.tool_name,
                         args=args,
                         args_valid=event.args_valid,
+                        activity=build_started_tool_activity(
+                            tool_name=event.part.tool_name,
+                            args=args,
+                            args_valid=event.args_valid,
+                        ),
                     )
                     continue
 
                 if isinstance(event, FunctionToolResultEvent):
                     if isinstance(event.result, RetryPromptPart):
-                        tool_name = _resolve_pending_tool_name(
+                        pending_tool_call = _resolve_pending_tool_call(
                             pending_tool_calls=pending_tool_calls,
                             tool_call_id=event.tool_call_id,
                             result_tool_name=event.result.tool_name,
                         )
+                        retry_message = _retry_prompt_message(event.result)
                         yield ToolCallFailedEvent(
                             run_id=run_id,
                             tool_call_id=event.tool_call_id,
-                            tool_name=tool_name,
+                            tool_name=pending_tool_call.tool_name,
                             error_type="RetryPromptPart",
-                            message=_retry_prompt_message(event.result),
+                            message=retry_message,
+                            activity=build_failed_tool_activity(
+                                tool_name=pending_tool_call.tool_name,
+                                args=pending_tool_call.args,
+                                args_valid=pending_tool_call.args_valid,
+                                message=retry_message,
+                                duration_ms=_duration_ms_since(
+                                    pending_tool_call.started_at
+                                ),
+                            ),
                         )
                         continue
 
-                    tool_name = _resolve_pending_tool_name(
+                    pending_tool_call = _resolve_pending_tool_call(
                         pending_tool_calls=pending_tool_calls,
                         tool_call_id=event.tool_call_id,
                         result_tool_name=event.result.tool_name,
@@ -128,8 +163,17 @@ async def stream_run_events(
                     yield ToolCallSucceededEvent(
                         run_id=run_id,
                         tool_call_id=event.tool_call_id,
-                        tool_name=tool_name,
+                        tool_name=pending_tool_call.tool_name,
                         result=result,
+                        activity=build_succeeded_tool_activity(
+                            tool_name=pending_tool_call.tool_name,
+                            args=pending_tool_call.args,
+                            args_valid=pending_tool_call.args_valid,
+                            result=result,
+                            duration_ms=_duration_ms_since(
+                                pending_tool_call.started_at
+                            ),
+                        ),
                     )
                     continue
 
@@ -177,13 +221,22 @@ async def stream_run_events(
                 recovery_attempts += 1
                 continue
 
-            for tool_call_id, tool_name in pending_tool_calls.items():
+            for tool_call_id, pending_tool_call in pending_tool_calls.items():
                 yield ToolCallFailedEvent(
                     run_id=run_id,
                     tool_call_id=tool_call_id,
-                    tool_name=tool_name,
+                    tool_name=pending_tool_call.tool_name,
                     error_type=type(error).__name__,
                     message=str(error),
+                    activity=build_failed_tool_activity(
+                        tool_name=pending_tool_call.tool_name,
+                        args=pending_tool_call.args,
+                        args_valid=pending_tool_call.args_valid,
+                        message=str(error),
+                        duration_ms=_duration_ms_since(
+                            pending_tool_call.started_at
+                        ),
+                    ),
                 )
 
             yield RunFailedEvent(
@@ -204,27 +257,30 @@ def _extract_text_delta(event: object) -> str | None:
     return None
 
 
-def _resolve_pending_tool_name(
+def _resolve_pending_tool_call(
     *,
-    pending_tool_calls: dict[str, str],
+    pending_tool_calls: dict[str, _PendingToolCall],
     tool_call_id: str,
     result_tool_name: str | None,
-) -> str:
-    pending_tool_name = pending_tool_calls.get(tool_call_id)
-    if pending_tool_name is None:
+) -> _PendingToolCall:
+    pending_tool_call = pending_tool_calls.get(tool_call_id)
+    if pending_tool_call is None:
         raise RuntimeError(
             f"Tool result must match a pending tool_call_started: {tool_call_id}"
         )
 
-    if result_tool_name is not None and result_tool_name != pending_tool_name:
+    if (
+        result_tool_name is not None
+        and result_tool_name != pending_tool_call.tool_name
+    ):
         raise RuntimeError(
             "Tool result tool_name mismatch for tool_call_id "
-            f"{tool_call_id!r}: expected {pending_tool_name!r}, got "
+            f"{tool_call_id!r}: expected {pending_tool_call.tool_name!r}, got "
             f"{result_tool_name!r}"
         )
 
     pending_tool_calls.pop(tool_call_id)
-    return pending_tool_name
+    return pending_tool_call
 
 
 def _normalize_tool_args(value: str | dict[str, Any] | None) -> JsonValue | None:
@@ -251,3 +307,7 @@ def _retry_prompt_message(part: RetryPromptPart) -> str:
         return part.content
 
     return part.model_response()
+
+
+def _duration_ms_since(started_at: float) -> int:
+    return max(0, int((monotonic() - started_at) * 1000))
