@@ -21,6 +21,7 @@ from pydantic_ai.messages import (
     TextPart,
     TextPartDelta,
 )
+from pydantic_ai.usage import UsageLimits
 
 from just_another_coding_agent.contracts.run_events import (
     AssistantTextDeltaEvent,
@@ -40,6 +41,16 @@ from just_another_coding_agent.tools.deps import WorkspaceDeps
 
 _JSON_VALUE_ADAPTER = TypeAdapter(JsonValue)
 logger = logging.getLogger(__name__)
+
+
+def _build_unbounded_usage_limits() -> UsageLimits:
+    return UsageLimits(
+        request_limit=None,
+        tool_calls_limit=None,
+        input_tokens_limit=None,
+        output_tokens_limit=None,
+        total_tokens_limit=None,
+    )
 
 
 async def stream_run_events(
@@ -77,6 +88,7 @@ async def stream_run_events(
                     thinking=thinking,
                     enable_server_history=enable_server_history,
                 ),
+                usage_limits=_build_unbounded_usage_limits(),
             ):
                 saw_streamed_event = True
                 if isinstance(event, FunctionToolCallEvent):

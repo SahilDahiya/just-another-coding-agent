@@ -4,6 +4,7 @@ from pydantic_ai import Agent, AgentRunResult, AgentRunResultEvent
 from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 from pydantic_ai.models.openai import OpenAIResponsesModel
 from pydantic_ai.providers.openai import OpenAIProvider
+from pydantic_ai.usage import UsageLimits
 
 from just_another_coding_agent.contracts.run_events import (
     AssistantTextDeltaEvent,
@@ -83,6 +84,7 @@ async def looping_tool_stream(
 class RecordingStreamAgent:
     def __init__(self, *, model=None) -> None:
         self.last_model_settings = None
+        self.last_usage_limits = None
         self.model = model
 
     async def run_stream_events(
@@ -92,10 +94,12 @@ class RecordingStreamAgent:
         message_history=None,
         deps=None,
         model_settings=None,
+        usage_limits=None,
     ) -> AsyncIterator[object]:
         assert message_history is None
         assert deps is None
         self.last_model_settings = model_settings
+        self.last_usage_limits = usage_limits
         yield AgentRunResultEvent(result=AgentRunResult("done"))
 
 
@@ -168,6 +172,21 @@ async def test_stream_run_events_can_enable_openai_server_history() -> None:
 
     assert [event.type for event in events] == ["run_started", "run_succeeded"]
     assert agent.last_model_settings == {"openai_previous_response_id": "auto"}
+
+
+async def test_stream_run_events_passes_explicit_unbounded_usage_limits() -> None:
+    agent = RecordingStreamAgent()
+
+    events = [event async for event in stream_run_events(agent=agent, prompt="go")]
+
+    assert [event.type for event in events] == ["run_started", "run_succeeded"]
+    assert agent.last_usage_limits == UsageLimits(
+        request_limit=None,
+        tool_calls_limit=None,
+        input_tokens_limit=None,
+        output_tokens_limit=None,
+        total_tokens_limit=None,
+    )
 
 
 async def test_build_canonical_agent_retries_one_transient_pre_stream_failure(
