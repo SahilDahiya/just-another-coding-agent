@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Self
+
 from textual.timer import Timer
 from textual.widgets import RichLog, Static
 
@@ -81,11 +83,26 @@ class TranscriptLog(RichLog):
         self._live_dirty = False
         return super().clear()
 
-    def write(self, content, *args, **kwargs):  # type: ignore[override]
+    def write(
+        self,
+        content: object,
+        width: int | None = None,
+        expand: bool = False,
+        shrink: bool = True,
+        scroll_end: bool | None = None,
+        animate: bool = False,
+    ) -> Self:
         self.flush_live_text()
         if isinstance(content, str):
             self._parts.append(content)
-        return super().write(content, *args, **kwargs)
+        return super().write(
+            content,
+            width=width,
+            expand=expand,
+            shrink=shrink,
+            scroll_end=scroll_end,
+            animate=animate,
+        )
 
     def flush_live_text(self) -> None:
         """Flush any buffered streaming text into the visible transcript."""
