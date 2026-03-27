@@ -36,6 +36,8 @@ def test_motion_helpers_are_calm_when_idle_and_active_when_busy() -> None:
     assert build_prompt_marker_text(UiPhase.STREAMING, 1) == "> "
 
     assert build_phase_label(UiPhase.COMPACTING, 1) == "compacting.."
+    assert build_phase_label(UiPhase.COMPLETED, 1) == "completed"
+    assert build_prompt_marker_text(UiPhase.COMPLETED, 0) == "ok"
     assert build_prompt_marker_text(UiPhase.COMPACTING, 0) == "::"
     assert build_prompt_marker_text(UiPhase.INTERRUPTED, 0) == "!!"
     assert build_prompt_marker_text(UiPhase.ERROR, 0) == "x "

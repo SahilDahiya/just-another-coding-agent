@@ -16,6 +16,8 @@ class ThemeTokens:
     text_muted: str
     accent: str
     accent_soft: str
+    success: str
+    success_soft: str
     error: str
 
 
@@ -27,6 +29,8 @@ DEFAULT_THEME = ThemeTokens(
     text_muted="#a7a39a",
     accent="#d79a41",
     accent_soft="#f1c27a",
+    success="#7bb07c",
+    success_soft="#a7d6a5",
     error="#d46a5e",
 )
 
@@ -57,9 +61,14 @@ StatusBar.phase-compacting {{
     border-bottom: solid {theme.accent_soft};
 }}
 
+StatusBar.phase-completed {{
+    color: {theme.success_soft};
+    border-bottom: solid {theme.success};
+}}
+
 StatusBar.phase-interrupted {{
     color: {theme.accent_soft};
-    border-bottom: solid {theme.border_strong};
+    border-bottom: solid {theme.accent};
 }}
 
 StatusBar.phase-error {{
@@ -97,8 +106,12 @@ StatusBar.phase-error {{
     border-top: solid {theme.accent_soft};
 }}
 
+#prompt-row.phase-completed {{
+    border-top: solid {theme.success};
+}}
+
 #prompt-row.phase-interrupted {{
-    border-top: solid {theme.border_strong};
+    border-top: solid {theme.accent};
 }}
 
 #prompt-row.phase-error {{
@@ -119,6 +132,10 @@ StatusBar.phase-error {{
 
 #prompt-marker.phase-compacting {{
     color: {theme.accent};
+}}
+
+#prompt-marker.phase-completed {{
+    color: {theme.success_soft};
 }}
 
 #prompt-marker.phase-interrupted {{

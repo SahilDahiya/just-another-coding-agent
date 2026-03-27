@@ -11,6 +11,7 @@ from textual.containers import Horizontal, Vertical
 from textual.driver import Driver
 from textual.drivers.linux_driver import LinuxDriver
 from textual.drivers.linux_inline_driver import LinuxInlineDriver
+from textual.timer import Timer
 from textual.widgets import Input, Static
 
 from .commands import handle_provider_command, write_help
@@ -39,6 +40,10 @@ class CodingAgentApp(App[None]):
     CSS = APP_CSS
 
     PHASE_CLASSES = tuple(f"phase-{phase}" for phase in UiPhase)
+    STARTUP_REVEAL_DURATION = 0.18
+    STARTUP_REVEAL_STAGGER = 0.05
+    COMPLETION_SETTLE_DELAY = 0.85
+    INTERRUPT_SETTLE_DELAY = 1.05
 
     BINDINGS = [
         Binding("ctrl+c", "interrupt", "Interrupt/Quit", priority=True),
@@ -63,6 +68,7 @@ class CodingAgentApp(App[None]):
         self._interrupt_requested = False
         self._last_interrupt_time: float = 0.0
         self._motion_tick = 0
+        self._phase_reset_timer: Timer | None = None
 
     def compose(self) -> ComposeResult:
         yield StatusBar(id="status-bar")
@@ -88,6 +94,7 @@ class CodingAgentApp(App[None]):
 
     def on_mount(self) -> None:
         self.set_interval(0.24, self._advance_motion)
+        self._prepare_startup_reveal()
         self._refresh_shell_chrome()
         self.query_one("#prompt-input", Input).focus()
         output = self.query_one("#output", TranscriptLog)
@@ -96,6 +103,28 @@ class CodingAgentApp(App[None]):
             model=self._state.model,
             workspace_root=self._state.workspace_root,
             thinking=self._state.thinking,
+        )
+        self._start_startup_reveal()
+
+    def _prepare_startup_reveal(self) -> None:
+        for widget in self._shell_widgets():
+            widget.styles.opacity = 0.0
+
+    def _start_startup_reveal(self) -> None:
+        for index, widget in enumerate(self._shell_widgets()):
+            self.app.animator.bind(widget.styles)(
+                "opacity",
+                1.0,
+                duration=self.STARTUP_REVEAL_DURATION,
+                delay=index * self.STARTUP_REVEAL_STAGGER,
+                easing="out_cubic",
+            )
+
+    def _shell_widgets(self) -> tuple[Static | Horizontal | TranscriptLog, ...]:
+        return (
+            self.query_one("#status-bar", StatusBar),
+            self.query_one("#output", TranscriptLog),
+            self.query_one("#prompt-row", Horizontal),
         )
 
     def _update_status_bar(self) -> None:
@@ -116,6 +145,40 @@ class CodingAgentApp(App[None]):
         ):
             widget.remove_class(*self.PHASE_CLASSES)
             widget.add_class(phase_class)
+
+    def _cancel_phase_reset(self) -> None:
+        if self._phase_reset_timer is not None:
+            self._phase_reset_timer.stop()
+            self._phase_reset_timer = None
+
+    def _set_transient_phase(self, phase: UiPhase, *, delay: float) -> None:
+        self._cancel_phase_reset()
+        self._set_phase(phase)
+        self._phase_reset_timer = self.set_timer(
+            delay,
+            self._clear_transient_phase,
+            name=f"phase-reset-{phase}",
+        )
+
+    def _clear_transient_phase(self) -> None:
+        self._phase_reset_timer = None
+        if not self._streaming and self._state.phase in {
+            UiPhase.COMPLETED,
+            UiPhase.INTERRUPTED,
+        }:
+            self._set_phase(UiPhase.IDLE)
+
+    def _finish_stream_feedback(self, *, succeeded: bool) -> None:
+        if self._interrupt_requested:
+            self._set_transient_phase(
+                UiPhase.INTERRUPTED,
+                delay=self.INTERRUPT_SETTLE_DELAY,
+            )
+        elif succeeded and self._state.phase != UiPhase.ERROR:
+            self._set_transient_phase(
+                UiPhase.COMPLETED,
+                delay=self.COMPLETION_SETTLE_DELAY,
+            )
 
     def _advance_motion(self) -> None:
         self._motion_tick += 1
@@ -152,6 +215,7 @@ class CodingAgentApp(App[None]):
         if not prompt or self._streaming:
             return
 
+        self._cancel_phase_reset()
         event.input.clear()
 
         if prompt.startswith("/"):
@@ -181,7 +245,7 @@ class CodingAgentApp(App[None]):
         finally:
             self._streaming = False
             self._interrupt_requested = False
-            if self._state.phase != UiPhase.ERROR:
+            if self._state.phase == UiPhase.STREAMING:
                 self._set_phase(UiPhase.IDLE)
 
     async def _handle_slash_command(self, command: str) -> None:
@@ -294,6 +358,7 @@ class CodingAgentApp(App[None]):
         thinking = resolve_thinking_setting(self._state.thinking)
 
         output = self.query_one("#output", TranscriptLog)
+        saw_success = False
 
         async for event in stream_session_run_events(
             model=self._state.model,
@@ -308,6 +373,9 @@ class CodingAgentApp(App[None]):
 
             if event.type == "run_failed":
                 self._set_phase(UiPhase.ERROR)
+            elif event.type == "run_succeeded":
+                saw_success = True
 
             write_stream_event(output, event)
         output.scroll_end(animate=False)
+        self._finish_stream_feedback(succeeded=saw_success)

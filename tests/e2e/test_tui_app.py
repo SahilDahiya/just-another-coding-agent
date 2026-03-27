@@ -3,6 +3,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from textual.containers import Horizontal
 from textual.widgets import Input, Static
 
 from just_another_coding_agent.tui.app import CodingAgentApp
@@ -29,12 +30,21 @@ async def test_tui_app_starts_and_focuses_prompt(tmp_path: Path) -> None:
         prompt_input = app.query_one("#prompt-input", Input)
         transcript = app.query_one("#output", TranscriptLog)
         status_bar = app.query_one("#status-bar", StatusBar)
+        prompt_row = app.query_one("#prompt-row", Horizontal)
+
+        await asyncio.sleep(
+            app.STARTUP_REVEAL_DURATION + (app.STARTUP_REVEAL_STAGGER * 3)
+        )
+        await _pilot.pause()
 
         assert prompt_input.has_focus
         assert transcript.can_focus is False
         assert transcript.wrap is True
         assert transcript.styles.scrollbar_size_vertical == 0
         assert transcript.styles.scrollbar_size_horizontal == 0
+        assert status_bar.styles.opacity == 1
+        assert transcript.styles.opacity == 1
+        assert prompt_row.styles.opacity == 1
         assert "idle" in str(status_bar.renderable)
         assert "ollama:test" in str(status_bar.renderable)
 
@@ -170,6 +180,19 @@ class DemoStreamingApp(CodingAgentApp):
             transcript,
             SimpleNamespace(type="run_succeeded"),
         )
+        self._finish_stream_feedback(succeeded=True)
+
+
+class DemoInterruptedApp(CodingAgentApp):
+    async def _run_prompt(self, prompt: str) -> None:
+        transcript = self.query_one("#output", TranscriptLog)
+        write_stream_event(
+            transcript,
+            SimpleNamespace(type="assistant_text_delta", delta="Working"),
+        )
+        self._interrupt_requested = True
+        transcript.write_line("stream interrupted")
+        self._finish_stream_feedback(succeeded=False)
 
 
 @pytest.mark.asyncio
@@ -199,6 +222,66 @@ async def test_prompt_submission_keeps_spaces_and_streams_single_line(
         assert "> hello world" in transcript.plain_text
         assert "assistant" in transcript.plain_text
         assert "Hello world" in transcript.plain_text
+
+
+@pytest.mark.asyncio
+async def test_success_phase_settles_before_returning_to_idle(tmp_path: Path) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    sessions_root.mkdir()
+
+    app = DemoStreamingApp(
+        model="ollama:test",
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+        thinking=None,
+    )
+    app.COMPLETION_SETTLE_DELAY = 0.3
+
+    async with app.run_test() as pilot:
+        await pilot.press("h", "i", "enter")
+        status_bar = app.query_one("#status-bar", StatusBar)
+        prompt_marker = app.query_one("#prompt-marker", Static)
+
+        assert "completed" in str(status_bar.renderable)
+        assert status_bar.has_class("phase-completed")
+        assert str(prompt_marker.renderable) == "ok"
+
+        await asyncio.sleep(app.COMPLETION_SETTLE_DELAY + 0.1)
+        await pilot.pause()
+        assert "idle" in str(status_bar.renderable)
+        assert status_bar.has_class("phase-idle")
+
+
+@pytest.mark.asyncio
+async def test_interrupt_phase_settles_before_returning_to_idle(tmp_path: Path) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    sessions_root.mkdir()
+
+    app = DemoInterruptedApp(
+        model="ollama:test",
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+        thinking=None,
+    )
+    app.INTERRUPT_SETTLE_DELAY = 0.3
+
+    async with app.run_test() as pilot:
+        await pilot.press("h", "i", "enter")
+        status_bar = app.query_one("#status-bar", StatusBar)
+        prompt_marker = app.query_one("#prompt-marker", Static)
+
+        assert "interrupted" in str(status_bar.renderable)
+        assert status_bar.has_class("phase-interrupted")
+        assert str(prompt_marker.renderable) == "!!"
+
+        await asyncio.sleep(app.INTERRUPT_SETTLE_DELAY + 0.1)
+        await pilot.pause()
+        assert "idle" in str(status_bar.renderable)
+        assert status_bar.has_class("phase-idle")
 
 
 @pytest.mark.asyncio

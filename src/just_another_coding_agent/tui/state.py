@@ -13,6 +13,7 @@ class UiPhase(StrEnum):
 
     IDLE = "idle"
     STREAMING = "streaming"
+    COMPLETED = "completed"
     INTERRUPTED = "interrupted"
     ERROR = "error"
     COMPACTING = "compacting"

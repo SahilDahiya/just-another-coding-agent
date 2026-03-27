@@ -16,6 +16,8 @@ def build_phase_label(phase: UiPhase, motion_tick: int = 0) -> str:
     """Render the current phase, with restrained motion for active states."""
     if phase in {UiPhase.STREAMING, UiPhase.COMPACTING}:
         return f"{phase}{'.' * ((motion_tick % 3) + 1)}"
+    if phase == UiPhase.COMPLETED:
+        return "completed"
     return str(phase)
 
 
@@ -25,6 +27,8 @@ def build_prompt_marker_text(phase: UiPhase, motion_tick: int = 0) -> str:
         return ">>" if motion_tick % 2 == 0 else "> "
     if phase == UiPhase.COMPACTING:
         return "::" if motion_tick % 2 == 0 else ".:"
+    if phase == UiPhase.COMPLETED:
+        return "ok"
     if phase == UiPhase.INTERRUPTED:
         return "!!"
     if phase == UiPhase.ERROR:

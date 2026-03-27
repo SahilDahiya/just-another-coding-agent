@@ -50,6 +50,8 @@ agenda.
 - No looping decorative motion outside explicit pending/loading feedback.
 - Motion must improve comprehension, not just make the UI feel busy.
 - Default motion surfaces are the status bar and prompt marker, not new widgets or animated backgrounds.
+- Startup should reveal the existing three zones in sequence rather than popping the whole shell in at once.
+- Completion and interruption may use brief settle states before returning to idle, but the transcript remains the durable record.
 
 ## Default Interaction Model
 
