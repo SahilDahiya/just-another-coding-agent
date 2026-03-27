@@ -29,7 +29,7 @@ from .rendering import (
     write_stream_event,
 )
 from .state import UiPhase, UiState
-from .widgets import APP_CSS, StatusBar, TranscriptLog
+from .widgets import APP_CSS, ComposerInput, StatusBar, TranscriptLog
 
 
 class CodingAgentApp(App[None]):
@@ -69,6 +69,9 @@ class CodingAgentApp(App[None]):
         self._last_interrupt_time: float = 0.0
         self._motion_tick = 0
         self._phase_reset_timer: Timer | None = None
+        self._prompt_history: list[str] = []
+        self._history_index: int | None = None
+        self._history_draft: str = ""
 
     def compose(self) -> ComposeResult:
         yield StatusBar(id="status-bar")
@@ -76,7 +79,7 @@ class CodingAgentApp(App[None]):
             yield TranscriptLog(id="output")
             with Horizontal(id="prompt-row"):
                 yield Static("> ", id="prompt-marker")
-                yield Input(
+                yield ComposerInput(
                     placeholder="/help for commands",
                     id="prompt-input",
                 )
@@ -190,6 +193,62 @@ class CodingAgentApp(App[None]):
         if self.is_mounted:
             self._refresh_shell_chrome()
 
+    def _prompt_input(self) -> Input:
+        return self.query_one("#prompt-input", Input)
+
+    def _set_prompt_value(self, value: str) -> None:
+        prompt_input = self._prompt_input()
+        prompt_input.value = value
+        prompt_input.action_end()
+
+    def _reset_history_navigation(self) -> None:
+        self._history_index = None
+        self._history_draft = ""
+
+    def _record_prompt_history(self, prompt: str) -> None:
+        self._prompt_history.append(prompt)
+        self._reset_history_navigation()
+
+    def action_history_previous(self) -> None:
+        if self._streaming:
+            return
+        prompt_input = self._prompt_input()
+        if not prompt_input.has_focus or not self._prompt_history:
+            return
+
+        if self._history_index is None:
+            self._history_draft = prompt_input.value
+            self._history_index = len(self._prompt_history) - 1
+        else:
+            self._history_index = max(0, self._history_index - 1)
+        self._set_prompt_value(self._prompt_history[self._history_index])
+
+    def action_history_next(self) -> None:
+        if self._streaming:
+            return
+        prompt_input = self._prompt_input()
+        if not prompt_input.has_focus or self._history_index is None:
+            return
+
+        next_index = self._history_index + 1
+        if next_index >= len(self._prompt_history):
+            draft = self._history_draft
+            self._reset_history_navigation()
+            self._set_prompt_value(draft)
+            return
+
+        self._history_index = next_index
+        self._set_prompt_value(self._prompt_history[self._history_index])
+
+    def action_clear_prompt(self) -> None:
+        if self._streaming:
+            return
+        prompt_input = self._prompt_input()
+        if not prompt_input.has_focus:
+            return
+        prompt_input.clear()
+        self._reset_history_navigation()
+
     def action_interrupt(self) -> None:
         import time
 
@@ -216,6 +275,7 @@ class CodingAgentApp(App[None]):
             return
 
         self._cancel_phase_reset()
+        self._record_prompt_history(prompt)
         event.input.clear()
 
         if prompt.startswith("/"):

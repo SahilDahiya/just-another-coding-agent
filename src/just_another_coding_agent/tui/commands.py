@@ -22,6 +22,12 @@ def write_help(output: TranscriptLog) -> None:
     output.write_line("  /new               start a new session")
     output.write_line("  /quit              exit")
     output.write("\n")
+    output.write_line("keyboard")
+    output.write_line("  up                 previous prompt")
+    output.write_line("  down               next prompt / restore draft")
+    output.write_line("  ctrl+u             clear prompt")
+    output.write_line("  ctrl+c             interrupt, then quit")
+    output.write("\n")
     output.write_line("provider setup")
     output.write_line(
         "  /provider ollama                     local ollama, no key needed"

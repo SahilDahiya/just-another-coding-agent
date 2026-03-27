@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from typing import Self
 
+from textual import events
+from textual.binding import Binding
 from textual.timer import Timer
-from textual.widgets import RichLog, Static
+from textual.widgets import Input, RichLog, Static
 
 from .theme import build_app_css
 
@@ -14,6 +16,44 @@ APP_CSS = build_app_css()
 
 class StatusBar(Static):
     """Top status bar showing current session state."""
+
+
+class ComposerInput(Input):
+    """Single-line prompt input with shell-style history bindings."""
+
+    BINDINGS = [
+        *Input.BINDINGS,
+        Binding("up", "history_previous", "Previous Prompt", show=False),
+        Binding("down", "history_next", "Next Prompt", show=False),
+        Binding("ctrl+u", "clear_prompt", "Clear Prompt", show=False),
+    ]
+
+    def action_history_previous(self) -> None:
+        self.app.action_history_previous()
+
+    def action_history_next(self) -> None:
+        self.app.action_history_next()
+
+    def action_clear_prompt(self) -> None:
+        self.app.action_clear_prompt()
+
+    async def _on_key(self, event: events.Key) -> None:
+        if event.key == "up":
+            event.prevent_default()
+            event.stop()
+            self.action_history_previous()
+            return
+        if event.key == "down":
+            event.prevent_default()
+            event.stop()
+            self.action_history_next()
+            return
+        if event.key == "ctrl+u":
+            event.prevent_default()
+            event.stop()
+            self.action_clear_prompt()
+            return
+        await super()._on_key(event)
 
 
 class TranscriptLog(RichLog):
@@ -118,4 +158,4 @@ class TranscriptLog(RichLog):
             super().write(part, scroll_end=True)
 
 
-__all__ = ["APP_CSS", "StatusBar", "TranscriptLog"]
+__all__ = ["APP_CSS", "ComposerInput", "StatusBar", "TranscriptLog"]

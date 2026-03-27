@@ -225,6 +225,67 @@ async def test_prompt_submission_keeps_spaces_and_streams_single_line(
 
 
 @pytest.mark.asyncio
+async def test_prompt_history_recall_and_draft_restore(tmp_path: Path) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    sessions_root.mkdir()
+
+    app = DemoStreamingApp(
+        model="ollama:test",
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+        thinking=None,
+    )
+
+    async with app.run_test() as pilot:
+        prompt_input = app.query_one("#prompt-input", Input)
+
+        await pilot.press("f", "i", "r", "s", "t", "enter")
+        await pilot.pause()
+        await pilot.press("s", "e", "c", "o", "n", "d", "enter")
+        await pilot.pause()
+
+        await pilot.press("d", "r", "a", "f", "t")
+        assert prompt_input.value == "draft"
+
+        await pilot.press("up")
+        assert prompt_input.value == "second"
+
+        await pilot.press("up")
+        assert prompt_input.value == "first"
+
+        await pilot.press("down")
+        assert prompt_input.value == "second"
+
+        await pilot.press("down")
+        assert prompt_input.value == "draft"
+
+
+@pytest.mark.asyncio
+async def test_ctrl_u_clears_prompt_input(tmp_path: Path) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    sessions_root.mkdir()
+
+    app = CodingAgentApp(
+        model="ollama:test",
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+        thinking=None,
+    )
+
+    async with app.run_test() as pilot:
+        prompt_input = app.query_one("#prompt-input", Input)
+        await pilot.press("h", "e", "l", "l", "o")
+        assert prompt_input.value == "hello"
+
+        await pilot.press("ctrl+u")
+        assert prompt_input.value == ""
+
+
+@pytest.mark.asyncio
 async def test_success_phase_settles_before_returning_to_idle(tmp_path: Path) -> None:
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
