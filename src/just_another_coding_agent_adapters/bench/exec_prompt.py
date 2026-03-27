@@ -51,6 +51,7 @@ def build_server_command(
         sys.executable,
         "-m",
         "just_another_coding_agent",
+        "--headless",
         "--model",
         model,
         "--workspace-root",

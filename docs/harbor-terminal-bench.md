@@ -12,7 +12,7 @@ The adapter path is intentionally thin:
 - that agent uploads the local repo source into the task container
 - the container installs the backend package
 - the adapter runs the one-shot wrapper `just-another-coding-agent-exec-prompt`
-- the wrapper talks to the canonical stdio backend through `session.create` and `run.start`
+- the wrapper launches the backend in `--headless` stdio-RPC mode and talks to it through `session.create` and `run.start`
 - the wrapper can also forward an optional explicit `thinking` setting into `run.start`
 
 This is an adapter around the existing backend contract, not a second execution architecture.

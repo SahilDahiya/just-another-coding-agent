@@ -111,6 +111,7 @@ def test_run_exec_prompt_returns_terminal_output(tmp_path) -> None:
         sys.executable,
         "-m",
         "just_another_coding_agent",
+        "--headless",
         "--model",
         "openai-responses:gpt-5.3-codex",
         "--workspace-root",
