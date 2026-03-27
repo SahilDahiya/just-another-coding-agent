@@ -9,7 +9,6 @@ from pydantic_ai import (
 )
 from pydantic_ai.messages import ModelMessage, RetryPromptPart, ToolCallPart
 from pydantic_ai.models.function import DeltaToolCall, FunctionModel
-from pydantic_ai.usage import UsageLimits
 
 from just_another_coding_agent.contracts.run_events import (
     AssistantTextDeltaEvent,
@@ -39,10 +38,8 @@ class StubStreamAgent:
         _prompt: str,
         *,
         message_history: list[ModelMessage] | None = None,
-        usage_limits: UsageLimits | None = None,
     ) -> AsyncIterator[object]:
         assert message_history is None
-        assert usage_limits is not None
         for event in self._events:
             yield event
 
@@ -624,51 +621,3 @@ async def test_stream_run_events_recovers_from_non_zero_bash_exit_within_one_run
     assert isinstance(events[4], ToolCallSucceededEvent)
     assert events[4].result == {"exit_code": 0, "output": "ok"}
     assert events[6].output_text == "done"
-
-
-async def test_stream_run_events_fails_only_when_usage_limits_are_exhausted(
-    tmp_path,
-) -> None:
-    workspace_root = tmp_path / "workspace"
-    workspace_root.mkdir()
-    note = workspace_root / "note.txt"
-    note.write_text("hello\nworld\n", encoding="utf-8")
-
-    agent = build_canonical_agent(
-        model=FunctionModel(stream_function=looping_edit_stream),
-        workspace_root=workspace_root,
-        tool_names=("edit",),
-    )
-
-    events = [
-        event
-        async for event in stream_run_events(
-            agent=agent,
-            prompt="go",
-            usage_limits=UsageLimits(request_limit=2, tool_calls_limit=10),
-        )
-    ]
-
-    assert [event.type for event in events] == [
-        "run_started",
-        "tool_call_started",
-        "tool_call_succeeded",
-        "tool_call_started",
-        "tool_call_succeeded",
-        "run_failed",
-    ]
-    assert isinstance(events[2], ToolCallSucceededEvent)
-    assert events[2].result == {
-        "ok": False,
-        "error_type": "ValueError",
-        "message": (
-            "old_text must match exactly once in "
-            f"{note}; found 0 occurrences"
-        ),
-    }
-    assert isinstance(events[4], ToolCallSucceededEvent)
-    assert events[4].result == events[2].result
-    assert isinstance(events[5], RunFailedEvent)
-    assert events[5].error_type == "UsageLimitExceeded"
-    assert "request_limit" in events[5].message
-    assert note.read_text(encoding="utf-8") == "hello\nworld\n"

@@ -36,7 +36,7 @@ Rules:
 - Exactly one terminal event (success or failure, never both)
 - Tool calls have their own sub-lifecycle: `tool_call_started -> tool_call_succeeded | tool_call_failed`
 - If the stream crashes mid-tool, all pending tools get failure events before the run failure
-- Exceeding PydanticAI `UsageLimits` (request or tool call bounds) ends the run with `run_failed` and `error_type: UsageLimitExceeded`
+- The canonical backend does not impose a backend-level request or tool-call ceiling within a run.
 
 `stream_run_events()` in `runtime/run.py` translates PydanticAI's internal events into these canonical public events. Runtime exceptions before a terminal event are converted into canonical failure events by design. Any exception after terminal success is invalid state and is raised.
 
@@ -137,7 +137,7 @@ The runtime (`runtime/run.py`) is the bridge between PydanticAI and the public c
 
 1. Creates a unique `run_id`
 2. Yields `RunStartedEvent`
-3. Applies PydanticAI `UsageLimits` (default: 50 requests, 200 tool calls)
+3. Streams the run without a default per-run request or tool-call ceiling
 4. Iterates PydanticAI's internal event stream, translating each into a public contract event
 5. Tracks pending tool calls so failures cascade correctly
 6. Guarantees exactly one terminal event
@@ -153,7 +153,7 @@ Across the entire codebase:
 - Bad RPC requests get an error response, not a guess at intent
 - Missing tool implementations crash, not no-op
 - Tool name mismatches crash, not silently substitute
-- Exceeding usage limits ends the run explicitly
+- Live-run stopping behavior comes from external timeouts, caller interruption, or model/provider termination
 
 If something is wrong, the caller knows immediately. Silent recovery hides bugs and makes contracts meaningless.
 
@@ -168,7 +168,7 @@ Benchmark harness / CLI / UI (any language)
     |
   Session coordinator (runtime/session.py) -- load, stream, persist
     | RunEvent stream + message capture
-  Runtime (runtime/run.py) -- event translation + usage limits
+  Runtime (runtime/run.py) -- event translation
     | PydanticAI events
   Canonical agent (runtime/agent.py) -- model + tools + instructions
     |

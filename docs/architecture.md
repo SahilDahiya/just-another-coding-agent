@@ -20,9 +20,25 @@ Local code should translate those primitives into the canonical backend contract
 
 The canonical agent assembly must take an explicit workspace root. Tool behavior uses that root as the default base for relative paths and bash cwd rather than relying on process cwd or other implicit global state.
 Persisted sessions must also bind to that explicit workspace root and store native PydanticAI message history so later runs can resume through `message_history` instead of reconstructing context from public events.
-The canonical runtime must also apply per-run PydanticAI `UsageLimits` so request and tool loops fail hard instead of running unbounded. The current operational defaults are `request_limit=50` and `tool_calls_limit=200`.
+The canonical runtime is unbounded within a single run and does not impose backend-level request or tool-call ceilings.
 The canonical prompt should inject the current date and resolved workspace root dynamically at agent-build time so the model can reason about time and paths without inferring hidden process state.
 The canonical prompt must also enforce side-effect truthfulness and verification discipline: the model must not claim to have created or modified files without tool evidence, and it should run the smallest relevant verification step before concluding after code changes or required file outputs.
+
+## Compaction Direction
+
+Compaction is the planned answer for long-lived session growth, not for bounding a live run.
+
+Planned sequence:
+
+1. Add manual session compaction first.
+2. Persist a compaction entry alongside existing session entries.
+3. Rebuild resumed `message_history` from a compaction summary plus retained recent native messages.
+4. Add optional automatic compaction later on explicit thresholds or overflow recovery.
+
+The important boundary is:
+
+- compaction manages cross-run session size
+- it does not replace external timeouts for live runs
 
 ## Canonical Package Layout
 

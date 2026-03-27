@@ -8,10 +8,8 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 from pydantic_ai.models.function import DeltaToolCall, FunctionModel
-from pydantic_ai.usage import UsageLimits
 
 from just_another_coding_agent.contracts.run_events import (
-    RunFailedEvent,
     RunStartedEvent,
     RunSucceededEvent,
     ToolCallSucceededEvent,
@@ -94,34 +92,11 @@ async def resume_aware_write_stream(messages, _agent_info):
     raise AssertionError(f"unexpected prompt: {latest_prompt!r}")
 
 
-async def looping_edit_stream(messages, _agent_info):
-    yield {
-        0: DeltaToolCall(
-            name="edit",
-            json_args=(
-                '{"path": "note.txt", "old_text": "missing", '
-                '"new_text": "agent"}'
-            ),
-            tool_call_id=f"call-edit-{len(messages)}",
-        )
-    }
-
-
 async def text_only_stream(
     _messages: list[ModelMessage],
     _agent_info: object,
 ) -> AsyncIterator[str]:
     yield "done"
-
-
-async def looping_read_stream(_messages, _agent_info):
-    yield {
-        0: DeltaToolCall(
-            name="read",
-            json_args='{"path": "note.txt"}',
-            tool_call_id="call-read",
-        )
-    }
 
 
 async def test_stream_session_run_events_persists_authoritative_session(
@@ -235,58 +210,6 @@ async def test_stream_session_run_events_resumes_with_pydanticai_message_history
     loaded = load_session(path=session_path, workspace_root=workspace_root)
     assert [run.prompt for run in loaded.runs] == ["create note", "what did you do?"]
     assert _has_tool_return(loaded.message_history, tool_name="write")
-
-
-async def test_stream_session_run_events_persists_failed_run(
-    tmp_path,
-) -> None:
-    workspace_root = tmp_path / "workspace"
-    workspace_root.mkdir()
-    (workspace_root / "note.txt").write_text("hello\nworld\n", encoding="utf-8")
-    session_path = tmp_path / "session.jsonl"
-
-    events = [
-        event
-        async for event in stream_session_run_events(
-            model=FunctionModel(stream_function=looping_edit_stream),
-            workspace_root=workspace_root,
-            session_path=session_path,
-            prompt="go",
-            usage_limits=UsageLimits(request_limit=2, tool_calls_limit=10),
-        )
-    ]
-
-    assert [event.type for event in events] == [
-        "run_started",
-        "tool_call_started",
-        "tool_call_succeeded",
-        "tool_call_started",
-        "tool_call_succeeded",
-        "run_failed",
-    ]
-
-    tool_result = events[2]
-    assert isinstance(tool_result, ToolCallSucceededEvent)
-    assert tool_result.tool_name == "edit"
-    assert tool_result.result == {
-        "ok": False,
-        "error_type": "ValueError",
-        "message": (
-            "old_text must match exactly once in "
-            f"{workspace_root / 'note.txt'}; found 0 occurrences"
-        ),
-    }
-
-    terminal = events[-1]
-    assert isinstance(terminal, RunFailedEvent)
-    assert terminal.error_type == "UsageLimitExceeded"
-    assert terminal.message == "The next request would exceed the request_limit of 2"
-
-    loaded = load_session(path=session_path, workspace_root=workspace_root)
-    assert loaded.runs[0].events == events
-    assert loaded.runs[0].messages
-
-
 async def test_stream_session_run_events_does_not_persist_partial_consumption(
     tmp_path,
 ) -> None:
@@ -306,39 +229,3 @@ async def test_stream_session_run_events_does_not_persist_partial_consumption(
     await stream.aclose()
 
     assert not session_path.exists()
-
-
-async def test_stream_session_run_events_persists_usage_limit_failure(
-    tmp_path,
-) -> None:
-    workspace_root = tmp_path / "workspace"
-    workspace_root.mkdir()
-    (workspace_root / "note.txt").write_text("hello\n", encoding="utf-8")
-    session_path = tmp_path / "session.jsonl"
-
-    events = [
-        event
-        async for event in stream_session_run_events(
-            model=FunctionModel(stream_function=looping_read_stream),
-            workspace_root=workspace_root,
-            session_path=session_path,
-            prompt="go",
-            usage_limits=UsageLimits(request_limit=1),
-        )
-    ]
-
-    assert [event.type for event in events] == [
-        "run_started",
-        "tool_call_started",
-        "tool_call_succeeded",
-        "run_failed",
-    ]
-
-    terminal = events[-1]
-    assert isinstance(terminal, RunFailedEvent)
-    assert terminal.error_type == "UsageLimitExceeded"
-    assert terminal.message == "The next request would exceed the request_limit of 1"
-
-    loaded = load_session(path=session_path, workspace_root=workspace_root)
-    assert loaded.runs[0].events == events
-    assert loaded.runs[0].messages

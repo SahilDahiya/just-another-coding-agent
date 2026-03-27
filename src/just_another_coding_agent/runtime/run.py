@@ -20,7 +20,6 @@ from pydantic_ai.messages import (
     TextPart,
     TextPartDelta,
 )
-from pydantic_ai.usage import UsageLimits
 
 from just_another_coding_agent.contracts.run_events import (
     AssistantTextDeltaEvent,
@@ -37,19 +36,11 @@ from just_another_coding_agent.contracts.run_events import (
 _JSON_VALUE_ADAPTER = TypeAdapter(JsonValue)
 
 
-def build_canonical_usage_limits() -> UsageLimits:
-    return UsageLimits(
-        request_limit=50,
-        tool_calls_limit=200,
-    )
-
-
 async def stream_run_events(
     *,
     agent: Agent[Any, Any],
     prompt: str,
     message_history: Sequence[ModelMessage] | None = None,
-    usage_limits: UsageLimits | None = None,
 ) -> AsyncIterator[RunEvent]:
     """Translate one PydanticAI run into the canonical streamed event contract.
 
@@ -64,15 +55,9 @@ async def stream_run_events(
     yield RunStartedEvent(run_id=run_id)
 
     try:
-        effective_usage_limits = (
-            build_canonical_usage_limits()
-            if usage_limits is None
-            else usage_limits
-        )
         async for event in agent.run_stream_events(
             prompt,
             message_history=message_history,
-            usage_limits=effective_usage_limits,
         ):
             if isinstance(event, FunctionToolCallEvent):
                 args = _normalize_tool_args(event.part.args)

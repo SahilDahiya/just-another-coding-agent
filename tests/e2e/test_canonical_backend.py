@@ -4,11 +4,9 @@ from collections.abc import AsyncIterator
 from pydantic import TypeAdapter
 from pydantic_ai.messages import ModelMessage
 from pydantic_ai.models.function import DeltaToolCall, FunctionModel
-from pydantic_ai.usage import UsageLimits
 
 from just_another_coding_agent.contracts.run_events import (
     RunEvent,
-    RunFailedEvent,
     RunSucceededEvent,
     ToolCallSucceededEvent,
 )
@@ -58,6 +56,10 @@ async def looping_edit_stream(
     messages: list[ModelMessage],
     _agent_info: object,
 ) -> AsyncIterator[str | dict[int, DeltaToolCall]]:
+    if len(messages) >= 7:
+        yield "done"
+        return
+
     yield {
         0: DeltaToolCall(
             name="edit",
@@ -214,10 +216,6 @@ async def test_e2e_failure_round_trips_through_rpc_and_session(
     other_dir = tmp_path / "other"
     other_dir.mkdir()
     monkeypatch.chdir(other_dir)
-    monkeypatch.setattr(
-        "just_another_coding_agent.runtime.run.build_canonical_usage_limits",
-        lambda: UsageLimits(request_limit=2, tool_calls_limit=10),
-    )
     session_id = await _create_session_id(
         workspace_root=workspace_root,
         sessions_root=sessions_root,
@@ -237,7 +235,10 @@ async def test_e2e_failure_round_trips_through_rpc_and_session(
         "tool_call_succeeded",
         "tool_call_started",
         "tool_call_succeeded",
-        "run_failed",
+        "tool_call_started",
+        "tool_call_succeeded",
+        "assistant_text_delta",
+        "run_succeeded",
     ]
 
     tool_result = events[2]
@@ -252,10 +253,13 @@ async def test_e2e_failure_round_trips_through_rpc_and_session(
         ),
     }
 
+    third_result = events[6]
+    assert isinstance(third_result, ToolCallSucceededEvent)
+    assert third_result.result == tool_result.result
+
     terminal = events[-1]
-    assert isinstance(terminal, RunFailedEvent)
-    assert terminal.error_type == "UsageLimitExceeded"
-    assert terminal.message == "The next request would exceed the request_limit of 2"
+    assert terminal.type == "run_succeeded"
+    assert terminal.output_text == "done"
     assert (workspace_root / "note.txt").read_text(encoding="utf-8") == "hello\nworld\n"
 
     session_path = session_path_for_id(

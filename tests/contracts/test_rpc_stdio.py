@@ -4,7 +4,6 @@ from collections.abc import AsyncIterator
 import pytest
 from pydantic_ai.messages import ModelMessage, ToolReturnPart, UserPromptPart
 from pydantic_ai.models.function import DeltaToolCall, FunctionModel
-from pydantic_ai.usage import UsageLimits
 
 from just_another_coding_agent.rpc.session_store import session_path_for_id
 from just_another_coding_agent.rpc.stdio import handle_rpc_json_line
@@ -66,6 +65,10 @@ async def looping_edit_stream(
     messages: list[ModelMessage],
     _agent_info: object,
 ) -> AsyncIterator[str | dict[int, DeltaToolCall]]:
+    if len(messages) >= 7:
+        yield "done"
+        return
+
     yield {
         0: DeltaToolCall(
             name="edit",
@@ -197,19 +200,11 @@ async def test_handle_rpc_json_line_creates_session_and_resumes_runs(
 
 async def test_handle_rpc_json_line_keeps_run_failure_in_event_stream_and_session(
     tmp_path,
-    monkeypatch,
 ) -> None:
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
     (workspace_root / "note.txt").write_text("hello\nworld\n", encoding="utf-8")
     sessions_root = tmp_path / "sessions"
-    monkeypatch.setattr(
-        "just_another_coding_agent.runtime.run.build_canonical_usage_limits",
-        lambda: UsageLimits(
-            request_limit=2,
-            tool_calls_limit=10,
-        ),
-    )
     session_id = await _create_session_id(
         workspace_root=workspace_root,
         sessions_root=sessions_root,
@@ -226,14 +221,17 @@ async def test_handle_rpc_json_line_keeps_run_failure_in_event_stream_and_sessio
         sessions_root=sessions_root,
     )
 
-    assert [message["type"] for message in messages] == ["rpc_event"] * 6
+    assert [message["type"] for message in messages] == ["rpc_event"] * 9
     assert [message["event"]["type"] for message in messages] == [
         "run_started",
         "tool_call_started",
         "tool_call_succeeded",
         "tool_call_started",
         "tool_call_succeeded",
-        "run_failed",
+        "tool_call_started",
+        "tool_call_succeeded",
+        "assistant_text_delta",
+        "run_succeeded",
     ]
     assert messages[2]["event"]["result"] == {
         "ok": False,
@@ -243,10 +241,10 @@ async def test_handle_rpc_json_line_keeps_run_failure_in_event_stream_and_sessio
             f"{workspace_root / 'note.txt'}; found 0 occurrences"
         ),
     }
-    assert messages[-1]["event"]["error_type"] == "UsageLimitExceeded"
-    assert messages[-1]["event"]["message"] == (
-        "The next request would exceed the request_limit of 2"
-    )
+    assert messages[4]["event"]["result"] == messages[2]["event"]["result"]
+    assert messages[6]["event"]["result"] == messages[2]["event"]["result"]
+    assert messages[-2]["event"]["delta"] == "done"
+    assert messages[-1]["event"]["output_text"] == "done"
 
     session_path = session_path_for_id(
         sessions_root=sessions_root,
@@ -260,7 +258,10 @@ async def test_handle_rpc_json_line_keeps_run_failure_in_event_stream_and_sessio
         "tool_call_succeeded",
         "tool_call_started",
         "tool_call_succeeded",
-        "run_failed",
+        "tool_call_started",
+        "tool_call_succeeded",
+        "assistant_text_delta",
+        "run_succeeded",
     ]
 
 
