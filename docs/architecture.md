@@ -26,6 +26,32 @@ The canonical prompt should inject the current date and resolved workspace root 
 The canonical prompt must also enforce side-effect truthfulness and verification discipline: the model must not claim to have created or modified files without tool evidence, and it should run the smallest relevant verification step before concluding after code changes or required file outputs.
 The canonical runtime should expose `thinking` as an explicit run setting and pass it through PydanticAI model settings rather than encoding reasoning level in prompt text.
 
+## Stateful Orchestration Boundary
+
+The repo is already session-stateful across runs because persisted native
+PydanticAI `message_history` is loaded back into later runs. The next step is
+thin stateful orchestration, not a second agent framework.
+
+Use PydanticAI where it already has the right seam:
+
+- use `message_history` as the canonical resume substrate
+- use `history_processors` to shape what history the model sees at runtime
+- use Hooks for bounded run-local interception and recovery behavior
+- use `model_settings` for explicit run settings such as `thinking`
+
+Keep product semantics in this repo's own contract layer:
+
+- session JSONL entry types and format versioning
+- explicit session commands such as future `session.compact`
+- compaction summary shape and resume semantics
+- continue semantics across runs
+- durable recovery policy and public streamed event behavior
+
+The rule of thumb is:
+
+- if it changes behavior inside one run step, PydanticAI probably has a seam
+- if it changes what the backend promises across runs or over RPC, we own it
+
 ## Compaction Direction
 
 Compaction is the planned answer for long-lived session growth, not for bounding a live run.
@@ -41,6 +67,8 @@ The important boundary is:
 
 - compaction manages cross-run session size
 - it does not replace external timeouts for live runs
+- durable compaction state lives in our session file, while PydanticAI
+  `history_processors` are the runtime seam that applies the compacted view
 
 ## Canonical Package Layout
 
