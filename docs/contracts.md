@@ -121,7 +121,7 @@ Initial executable tool slice:
 - missing files, directory targets, and invalid UTF-8 return an explicit tool error result
 - preserves a leading UTF-8 BOM when present
 - restores the file's original line-ending style after writing
-- when normalized fallback is used, the written file content is the normalized form of the matched content plus `new_text`
+- when normalized fallback is used, matching is computed in normalized space but replacement is applied to the original LF-normalized file content so unmatched surrounding text is preserved
 
 `bash` input contract:
 

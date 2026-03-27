@@ -225,3 +225,28 @@ def test_edit_tool_falls_back_to_normalized_matching(tmp_path) -> None:
     )
 
     assert path.read_text(encoding="utf-8") == 'say "hello" - agent\n'
+
+
+def test_edit_tool_fuzzy_fallback_preserves_unmatched_surrounding_content(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    path = workspace_root / "note.txt"
+    path.write_text(
+        'keep “smart”\nchange “hello”\u00a0-\u00a0world  \n',
+        encoding="utf-8",
+    )
+
+    execute_edit(
+        tool_input=EditToolInput(
+            path="note.txt",
+            old_text='change "hello" - world\n',
+            new_text='change "hello" - agent\n',
+        ),
+        workspace_root=workspace_root,
+    )
+
+    assert path.read_text(encoding="utf-8") == (
+        'keep “smart”\nchange "hello" - agent\n'
+    )

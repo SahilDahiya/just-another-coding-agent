@@ -105,9 +105,10 @@ def test_build_canonical_toolset_exposes_rich_model_facing_tool_descriptions(
         "old_text with new_text. Exact matching is tried first; if that "
         "fails, the tool falls back to normalized matching that tolerates "
         "BOM differences, LF versus CRLF, trailing whitespace, and common "
-        "Unicode quote, dash, and space variants. Zero or multiple matches "
-        "return an error result. new_text may be empty to delete the "
-        "matched text. Use this for precise surgical changes."
+        "Unicode quote, dash, and space variants while preserving "
+        "surrounding file content outside the replaced region. Zero or "
+        "multiple matches return an error result. new_text may be empty "
+        "to delete the matched text. Use this for precise surgical changes."
     )
     assert (
         function_tools["edit"].parameters_json_schema["properties"]["old_text"][

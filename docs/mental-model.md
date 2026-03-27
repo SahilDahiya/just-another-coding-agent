@@ -114,7 +114,7 @@ Each tool is a workspace-bound factory: `create_read_tool(workspace_root=...)` r
 
 - `read` -- reads a UTF-8 file, returns contents
 - `write` -- writes a UTF-8 file, creates parent dirs, returns confirmation
-- `edit` -- replaces exactly one occurrence of `old_text` with `new_text`, trying exact matching first and then a normalized fallback for minor formatting differences; fails on zero/multiple matches or no-op
+- `edit` -- replaces exactly one occurrence of `old_text` with `new_text`, trying exact matching first and then a normalized fallback for minor formatting differences while preserving surrounding unmatched content; fails on zero/multiple matches or no-op
 - `bash` -- runs `bash -lc <command>` with `cwd` set to workspace root, returns `{"exit_code": 0, "output": str}` on success and explicit tool error results for non-zero exits or timeouts
 - `grep` -- searches UTF-8 text files with ripgrep and returns matching lines with relative paths and line numbers
 - `ls` -- lists directory contents in a bounded alphabetical view with `/` suffixes for directories
