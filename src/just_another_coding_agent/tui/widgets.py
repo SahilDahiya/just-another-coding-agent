@@ -92,6 +92,18 @@ class TranscriptLog(RichLog):
         """Return the transcript as plain text for tests and helpers."""
         return "".join(self._parts)
 
+    def ensure_block_gap(self) -> None:
+        """Ensure the next transcript block starts after one blank separator."""
+        if not self._parts:
+            return
+        text = self.plain_text
+        if text.endswith("\n\n"):
+            return
+        if text.endswith("\n"):
+            self.write("\n")
+            return
+        self.write("\n\n")
+
     def write_line(self, line: str) -> None:
         self.write(f"{line}\n")
 

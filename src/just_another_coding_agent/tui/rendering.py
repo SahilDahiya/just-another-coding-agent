@@ -81,6 +81,8 @@ def write_startup_banner(
     thinking: str | None,
 ) -> None:
     """Render the initial banner and provider hints."""
+    output.write_line("system")
+    output.write("\n")
     output.write_line(f"jaca  {display_path(workspace_root)}")
     output.write_line(f"model {model}")
     if thinking:
@@ -129,6 +131,8 @@ def write_stream_event(output: TranscriptLog, event: Any) -> None:
             output.write_line(f"tool error: {result.get('message', '')}")
     elif event.type == "run_failed":
         output.end_live_text()
+        output.ensure_block_gap()
+        output.write_line("error")
         output.write("\n")
         output.write_line(f"ERROR: {event.message}")  # type: ignore[union-attr]
     elif event.type == "run_succeeded":

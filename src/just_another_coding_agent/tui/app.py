@@ -14,7 +14,7 @@ from textual.drivers.linux_inline_driver import LinuxInlineDriver
 from textual.timer import Timer
 from textual.widgets import Input, Static
 
-from .commands import handle_provider_command, write_help
+from .commands import handle_provider_command, start_system_block, write_help
 from .drivers import (
     VscodeLinuxDriver,
     VscodeLinuxInlineDriver,
@@ -321,6 +321,7 @@ class CodingAgentApp(App[None]):
             handle_provider_command(arg, output)
 
         elif cmd == "/model":
+            start_system_block(output)
             if arg:
                 self._state = self._state.with_model(arg)
                 output.write_line(f"model set to {self._state.model}")
@@ -329,6 +330,7 @@ class CodingAgentApp(App[None]):
             self._refresh_shell_chrome()
 
         elif cmd == "/thinking":
+            start_system_block(output)
             if arg:
                 valid = {"true", "false", "minimal", "low", "medium", "high", "xhigh"}
                 if arg.lower() in valid:
@@ -343,9 +345,11 @@ class CodingAgentApp(App[None]):
             self._refresh_shell_chrome()
 
         elif cmd == "/workspace":
+            start_system_block(output)
             output.write_line(f"workspace: {display_path(self._state.workspace_root)}")
 
         elif cmd == "/session":
+            start_system_block(output)
             if self._state.session_id:
                 output.write_line(f"session: {self._state.session_id}")
             else:
@@ -353,9 +357,11 @@ class CodingAgentApp(App[None]):
 
         elif cmd == "/compact":
             if self._state.session_id is None:
+                start_system_block(output)
                 output.write_line("ERROR: no active session")
                 return
             self._set_phase(UiPhase.COMPACTING)
+            start_system_block(output)
             output.write_line("compacting...")
             try:
                 await self._compact_session()
@@ -366,6 +372,7 @@ class CodingAgentApp(App[None]):
                 output.write_line(f"ERROR: compaction failed: {error}")
 
         elif cmd == "/new":
+            start_system_block(output)
             self._state = self._state.with_session_id(None).with_phase(UiPhase.IDLE)
             output.write_line("session cleared")
             self._refresh_shell_chrome()
@@ -374,6 +381,7 @@ class CodingAgentApp(App[None]):
             self.exit()
 
         else:
+            start_system_block(output)
             output.write_line(f"ERROR: unknown: {cmd}")
 
     async def _compact_session(self) -> None:

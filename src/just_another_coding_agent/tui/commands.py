@@ -8,9 +8,16 @@ from .config import save_provider_config
 from .widgets import TranscriptLog
 
 
+def start_system_block(output: TranscriptLog) -> None:
+    """Open a consistently spaced system block in the transcript."""
+    output.ensure_block_gap()
+    output.write_line("system")
+    output.write("\n")
+
+
 def write_help(output: TranscriptLog) -> None:
     """Render slash-command help text."""
-    output.write("\n")
+    start_system_block(output)
     output.write_line("commands")
     output.write_line("  /help              show this help")
     output.write_line("  /provider          configure provider credentials")
@@ -40,6 +47,7 @@ def write_help(output: TranscriptLog) -> None:
 
 def handle_provider_command(arg: str | None, output: TranscriptLog) -> None:
     """Update provider configuration from a slash command."""
+    start_system_block(output)
     if not arg:
         output.write_line("usage")
         output.write_line("  /provider ollama                  local, no key needed")
@@ -92,4 +100,4 @@ def handle_provider_command(arg: str | None, output: TranscriptLog) -> None:
     output.write_line("supported: ollama, openai, anthropic")
 
 
-__all__ = ["handle_provider_command", "write_help"]
+__all__ = ["handle_provider_command", "start_system_block", "write_help"]

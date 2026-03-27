@@ -45,6 +45,7 @@ async def test_tui_app_starts_and_focuses_prompt(tmp_path: Path) -> None:
         assert status_bar.styles.opacity == 1
         assert transcript.styles.opacity == 1
         assert prompt_row.styles.opacity == 1
+        assert transcript.plain_text.startswith("system\n\njaca")
         assert "idle" in str(status_bar.renderable)
         assert "ollama:test" in str(status_bar.renderable)
 
@@ -222,6 +223,27 @@ async def test_prompt_submission_keeps_spaces_and_streams_single_line(
         assert "> hello world" in transcript.plain_text
         assert "assistant" in transcript.plain_text
         assert "Hello world" in transcript.plain_text
+
+
+@pytest.mark.asyncio
+async def test_slash_help_renders_as_system_block(tmp_path: Path) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    sessions_root.mkdir()
+
+    app = CodingAgentApp(
+        model="ollama:test",
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+        thinking=None,
+    )
+
+    async with app.run_test() as pilot:
+        await pilot.press("slash", "h", "e", "l", "p", "enter")
+        transcript = app.query_one("#output", TranscriptLog)
+        assert "system\n\ncommands" in transcript.plain_text
+        assert "keyboard" in transcript.plain_text
 
 
 @pytest.mark.asyncio
