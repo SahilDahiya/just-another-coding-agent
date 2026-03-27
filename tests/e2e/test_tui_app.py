@@ -1,3 +1,4 @@
+import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -69,6 +70,50 @@ async def test_streamed_assistant_deltas_append_as_text(tmp_path: Path) -> None:
             SimpleNamespace(type="run_succeeded"),
         )
 
+        assert "Hello world" in transcript.plain_text
+
+
+@pytest.mark.asyncio
+async def test_live_transcript_batches_rerender_per_flush_window(
+    tmp_path: Path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    sessions_root.mkdir()
+
+    app = CodingAgentApp(
+        model="ollama:test",
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+        thinking=None,
+    )
+
+    async with app.run_test() as pilot:
+        transcript = app.query_one("#output", TranscriptLog)
+        rerender_count = 0
+        original_rerender = transcript._rerender
+
+        def counted_rerender() -> None:
+            nonlocal rerender_count
+            rerender_count += 1
+            original_rerender()
+
+        transcript._rerender = counted_rerender  # type: ignore[method-assign]
+
+        write_stream_event(
+            transcript,
+            SimpleNamespace(type="assistant_text_delta", delta="Hello"),
+        )
+        write_stream_event(
+            transcript,
+            SimpleNamespace(type="assistant_text_delta", delta=" world"),
+        )
+        assert rerender_count == 0
+
+        await asyncio.sleep(transcript.LIVE_FLUSH_DELAY * 2)
+        await pilot.pause()
+        assert rerender_count == 1
         assert "Hello world" in transcript.plain_text
 
 
