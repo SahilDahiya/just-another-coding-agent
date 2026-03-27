@@ -21,6 +21,8 @@ Rules:
 
 - the canonical agent prompt must be assembled through one builder path
 - dynamic prompt context must be explicit and reproducible
+- the canonical agent prompt must explicitly forbid claiming file side effects without tool evidence
+- the canonical agent prompt must explicitly instruct the model to verify code changes or required file outputs before concluding
 - if `AGENTS.md` exists at the workspace root, it must be injected under a clearly delimited `# Project Context` section
 - if workspace-root `AGENTS.md` is unreadable, not a regular file, or not valid UTF-8, agent construction must fail explicitly
 - missing workspace-root `AGENTS.md` is allowed and must not inject an empty project-context section

@@ -60,6 +60,16 @@ def test_build_canonical_instructions_include_dynamic_context(tmp_path) -> None:
         "Use bash for search, inspection, builds, and commands (ls, rg, find, grep)."
         in instructions
     )
+    assert (
+        "Do not claim you created, edited, or saved a file unless you "
+        "actually used write or edit, or verified the result with read or bash."
+        in instructions
+    )
+    assert (
+        "After code changes or required file outputs, run the smallest "
+        "relevant verification step before concluding."
+        in instructions
+    )
     assert "Current date: 2026-03-26" in instructions
     assert f"Current workspace root: {workspace_root.resolve()}" in instructions
 
@@ -91,6 +101,29 @@ def test_build_canonical_instructions_omit_project_context_without_agents_md(
     )
 
     assert "# Project Context" not in instructions
+
+
+def test_build_canonical_instructions_include_truthfulness_and_verification_rules(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    instructions = build_canonical_instructions(
+        workspace_root=workspace_root,
+        current_date=date(2026, 3, 26),
+    )
+
+    assert (
+        "Do not claim you created, edited, or saved a file unless you "
+        "actually used write or edit, or verified the result with read or bash."
+        in instructions
+    )
+    assert (
+        "After code changes or required file outputs, run the smallest "
+        "relevant verification step before concluding."
+        in instructions
+    )
 
 
 def test_build_canonical_instructions_fail_for_invalid_utf8_agents_md(

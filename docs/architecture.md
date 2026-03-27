@@ -22,6 +22,7 @@ The canonical agent assembly must take an explicit workspace root. Tool behavior
 Persisted sessions must also bind to that explicit workspace root and store native PydanticAI message history so later runs can resume through `message_history` instead of reconstructing context from public events.
 The canonical runtime must also apply per-run PydanticAI `UsageLimits` so request and tool loops fail hard instead of running unbounded. The current operational defaults are `request_limit=50` and `tool_calls_limit=200`.
 The canonical prompt should inject the current date and resolved workspace root dynamically at agent-build time so the model can reason about time and paths without inferring hidden process state.
+The canonical prompt must also enforce side-effect truthfulness and verification discipline: the model must not claim to have created or modified files without tool evidence, and it should run the smallest relevant verification step before concluding after code changes or required file outputs.
 Workspace-root `AGENTS.md` belongs to the same prompt-context layer: if present, it is loaded at agent-build time and injected as project context. Missing `AGENTS.md` is allowed; unreadable or invalid `AGENTS.md` fails agent construction explicitly.
 
 ## Canonical Package Layout

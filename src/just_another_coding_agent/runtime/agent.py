@@ -30,6 +30,14 @@ CANONICAL_AGENT_INSTRUCTIONS = "\n".join(
             "If a tool returns an object with ok: false, treat it as an "
             "operational error and decide the next corrective step yourself."
         ),
+        (
+            "Do not claim you created, edited, or saved a file unless you "
+            "actually used write or edit, or verified the result with read or bash."
+        ),
+        (
+            "After code changes or required file outputs, run the smallest "
+            "relevant verification step before concluding."
+        ),
         "Do not invent tools or alternate behaviors.",
         "Do not rely on fallbacks.",
         "Only uncaught tool failures end the run automatically.",
