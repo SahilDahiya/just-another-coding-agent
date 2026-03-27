@@ -189,3 +189,7 @@ Current avoid-for-now picks:
 - `vulnerable-secret`
 - `sqlite-db-truncate`
 - `crack-7z-hash`
+
+## Deferred Follow-Up
+
+- Upstream `pi-mono` follow-up: its fuzzy `edit` path appears to replace against normalized content, which can rewrite unrelated surrounding smart quotes or spacing outside the intended match. This repo now has a regression test and local fix for that behavior. Revisit whether to open a `pi-mono` issue/PR after the current discussion thread is done.
