@@ -65,6 +65,8 @@ def execute_grep(*, tool_input: GrepToolInput, workspace_root: Path | str) -> st
         rg_path,
         "--json",
         "--line-number",
+        "--sort",
+        "path",
         "--color=never",
         "--hidden",
     ]
