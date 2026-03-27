@@ -26,6 +26,8 @@ from .run_events import (
 from .session import (
     SESSION_FORMAT_VERSION,
     LoadedSession,
+    SessionCompactionEntry,
+    SessionCompactionSummary,
     SessionEntry,
     SessionEventEntry,
     SessionHeaderEntry,
@@ -64,6 +66,8 @@ __all__ = [
     "RunStartPayload",
     "RunStartRequest",
     "SESSION_FORMAT_VERSION",
+    "SessionCompactionEntry",
+    "SessionCompactionSummary",
     "SessionId",
     "SessionCreatePayload",
     "SessionCreateRequest",

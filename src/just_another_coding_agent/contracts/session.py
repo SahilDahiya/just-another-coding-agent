@@ -8,7 +8,7 @@ from pydantic_ai.messages import ModelMessage
 from .run_events import RunEvent
 from .thinking import ThinkingSetting
 
-SESSION_FORMAT_VERSION = 3
+SESSION_FORMAT_VERSION = 4
 
 
 class _SessionEntryBase(BaseModel):
@@ -40,8 +40,28 @@ class SessionEventEntry(_SessionEntryBase):
     event: RunEvent
 
 
+class SessionCompactionSummary(_SessionEntryBase):
+    current_objective: str | None = None
+    established_facts: list[str] = Field(default_factory=list)
+    user_preferences: list[str] = Field(default_factory=list)
+    important_paths: list[str] = Field(default_factory=list)
+    open_questions: list[str] = Field(default_factory=list)
+    unresolved_work: list[str] = Field(default_factory=list)
+
+
+class SessionCompactionEntry(_SessionEntryBase):
+    type: Literal["session_compaction"] = "session_compaction"
+    compaction_id: str
+    summarized_through_run_id: str
+    summary: SessionCompactionSummary
+
+
 SessionEntry = Annotated[
-    SessionHeaderEntry | SessionRunEntry | SessionMessagesEntry | SessionEventEntry,
+    SessionHeaderEntry
+    | SessionRunEntry
+    | SessionMessagesEntry
+    | SessionEventEntry
+    | SessionCompactionEntry,
     Field(discriminator="type"),
 ]
 
@@ -57,6 +77,7 @@ class SessionRunRecord(_SessionEntryBase):
 class LoadedSession(_SessionEntryBase):
     header: SessionHeaderEntry
     runs: list[SessionRunRecord]
+    compactions: list[SessionCompactionEntry] = Field(default_factory=list)
 
     @property
     def message_history(self) -> list[ModelMessage]:
@@ -69,10 +90,18 @@ class LoadedSession(_SessionEntryBase):
                 return run.thinking
         return None
 
+    @property
+    def latest_compaction(self) -> SessionCompactionEntry | None:
+        if not self.compactions:
+            return None
+        return self.compactions[-1]
+
 
 __all__ = [
     "LoadedSession",
     "SESSION_FORMAT_VERSION",
+    "SessionCompactionEntry",
+    "SessionCompactionSummary",
     "SessionEntry",
     "SessionEventEntry",
     "SessionHeaderEntry",

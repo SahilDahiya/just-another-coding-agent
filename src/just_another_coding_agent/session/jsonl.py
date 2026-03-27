@@ -20,6 +20,7 @@ from just_another_coding_agent.contracts.run_events import (
 from just_another_coding_agent.contracts.session import (
     SESSION_FORMAT_VERSION,
     LoadedSession,
+    SessionCompactionEntry,
     SessionEntry,
     SessionEventEntry,
     SessionHeaderEntry,
@@ -119,9 +120,12 @@ def load_session(
 
     header: SessionHeaderEntry | None = None
     runs: list[SessionRunRecord] = []
+    compactions: list[SessionCompactionEntry] = []
     current_run: SessionRunRecord | None = None
     current_run_has_messages = False
     known_run_ids: set[str] = set()
+    run_order: list[str] = []
+    latest_compaction_run_index = -1
     expected_workspace_root = str(normalize_workspace_root(workspace_root))
 
     for line_number, raw_line in enumerate(lines, start=1):
@@ -161,6 +165,7 @@ def load_session(
             )
             current_run_has_messages = False
             known_run_ids.add(entry.run_id)
+            run_order.append(entry.run_id)
             runs.append(current_run)
             continue
 
@@ -179,6 +184,42 @@ def load_session(
                 )
             current_run.messages.extend(entry.messages)
             current_run_has_messages = True
+            continue
+
+        if isinstance(entry, SessionCompactionEntry):
+            if current_run is not None:
+                if not current_run_has_messages:
+                    raise SessionFormatError(
+                        "Session compaction entry must follow at least one complete run"
+                    )
+                try:
+                    _validate_run_record(current_run)
+                except SessionFormatError as error:
+                    raise SessionFormatError(
+                        "Session compaction entry must follow at least one complete run"
+                    ) from error
+                current_run = None
+                current_run_has_messages = False
+            elif not runs:
+                raise SessionFormatError(
+                    "Session compaction entry must follow at least one complete run"
+                )
+
+            try:
+                compaction_run_index = run_order.index(entry.summarized_through_run_id)
+            except ValueError as error:
+                raise SessionFormatError(
+                    "Session compaction entry must reference an existing run_id"
+                ) from error
+
+            if compaction_run_index < latest_compaction_run_index:
+                raise SessionFormatError(
+                    "Session compaction entries must not move the summary "
+                    "boundary backward"
+                )
+
+            latest_compaction_run_index = compaction_run_index
+            compactions.append(entry)
             continue
 
         if current_run is None:
@@ -210,7 +251,7 @@ def load_session(
     for run in runs:
         _validate_run_record(run)
 
-    return LoadedSession(header=header, runs=runs)
+    return LoadedSession(header=header, runs=runs, compactions=compactions)
 
 
 def _extract_run_id(events: Sequence[RunEvent]) -> str:
@@ -278,8 +319,6 @@ def _validate_run_record(run: SessionRunRecord) -> str:
         raise SessionFormatError("Run must end with a terminal outcome")
 
     return run.run_id
-
-
 def _parse_entry(*, raw_line: str, line_number: int) -> SessionEntry:
     try:
         payload = json.loads(raw_line)
@@ -311,6 +350,7 @@ def _write_entry(
         | SessionRunEntry
         | SessionMessagesEntry
         | SessionEventEntry
+        | SessionCompactionEntry
     ),
 ) -> None:
     file_handle.write(entry.model_dump_json())

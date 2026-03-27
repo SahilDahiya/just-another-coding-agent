@@ -64,7 +64,6 @@ Example flow:
 {"type": "rpc_event", "id": "req-2", "event": {"type": "run_started", ...}}
 {"type": "rpc_event", "id": "req-2", "event": {"type": "run_succeeded", ...}}
 ```
-
 Three response types:
 
 - `rpc_response` -- synchronous result (e.g., session creation)
@@ -81,20 +80,23 @@ A session is the append-only JSONL file that records what happened across multip
 - `session_run` -- marks start of a run (run_id, prompt, and effective thinking setting)
 - `session_messages` -- the native PydanticAI `ModelMessage` list for that run (used for resume)
 - `session_event` -- wraps one run event
+- `session_compaction` -- records a durable compaction summary and the run boundary it summarizes through
 
 Example:
 
 ```json
-{"type":"session_header","version":3,"workspace_root":"/abs/path/to/workspace"}
+{"type":"session_header","version":4,"workspace_root":"/abs/path/to/workspace"}
 {"type":"session_run","run_id":"abc","prompt":"fix bug","thinking":"high"}
 {"type":"session_messages","run_id":"abc","messages":[...]}
 {"type":"session_event","run_id":"abc","event":{"type":"run_started","run_id":"abc"}}
 {"type":"session_event","run_id":"abc","event":{"type":"run_succeeded","run_id":"abc","output_text":"done"}}
+{"type":"session_compaction","compaction_id":"cmp-1","summarized_through_run_id":"abc","summary":{"current_objective":"ship the fix","established_facts":[],"user_preferences":[],"important_paths":[],"open_questions":[],"unresolved_work":[]}}
 ```
 
-Rules: header appears exactly once, no duplicate run IDs, events must satisfy the same ordering rules as the streaming contract. Invalid files fail hard on load. Loading a session against a different workspace root than the one persisted is invalid state.
+Rules: header appears exactly once, no duplicate run IDs, events must satisfy the same ordering rules as the streaming contract, and compaction entries may appear only at completed run boundaries. Invalid files fail hard on load. Loading a session against a different workspace root than the one persisted is invalid state.
 
 Sessions persist both public contract events (for consumers) and native PydanticAI message history (for resume). They also persist the effective per-run thinking setting. These serve different purposes and neither can replace the other.
+Compaction entries are durable session metadata only for now; they do not yet change the runtime's effective `message_history` by themselves.
 
 ### Session Resume
 

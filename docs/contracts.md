@@ -308,17 +308,24 @@ Initial executable session slice:
 - `session_event`
   - fields: `type`, `run_id`, `event`
   - `event` must be one canonical streamed run event payload
+- `session_compaction`
+  - fields: `type`, `compaction_id`, `summarized_through_run_id`, `summary`
+  - `summarized_through_run_id` must reference an existing persisted `run_id`
+  - `summary` is structured compaction state, not arbitrary untyped metadata
 
 Ordering rules for the session slice:
 
 - The first line must be exactly one `session_header`
 - Each `session_run` is followed by exactly one `session_messages` line and then zero or more `session_event` lines for the same `run_id`
+- `session_compaction` may appear only at a completed run boundary, never in the middle of a run
+- `session_compaction` entries are append-only and must not move the summary boundary backward
 - Authoritative session loads must provide the expected workspace root and it must match the persisted `session_header.workspace_root` exactly
 - Session resume semantics must reconstruct conversation context from persisted `session_messages` in chronological order and pass that native history back through PydanticAI `message_history`
 - When a new run omits `thinking`, the session-backed runtime inherits the most recent persisted non-null thinking setting from that session
 - Session-backed runtime streaming persists only after the run reaches a terminal outcome; partially consumed or cancelled streams must not append a partial run
 - Persisted events for a run must satisfy the streamed run contract, including exactly one terminal outcome
 - Appending a new run must preserve all existing lines and write the header only once
+- Defining a compaction entry does not, by itself, change the runtime's effective `message_history`; later runtime compaction behavior is a separate slice
 
 ## RPC Contract
 
