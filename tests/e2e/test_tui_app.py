@@ -3,6 +3,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from rich.markdown import Markdown
 from textual.containers import Horizontal
 from textual.widgets import Input, Static
 
@@ -79,7 +80,7 @@ async def test_streamed_assistant_deltas_append_as_text(tmp_path: Path) -> None:
         )
         write_stream_event(
             transcript,
-            SimpleNamespace(type="run_succeeded"),
+            SimpleNamespace(type="run_succeeded", output_text="Hello world"),
         )
 
         assert "Hello world" in transcript.plain_text
@@ -180,7 +181,7 @@ class DemoStreamingApp(CodingAgentApp):
         )
         write_stream_event(
             transcript,
-            SimpleNamespace(type="run_succeeded"),
+            SimpleNamespace(type="run_succeeded", output_text="Hello world"),
         )
         self._finish_stream_feedback(succeeded=True)
 
@@ -195,6 +196,21 @@ class DemoInterruptedApp(CodingAgentApp):
         self._interrupt_requested = True
         transcript.write_line("stream interrupted")
         self._finish_stream_feedback(succeeded=False)
+
+
+class DemoMarkdownApp(CodingAgentApp):
+    async def _run_prompt(self, prompt: str) -> None:
+        transcript = self.query_one("#output", TranscriptLog)
+        output_text = "## Review\n\n- first point\n- second point\n\n`inline code`"
+        write_stream_event(
+            transcript,
+            SimpleNamespace(type="assistant_text_delta", delta=output_text),
+        )
+        write_stream_event(
+            transcript,
+            SimpleNamespace(type="run_succeeded", output_text=output_text),
+        )
+        self._finish_stream_feedback(succeeded=True)
 
 
 @pytest.mark.asyncio
@@ -224,6 +240,36 @@ async def test_prompt_submission_keeps_spaces_and_streams_single_line(
         assert "> hello world" in transcript.plain_text
         assert "Hello world" in transcript.plain_text
         assert "assistant" not in transcript.plain_text
+
+
+@pytest.mark.asyncio
+async def test_completed_assistant_turn_is_rendered_as_markdown(
+    tmp_path: Path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    sessions_root.mkdir()
+
+    app = DemoMarkdownApp(
+        model="ollama:test",
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+        thinking=None,
+    )
+
+    async with app.run_test() as pilot:
+        await pilot.press("r", "e", "v", "i", "e", "w", "enter")
+        transcript = app.query_one("#output", TranscriptLog)
+        markdown_parts = [
+            part.renderable
+            for part in transcript._parts
+            if isinstance(part.renderable, Markdown)
+        ]
+
+        assert markdown_parts
+        assert "## Review" in transcript.plain_text
+        assert "- first point" in transcript.plain_text
 
 
 @pytest.mark.asyncio

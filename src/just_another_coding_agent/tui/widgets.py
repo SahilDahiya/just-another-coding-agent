@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Self
 
+from rich.markdown import Markdown
 from textual import events
 from textual.binding import Binding
 from textual.timer import Timer
@@ -12,6 +14,14 @@ from textual.widgets import Input, RichLog, Static
 from .theme import build_app_css
 
 APP_CSS = build_app_css()
+
+
+@dataclass(slots=True)
+class TranscriptPart:
+    """One durable transcript segment with plain-text and renderable forms."""
+
+    renderable: object
+    plain_text: str
 
 
 class StatusBar(Static):
@@ -80,7 +90,7 @@ class TranscriptLog(RichLog):
         )
         self.styles.scrollbar_size_vertical = 0
         self.styles.scrollbar_size_horizontal = 0
-        self._parts: list[str] = []
+        self._parts: list[TranscriptPart] = []
         self._live_part_index: int | None = None
         self._live_dirty = False
         self._live_flush_timer: Timer | None = None
@@ -93,7 +103,7 @@ class TranscriptLog(RichLog):
     @property
     def plain_text(self) -> str:
         """Return the transcript as plain text for tests and helpers."""
-        return "".join(self._parts)
+        return "".join(part.plain_text for part in self._parts)
 
     def ensure_block_gap(self) -> None:
         """Ensure the next transcript block starts after one blank separator."""
@@ -113,9 +123,11 @@ class TranscriptLog(RichLog):
     def append_live_text(self, text: str) -> None:
         """Append streaming assistant text into one wrapped transcript block."""
         if self._live_part_index is None:
-            self._parts.append("")
+            self._parts.append(TranscriptPart("", ""))
             self._live_part_index = len(self._parts) - 1
-        self._parts[self._live_part_index] += text
+        existing_text = self._parts[self._live_part_index].plain_text
+        updated_text = existing_text + text
+        self._parts[self._live_part_index] = TranscriptPart(updated_text, updated_text)
         self._live_dirty = True
         if self._live_flush_timer is None:
             self._live_flush_timer = self.set_timer(
@@ -129,26 +141,44 @@ class TranscriptLog(RichLog):
         self.flush_live_text()
         self._live_part_index = None
 
+    def render_completed_assistant_markdown(self, markdown_text: str) -> None:
+        """Replace the current assistant text block with a Markdown renderable."""
+        self.flush_live_text()
+        self.end_tool_activity()
+        if not markdown_text:
+            self._live_part_index = None
+            return
+
+        markdown_part = TranscriptPart(Markdown(markdown_text), markdown_text)
+        if self._live_part_index is not None:
+            self._parts[self._live_part_index] = markdown_part
+            self._rerender()
+            self._live_part_index = None
+            return
+
+        self._parts.append(markdown_part)
+        self._rerender()
+
     def start_tool_activity(self, tool_name: str, preview: str | None = None) -> None:
         """Append or update a compact tool-activity summary line."""
         self.flush_live_text()
         preview = preview.strip() if preview else None
         if self._tool_batch_index is not None and self._tool_batch_name == tool_name:
             self._tool_batch_count += 1
-            self._parts[self._tool_batch_index] = self._format_tool_activity_line(
-                tool_name,
-                self._tool_batch_count,
-                preview,
+            line = self._format_tool_activity_line(
+                tool_name, self._tool_batch_count, preview
             )
+            self._parts[self._tool_batch_index] = TranscriptPart(line, line)
             self._rerender()
             return
 
         self.end_tool_activity()
         if self._parts and not self.plain_text.endswith("\n"):
-            self._parts.append("\n")
+            self._parts.append(TranscriptPart("\n", "\n"))
         self._tool_batch_name = tool_name
         self._tool_batch_count = 1
-        self._parts.append(self._format_tool_activity_line(tool_name, 1, preview))
+        line = self._format_tool_activity_line(tool_name, 1, preview)
+        self._parts.append(TranscriptPart(line, line))
         self._tool_batch_index = len(self._parts) - 1
         self._rerender()
 
@@ -163,8 +193,9 @@ class TranscriptLog(RichLog):
         self.flush_live_text()
         self.end_tool_activity()
         if self._parts and not self.plain_text.endswith("\n"):
-            self._parts.append("\n")
-        self._parts.append(f"{tool_name} error  {message}\n")
+            self._parts.append(TranscriptPart("\n", "\n"))
+        line = f"{tool_name} error  {message}\n"
+        self._parts.append(TranscriptPart(line, line))
         self._rerender()
 
     def clear(self) -> TranscriptLog:
@@ -189,7 +220,9 @@ class TranscriptLog(RichLog):
         self.flush_live_text()
         self.end_tool_activity()
         if isinstance(content, str):
-            self._parts.append(content)
+            self._parts.append(TranscriptPart(content, content))
+        else:
+            self._parts.append(TranscriptPart(content, ""))
         return super().write(
             content,
             width=width,
@@ -210,7 +243,7 @@ class TranscriptLog(RichLog):
     def _rerender(self) -> None:
         super().clear()
         for part in self._parts:
-            super().write(part, scroll_end=True)
+            super().write(part.renderable, scroll_end=True)
 
     @staticmethod
     def _format_tool_activity_line(
@@ -225,4 +258,4 @@ class TranscriptLog(RichLog):
         return f"{tool_name}\n"
 
 
-__all__ = ["APP_CSS", "ComposerInput", "StatusBar", "TranscriptLog"]
+__all__ = ["APP_CSS", "ComposerInput", "StatusBar", "TranscriptLog", "TranscriptPart"]

@@ -60,6 +60,7 @@ agenda.
 - The status bar answers "where am I and what state is this session in?"
 - The transcript is the single durable surface for all work: prompts, streaming assistant output, tool activity, warnings, and errors.
 - Tool activity should collapse into terse, useful rows instead of printing repetitive lifecycle noise.
+- Completed assistant turns should settle into readable prose/Markdown instead of remaining raw streamed text.
 - The prompt is the single input surface for chat and slash commands.
 - Composer ergonomics should favor shell-like recall over editor-like complexity.
 - Prompt history and draft recovery belong in the prompt zone; command palettes and secondary controls do not.

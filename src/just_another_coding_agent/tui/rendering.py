@@ -191,9 +191,9 @@ def write_stream_event(output: TranscriptLog, event: Any) -> None:
         output.end_tool_activity()
         output.write_line(f"error  {event.message}")  # type: ignore[union-attr]
     elif event.type == "run_succeeded":
-        output.end_live_text()
-        output.end_tool_activity()
-        output.write("\n")
+        output.render_completed_assistant_markdown(  # type: ignore[union-attr]
+            event.output_text
+        )
 
 
 __all__ = [
