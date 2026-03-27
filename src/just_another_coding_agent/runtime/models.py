@@ -6,6 +6,9 @@ from typing import Any
 from pydantic_ai.models import Model, infer_model
 from pydantic_ai.models.openai import OpenAIChatModel, OpenAIResponsesModel
 from pydantic_ai.providers.openai import OpenAIProvider
+from pydantic_ai.settings import ModelSettings
+
+from just_another_coding_agent.contracts.thinking import ThinkingSetting
 
 
 def resolve_canonical_model(model: Any) -> Model:
@@ -44,4 +47,19 @@ def _build_openai_provider() -> OpenAIProvider:
     )
 
 
-__all__ = ["resolve_canonical_model"]
+def build_canonical_model_settings(
+    *,
+    model: Any = None,
+    thinking: ThinkingSetting | None = None,
+) -> ModelSettings | None:
+    settings: dict[str, Any] = {}
+    if model is not None:
+        resolved_model = resolve_canonical_model(model)
+        settings.update(resolved_model.settings or {})
+    if thinking is not None:
+        settings["thinking"] = thinking
+
+    return settings or None
+
+
+__all__ = ["build_canonical_model_settings", "resolve_canonical_model"]

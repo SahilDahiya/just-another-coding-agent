@@ -2,9 +2,17 @@ import os
 
 from pydantic_ai.models import infer_model
 from pydantic_ai.models.function import FunctionModel
-from pydantic_ai.models.openai import OpenAIChatModel, OpenAIResponsesModel
+from pydantic_ai.models.openai import (
+    OpenAIChatModel,
+    OpenAIResponsesModel,
+    OpenAIResponsesModelSettings,
+)
+from pydantic_ai.providers.openai import OpenAIProvider
 
-from just_another_coding_agent.runtime.models import resolve_canonical_model
+from just_another_coding_agent.runtime.models import (
+    build_canonical_model_settings,
+    resolve_canonical_model,
+)
 
 
 def test_resolve_canonical_model_keeps_model_instances() -> None:
@@ -62,3 +70,16 @@ def test_resolve_canonical_model_uses_env_defaults_when_base_url_is_unset(
         "OPENAI_BASE_URL",
         "https://api.openai.com/v1/",
     )
+
+
+def test_build_canonical_model_settings_merge_model_defaults() -> None:
+    model = OpenAIResponsesModel(
+        "gpt-5.3-codex",
+        provider=OpenAIProvider(base_url="https://example.test/v1", api_key="test-key"),
+        settings=OpenAIResponsesModelSettings(openai_previous_response_id="auto"),
+    )
+
+    assert build_canonical_model_settings(model=model, thinking="high") == {
+        "openai_previous_response_id": "auto",
+        "thinking": "high",
+    }

@@ -34,7 +34,7 @@ from just_another_coding_agent.contracts.run_events import (
     ToolCallSucceededEvent,
 )
 from just_another_coding_agent.contracts.thinking import ThinkingSetting
-from just_another_coding_agent.runtime.agent import build_canonical_model_settings
+from just_another_coding_agent.runtime.models import build_canonical_model_settings
 from just_another_coding_agent.runtime.recovery import should_retry_run_error
 from just_another_coding_agent.tools.deps import WorkspaceDeps
 
@@ -71,7 +71,10 @@ async def stream_run_events(
                 prompt,
                 message_history=message_history,
                 deps=deps,
-                model_settings=build_canonical_model_settings(thinking=thinking),
+                model_settings=build_canonical_model_settings(
+                    model=getattr(agent, "model", None),
+                    thinking=thinking,
+                ),
             ):
                 saw_streamed_event = True
                 if isinstance(event, FunctionToolCallEvent):
