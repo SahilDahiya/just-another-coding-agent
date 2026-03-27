@@ -4,7 +4,7 @@ read_when: you are new to the repo or need to understand how the pieces fit toge
 
 ## Overview
 
-This is a headless coding-agent backend. It has no UI. External consumers talk to it over a line-based JSON-over-stdio protocol and receive a stream of typed events. Everything that crosses a boundary has a strict, typed shape called a contract.
+This is a coding-agent backend with a thin first-party terminal UI. External consumers can talk to it over a line-based JSON-over-stdio protocol and receive a stream of typed events. The TUI is a shell over that same runtime rather than a separate product surface. Everything that crosses a boundary has a strict, typed shape called a contract.
 
 The backend is inspired by the pi coding agent's product behavior but does not inherit its architecture. It is built on PydanticAI as the engine.
 
@@ -21,7 +21,7 @@ There are contracts for:
 - **RPC envelopes** -- what goes over the wire to external consumers
 - **Tool inputs** -- what each tool accepts
 
-The backend is headless, so any consumer (a CLI, a web app, an IDE plugin, a benchmark harness) relies on these shapes being stable and predictable. The contract is the product surface.
+The backend remains the canonical execution core, so any consumer (the first-party TUI, a CLI, a web app, an IDE plugin, or a benchmark harness) relies on these shapes being stable and predictable. The contract is the product surface.
 
 ### Run Events
 
@@ -178,7 +178,7 @@ If something is wrong, the caller knows immediately. Silent recovery hides bugs 
 ## How They Fit Together
 
 ```
-Benchmark harness / CLI / UI (any language)
+Benchmark harness / CLI / TUI / UI (any language)
     | JSON-over-stdio
   RPC server (rpc/stdio.py) -- long-lived process
     | session.create / run.start
@@ -193,6 +193,7 @@ Benchmark harness / CLI / UI (any language)
   Tools (tools/) -- workspace-bound factories
     | file system / shell
 
+  First-party TUI (tui/) -- status bar + transcript + prompt shell
   Session persistence (session/jsonl.py) -- append-only JSONL
   Contracts (contracts/) -- defines all the shapes above
 ```

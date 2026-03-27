@@ -8,6 +8,7 @@ read_when: start here, onboarding, or you need to find the right doc quickly
 - Repo-specific agent instructions: [../AGENTS.md](../AGENTS.md)
 - Mental model and core concepts: [mental-model.md](mental-model.md)
 - Product scope and non-goals: [goal.md](goal.md)
+- TUI product constraints and north star: [tui.md](tui.md)
 - Target architecture: [architecture.md](architecture.md)
 - Canonical public contract: [contracts.md](contracts.md)
 - PydanticAI grounding sources: [grounding.md](grounding.md)
@@ -24,6 +25,7 @@ read_when: start here, onboarding, or you need to find the right doc quickly
 - [../AGENTS.md](../AGENTS.md) - repo-specific coding and grounding instructions
 - [mental-model.md](mental-model.md) - mental model, core concepts, and how the pieces fit together
 - [goal.md](goal.md) - product target, scope, and non-goals
+- [tui.md](tui.md) - TUI product bar, hard constraints, and anti-bloat rules
 - [architecture.md](architecture.md) - package layout and architectural boundaries
 - [contracts.md](contracts.md) - canonical coding-agent contract
 - [grounding.md](grounding.md) - official PydanticAI grounding sources

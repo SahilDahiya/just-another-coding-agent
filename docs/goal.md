@@ -4,9 +4,9 @@ read_when: you need the authoritative scope and product intent
 
 ## Goal
 
-Build a Python-native, headless coding-agent backend around PydanticAI.
+Build a Python-native coding-agent backend around PydanticAI, with a thin first-party terminal UI over the same runtime.
 
-The product is a coding agent backend, not a general-purpose agent framework and not a UI.
+The product is a coding agent backend first. The TUI is a first-party shell over that backend, not a second product and not an invitation to build a terminal IDE.
 
 ## Inspiration Boundary
 
@@ -20,7 +20,6 @@ The behavioral inspiration is pi's coding-agent product surface:
 The repo does not inherit pi-mono's architecture or ecosystem surface:
 
 - no monorepo package split
-- no TUI or web UI
 - no extension, theme, or prompt-template platform in the initial product
 - no legacy migration or compatibility burden
 
@@ -29,6 +28,7 @@ Use PydanticAI primitives wherever they already solve the problem. Local code sh
 ## In Scope
 
 - Agent runtime for coding workflows
+- Thin first-party TUI with exactly three zones: status bar, transcript, and prompt
 - Canonical coding tools: `read`, `write`, `edit`, `bash`, `grep`, `ls`, `find`
 - Streaming run events
 - Session persistence
@@ -37,7 +37,8 @@ Use PydanticAI primitives wherever they already solve the problem. Local code sh
 
 ## Out of Scope
 
-- UI of any kind
+- Any fourth TUI zone such as sidebars, drawers, file browsers, split panes, or inspector panels
+- Web UI, extension UI, or terminal-IDE surface growth
 - TUI-specific or web-UI-specific concerns from pi-mono
 - Extension, theme, prompt-template, or package ecosystems
 - General-purpose agent product work outside coding workflows

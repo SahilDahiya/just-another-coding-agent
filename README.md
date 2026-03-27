@@ -2,15 +2,16 @@
 
 read_when: you need the repo overview, scope, or setup commands
 
-Python-native, headless coding-agent backend built around PydanticAI.
+Python-native coding-agent backend built around PydanticAI, with a thin first-party terminal UI.
 
-This repo preserves the backend product shape of pi's coding agent while rebuilding it as a clean Python implementation around PydanticAI. It does not inherit pi-mono's monorepo layout, UI layers, extension ecosystem, or migration burden.
+This repo preserves the backend product shape of pi's coding agent while rebuilding it as a clean Python implementation around PydanticAI. It does not inherit pi-mono's monorepo layout, extension ecosystem, or migration burden.
 
-It is intentionally narrow: coding-agent backend, strict contracts, no fallbacks, no compatibility glue, no UI. PydanticAI should provide as much of the agent machinery as possible; local code exists to define and enforce the coding-agent product contract.
+It is intentionally narrow: coding-agent backend first, a thin first-party terminal UI, strict contracts, no fallbacks, and no compatibility glue. PydanticAI should provide as much of the agent machinery as possible; local code exists to define and enforce the coding-agent product contract.
 
 ## Scope
 
 - Headless coding-agent runtime
+- Thin first-party terminal UI built on the same runtime
 - File and shell tools
 - Streaming run events
 - Session persistence
@@ -18,7 +19,6 @@ It is intentionally narrow: coding-agent backend, strict contracts, no fallbacks
 
 ## Non-goals
 
-- UI of any kind
 - General-purpose agent framework work
 - Backward compatibility layers
 - Legacy migration shims
@@ -31,6 +31,7 @@ It is intentionally narrow: coding-agent backend, strict contracts, no fallbacks
 - `src/just_another_coding_agent/session/` - session persistence
 - `src/just_another_coding_agent/rpc/` - RPC transport
 - `src/just_another_coding_agent/contracts/` - public contract helpers and schemas
+- `src/just_another_coding_agent/tui/` - first-party terminal UI
 - `tests/` - unit tests first, e2e later
 - `docs/` - scope, architecture, contracts, ADRs, development
 
@@ -55,10 +56,17 @@ uv run just-another-coding-agent \
 
 The process reads one JSON RPC request per stdin line and writes one or more JSON lines to stdout.
 
+Launch the first-party terminal UI:
+
+```bash
+uv run jaca
+```
+
 ## Docs
 
 - `docs/README.md`
 - `docs/goal.md`
+- `docs/tui.md`
 - `docs/architecture.md`
 - `docs/contracts.md`
 - `docs/grounding.md`

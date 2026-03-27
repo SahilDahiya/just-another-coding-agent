@@ -4,7 +4,7 @@ read_when: you need the big picture or need to know where code belongs
 
 ## System Overview
 
-The architecture is intentionally thin. PydanticAI is the engine. This repo owns only the coding-agent product surface that is specific to the backend.
+The architecture is intentionally thin. PydanticAI is the engine. This repo owns the coding-agent product surface that is specific to the backend, plus a thin first-party TUI shell over that same runtime.
 
 ## Implementation Stance
 
@@ -89,6 +89,9 @@ The important boundary is:
 - `src/just_another_coding_agent/rpc/`
   - JSON-over-stdio protocol
   - command handlers
+- `src/just_another_coding_agent/tui/`
+  - first-party terminal UI
+  - presentation, input handling, and shell-specific state
 - `src/just_another_coding_agent/contracts/`
   - contract types, constants, and schema helpers
 - `src/just_another_coding_agent_adapters/`
@@ -103,6 +106,8 @@ The important boundary is:
 - Keep tool behavior strict and explicit.
 - Keep sessions and RPC stable only when deliberately chosen as public contracts.
 - Do not import pi-mono's package layout, UI model, or extension architecture into this repo.
+- Keep the TUI constrained to exactly three zones: status bar, transcript, and prompt.
+- TUI capabilities must live in those zones or behind slash commands; no side panels, drawers, or split-pane growth.
 - Keep Harbor, Terminal Bench, and similar external harness bindings out of `just_another_coding_agent` core packages.
 - External adapters may wrap the canonical stdio/session/runtime path, but they must not create a second execution contract.
 
@@ -114,3 +119,4 @@ The important boundary is:
 3. Tools execute through the canonical tool layer.
 4. Events are translated into the public streamed event contract rather than exposing raw framework internals directly.
 5. Session entries persist both the public run events and the native PydanticAI message history for that run, bound to the authoritative workspace root, along with the effective per-run thinking setting.
+6. The TUI, when used, consumes the same runtime/session path rather than introducing a second execution model.
