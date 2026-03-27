@@ -2,6 +2,8 @@ from collections.abc import AsyncIterator
 
 from pydantic_ai import Agent, AgentRunResult, AgentRunResultEvent
 from pydantic_ai.models.function import DeltaToolCall, FunctionModel
+from pydantic_ai.models.openai import OpenAIResponsesModel
+from pydantic_ai.providers.openai import OpenAIProvider
 
 from just_another_coding_agent.contracts.run_events import (
     AssistantTextDeltaEvent,
@@ -79,8 +81,9 @@ async def looping_tool_stream(
 
 
 class RecordingStreamAgent:
-    def __init__(self) -> None:
+    def __init__(self, *, model=None) -> None:
         self.last_model_settings = None
+        self.model = model
 
     async def run_stream_events(
         self,
@@ -141,6 +144,30 @@ async def test_stream_run_events_passes_thinking_as_model_settings() -> None:
 
     assert [event.type for event in events] == ["run_started", "run_succeeded"]
     assert agent.last_model_settings == {"thinking": "high"}
+
+
+async def test_stream_run_events_can_enable_openai_server_history() -> None:
+    agent = RecordingStreamAgent(
+        model=OpenAIResponsesModel(
+            "gpt-5.3-codex",
+            provider=OpenAIProvider(
+                base_url="https://example.test/v1",
+                api_key="test-key",
+            ),
+        )
+    )
+
+    events = [
+        event
+        async for event in stream_run_events(
+            agent=agent,
+            prompt="go",
+            enable_server_history=True,
+        )
+    ]
+
+    assert [event.type for event in events] == ["run_started", "run_succeeded"]
+    assert agent.last_model_settings == {"openai_previous_response_id": "auto"}
 
 
 async def test_build_canonical_agent_retries_one_transient_pre_stream_failure(

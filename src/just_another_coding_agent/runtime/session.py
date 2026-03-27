@@ -69,6 +69,9 @@ async def stream_session_run_events(
         if loaded_session is not None
         else None
     )
+    enable_server_history = (
+        loaded_session is not None and history_processor is None
+    )
 
     agent = build_canonical_agent(
         model=model,
@@ -89,6 +92,7 @@ async def stream_session_run_events(
             ),
             thinking=resolved_thinking,
             deps=WorkspaceDeps(workspace_root=normalized_workspace_root),
+            enable_server_history=enable_server_history,
         ):
             emitted_events.append(event)
             yield event

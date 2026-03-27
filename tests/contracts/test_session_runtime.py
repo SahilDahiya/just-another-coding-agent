@@ -345,11 +345,13 @@ async def test_stream_session_run_events_inherits_last_persisted_thinking_when_o
         message_history=None,
         thinking=None,
         deps=None,
+        enable_server_history=False,
     ):
         captured["prompt"] = prompt
         captured["thinking"] = thinking
         captured["message_history"] = message_history
         captured["deps"] = deps
+        captured["enable_server_history"] = enable_server_history
         yield RunStartedEvent(run_id="run-2")
         yield RunSucceededEvent(run_id="run-2", output_text="done")
 
@@ -372,6 +374,7 @@ async def test_stream_session_run_events_inherits_last_persisted_thinking_when_o
     assert captured["prompt"] == "second"
     assert captured["thinking"] == "high"
     assert captured["deps"] == WorkspaceDeps(workspace_root=workspace_root)
+    assert captured["enable_server_history"] is True
     loaded = load_session(path=session_path, workspace_root=workspace_root)
     assert [run.thinking for run in loaded.runs] == ["high", "high"]
     assert loaded.thinking == "high"

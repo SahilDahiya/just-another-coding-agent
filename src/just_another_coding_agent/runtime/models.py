@@ -6,7 +6,11 @@ from typing import Any
 import httpx
 from openai import AsyncOpenAI, DefaultAsyncHttpxClient
 from pydantic_ai.models import Model, infer_model
-from pydantic_ai.models.openai import OpenAIChatModel, OpenAIResponsesModel
+from pydantic_ai.models.openai import (
+    OpenAIChatModel,
+    OpenAIResponsesModel,
+    OpenAIResponsesModelSettings,
+)
 from pydantic_ai.providers.ollama import OllamaProvider
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.retries import AsyncTenacityTransport, RetryConfig, wait_retry_after
@@ -128,11 +132,20 @@ def build_canonical_model_settings(
     *,
     model: Any = None,
     thinking: ThinkingSetting | None = None,
+    enable_server_history: bool = False,
 ) -> ModelSettings | None:
     settings: dict[str, Any] = {}
     if model is not None:
         resolved_model = resolve_canonical_model(model)
         settings.update(resolved_model.settings or {})
+        if (
+            enable_server_history
+            and isinstance(resolved_model, OpenAIResponsesModel)
+            and "openai_previous_response_id" not in settings
+        ):
+            settings.update(
+                OpenAIResponsesModelSettings(openai_previous_response_id="auto")
+            )
     if thinking is not None:
         settings["thinking"] = thinking
 

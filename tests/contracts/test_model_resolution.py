@@ -87,6 +87,18 @@ def test_build_canonical_model_settings_merge_model_defaults() -> None:
     }
 
 
+def test_build_canonical_model_settings_enable_openai_server_history() -> None:
+    model = OpenAIResponsesModel(
+        "gpt-5.3-codex",
+        provider=OpenAIProvider(base_url="https://example.test/v1", api_key="test-key"),
+    )
+
+    assert build_canonical_model_settings(
+        model=model,
+        enable_server_history=True,
+    ) == {"openai_previous_response_id": "auto"}
+
+
 def test_resolve_canonical_model_uses_retrying_openai_http_transport(
     monkeypatch,
 ) -> None:
