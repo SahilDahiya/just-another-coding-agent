@@ -91,7 +91,7 @@ def resolve_thinking_setting(thinking: str | None) -> ThinkingSetting | None:
 def write_stream_event(output: TranscriptLog, event: Any) -> None:
     """Render one streamed runtime event into the transcript."""
     if event.type == "assistant_text_delta":
-        output.write(event.delta, scroll_end=True)  # type: ignore[union-attr]
+        output.append_live_text(event.delta)  # type: ignore[union-attr]
     elif event.type == "tool_call_started":
         output.write_line(f"tool {event.tool_name}")  # type: ignore[union-attr]
     elif event.type == "tool_call_succeeded":
@@ -99,9 +99,11 @@ def write_stream_event(output: TranscriptLog, event: Any) -> None:
         if isinstance(result, dict) and result.get("ok") is False:
             output.write_line(f"tool error: {result.get('message', '')}")
     elif event.type == "run_failed":
+        output.end_live_text()
         output.write("\n")
         output.write_line(f"ERROR: {event.message}")  # type: ignore[union-attr]
     elif event.type == "run_succeeded":
+        output.end_live_text()
         output.write("\n")
 
 

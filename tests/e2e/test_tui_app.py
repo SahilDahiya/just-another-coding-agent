@@ -7,7 +7,7 @@ from textual.widgets import Input
 from just_another_coding_agent.tui.app import CodingAgentApp
 from just_another_coding_agent.tui.rendering import write_stream_event
 from just_another_coding_agent.tui.state import UiPhase
-from just_another_coding_agent.tui.widgets import OutputScroll, StatusBar, TranscriptLog
+from just_another_coding_agent.tui.widgets import StatusBar, TranscriptLog
 
 
 @pytest.mark.asyncio
@@ -27,12 +27,13 @@ async def test_tui_app_starts_and_focuses_prompt(tmp_path: Path) -> None:
     async with app.run_test() as _pilot:
         prompt_input = app.query_one("#prompt-input", Input)
         transcript = app.query_one("#output", TranscriptLog)
-        transcript_scroll = app.query_one("#output-scroll", OutputScroll)
         status_bar = app.query_one("#status-bar", StatusBar)
 
         assert prompt_input.has_focus
         assert transcript.can_focus is False
-        assert transcript_scroll.can_focus is False
+        assert transcript.wrap is True
+        assert transcript.styles.scrollbar_size_vertical == 0
+        assert transcript.styles.scrollbar_size_horizontal == 0
         assert "idle" in str(status_bar.renderable)
         assert "ollama:test" in str(status_bar.renderable)
 
@@ -68,7 +69,45 @@ async def test_streamed_assistant_deltas_append_as_text(tmp_path: Path) -> None:
             SimpleNamespace(type="run_succeeded"),
         )
 
-        assert transcript.lines[-2:] == ["Hello world", ""]
+        assert "Hello world" in transcript.plain_text
+
+
+@pytest.mark.asyncio
+async def test_transcript_wraps_without_losing_scroll_behavior(tmp_path: Path) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    sessions_root.mkdir()
+
+    app = CodingAgentApp(
+        model="ollama:test",
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+        thinking=None,
+    )
+
+    async with app.run_test(size=(60, 12)) as pilot:
+        transcript = app.query_one("#output", TranscriptLog)
+        assert transcript.wrap is True
+        assert transcript.styles.scrollbar_size_vertical == 0
+        assert transcript.styles.scrollbar_size_horizontal == 0
+
+        for index in range(40):
+            transcript.write_line(
+                f"line {index} this transcript should wrap long content instead of "
+                "using in-app scrollbar chrome"
+            )
+
+        await pilot.pause()
+        assert transcript.max_scroll_y > 0
+
+        transcript.scroll_home(animate=False)
+        await pilot.pause()
+        assert transcript.scroll_y == 0
+
+        transcript.scroll_end(animate=False)
+        await pilot.pause()
+        assert transcript.scroll_y == transcript.max_scroll_y
 
 
 class DemoStreamingApp(CodingAgentApp):
@@ -112,9 +151,9 @@ async def test_prompt_submission_keeps_spaces_and_streams_single_line(
         await pilot.press("enter")
 
         transcript = app.query_one("#output", TranscriptLog)
-        assert "> hello world" in transcript.lines
-        assert "assistant" in transcript.lines
-        assert "Hello world" in transcript.lines
+        assert "> hello world" in transcript.plain_text
+        assert "assistant" in transcript.plain_text
+        assert "Hello world" in transcript.plain_text
 
 
 @pytest.mark.asyncio

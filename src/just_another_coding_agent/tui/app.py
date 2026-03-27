@@ -27,7 +27,7 @@ from .rendering import (
     write_stream_event,
 )
 from .state import UiPhase, UiState
-from .widgets import APP_CSS, OutputScroll, StatusBar, TranscriptLog
+from .widgets import APP_CSS, StatusBar, TranscriptLog
 
 
 class CodingAgentApp(App[None]):
@@ -63,8 +63,7 @@ class CodingAgentApp(App[None]):
     def compose(self) -> ComposeResult:
         yield StatusBar(id="status-bar")
         with Vertical(id="main"):
-            with OutputScroll(id="output-scroll"):
-                yield TranscriptLog(id="output")
+            yield TranscriptLog(id="output")
             with Horizontal(id="prompt-row"):
                 yield Static("> ", id="prompt-marker")
                 yield Input(
@@ -286,6 +285,4 @@ class CodingAgentApp(App[None]):
                 self._set_phase(UiPhase.ERROR)
 
             write_stream_event(output, event)
-
-        scroll = self.query_one("#output-scroll", OutputScroll)
-        scroll.scroll_end(animate=False)
+        output.scroll_end(animate=False)

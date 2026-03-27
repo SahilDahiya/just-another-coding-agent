@@ -52,19 +52,13 @@ StatusBar {{
     background: {theme.background};
 }}
 
-#output-scroll {{
-    height: 1fr;
-    background: {theme.background};
-    border-top: solid {theme.border_strong};
-    border-bottom: solid {theme.border};
-}}
-
 #output {{
-    height: auto;
-    min-height: 1;
+    height: 1fr;
     padding: 1 2;
     color: {theme.text};
     background: {theme.background};
+    border-top: solid {theme.border_strong};
+    border-bottom: solid {theme.border};
 }}
 
 #prompt-row {{

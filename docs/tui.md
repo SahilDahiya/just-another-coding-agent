@@ -23,6 +23,8 @@ agenda.
 - If a capability cannot be expressed through the transcript or a slash command, it does not belong in the canonical TUI.
 - Maintain a single global terminal background shade.
 - Build structure with borders, spacing, typography, and color hierarchy, not stacked background fills.
+- Hide in-app scrollbar chrome when it adds noise, but do not remove transcript scrolling itself.
+- The terminal emulator's own scroll affordances remain valid; JACA should not fight them.
 
 ## Product Bar
 
