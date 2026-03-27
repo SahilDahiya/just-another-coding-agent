@@ -6,11 +6,13 @@ from typing import Any
 import httpx
 from openai import AsyncOpenAI, DefaultAsyncHttpxClient
 from pydantic_ai.models import Model, infer_model
+from pydantic_ai.models.instrumented import InstrumentedModel
 from pydantic_ai.models.openai import (
     OpenAIChatModel,
     OpenAIResponsesModel,
     OpenAIResponsesModelSettings,
 )
+from pydantic_ai.models.wrapper import WrapperModel
 from pydantic_ai.providers.ollama import OllamaProvider
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.retries import AsyncTenacityTransport, RetryConfig, wait_retry_after
@@ -28,17 +30,17 @@ OPENAI_COMPATIBLE_HTTP_RETRY_MAX_WAIT_SECONDS = 30
 
 def resolve_canonical_model(model: Any) -> Model:
     if isinstance(model, Model):
-        return model
+        return _maybe_instrument_model(model)
 
     if isinstance(model, str):
         if model.startswith("openai-responses:"):
-            return _build_openai_responses_model(model)
+            return _maybe_instrument_model(_build_openai_responses_model(model))
         if model.startswith("openai:") or model.startswith("openai-chat:"):
-            return _build_openai_chat_model(model)
+            return _maybe_instrument_model(_build_openai_chat_model(model))
         if model.startswith("ollama:"):
-            return _build_ollama_chat_model(model)
+            return _maybe_instrument_model(_build_ollama_chat_model(model))
 
-    return infer_model(model)
+    return _maybe_instrument_model(infer_model(model))
 
 
 def _build_openai_responses_model(model_id: str) -> OpenAIResponsesModel:
@@ -137,10 +139,11 @@ def build_canonical_model_settings(
     settings: dict[str, Any] = {}
     if model is not None:
         resolved_model = resolve_canonical_model(model)
+        policy_model = _unwrap_policy_model(resolved_model)
         settings.update(resolved_model.settings or {})
         if (
             enable_server_history
-            and isinstance(resolved_model, OpenAIResponsesModel)
+            and isinstance(policy_model, OpenAIResponsesModel)
             and "openai_previous_response_id" not in settings
         ):
             settings.update(
@@ -150,6 +153,28 @@ def build_canonical_model_settings(
         settings["thinking"] = thinking
 
     return settings or None
+
+
+def _maybe_instrument_model(model: Model) -> Model:
+    if not _env_flag("JACA_TRACE"):
+        return model
+    if isinstance(model, InstrumentedModel):
+        return model
+    return InstrumentedModel(model)
+
+
+def _unwrap_policy_model(model: Model) -> Model:
+    current = model
+    while isinstance(current, WrapperModel):
+        current = current.wrapped
+    return current
+
+
+def _env_flag(name: str) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return False
+    return value.strip().lower() not in {"", "0", "false", "no", "off"}
 
 
 __all__ = ["build_canonical_model_settings", "resolve_canonical_model"]

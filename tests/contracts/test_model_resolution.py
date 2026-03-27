@@ -2,6 +2,7 @@ import os
 
 from pydantic_ai.models import infer_model
 from pydantic_ai.models.function import FunctionModel
+from pydantic_ai.models.instrumented import InstrumentedModel
 from pydantic_ai.models.openai import (
     OpenAIChatModel,
     OpenAIResponsesModel,
@@ -126,3 +127,32 @@ def test_resolve_canonical_model_uses_retrying_ollama_http_transport(
     assert isinstance(model._provider, OllamaProvider)
     assert client.max_retries == 0
     assert isinstance(client._client._transport, AsyncTenacityTransport)
+
+
+def test_resolve_canonical_model_wraps_with_instrumentation_when_enabled(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("JACA_TRACE", "1")
+    model = FunctionModel(function=lambda _messages, _info: "")
+
+    resolved = resolve_canonical_model(model)
+
+    assert isinstance(resolved, InstrumentedModel)
+    assert resolved.wrapped is model
+
+
+def test_build_canonical_model_settings_unwraps_instrumented_models() -> None:
+    model = InstrumentedModel(
+        OpenAIResponsesModel(
+            "gpt-5.3-codex",
+            provider=OpenAIProvider(
+                base_url="https://example.test/v1",
+                api_key="test-key",
+            ),
+        )
+    )
+
+    assert build_canonical_model_settings(
+        model=model,
+        enable_server_history=True,
+    ) == {"openai_previous_response_id": "auto"}
