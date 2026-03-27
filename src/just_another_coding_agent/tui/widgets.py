@@ -5,57 +5,9 @@ from __future__ import annotations
 from textual.containers import VerticalScroll
 from textual.widgets import Log, Static
 
-APP_CSS = """
-Screen {
-    background: $surface;
-}
+from .theme import build_app_css
 
-StatusBar {
-    dock: top;
-    height: 1;
-    padding: 0 1;
-    color: $text-muted;
-}
-
-#main {
-    height: 1fr;
-}
-
-#output-scroll {
-    height: 1fr;
-    border-top: solid $primary-darken-2;
-    border-bottom: solid $primary-darken-2;
-}
-
-#output {
-    height: auto;
-    min-height: 1;
-    padding: 1 2;
-}
-
-#prompt-row {
-    dock: bottom;
-    height: auto;
-    padding: 0 1;
-}
-
-#prompt-marker {
-    width: 2;
-    height: 1;
-    color: $accent;
-    padding: 0;
-}
-
-#prompt-input {
-    width: 1fr;
-    border: none;
-    padding: 0;
-}
-
-#prompt-input:focus {
-    border: none;
-}
-"""
+APP_CSS = build_app_css()
 
 
 class StatusBar(Static):
