@@ -9,6 +9,8 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any, TextIO
 
+from just_another_coding_agent.contracts.thinking import ThinkingSetting
+
 
 class ExecPromptError(RuntimeError):
     """Raised when the one-shot wrapper cannot complete a canonical run."""
@@ -80,6 +82,7 @@ def run_exec_prompt(
     prompt: str,
     model: str,
     workspace_root: Path | str,
+    thinking: ThinkingSetting | None = None,
     sessions_root: Path | str | None = None,
     popen_factory: Any = subprocess.Popen,
 ) -> str:
@@ -95,6 +98,7 @@ def run_exec_prompt(
                 prompt=prompt,
                 model=model,
                 workspace_root=resolved_workspace_root,
+                thinking=thinking,
                 sessions_root=Path(temporary_root),
                 popen_factory=popen_factory,
             )
@@ -103,6 +107,7 @@ def run_exec_prompt(
         prompt=prompt,
         model=model,
         workspace_root=resolved_workspace_root,
+        thinking=thinking,
         sessions_root=Path(sessions_root).expanduser().resolve(),
         popen_factory=popen_factory,
     )
@@ -113,6 +118,7 @@ def _run_exec_prompt(
     prompt: str,
     model: str,
     workspace_root: Path,
+    thinking: ThinkingSetting | None,
     sessions_root: Path,
     popen_factory: Any,
 ) -> str:
@@ -154,6 +160,7 @@ def _run_exec_prompt(
                 "payload": {
                     "session_id": session_id,
                     "prompt": build_benchmark_prompt(prompt),
+                    "thinking": thinking,
                 },
             },
         )
@@ -272,6 +279,10 @@ def main(
     )
     parser.add_argument("-C", "--cd", default=".")
     parser.add_argument("--model", required=True)
+    parser.add_argument(
+        "--thinking",
+        choices=["true", "false", "minimal", "low", "medium", "high", "xhigh"],
+    )
     parser.add_argument("--sessions-root")
     args = parser.parse_args(list(argv) if argv is not None else None)
 
@@ -281,6 +292,7 @@ def main(
             prompt=prompt,
             model=args.model,
             workspace_root=args.cd,
+            thinking=_parse_thinking(args.thinking),
             sessions_root=args.sessions_root,
         )
     except ExecPromptError as error:
@@ -291,6 +303,16 @@ def main(
     output_stream.write(f"{output}\n")
     output_stream.flush()
     return 0
+
+
+def _parse_thinking(value: str | None) -> ThinkingSetting | None:
+    if value is None:
+        return None
+    if value == "true":
+        return True
+    if value == "false":
+        return False
+    return value
 
 
 if __name__ == "__main__":

@@ -131,6 +131,7 @@ def test_run_exec_prompt_returns_terminal_output(tmp_path) -> None:
             "payload": {
                 "session_id": "0" * 32,
                 "prompt": build_benchmark_prompt("solve it"),
+                "thinking": None,
             },
         },
     ]
@@ -143,6 +144,49 @@ def test_build_benchmark_prompt_wraps_user_prompt() -> None:
 
     assert prompt.startswith(BENCHMARK_WORKFLOW_PROMPT)
     assert prompt.endswith("# Task\nsolve it")
+
+
+def test_run_exec_prompt_forwards_thinking(tmp_path) -> None:
+    sessions_root = tmp_path / "sessions"
+    popen_factory, process, _captured = _make_popen(
+        [
+            {
+                "type": "rpc_response",
+                "id": "req-create",
+                "response": {"session_id": "0" * 32},
+            },
+            {
+                "type": "rpc_event",
+                "id": "req-run",
+                "event": {"run_id": "run-1", "type": "run_started"},
+            },
+            {
+                "type": "rpc_event",
+                "id": "req-run",
+                "event": {
+                    "run_id": "run-1",
+                    "type": "run_succeeded",
+                    "output_text": "done",
+                },
+            },
+        ]
+    )
+
+    run_exec_prompt(
+        prompt="solve it",
+        model="openai-responses:gpt-5.3-codex",
+        workspace_root=tmp_path,
+        thinking="high",
+        sessions_root=sessions_root,
+        popen_factory=popen_factory,
+    )
+
+    requests = [
+        json.loads(line)
+        for line in process.stdin.getvalue().splitlines()
+        if line.strip()
+    ]
+    assert requests[1]["payload"]["thinking"] == "high"
 
 
 def test_run_exec_prompt_raises_on_run_failed(tmp_path) -> None:
@@ -272,3 +316,35 @@ def test_main_prints_error_and_returns_one(tmp_path, monkeypatch) -> None:
     assert exit_code == 1
     assert stdout.getvalue() == ""
     assert stderr.getvalue() == "RuntimeError: boom\n"
+
+
+def test_main_parses_thinking_flag(tmp_path, monkeypatch) -> None:
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    captured: dict[str, object] = {}
+
+    def fake_run_exec_prompt(**kwargs) -> str:
+        captured.update(kwargs)
+        return "done"
+
+    monkeypatch.setattr(
+        "just_another_coding_agent_adapters.bench.exec_prompt.run_exec_prompt",
+        fake_run_exec_prompt,
+    )
+
+    exit_code = main(
+        [
+            "--model",
+            "openai-responses:gpt-5.3-codex",
+            "--thinking",
+            "high",
+            "-C",
+            str(tmp_path),
+            "solve it",
+        ],
+        stdout=stdout,
+        stderr=stderr,
+    )
+
+    assert exit_code == 0
+    assert captured["thinking"] == "high"

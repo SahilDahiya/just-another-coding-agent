@@ -13,6 +13,7 @@ The adapter path is intentionally thin:
 - the container installs the backend package
 - the adapter runs the one-shot wrapper `just-another-coding-agent-exec-prompt`
 - the wrapper talks to the canonical stdio backend through `session.create` and `run.start`
+- the wrapper can also forward an optional explicit `thinking` setting into `run.start`
 
 This is an adapter around the existing backend contract, not a second execution architecture.
 
@@ -106,6 +107,16 @@ What this does:
 3. The install script installs the backend package in the container.
 4. The run command launches `just-another-coding-agent-exec-prompt`.
 5. The wrapper creates a backend session, runs one prompt, prints terminal output, and exits non-zero on canonical run failure.
+
+If you need to set thinking explicitly when using the one-shot wrapper directly, use:
+
+```bash
+python -m just_another_coding_agent_adapters.bench.exec_prompt \
+  --model openai-responses:gpt-5.3-codex \
+  --thinking high \
+  -C /abs/path/to/workspace \
+  "solve it"
+```
 
 ## Terminal Bench Run
 
