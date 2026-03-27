@@ -76,6 +76,10 @@ def build_session_history_processor(
         if messages and _starts_with_compaction_summary(messages):
             return messages
 
+        # PydanticAI passes resumed history in front of the live run messages.
+        # Those persisted messages arrive without a run_id, while messages
+        # created during the in-flight run are tagged with the current run_id.
+        # This boundary is the seam we rely on to replace the summarized prefix.
         persisted_prefix_length = _leading_persisted_message_count(messages)
         if persisted_prefix_length == 0:
             raise RuntimeError(
@@ -216,6 +220,7 @@ def _starts_with_compaction_summary(messages: list[ModelMessage]) -> bool:
 def _leading_persisted_message_count(messages: list[ModelMessage]) -> int:
     count = 0
     for message in messages:
+        # See apply_compaction above for the run_id boundary assumption.
         if message.run_id is not None:
             break
         count += 1

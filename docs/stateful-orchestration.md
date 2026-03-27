@@ -48,7 +48,7 @@ Good hook use cases:
 - `before_run` / `after_run`
   - attach observability, metrics, or policy checks
 - `wrap_run` / `run_error`
-  - implement bounded recovery around retryable failures
+  - classify retryable failures and attach orchestration metadata
   - emit orchestration events around retries or overflow handling
 - `before_model_request`
   - inspect current messages and model settings before each request
@@ -64,6 +64,15 @@ Bad hook use cases:
 - defining the JSONL session format
 - inventing hidden session commands
 - replacing explicit RPC contract semantics
+
+Current product decision:
+
+- bounded live-run retry is enforced in `runtime/run.py`, not through a Hook
+  restart path
+- reason: the public streamed event contract allows one hidden retry only
+  before any assistant text or tool lifecycle event escapes, and the streamed
+  Hook seam wraps an already-created event stream rather than giving us a clean
+  restart handler
 
 ## History Processors
 
@@ -128,8 +137,9 @@ inner attempts.
 4. Use `history_processors` to apply the compacted history view at runtime.
 5. Define explicit continue semantics as `run.start` on an existing session.
 6. Add deterministic pre-run auto-compaction triggers.
-7. Add bounded hook-based live-run recovery later only if the streamed event
-   contract can support it cleanly.
+7. Keep bounded live-run retry at the canonical streamed-run boundary unless a
+   future PydanticAI seam can restart streamed runs cleanly without leaking
+   hidden inner attempts.
 
 ## Non-Goals
 

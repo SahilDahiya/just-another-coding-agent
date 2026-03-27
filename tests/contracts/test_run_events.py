@@ -9,6 +9,7 @@ from just_another_coding_agent.contracts.run_events import (
     RunStartedEvent,
     RunSucceededEvent,
 )
+from just_another_coding_agent.runtime.agent import build_canonical_agent
 from just_another_coding_agent.runtime.run import stream_run_events
 
 
@@ -21,6 +22,45 @@ async def broken_stream(_messages: object, _agent_info: object) -> AsyncIterator
     raise RuntimeError("boom")
     if False:  # pragma: no cover
         yield ""
+
+
+async def flaky_timeout_stream(
+    _messages: object,
+    _agent_info: object,
+) -> AsyncIterator[str]:
+    flaky_timeout_stream.attempts += 1
+    if flaky_timeout_stream.attempts == 1:
+        raise TimeoutError("temporary timeout")
+
+    yield "done"
+
+
+flaky_timeout_stream.attempts = 0
+
+
+async def partial_timeout_stream(
+    _messages: object,
+    _agent_info: object,
+) -> AsyncIterator[str]:
+    partial_timeout_stream.attempts += 1
+    yield "partial"
+    raise TimeoutError("timed out after partial output")
+
+
+partial_timeout_stream.attempts = 0
+
+
+async def always_timeout_stream(
+    _messages: object,
+    _agent_info: object,
+) -> AsyncIterator[str]:
+    always_timeout_stream.attempts += 1
+    raise TimeoutError("temporary timeout")
+    if False:  # pragma: no cover
+        yield ""
+
+
+always_timeout_stream.attempts = 0
 
 
 async def looping_tool_stream(
@@ -98,3 +138,75 @@ async def test_stream_run_events_passes_thinking_as_model_settings() -> None:
 
     assert [event.type for event in events] == ["run_started", "run_succeeded"]
     assert agent.last_model_settings == {"thinking": "high"}
+
+
+async def test_build_canonical_agent_retries_one_transient_pre_stream_failure(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    flaky_timeout_stream.attempts = 0
+    agent = build_canonical_agent(
+        model=FunctionModel(stream_function=flaky_timeout_stream),
+        workspace_root=workspace_root,
+        tool_names=[],
+    )
+
+    events = [event async for event in stream_run_events(agent=agent, prompt="go")]
+
+    assert [event.type for event in events] == [
+        "run_started",
+        "assistant_text_delta",
+        "run_succeeded",
+    ]
+    assert isinstance(events[1], AssistantTextDeltaEvent)
+    assert events[1].delta == "done"
+    assert isinstance(events[2], RunSucceededEvent)
+    assert events[2].output_text == "done"
+    assert flaky_timeout_stream.attempts == 2
+
+
+async def test_build_canonical_agent_does_not_retry_after_partial_stream_output(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    partial_timeout_stream.attempts = 0
+    agent = build_canonical_agent(
+        model=FunctionModel(stream_function=partial_timeout_stream),
+        workspace_root=workspace_root,
+        tool_names=[],
+    )
+
+    events = [event async for event in stream_run_events(agent=agent, prompt="go")]
+
+    assert [event.type for event in events] == [
+        "run_started",
+        "assistant_text_delta",
+        "run_failed",
+    ]
+    assert isinstance(events[1], AssistantTextDeltaEvent)
+    assert events[1].delta == "partial"
+    assert isinstance(events[2], RunFailedEvent)
+    assert events[2].error_type == "TimeoutError"
+    assert partial_timeout_stream.attempts == 1
+
+
+async def test_build_canonical_agent_retries_transient_failure_only_once(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    always_timeout_stream.attempts = 0
+    agent = build_canonical_agent(
+        model=FunctionModel(stream_function=always_timeout_stream),
+        workspace_root=workspace_root,
+        tool_names=[],
+    )
+
+    events = [event async for event in stream_run_events(agent=agent, prompt="go")]
+
+    assert [event.type for event in events] == ["run_started", "run_failed"]
+    assert isinstance(events[1], RunFailedEvent)
+    assert events[1].error_type == "TimeoutError"
+    assert always_timeout_stream.attempts == 2

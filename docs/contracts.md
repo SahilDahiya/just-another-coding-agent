@@ -257,6 +257,8 @@ Ordering rules for the initial slice:
 - Successful text-only run: `run_started`, zero or more `assistant_text_delta`, `run_succeeded`
 - Failed run: `run_started`, zero or more `assistant_text_delta`, `run_failed`
 - `run_succeeded` and `run_failed` are mutually exclusive and terminal
+- Before any assistant text or tool lifecycle event is emitted, the runtime may hide one retryable transient failure and continue with the same public `run_id`
+- Once any assistant text or tool lifecycle event has been emitted, the runtime must not retry the run automatically
 - Consumers must not need to understand raw PydanticAI stream event kinds to consume this contract
 
 Initial tool lifecycle slice:
@@ -392,5 +394,6 @@ Ordering rules for the RPC slice:
 - Compaction is the planned mechanism for managing long-lived session growth; it does not constrain an in-flight run.
 - Expected tool-domain failures should be returned to the model as explicit tool result objects instead of ending the run immediately.
 - `stream_run_events` intentionally converts pre-terminal runtime exceptions into canonical failure events instead of leaking raw exceptions through the public stream.
+- `stream_run_events` may retry one retryable transient timeout or transport/provider connection failure before any assistant text or tool lifecycle event escapes the public stream.
 - If a pre-terminal exception occurs while tool calls are still pending, each pending tool call emits `tool_call_failed` before the terminal `run_failed`.
 - An exception after `run_succeeded` is invalid state and is raised instead of being re-encoded as another event.

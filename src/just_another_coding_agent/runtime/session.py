@@ -46,6 +46,9 @@ async def stream_session_run_events(
             workspace_root=normalized_workspace_root,
         )
         if should_auto_compact_session(loaded_session):
+            # Auto-compaction is pre-run session maintenance, not part of the
+            # streamed run event contract. Failures here surface as an
+            # exception to the caller rather than as a run_failed event.
             await summarize_and_append_compaction_to_session(
                 model=model,
                 path=session_path,

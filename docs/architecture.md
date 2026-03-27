@@ -36,7 +36,7 @@ Use PydanticAI where it already has the right seam:
 
 - use `message_history` as the canonical resume substrate
 - use `history_processors` to shape what history the model sees at runtime
-- use Hooks for bounded run-local interception and recovery behavior
+- use Hooks for observability, classification, and other run-local interception
 - use `model_settings` for explicit run settings such as `thinking`
 
 Keep product semantics in this repo's own contract layer:
@@ -62,7 +62,7 @@ Current sequence:
 2. Persist a compaction entry alongside existing session entries.
 3. Rebuild resumed `message_history` from a compaction summary plus retained recent native messages.
 4. Add deterministic automatic compaction before resumed runs when at least five completed runs have accumulated since the latest compaction boundary.
-5. Evaluate hook-based live-run recovery later if the streamed event contract can support it without hidden inner attempts.
+5. Keep live-run recovery at the canonical streamed-run boundary when it must preserve a clean public event contract.
 
 The important boundary is:
 
@@ -72,6 +72,7 @@ The important boundary is:
 - durable compaction state lives in our session file, while PydanticAI
   `history_processors` are the runtime seam that applies the compacted view
 - `run.start` on an existing session is the canonical continue operation; there is no second continue command today
+- `stream_run_events()` may hide one retryable transient failure before any public stream event escapes, but once assistant text or tool lifecycle events have been emitted the runtime does not retry automatically
 
 ## Canonical Package Layout
 

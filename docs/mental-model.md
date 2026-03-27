@@ -155,9 +155,10 @@ The runtime (`runtime/run.py`) is the bridge between PydanticAI and the public c
 1. Creates a unique `run_id`
 2. Yields `RunStartedEvent`
 3. Streams the run without a default per-run request or tool-call ceiling, optionally passing an explicit `thinking` setting through PydanticAI model settings
-4. Iterates PydanticAI's internal event stream, translating each into a public contract event
-5. Tracks pending tool calls so failures cascade correctly
-6. Guarantees exactly one terminal event
+4. Hides at most one retryable transient pre-stream failure before any assistant text or tool lifecycle event escapes
+5. Iterates PydanticAI's internal event stream, translating each into a public contract event
+6. Tracks pending tool calls so failures cascade correctly
+7. Guarantees exactly one terminal event
 
 This is the only place where PydanticAI internals are touched. Everything else works with the public contract types.
 
