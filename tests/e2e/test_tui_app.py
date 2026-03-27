@@ -33,8 +33,8 @@ async def test_tui_app_starts_and_focuses_prompt(tmp_path: Path) -> None:
         assert prompt_input.has_focus
         assert transcript.can_focus is False
         assert transcript_scroll.can_focus is False
-        assert "model" in str(status_bar.renderable)
-        assert "workspace" in str(status_bar.renderable)
+        assert "idle" in str(status_bar.renderable)
+        assert "ollama:test" in str(status_bar.renderable)
 
 
 @pytest.mark.asyncio
@@ -113,6 +113,7 @@ async def test_prompt_submission_keeps_spaces_and_streams_single_line(
 
         transcript = app.query_one("#output", TranscriptLog)
         assert "> hello world" in transcript.lines
+        assert "assistant" in transcript.lines
         assert "Hello world" in transcript.lines
 
 

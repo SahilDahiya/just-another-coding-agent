@@ -15,10 +15,9 @@ def test_build_status_text_includes_phase_and_session() -> None:
 
     status = build_status_text(state)
 
-    assert "state" in status
     assert "streaming" in status
-    assert "model" in status
-    assert "workspace" in status
+    assert "ollama:test" in status
+    assert "/tmp/workspace" in status
     assert "thinking" in status
     assert "session" in status
 

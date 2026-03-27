@@ -28,15 +28,15 @@ def display_path(path: Path) -> str:
 def build_status_text(state: UiState) -> str:
     """Build the current status-bar line from explicit UI state."""
     parts = [
-        f"[bold]state[/bold] {state.phase}",
-        f"[bold]model[/bold] {state.model}",
-        f"[bold]workspace[/bold] {display_path(state.workspace_root)}",
+        state.phase,
+        str(state.model),
+        display_path(state.workspace_root),
     ]
     if state.thinking:
-        parts.append(f"[bold]thinking[/bold] {state.thinking}")
+        parts.append(f"thinking={state.thinking}")
     if state.session_id:
-        parts.append(f"[bold]session[/bold] {state.session_id[:8]}...")
-    return "  ".join(parts)
+        parts.append(f"session={state.session_id[:8]}")
+    return " | ".join(parts)
 
 
 def update_status_bar(status_bar: StatusBar, *, state: UiState) -> None:
@@ -93,11 +93,11 @@ def write_stream_event(output: TranscriptLog, event: Any) -> None:
     if event.type == "assistant_text_delta":
         output.write(event.delta, scroll_end=True)  # type: ignore[union-attr]
     elif event.type == "tool_call_started":
-        output.write_line(f"  [{event.tool_name}]")  # type: ignore[union-attr]
+        output.write_line(f"tool {event.tool_name}")  # type: ignore[union-attr]
     elif event.type == "tool_call_succeeded":
         result = event.result  # type: ignore[union-attr]
         if isinstance(result, dict) and result.get("ok") is False:
-            output.write_line(f"  tool error: {result.get('message', '')}")
+            output.write_line(f"tool error: {result.get('message', '')}")
     elif event.type == "run_failed":
         output.write("\n")
         output.write_line(f"ERROR: {event.message}")  # type: ignore[union-attr]

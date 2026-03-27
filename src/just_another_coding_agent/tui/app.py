@@ -138,6 +138,8 @@ class CodingAgentApp(App[None]):
         output.write("\n")
         output.write_line(f"> {prompt}")
         output.write("\n")
+        output.write_line("assistant")
+        output.write("\n")
 
         self._streaming = True
         self._interrupt_requested = False
