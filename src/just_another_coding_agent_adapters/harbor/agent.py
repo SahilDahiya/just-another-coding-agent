@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from just_another_coding_agent_adapters.harbor.commands import (
@@ -63,6 +64,9 @@ else:
                     command=build_harbor_exec_command(
                         instruction=instruction,
                         model=self.model_name,
+                        thinking=os.environ.get(
+                            "JUST_ANOTHER_CODING_AGENT_THINKING"
+                        ),
                     ),
                     env=build_provider_env(),
                 )

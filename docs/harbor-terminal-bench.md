@@ -41,6 +41,7 @@ Optional:
 
 ```bash
 export OPENAI_BASE_URL=...
+export JUST_ANOTHER_CODING_AGENT_THINKING=high
 ```
 
 For Ollama-backed runs through PydanticAI's `ollama:` provider:
@@ -71,6 +72,13 @@ ollama:kimi-k2:1t-cloud
 ```
 
 The adapter still passes that string through unchanged.
+
+If you want the Harbor adapter to forward an explicit thinking setting into the
+one-shot wrapper and `run.start`, export:
+
+```bash
+export JUST_ANOTHER_CODING_AGENT_THINKING=high
+```
 
 ## Container Paths
 
@@ -153,6 +161,7 @@ Notes:
 - start with one task at a time
 - keep `--n-concurrent 1` for first smoke runs
 - keep the backend model string unchanged
+- export `JUST_ANOTHER_CODING_AGENT_THINKING=high` when you want submission-style `thinking=high` runs through the checked-in Harbor adapter
 - use downloaded session artifacts when you need to inspect a failed run
 
 ## Expected Artifacts
