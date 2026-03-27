@@ -164,6 +164,29 @@ Notes:
 - export `JUST_ANOTHER_CODING_AGENT_THINKING=high` when you want submission-style `thinking=high` runs through the checked-in Harbor adapter
 - use downloaded session artifacts when you need to inspect a failed run
 
+## Full Submission Run
+
+For the full Terminal Bench 2.0 submission-style GLM-5 run, use the checked-in
+launcher:
+
+```bash
+scripts/run_tb2_submission_glm5.sh
+```
+
+What it does:
+
+- loads `.env` if present
+- defaults to `ollama:glm-5:cloud`
+- defaults to `JUST_ANOTHER_CODING_AGENT_THINKING=high`
+- runs `5` attempts per task with Harbor against `terminal-bench@2.0`
+- writes the Harbor job under `jobs/`
+
+Expected prerequisites before you launch it:
+
+- `OLLAMA_API_KEY` is exported or present in `.env`
+- `docker login` has already been run, to avoid image pull-rate limiting during
+  Harbor task setup
+
 ## Expected Artifacts
 
 Harbor job output goes to the configured jobs directory, which defaults to:
