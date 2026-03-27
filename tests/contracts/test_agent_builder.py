@@ -3,6 +3,7 @@ from datetime import date
 from pydantic_ai import capture_run_messages
 from pydantic_ai.messages import ModelMessage, ModelRequest, UserPromptPart
 from pydantic_ai.models.function import FunctionModel
+from pydantic_ai.models.openai import OpenAIResponsesModel
 
 from just_another_coding_agent.runtime import (
     CANONICAL_AGENT_INSTRUCTIONS,
@@ -108,3 +109,19 @@ def test_build_canonical_model_settings_include_thinking_when_set() -> None:
     assert build_canonical_model_settings(thinking="high") == {"thinking": "high"}
     assert build_canonical_model_settings(thinking=True) == {"thinking": True}
     assert build_canonical_model_settings() is None
+
+
+def test_build_canonical_agent_resolves_string_models(tmp_path, monkeypatch) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://example.test/v1")
+
+    agent = build_canonical_agent(
+        model="openai-responses:gpt-5.3-codex",
+        workspace_root=workspace_root,
+        tool_names=[],
+    )
+
+    assert isinstance(agent.model, OpenAIResponsesModel)
+    assert agent.model.model_name == "gpt-5.3-codex"

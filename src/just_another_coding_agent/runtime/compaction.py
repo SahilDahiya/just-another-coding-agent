@@ -21,6 +21,7 @@ from just_another_coding_agent.contracts.session import (
     SessionCompactionEntry,
     SessionCompactionSummary,
 )
+from just_another_coding_agent.runtime.models import resolve_canonical_model
 from just_another_coding_agent.session.jsonl import (
     SessionFormatError,
     append_compaction_to_session,
@@ -101,7 +102,7 @@ async def summarize_session_for_compaction(
         raise SessionFormatError("Cannot compact a session with no completed runs")
 
     summarizer = Agent(
-        model,
+        resolve_canonical_model(model),
         output_type=SessionCompactionSummary,
         instructions=COMPACTION_SUMMARY_INSTRUCTIONS,
     )
