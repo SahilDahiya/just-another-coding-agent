@@ -142,6 +142,7 @@ async def test_stream_run_events_passes_thinking_as_model_settings() -> None:
 
 async def test_build_canonical_agent_retries_one_transient_pre_stream_failure(
     tmp_path,
+    caplog,
 ) -> None:
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
@@ -152,7 +153,8 @@ async def test_build_canonical_agent_retries_one_transient_pre_stream_failure(
         tool_names=[],
     )
 
-    events = [event async for event in stream_run_events(agent=agent, prompt="go")]
+    with caplog.at_level("DEBUG"):
+        events = [event async for event in stream_run_events(agent=agent, prompt="go")]
 
     assert [event.type for event in events] == [
         "run_started",
@@ -164,6 +166,7 @@ async def test_build_canonical_agent_retries_one_transient_pre_stream_failure(
     assert isinstance(events[2], RunSucceededEvent)
     assert events[2].output_text == "done"
     assert flaky_timeout_stream.attempts == 2
+    assert "Retrying transient pre-stream run failure" in caplog.text
 
 
 async def test_build_canonical_agent_does_not_retry_after_partial_stream_output(

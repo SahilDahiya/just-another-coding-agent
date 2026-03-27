@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import AsyncIterator, Sequence
 from typing import Any
 from uuid import uuid4
@@ -37,6 +38,7 @@ from just_another_coding_agent.runtime.agent import build_canonical_model_settin
 from just_another_coding_agent.runtime.recovery import should_retry_run_error
 
 _JSON_VALUE_ADAPTER = TypeAdapter(JsonValue)
+logger = logging.getLogger(__name__)
 
 
 async def stream_run_events(
@@ -144,6 +146,14 @@ async def stream_run_events(
                 # Keep one hidden retry at the canonical stream boundary so the
                 # public event contract never leaks duplicate run_started or
                 # partial inner-attempt events.
+                logger.debug(
+                    "Retrying transient pre-stream run failure: run_id=%s attempt=%s "
+                    "error_type=%s message=%s",
+                    run_id,
+                    recovery_attempts + 1,
+                    type(error).__name__,
+                    str(error),
+                )
                 recovery_attempts += 1
                 continue
 
