@@ -125,7 +125,7 @@ The registry (`tools/registry.py`) maps canonical names to factories. `build_can
 
 `build_canonical_agent()` in `runtime/agent.py` is the single official way to assemble a coding agent. It takes a model and workspace root, builds the canonical toolset, enforces `output_type=str`, and sets a concise system prompt via PydanticAI's `instructions` parameter.
 
-The system prompt tells the model what tools it has, how to approach coding tasks, and that read/write/edit are workspace-scoped while bash is not sandboxed. The runtime also appends dynamic context at build time: the current date, the resolved workspace root, and the workspace-root `AGENTS.md` contents when that file exists.
+The system prompt tells the model what tools it has, how to approach coding tasks, and that read/write/edit are workspace-scoped while bash is not sandboxed. The runtime also appends dynamic context at build time: the current date and the resolved workspace root.
 That prompt layer also carries two behavioral rules that matter for benchmark and real coding tasks alike: do not claim a file was created or changed without tool evidence, and verify code changes or required file outputs before concluding.
 
 ### Runtime

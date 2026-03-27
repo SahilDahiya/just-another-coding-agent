@@ -16,6 +16,10 @@ The adapter path is intentionally thin:
 
 This is an adapter around the existing backend contract, not a second execution architecture.
 
+The benchmark-specific workflow guidance lives in this adapter layer, not in the
+repo-root `AGENTS.md`. The one-shot wrapper prepends a small benchmark workflow section
+to the user prompt before `run.start`, so Terminal Bench behavior stays adapter-owned.
+
 ## Prerequisites
 
 - `harbor` is installed locally

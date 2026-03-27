@@ -5,7 +5,9 @@ import sys
 import pytest
 
 from just_another_coding_agent_adapters.bench.exec_prompt import (
+    BENCHMARK_WORKFLOW_PROMPT,
     ExecPromptError,
+    build_benchmark_prompt,
     main,
     read_prompt,
     run_exec_prompt,
@@ -128,12 +130,19 @@ def test_run_exec_prompt_returns_terminal_output(tmp_path) -> None:
             "command": "run.start",
             "payload": {
                 "session_id": "0" * 32,
-                "prompt": "solve it",
+                "prompt": build_benchmark_prompt("solve it"),
             },
         },
     ]
     assert process.stdin.closed is True
     assert process.wait_calls == [5]
+
+
+def test_build_benchmark_prompt_wraps_user_prompt() -> None:
+    prompt = build_benchmark_prompt("solve it")
+
+    assert prompt.startswith(BENCHMARK_WORKFLOW_PROMPT)
+    assert prompt.endswith("# Task\nsolve it")
 
 
 def test_run_exec_prompt_raises_on_run_failed(tmp_path) -> None:

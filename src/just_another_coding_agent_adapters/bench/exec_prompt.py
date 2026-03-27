@@ -14,6 +14,31 @@ class ExecPromptError(RuntimeError):
     """Raised when the one-shot wrapper cannot complete a canonical run."""
 
 
+BENCHMARK_WORKFLOW_PROMPT = "\n".join(
+    [
+        "# Benchmark Workflow",
+        "",
+        "- Prefer provided tests or verifier files over ad-hoc smoke checks.",
+        (
+            "- When relevant tests exist, run the narrowest failing test or repro "
+            "before editing when feasible."
+        ),
+        (
+            "- For behavioral tasks, syntax, import, and compile checks are not "
+            "sufficient."
+        ),
+        (
+            "- After changes, rerun the same targeted test or acceptance check "
+            "before concluding."
+        ),
+        (
+            "- If no tests exist, run the smallest concrete acceptance check that "
+            "exercises the required behavior."
+        ),
+    ]
+)
+
+
 def build_server_command(
     *,
     model: str,
@@ -44,6 +69,10 @@ def read_prompt(prompt_arg: str | None, *, stdin: TextIO) -> str:
     if not prompt.strip():
         raise SystemExit("Prompt is empty.")
     return prompt
+
+
+def build_benchmark_prompt(prompt: str) -> str:
+    return f"{BENCHMARK_WORKFLOW_PROMPT}\n\n# Task\n{prompt}"
 
 
 def run_exec_prompt(
@@ -122,7 +151,10 @@ def _run_exec_prompt(
             {
                 "id": "req-run",
                 "command": "run.start",
-                "payload": {"session_id": session_id, "prompt": prompt},
+                "payload": {
+                    "session_id": session_id,
+                    "prompt": build_benchmark_prompt(prompt),
+                },
             },
         )
 
