@@ -10,7 +10,6 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
   "pydantic-ai-slim[anthropic,mcp,openai]>=1.71.0,<2.0",
-  "python-dotenv>=1.0.0",
   "textual>=3.0.0,<4.0",
 ]
 
@@ -24,6 +23,7 @@ test = [
 ]
 
 [project.scripts]
+jaca = "just_another_coding_agent.__main__:main"
 just-another-coding-agent = "just_another_coding_agent.__main__:main"
 just-another-coding-agent-exec-prompt = "just_another_coding_agent_adapters.bench.exec_prompt:main"
 

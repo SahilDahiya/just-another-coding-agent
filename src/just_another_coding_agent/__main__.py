@@ -2,17 +2,19 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import os
 import sys
-
-from dotenv import load_dotenv
-
-load_dotenv()
 from collections.abc import Sequence
 from pathlib import Path
 from typing import TextIO
 
 from just_another_coding_agent.rpc import serve_rpc_stdio
 from just_another_coding_agent.tools._workspace import normalize_workspace_root
+from just_another_coding_agent.tui.config import apply_config_to_env, load_config
+
+apply_config_to_env(load_config())
+
+DEFAULT_MODEL = os.environ.get("JACA_MODEL", "ollama:kimi-k2:1t-cloud")
 
 
 def main(
@@ -22,10 +24,14 @@ def main(
     output_stream: TextIO | None = None,
 ) -> int:
     parser = argparse.ArgumentParser(
-        prog="just-another-coding-agent",
+        prog="jaca",
         description="Interactive coding agent with optional headless RPC mode.",
     )
-    parser.add_argument("--model", required=True)
+    parser.add_argument(
+        "--model",
+        default=DEFAULT_MODEL,
+        help=f"Model to use (default: {DEFAULT_MODEL}, or set JACA_MODEL env var)",
+    )
     parser.add_argument(
         "--workspace-root",
         default=".",
