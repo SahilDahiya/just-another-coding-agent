@@ -3,6 +3,11 @@ from pydantic import ValidationError
 
 from just_another_coding_agent.contracts.tools import EditToolInput
 from just_another_coding_agent.tools.edit import execute_edit
+from just_another_coding_agent.tools.errors import (
+    ToolEncodingError,
+    ToolMatchError,
+    ToolPathError,
+)
 
 
 def test_edit_tool_replaces_exact_unique_text(tmp_path) -> None:
@@ -56,7 +61,7 @@ def test_edit_tool_fails_for_missing_file(tmp_path) -> None:
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
 
-    with pytest.raises(FileNotFoundError):
+    with pytest.raises(ToolPathError):
         execute_edit(
             tool_input=EditToolInput(
                 path="missing.txt",
@@ -72,7 +77,7 @@ def test_edit_tool_fails_for_directory_target(tmp_path) -> None:
     workspace_root.mkdir()
     (workspace_root / "nested").mkdir()
 
-    with pytest.raises(IsADirectoryError):
+    with pytest.raises(ToolPathError):
         execute_edit(
             tool_input=EditToolInput(
                 path="nested",
@@ -89,7 +94,7 @@ def test_edit_tool_fails_for_invalid_utf8(tmp_path) -> None:
     path = workspace_root / "binary.bin"
     path.write_bytes(b"\xff\xfe\x00")
 
-    with pytest.raises(UnicodeDecodeError):
+    with pytest.raises(ToolEncodingError):
         execute_edit(
             tool_input=EditToolInput(
                 path="binary.bin",
@@ -106,7 +111,7 @@ def test_edit_tool_fails_when_old_text_is_missing(tmp_path) -> None:
     path = workspace_root / "note.txt"
     path.write_bytes(b"hello\nworld\n")
 
-    with pytest.raises(ValueError, match="old_text must match exactly once"):
+    with pytest.raises(ToolMatchError, match="old_text must match exactly once"):
         execute_edit(
             tool_input=EditToolInput(
                 path="note.txt",
@@ -123,7 +128,7 @@ def test_edit_tool_fails_when_old_text_is_ambiguous(tmp_path) -> None:
     path = workspace_root / "note.txt"
     path.write_bytes(b"hello\nworld\nworld\n")
 
-    with pytest.raises(ValueError, match="old_text must match exactly once"):
+    with pytest.raises(ToolMatchError, match="old_text must match exactly once"):
         execute_edit(
             tool_input=EditToolInput(
                 path="note.txt",
@@ -140,7 +145,7 @@ def test_edit_tool_fails_when_replacement_is_no_op(tmp_path) -> None:
     path = workspace_root / "note.txt"
     path.write_bytes(b"hello\nworld\n")
 
-    with pytest.raises(ValueError, match="Edit would not change file contents"):
+    with pytest.raises(ToolMatchError, match="Edit would not change file contents"):
         execute_edit(
             tool_input=EditToolInput(
                 path="note.txt",
@@ -234,7 +239,7 @@ def test_edit_tool_fuzzy_fallback_preserves_unmatched_surrounding_content(
     workspace_root.mkdir()
     path = workspace_root / "note.txt"
     path.write_text(
-        'keep “smart”\nchange “hello”\u00a0-\u00a0world  \n',
+        "keep “smart”\nchange “hello”\u00a0-\u00a0world  \n",
         encoding="utf-8",
     )
 

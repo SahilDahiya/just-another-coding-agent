@@ -2,6 +2,7 @@ import pytest
 from pydantic import ValidationError
 
 from just_another_coding_agent.contracts.tools import WriteToolInput
+from just_another_coding_agent.tools.errors import ToolPathError
 from just_another_coding_agent.tools.write import execute_write
 
 
@@ -74,7 +75,7 @@ def test_write_tool_fails_for_directory_target(tmp_path) -> None:
     workspace_root.mkdir()
     (workspace_root / "nested").mkdir()
 
-    with pytest.raises(IsADirectoryError):
+    with pytest.raises(ToolPathError):
         execute_write(
             tool_input=WriteToolInput(path="nested", content="hello"),
             workspace_root=workspace_root,

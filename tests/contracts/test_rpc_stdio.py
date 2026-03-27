@@ -436,7 +436,7 @@ async def test_handle_rpc_json_line_keeps_run_failure_in_event_stream_and_sessio
     ]
     assert messages[2]["event"]["result"] == {
         "ok": False,
-        "error_type": "ValueError",
+        "error_type": "ToolMatchError",
         "message": (
             "old_text must match exactly once in "
             f"{workspace_root / 'note.txt'}; found 0 occurrences"

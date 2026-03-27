@@ -12,6 +12,7 @@ from pydantic_ai.settings import ModelSettings
 from just_another_coding_agent.contracts.thinking import ThinkingSetting
 from just_another_coding_agent.contracts.tools import CANONICAL_TOOL_NAMES
 from just_another_coding_agent.tools._workspace import normalize_workspace_root
+from just_another_coding_agent.tools.deps import WorkspaceDeps
 from just_another_coding_agent.tools.registry import build_canonical_toolset
 
 CANONICAL_AGENT_INSTRUCTIONS = "\n".join(
@@ -92,18 +93,16 @@ def build_canonical_agent(
     tool_names: Sequence[str] = CANONICAL_TOOL_NAMES,
     history_processors: Sequence[Callable[[list[ModelMessage]], list[ModelMessage]]]
     | None = None,
-) -> Agent[Any, str]:
+) -> Agent[WorkspaceDeps, str]:
     root = normalize_workspace_root(workspace_root)
 
     return Agent(
         model,
         output_type=str,
         instructions=build_canonical_instructions(workspace_root=root),
+        deps_type=WorkspaceDeps,
         toolsets=[
-            build_canonical_toolset(
-                tool_names,
-                workspace_root=root,
-            )
+            build_canonical_toolset(tool_names)
         ],
         history_processors=history_processors,
     )

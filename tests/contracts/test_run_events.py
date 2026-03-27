@@ -11,6 +11,7 @@ from just_another_coding_agent.contracts.run_events import (
 )
 from just_another_coding_agent.runtime.agent import build_canonical_agent
 from just_another_coding_agent.runtime.run import stream_run_events
+from just_another_coding_agent.tools.deps import WorkspaceDeps
 
 
 async def hello_stream(_messages: object, _agent_info: object) -> AsyncIterator[str]:
@@ -86,9 +87,11 @@ class RecordingStreamAgent:
         _prompt: str,
         *,
         message_history=None,
+        deps=None,
         model_settings=None,
     ) -> AsyncIterator[object]:
         assert message_history is None
+        assert deps is None
         self.last_model_settings = model_settings
         yield AgentRunResultEvent(result=AgentRunResult("done"))
 
@@ -154,7 +157,14 @@ async def test_build_canonical_agent_retries_one_transient_pre_stream_failure(
     )
 
     with caplog.at_level("DEBUG"):
-        events = [event async for event in stream_run_events(agent=agent, prompt="go")]
+        events = [
+            event
+            async for event in stream_run_events(
+                agent=agent,
+                prompt="go",
+                deps=WorkspaceDeps(workspace_root),
+            )
+        ]
 
     assert [event.type for event in events] == [
         "run_started",
@@ -181,7 +191,14 @@ async def test_build_canonical_agent_does_not_retry_after_partial_stream_output(
         tool_names=[],
     )
 
-    events = [event async for event in stream_run_events(agent=agent, prompt="go")]
+    events = [
+        event
+        async for event in stream_run_events(
+            agent=agent,
+            prompt="go",
+            deps=WorkspaceDeps(workspace_root),
+        )
+    ]
 
     assert [event.type for event in events] == [
         "run_started",
@@ -207,7 +224,14 @@ async def test_build_canonical_agent_retries_transient_failure_only_once(
         tool_names=[],
     )
 
-    events = [event async for event in stream_run_events(agent=agent, prompt="go")]
+    events = [
+        event
+        async for event in stream_run_events(
+            agent=agent,
+            prompt="go",
+            deps=WorkspaceDeps(workspace_root),
+        )
+    ]
 
     assert [event.type for event in events] == ["run_started", "run_failed"]
     assert isinstance(events[1], RunFailedEvent)

@@ -4,6 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from just_another_coding_agent.contracts.tools import GrepToolInput
+from just_another_coding_agent.tools.errors import ToolPathError
 from just_another_coding_agent.tools.grep import execute_grep
 
 pytestmark = pytest.mark.skipif(shutil.which("rg") is None, reason="rg required")
@@ -42,7 +43,7 @@ def test_grep_tool_fails_for_missing_search_path(tmp_path) -> None:
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
 
-    with pytest.raises(FileNotFoundError):
+    with pytest.raises(ToolPathError):
         execute_grep(
             tool_input=GrepToolInput(pattern="needle", path="missing"),
             workspace_root=workspace_root,

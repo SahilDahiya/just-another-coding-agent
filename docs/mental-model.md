@@ -126,7 +126,7 @@ The RPC layer maps opaque session IDs to session files via `rpc/session_store.py
 
 Seven canonical tool names: `read`, `write`, `edit`, `bash`, `grep`, `ls`, `find`. These are the coding agent's hands.
 
-Each tool is a workspace-bound factory: `create_read_tool(workspace_root=...)` returns a PydanticAI `Tool` with the workspace root captured in a closure. Relative paths resolve from the configured workspace root, but the tools run in YOLO mode: there is no filesystem sandbox.
+Each canonical tool is a plain PydanticAI tool function that takes `RunContext[WorkspaceDeps]`. The runtime passes one normalized `WorkspaceDeps(workspace_root=...)` per run, so relative paths resolve from the configured workspace root without per-tool closure factories. The tools still run in YOLO mode: there is no filesystem sandbox.
 
 - `read` -- reads a UTF-8 file, returns contents
 - `write` -- writes a UTF-8 file, creates parent dirs, returns confirmation
@@ -138,7 +138,7 @@ Each tool is a workspace-bound factory: `create_read_tool(workspace_root=...)` r
 
 `bash` sets `cwd` to the workspace root but has no path sandboxing -- commands can access anything on the system.
 
-The registry (`tools/registry.py`) maps canonical names to factories. `build_canonical_toolset(tool_names, workspace_root=...)` creates factories and returns a PydanticAI `FunctionToolset`.
+The registry (`tools/registry.py`) is thin: it validates canonical tool names, selects the requested tool functions, and returns one wrapped PydanticAI `FunctionToolset`. Expected operational failures are raised as explicit `ToolOperationalError` subclasses and converted to model-visible `{ok: false, ...}` results by a single toolset wrapper. Unexpected exceptions still fail hard.
 
 ### Canonical Agent
 

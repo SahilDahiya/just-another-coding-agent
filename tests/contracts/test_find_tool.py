@@ -4,6 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from just_another_coding_agent.contracts.tools import FindToolInput
+from just_another_coding_agent.tools.errors import ToolPathError
 from just_another_coding_agent.tools.find import execute_find
 
 pytestmark = pytest.mark.skipif(shutil.which("rg") is None, reason="rg required")
@@ -44,7 +45,7 @@ def test_find_tool_fails_for_missing_search_path(tmp_path) -> None:
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
 
-    with pytest.raises(FileNotFoundError):
+    with pytest.raises(ToolPathError):
         execute_find(
             tool_input=FindToolInput(pattern="*.py", path="missing"),
             workspace_root=workspace_root,
@@ -56,7 +57,7 @@ def test_find_tool_fails_for_non_directory_search_path(tmp_path) -> None:
     workspace_root.mkdir()
     (workspace_root / "alpha.py").write_text("", encoding="utf-8")
 
-    with pytest.raises(NotADirectoryError):
+    with pytest.raises(ToolPathError):
         execute_find(
             tool_input=FindToolInput(pattern="*.py", path="alpha.py"),
             workspace_root=workspace_root,

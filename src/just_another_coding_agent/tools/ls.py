@@ -2,121 +2,103 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pydantic_ai import Tool
+from pydantic_ai import RunContext, Tool
 
 from just_another_coding_agent.contracts.tools import (
     LsToolInput,
-    make_tool_error_result,
 )
-from just_another_coding_agent.tools._workspace import (
-    normalize_workspace_root,
-    resolve_workspace_path,
+from just_another_coding_agent.tools._workspace import resolve_workspace_path
+from just_another_coding_agent.tools.deps import WorkspaceDeps
+from just_another_coding_agent.tools.errors import reraise_path_error
+from just_another_coding_agent.tools.truncation import (
+    append_tool_note,
+    collect_bounded_items,
 )
 
 LS_MAX_BYTES = 50 * 1024
 LS_DEFAULT_LIMIT = 500
-
-
-def _append_ls_note(text: str, note: str) -> str:
-    if not text:
-        return note
-    return f"{text}\n\n{note}"
-
-
 def _format_entry(entry: Path) -> str:
     return f"{entry.name}/" if entry.is_dir() else entry.name
 
 
 def execute_ls(*, tool_input: LsToolInput, workspace_root: Path | str) -> str:
-    root = normalize_workspace_root(workspace_root)
-    directory = resolve_workspace_path(
-        workspace_root=root,
-        tool_path=tool_input.path or ".",
-    )
+    try:
+        directory = resolve_workspace_path(
+            workspace_root=workspace_root,
+            tool_path=tool_input.path or ".",
+        )
 
-    if not directory.exists():
-        raise FileNotFoundError(directory)
-    if not directory.is_dir():
-        raise NotADirectoryError(directory)
+        if not directory.exists():
+            raise FileNotFoundError(directory)
+        if not directory.is_dir():
+            raise NotADirectoryError(directory)
 
-    entries = sorted(directory.iterdir(), key=lambda entry: entry.name.lower())
+        entries = sorted(directory.iterdir(), key=lambda entry: entry.name.lower())
+    except OSError as error:
+        reraise_path_error(error)
+
     if not entries:
         return "(empty directory)"
 
     formatted_entries = [_format_entry(entry) for entry in entries]
-    displayed_entries: list[str] = []
-    output_bytes = 0
-    limit_hit = False
-    byte_limit_hit = False
+    bounded = collect_bounded_items(
+        formatted_entries,
+        item_limit=tool_input.limit,
+        max_bytes=LS_MAX_BYTES,
+    )
 
-    for entry in formatted_entries:
-        if len(displayed_entries) >= tool_input.limit:
-            limit_hit = True
-            break
-
-        entry_bytes = len(entry.encode("utf-8"))
-        if output_bytes + entry_bytes + 1 > LS_MAX_BYTES:
-            byte_limit_hit = True
-            break
-
-        displayed_entries.append(entry)
-        output_bytes += entry_bytes + 1
-
-    result = "\n".join(displayed_entries)
+    result = "\n".join(bounded.items)
     notices: list[str] = []
-    if limit_hit:
+    if bounded.limit_hit:
         notices.append(
             "Showing first "
             f"{tool_input.limit} entries. Use limit={tool_input.limit * 2} "
             "for more."
         )
-    if byte_limit_hit:
+    if bounded.byte_limit_hit:
         notices.append(
             f"Listing exceeded {LS_MAX_BYTES} bytes. Narrow the path or use "
             "a smaller limit."
         )
     if notices:
-        result = _append_ls_note(result, f"[{' '.join(notices)}]")
+        result = append_tool_note(result, f"[{' '.join(notices)}]")
 
     return result
 
 
-def create_ls_tool(*, workspace_root: Path | str) -> Tool:
-    root = normalize_workspace_root(workspace_root)
+def ls(
+    ctx: RunContext[WorkspaceDeps],
+    path: str | None = None,
+    limit: int = LS_DEFAULT_LIMIT,
+) -> str:
+    """List directory contents in a bounded, sorted view.
 
-    def ls(
-        path: str | None = None,
-        limit: int = LS_DEFAULT_LIMIT,
-    ) -> str | dict[str, bool | str]:
-        """List directory contents in a bounded, sorted view.
+    Args:
+        path: Optional directory to list, relative to the workspace root or
+            absolute.
+        limit: Maximum number of entries to return before ls's own byte
+            ceiling is applied.
+    """
 
-        Args:
-            path: Optional directory to list, relative to the workspace root or
-                absolute.
-            limit: Maximum number of entries to return before ls's own byte
-                ceiling is applied.
-        """
-
-        try:
-            return execute_ls(
-                tool_input=LsToolInput(path=path, limit=limit),
-                workspace_root=root,
-            )
-        except (OSError, UnicodeError, ValueError) as error:
-            return make_tool_error_result(error)
-
-    return Tool(
-        ls,
-        name="ls",
-        description=(
-            "List directory contents in alphabetical order. Includes dotfiles "
-            "and adds '/' suffixes for directories. Output is bounded to 500 "
-            "entries or 50 KiB."
-        ),
-        docstring_format="google",
-        require_parameter_descriptions=True,
-        strict=True,
+    return execute_ls(
+        tool_input=LsToolInput(path=path, limit=limit),
+        workspace_root=ctx.deps.workspace_root,
     )
 
 
-__all__ = ["LS_DEFAULT_LIMIT", "LS_MAX_BYTES", "create_ls_tool", "execute_ls"]
+LS_TOOL = Tool(
+    ls,
+    takes_ctx=True,
+    name="ls",
+    description=(
+        "List directory contents in alphabetical order. Includes dotfiles "
+        "and adds '/' suffixes for directories. Output is bounded to 500 "
+        "entries or 50 KiB."
+    ),
+    docstring_format="google",
+    require_parameter_descriptions=True,
+    strict=True,
+)
+
+
+__all__ = ["LS_DEFAULT_LIMIT", "LS_MAX_BYTES", "LS_TOOL", "execute_ls", "ls"]

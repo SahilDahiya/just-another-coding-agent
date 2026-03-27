@@ -2,6 +2,11 @@ import pytest
 from pydantic import ValidationError
 
 from just_another_coding_agent.contracts.tools import ReadToolInput
+from just_another_coding_agent.tools.errors import (
+    ToolEncodingError,
+    ToolOperationalError,
+    ToolPathError,
+)
 from just_another_coding_agent.tools.read import execute_read
 
 
@@ -74,7 +79,7 @@ def test_read_tool_fails_for_missing_file(tmp_path) -> None:
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
 
-    with pytest.raises(FileNotFoundError):
+    with pytest.raises(ToolPathError):
         execute_read(
             tool_input=ReadToolInput(path="missing.txt"),
             workspace_root=workspace_root,
@@ -86,7 +91,7 @@ def test_read_tool_fails_for_directory(tmp_path) -> None:
     workspace_root.mkdir()
     (workspace_root / "nested").mkdir()
 
-    with pytest.raises(IsADirectoryError):
+    with pytest.raises(ToolPathError):
         execute_read(
             tool_input=ReadToolInput(path="nested"),
             workspace_root=workspace_root,
@@ -99,7 +104,7 @@ def test_read_tool_fails_for_invalid_utf8(tmp_path) -> None:
     path = workspace_root / "binary.bin"
     path.write_bytes(b"\xff\xfe\x00")
 
-    with pytest.raises(UnicodeDecodeError):
+    with pytest.raises(ToolEncodingError):
         execute_read(
             tool_input=ReadToolInput(path="binary.bin"),
             workspace_root=workspace_root,
@@ -113,7 +118,7 @@ def test_read_tool_fails_when_offset_is_beyond_end_of_file(tmp_path) -> None:
     path.write_text("line1\nline2\n", encoding="utf-8")
 
     with pytest.raises(
-        ValueError,
+        ToolOperationalError,
         match="Offset 5 is beyond end of file \\(2 lines total\\)",
     ):
         execute_read(

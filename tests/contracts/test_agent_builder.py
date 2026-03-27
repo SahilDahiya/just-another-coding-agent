@@ -10,6 +10,7 @@ from just_another_coding_agent.runtime import (
     build_canonical_instructions,
     build_canonical_model_settings,
 )
+from just_another_coding_agent.tools.deps import WorkspaceDeps
 
 
 async def text_only_stream(
@@ -29,7 +30,10 @@ async def test_build_canonical_agent_sets_default_instructions(tmp_path) -> None
     )
 
     with capture_run_messages() as messages:
-        async for _event in agent.run_stream_events("hi"):
+        async for _event in agent.run_stream_events(
+            "hi",
+            deps=WorkspaceDeps(workspace_root),
+        ):
             pass
 
     first_request = messages[0]

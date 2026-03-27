@@ -6,6 +6,7 @@ from pydantic import ValidationError
 
 from just_another_coding_agent.contracts.tools import BashToolInput
 from just_another_coding_agent.tools.bash import execute_bash
+from just_another_coding_agent.tools.errors import ToolCommandError, ToolEncodingError
 
 
 def test_bash_tool_runs_in_explicit_workspace_root(tmp_path, monkeypatch) -> None:
@@ -32,7 +33,7 @@ def test_bash_tool_fails_on_non_zero_exit_and_includes_output(
     workspace_root.mkdir()
     monkeypatch.chdir(tmp_path)
 
-    with pytest.raises(RuntimeError, match="boom\n\nCommand exited with code 7"):
+    with pytest.raises(ToolCommandError, match="boom\n\nCommand exited with code 7"):
         execute_bash(
             tool_input=BashToolInput(command="printf 'boom' >&2; exit 7"),
             workspace_root=workspace_root,
@@ -76,7 +77,7 @@ def test_bash_tool_fails_on_timeout(monkeypatch, tmp_path) -> None:
     monkeypatch.chdir(tmp_path)
 
     with pytest.raises(
-        TimeoutError,
+        ToolCommandError,
         match="partial output\n\nCommand timed out after 1 seconds",
     ):
         execute_bash(
@@ -128,7 +129,7 @@ def test_bash_tool_fails_for_invalid_utf8_output(monkeypatch, tmp_path) -> None:
     workspace_root.mkdir()
     monkeypatch.chdir(tmp_path)
 
-    with pytest.raises(UnicodeDecodeError):
+    with pytest.raises(ToolEncodingError):
         execute_bash(
             tool_input=BashToolInput(
                 command="python -c \"import sys; sys.stdout.buffer.write(b'\\xff')\""

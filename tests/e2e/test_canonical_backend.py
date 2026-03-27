@@ -246,7 +246,7 @@ async def test_e2e_failure_round_trips_through_rpc_and_session(
     assert tool_result.tool_name == "edit"
     assert tool_result.result == {
         "ok": False,
-        "error_type": "ValueError",
+        "error_type": "ToolMatchError",
         "message": (
             "old_text must match exactly once in "
             f"{workspace_root / 'note.txt'}; found 0 occurrences"

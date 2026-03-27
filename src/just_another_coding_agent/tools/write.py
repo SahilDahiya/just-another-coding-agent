@@ -2,58 +2,55 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pydantic_ai import Tool
+from pydantic_ai import RunContext, Tool
 
 from just_another_coding_agent.contracts.tools import (
     WriteToolInput,
-    make_tool_error_result,
 )
-from just_another_coding_agent.tools._workspace import (
-    normalize_workspace_root,
-    resolve_workspace_path,
-)
+from just_another_coding_agent.tools._workspace import resolve_workspace_path
+from just_another_coding_agent.tools.deps import WorkspaceDeps
+from just_another_coding_agent.tools.errors import reraise_path_error
 
 
 def execute_write(*, tool_input: WriteToolInput, workspace_root: Path | str) -> str:
-    path = resolve_workspace_path(
-        workspace_root=workspace_root,
-        tool_path=tool_input.path,
-    )
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(tool_input.content.encode("utf-8"))
+    try:
+        path = resolve_workspace_path(
+            workspace_root=workspace_root,
+            tool_path=tool_input.path,
+        )
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(tool_input.content.encode("utf-8"))
+    except OSError as error:
+        reraise_path_error(error)
     return f"Wrote {path}"
 
 
-def create_write_tool(*, workspace_root: Path | str) -> Tool:
-    root = normalize_workspace_root(workspace_root)
+def write(ctx: RunContext[WorkspaceDeps], path: str, content: str) -> str:
+    """Create or overwrite a UTF-8 text file.
 
-    def write(path: str, content: str) -> str | dict[str, bool | str]:
-        """Create or overwrite a UTF-8 text file.
+    Args:
+        path: Path to the file to write, relative to the workspace root or absolute.
+        content: Full UTF-8 file contents to write.
+    """
 
-        Args:
-            path: Path to the file to write, relative to the workspace root or absolute.
-            content: Full UTF-8 file contents to write.
-        """
-
-        try:
-            return execute_write(
-                tool_input=WriteToolInput(path=path, content=content),
-                workspace_root=root,
-            )
-        except (OSError, UnicodeError) as error:
-            return make_tool_error_result(error)
-
-    return Tool(
-        write,
-        name="write",
-        description=(
-            "Create or overwrite an entire UTF-8 text file. Creates parent "
-            "directories automatically. Use write for new files or complete "
-            "rewrites."
-        ),
-        docstring_format="google",
-        require_parameter_descriptions=True,
-        strict=True,
+    return execute_write(
+        tool_input=WriteToolInput(path=path, content=content),
+        workspace_root=ctx.deps.workspace_root,
     )
 
-__all__ = ["create_write_tool", "execute_write"]
+
+WRITE_TOOL = Tool(
+    write,
+    takes_ctx=True,
+    name="write",
+    description=(
+        "Create or overwrite an entire UTF-8 text file. Creates parent "
+        "directories automatically. Use write for new files or complete "
+        "rewrites."
+    ),
+    docstring_format="google",
+    require_parameter_descriptions=True,
+    strict=True,
+)
+
+__all__ = ["WRITE_TOOL", "execute_write", "write"]

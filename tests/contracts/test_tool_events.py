@@ -21,6 +21,7 @@ from just_another_coding_agent.contracts.run_events import (
 )
 from just_another_coding_agent.runtime.agent import build_canonical_agent
 from just_another_coding_agent.runtime.run import stream_run_events
+from just_another_coding_agent.tools.deps import WorkspaceDeps
 
 
 class StubStreamAgent:
@@ -38,9 +39,11 @@ class StubStreamAgent:
         _prompt: str,
         *,
         message_history: list[ModelMessage] | None = None,
+        deps: object | None = None,
         model_settings: object | None = None,
     ) -> AsyncIterator[object]:
         assert message_history is None
+        assert deps is None
         assert model_settings is None
         for event in self._events:
             yield event
@@ -273,7 +276,13 @@ async def test_stream_run_events_tool_failure_is_terminal_error_event() -> None:
     async def explode() -> str:
         raise RuntimeError("tool boom")
 
-    events = [event async for event in stream_run_events(agent=agent, prompt="go")]
+    events = [
+        event
+        async for event in stream_run_events(
+            agent=agent,
+            prompt="go",
+        )
+    ]
 
     assert len(events) == 4
     assert isinstance(events[0], RunStartedEvent)
@@ -315,7 +324,13 @@ async def test_stream_run_events_retry_prompt_emits_tool_failed_event() -> None:
         ]
     )
 
-    events = [event async for event in stream_run_events(agent=agent, prompt="go")]
+    events = [
+        event
+        async for event in stream_run_events(
+            agent=agent,
+            prompt="go",
+        )
+    ]
 
     assert len(events) == 4
     assert isinstance(events[0], RunStartedEvent)
@@ -342,7 +357,13 @@ async def test_stream_run_events_fails_hard_when_retry_prompt_has_no_pending_too
         ]
     )
 
-    events = [event async for event in stream_run_events(agent=agent, prompt="go")]
+    events = [
+        event
+        async for event in stream_run_events(
+            agent=agent,
+            prompt="go",
+        )
+    ]
 
     assert len(events) == 2
     assert isinstance(events[0], RunStartedEvent)
@@ -375,7 +396,13 @@ async def test_stream_run_events_fails_hard_on_retry_prompt_tool_name_mismatch(
         ]
     )
 
-    events = [event async for event in stream_run_events(agent=agent, prompt="go")]
+    events = [
+        event
+        async for event in stream_run_events(
+            agent=agent,
+            prompt="go",
+        )
+    ]
 
     assert len(events) == 4
     assert isinstance(events[0], RunStartedEvent)
@@ -414,7 +441,13 @@ async def test_stream_run_events_marks_all_pending_tool_calls_failed_before_run_
         error=RuntimeError("stream boom"),
     )
 
-    events = [event async for event in stream_run_events(agent=agent, prompt="go")]
+    events = [
+        event
+        async for event in stream_run_events(
+            agent=agent,
+            prompt="go",
+        )
+    ]
 
     assert len(events) == 6
     assert isinstance(events[0], RunStartedEvent)
@@ -446,7 +479,14 @@ async def test_stream_run_events_recovers_from_edit_mismatch_within_one_run(
         tool_names=("edit",),
     )
 
-    events = [event async for event in stream_run_events(agent=agent, prompt="go")]
+    events = [
+        event
+        async for event in stream_run_events(
+            agent=agent,
+            prompt="go",
+            deps=WorkspaceDeps(workspace_root=workspace_root),
+        )
+    ]
 
     assert [event.type for event in events] == [
         "run_started",
@@ -468,11 +508,8 @@ async def test_stream_run_events_recovers_from_edit_mismatch_within_one_run(
     assert events[2].tool_name == "edit"
     assert events[2].result == {
         "ok": False,
-        "error_type": "ValueError",
-        "message": (
-            "old_text must match exactly once in "
-            f"{note}; found 0 occurrences"
-        ),
+        "error_type": "ToolMatchError",
+        "message": f"old_text must match exactly once in {note}; found 0 occurrences",
     }
     assert events[4].tool_call_id == "call-edit-2"
     assert events[4].tool_name == "edit"
@@ -495,7 +532,14 @@ async def test_stream_run_events_recovers_from_missing_read_within_one_run(
         tool_names=("read",),
     )
 
-    events = [event async for event in stream_run_events(agent=agent, prompt="go")]
+    events = [
+        event
+        async for event in stream_run_events(
+            agent=agent,
+            prompt="go",
+            deps=WorkspaceDeps(workspace_root=workspace_root),
+        )
+    ]
 
     assert [event.type for event in events] == [
         "run_started",
@@ -509,9 +553,9 @@ async def test_stream_run_events_recovers_from_missing_read_within_one_run(
     assert isinstance(events[2], ToolCallSucceededEvent)
     assert events[2].result == {
         "ok": False,
-        "error_type": "FileNotFoundError",
+        "error_type": "ToolPathError",
         "message": (
-            "[Errno 2] No such file or directory: "
+            f"[Errno 2] No such file or directory: "
             f"'{workspace_root / 'missing.txt'}'"
         ),
     }
@@ -534,7 +578,14 @@ async def test_stream_run_events_recovers_from_write_directory_error_within_one_
         tool_names=("write",),
     )
 
-    events = [event async for event in stream_run_events(agent=agent, prompt="go")]
+    events = [
+        event
+        async for event in stream_run_events(
+            agent=agent,
+            prompt="go",
+            deps=WorkspaceDeps(workspace_root=workspace_root),
+        )
+    ]
 
     assert [event.type for event in events] == [
         "run_started",
@@ -548,7 +599,7 @@ async def test_stream_run_events_recovers_from_write_directory_error_within_one_
     assert isinstance(events[2], ToolCallSucceededEvent)
     assert events[2].result == {
         "ok": False,
-        "error_type": "IsADirectoryError",
+        "error_type": "ToolPathError",
         "message": f"[Errno 21] Is a directory: '{nested}'",
     }
     assert isinstance(events[4], ToolCallSucceededEvent)
@@ -569,7 +620,14 @@ async def test_stream_run_events_recovers_from_bash_timeout_within_one_run(
         tool_names=("bash",),
     )
 
-    events = [event async for event in stream_run_events(agent=agent, prompt="go")]
+    events = [
+        event
+        async for event in stream_run_events(
+            agent=agent,
+            prompt="go",
+            deps=WorkspaceDeps(workspace_root=workspace_root),
+        )
+    ]
 
     assert [event.type for event in events] == [
         "run_started",
@@ -583,7 +641,7 @@ async def test_stream_run_events_recovers_from_bash_timeout_within_one_run(
     assert isinstance(events[2], ToolCallSucceededEvent)
     assert events[2].result == {
         "ok": False,
-        "error_type": "TimeoutError",
+        "error_type": "ToolCommandError",
         "message": "Command timed out after 1 seconds",
     }
     assert isinstance(events[4], ToolCallSucceededEvent)
@@ -603,7 +661,14 @@ async def test_stream_run_events_recovers_from_non_zero_bash_exit_within_one_run
         tool_names=("bash",),
     )
 
-    events = [event async for event in stream_run_events(agent=agent, prompt="go")]
+    events = [
+        event
+        async for event in stream_run_events(
+            agent=agent,
+            prompt="go",
+            deps=WorkspaceDeps(workspace_root=workspace_root),
+        )
+    ]
 
     assert [event.type for event in events] == [
         "run_started",
@@ -617,7 +682,7 @@ async def test_stream_run_events_recovers_from_non_zero_bash_exit_within_one_run
     assert isinstance(events[2], ToolCallSucceededEvent)
     assert events[2].result == {
         "ok": False,
-        "error_type": "RuntimeError",
+        "error_type": "ToolCommandError",
         "message": "boom\n\nCommand exited with code 7",
     }
     assert isinstance(events[4], ToolCallSucceededEvent)

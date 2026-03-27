@@ -3,15 +3,17 @@ from __future__ import annotations
 import unicodedata
 from pathlib import Path
 
-from pydantic_ai import Tool
+from pydantic_ai import RunContext, Tool
 
 from just_another_coding_agent.contracts.tools import (
     EditToolInput,
-    make_tool_error_result,
 )
-from just_another_coding_agent.tools._workspace import (
-    normalize_workspace_root,
-    resolve_workspace_path,
+from just_another_coding_agent.tools._workspace import resolve_workspace_path
+from just_another_coding_agent.tools.deps import WorkspaceDeps
+from just_another_coding_agent.tools.errors import (
+    ToolEncodingError,
+    ToolMatchError,
+    reraise_path_error,
 )
 
 
@@ -49,12 +51,12 @@ def _normalize_unicode_variants(text: str) -> str:
     return (
         text.replace("\u2018", "'")
         .replace("\u2019", "'")
-        .replace("\u201A", "'")
-        .replace("\u201B", "'")
-        .replace("\u201C", '"')
-        .replace("\u201D", '"')
-        .replace("\u201E", '"')
-        .replace("\u201F", '"')
+        .replace("\u201a", "'")
+        .replace("\u201b", "'")
+        .replace("\u201c", '"')
+        .replace("\u201d", '"')
+        .replace("\u201e", '"')
+        .replace("\u201f", '"')
         .replace("\u2010", "-")
         .replace("\u2011", "-")
         .replace("\u2012", "-")
@@ -62,7 +64,7 @@ def _normalize_unicode_variants(text: str) -> str:
         .replace("\u2014", "-")
         .replace("\u2015", "-")
         .replace("\u2212", "-")
-        .replace("\u00A0", " ")
+        .replace("\u00a0", " ")
         .replace("\u2002", " ")
         .replace("\u2003", " ")
         .replace("\u2004", " ")
@@ -71,9 +73,9 @@ def _normalize_unicode_variants(text: str) -> str:
         .replace("\u2007", " ")
         .replace("\u2008", " ")
         .replace("\u2009", " ")
-        .replace("\u200A", " ")
-        .replace("\u202F", " ")
-        .replace("\u205F", " ")
+        .replace("\u200a", " ")
+        .replace("\u202f", " ")
+        .replace("\u205f", " ")
         .replace("\u3000", " ")
     )
 
@@ -107,11 +109,17 @@ def build_fuzzy_view(text: str) -> tuple[str, list[tuple[int, int]]]:
 
 
 def execute_edit(*, tool_input: EditToolInput, workspace_root: Path | str) -> str:
-    path = resolve_workspace_path(
-        workspace_root=workspace_root,
-        tool_path=tool_input.path,
-    )
-    raw_content = path.read_bytes().decode("utf-8")
+    try:
+        path = resolve_workspace_path(
+            workspace_root=workspace_root,
+            tool_path=tool_input.path,
+        )
+        raw_content = path.read_bytes().decode("utf-8")
+    except UnicodeError as error:
+        raise ToolEncodingError(f"{tool_input.path} is not valid UTF-8 text") from error
+    except OSError as error:
+        reraise_path_error(error)
+
     bom, content = strip_bom(raw_content)
     original_line_ending = detect_line_ending(content)
     normalized_content = normalize_to_lf(content)
@@ -120,7 +128,7 @@ def execute_edit(*, tool_input: EditToolInput, workspace_root: Path | str) -> st
 
     exact_occurrences = normalized_content.count(normalized_old_text)
     if exact_occurrences > 1:
-        raise ValueError(
+        raise ToolMatchError(
             "old_text must match exactly once in "
             f"{path}; found {exact_occurrences} occurrences"
         )
@@ -134,7 +142,7 @@ def execute_edit(*, tool_input: EditToolInput, workspace_root: Path | str) -> st
         fuzzy_old_text, _ = build_fuzzy_view(normalized_old_text)
         fuzzy_occurrences = fuzzy_content.count(fuzzy_old_text)
         if fuzzy_occurrences != 1:
-            raise ValueError(
+            raise ToolMatchError(
                 "old_text must match exactly once in "
                 f"{path}; found {fuzzy_occurrences} occurrences"
             )
@@ -148,55 +156,56 @@ def execute_edit(*, tool_input: EditToolInput, workspace_root: Path | str) -> st
 
     updated = base_content.replace(old_text_to_replace, new_text_to_insert, 1)
     if updated == base_content:
-        raise ValueError(f"Edit would not change file contents: {path}")
+        raise ToolMatchError(f"Edit would not change file contents: {path}")
 
     final_content = bom + restore_line_endings(updated, original_line_ending)
-    path.write_bytes(final_content.encode("utf-8"))
+    try:
+        path.write_bytes(final_content.encode("utf-8"))
+    except OSError as error:
+        reraise_path_error(error)
     return f"Edited {path}"
 
 
-def create_edit_tool(*, workspace_root: Path | str) -> Tool:
-    root = normalize_workspace_root(workspace_root)
+def edit(
+    ctx: RunContext[WorkspaceDeps], path: str, old_text: str, new_text: str
+) -> str:
+    """Edit a UTF-8 text file by replacing one exact or normalized text match.
 
-    def edit(path: str, old_text: str, new_text: str) -> str | dict[str, bool | str]:
-        """Edit a UTF-8 text file by replacing one exact or normalized text match.
+    Args:
+        path: Path to the file to edit, relative to the workspace root or absolute.
+        old_text: Existing text to replace. Exact matching is tried first;
+            a normalized fallback handles BOM, line endings, and minor
+            Unicode formatting differences.
+        new_text: Replacement text to insert in place of old_text.
+    """
 
-        Args:
-            path: Path to the file to edit, relative to the workspace root or absolute.
-            old_text: Existing text to replace. Exact matching is tried first;
-                a normalized fallback handles BOM, line endings, and minor
-                Unicode formatting differences.
-            new_text: Replacement text to insert in place of old_text.
-        """
-
-        try:
-            return execute_edit(
-                tool_input=EditToolInput(
-                    path=path,
-                    old_text=old_text,
-                    new_text=new_text,
-                ),
-                workspace_root=root,
-            )
-        except (OSError, UnicodeError, ValueError) as error:
-            return make_tool_error_result(error)
-
-    return Tool(
-        edit,
-        name="edit",
-        description=(
-            "Edit a UTF-8 text file by replacing exactly one occurrence of "
-            "old_text with new_text. Exact matching is tried first; if that "
-            "fails, the tool falls back to normalized matching that tolerates "
-            "BOM differences, LF versus CRLF, trailing whitespace, and common "
-            "Unicode quote, dash, and space variants while preserving "
-            "surrounding file content outside the replaced region. Zero or "
-            "multiple matches return an error result. new_text may be empty "
-            "to delete the matched text. Use this for precise surgical changes."
+    return execute_edit(
+        tool_input=EditToolInput(
+            path=path,
+            old_text=old_text,
+            new_text=new_text,
         ),
-        docstring_format="google",
-        require_parameter_descriptions=True,
-        strict=True,
+        workspace_root=ctx.deps.workspace_root,
     )
 
-__all__ = ["create_edit_tool", "execute_edit"]
+
+EDIT_TOOL = Tool(
+    edit,
+    takes_ctx=True,
+    name="edit",
+    description=(
+        "Edit a UTF-8 text file by replacing exactly one occurrence of "
+        "old_text with new_text. Exact matching is tried first; if that "
+        "fails, the tool falls back to normalized matching that tolerates "
+        "BOM differences, LF versus CRLF, trailing whitespace, and common "
+        "Unicode quote, dash, and space variants while preserving "
+        "surrounding file content outside the replaced region. Zero or "
+        "multiple matches return an error result. new_text may be empty "
+        "to delete the matched text. Use this for precise surgical changes."
+    ),
+    docstring_format="google",
+    require_parameter_descriptions=True,
+    strict=True,
+)
+
+__all__ = ["EDIT_TOOL", "edit", "execute_edit"]

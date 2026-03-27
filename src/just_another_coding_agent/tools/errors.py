@@ -1,0 +1,64 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+
+from pydantic_ai.toolsets import WrapperToolset
+
+from just_another_coding_agent.contracts.tools import make_tool_error_result
+from just_another_coding_agent.tools.deps import WorkspaceDeps
+
+
+class ToolOperationalError(Exception):
+    """Expected tool-domain failure that should be shown to the model."""
+
+
+class ToolPathError(ToolOperationalError):
+    """Path or filesystem failure caused by tool input or target state."""
+
+
+class ToolEncodingError(ToolOperationalError):
+    """File content could not be interpreted as the expected text encoding."""
+
+
+class ToolMatchError(ToolOperationalError):
+    """Requested text match or edit precondition was not satisfied."""
+
+
+class ToolCommandError(ToolOperationalError):
+    """Command execution failed in an expected, model-visible way."""
+
+
+def reraise_path_error(error: OSError) -> None:
+    raise ToolPathError(str(error)) from error
+
+
+def reraise_encoding_error(
+    *,
+    path: Path,
+    error: UnicodeError,
+    message: str | None = None,
+) -> None:
+    detail = message or f"{path} is not valid UTF-8 text"
+    raise ToolEncodingError(detail) from error
+
+
+@dataclass
+class ErrorWrappingToolset(WrapperToolset[WorkspaceDeps]):
+    async def call_tool(self, name, tool_args, ctx, tool):
+        try:
+            return await super().call_tool(name, tool_args, ctx, tool)
+        except ToolOperationalError as error:
+            return make_tool_error_result(error)
+
+
+__all__ = [
+    "ErrorWrappingToolset",
+    "ToolCommandError",
+    "ToolEncodingError",
+    "ToolMatchError",
+    "ToolOperationalError",
+    "ToolPathError",
+    "reraise_encoding_error",
+    "reraise_path_error",
+]

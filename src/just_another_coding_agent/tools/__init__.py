@@ -1,30 +1,61 @@
 """Canonical coding tools package."""
 
-from .bash import create_bash_tool, execute_bash
-from .edit import create_edit_tool, execute_edit
-from .find import create_find_tool, execute_find
-from .grep import create_grep_tool, execute_grep
-from .ls import create_ls_tool, execute_ls
-from .read import create_read_tool, execute_read
+from .bash import BASH_TOOL, bash, execute_bash
+from .deps import WorkspaceDeps
+from .edit import EDIT_TOOL, edit, execute_edit
+from .errors import (
+    ErrorWrappingToolset,
+    ToolCommandError,
+    ToolEncodingError,
+    ToolMatchError,
+    ToolOperationalError,
+    ToolPathError,
+)
+from .find import FIND_TOOL, execute_find, find
+from .grep import GREP_TOOL, execute_grep, grep
+from .ls import LS_TOOL, execute_ls, ls
+from .read import READ_TOOL, execute_read, read
 from .registry import (
-    ToolNotImplementedError,
     UnknownToolError,
     build_canonical_toolset,
     list_canonical_tool_names,
 )
-from .write import create_write_tool, execute_write
+from .truncation import (
+    BoundedItems,
+    HeadLineWindow,
+    TailTextWindow,
+    append_tool_note,
+    collect_bounded_items,
+    truncate_head_line_window,
+    truncate_last_bytes,
+    truncate_tail_text,
+)
+from .write import WRITE_TOOL, execute_write, write
 
 __all__ = [
-    "ToolNotImplementedError",
+    "BASH_TOOL",
+    "BoundedItems",
+    "EDIT_TOOL",
+    "ErrorWrappingToolset",
+    "FIND_TOOL",
+    "GREP_TOOL",
+    "HeadLineWindow",
+    "LS_TOOL",
+    "READ_TOOL",
+    "TailTextWindow",
+    "ToolCommandError",
+    "ToolEncodingError",
+    "ToolMatchError",
     "UnknownToolError",
+    "ToolOperationalError",
+    "ToolPathError",
+    "WorkspaceDeps",
+    "WRITE_TOOL",
+    "append_tool_note",
+    "bash",
     "build_canonical_toolset",
-    "create_bash_tool",
-    "create_edit_tool",
-    "create_find_tool",
-    "create_grep_tool",
-    "create_ls_tool",
-    "create_read_tool",
-    "create_write_tool",
+    "collect_bounded_items",
+    "edit",
     "execute_bash",
     "execute_edit",
     "execute_find",
@@ -32,5 +63,13 @@ __all__ = [
     "execute_ls",
     "execute_read",
     "execute_write",
+    "find",
+    "grep",
     "list_canonical_tool_names",
+    "ls",
+    "read",
+    "truncate_head_line_window",
+    "truncate_last_bytes",
+    "truncate_tail_text",
+    "write",
 ]

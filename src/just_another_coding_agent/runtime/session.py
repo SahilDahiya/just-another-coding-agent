@@ -22,6 +22,7 @@ from just_another_coding_agent.session.jsonl import (
     load_session,
 )
 from just_another_coding_agent.tools._workspace import normalize_workspace_root
+from just_another_coding_agent.tools.deps import WorkspaceDeps
 
 
 async def stream_session_run_events(
@@ -87,6 +88,7 @@ async def stream_session_run_events(
                 loaded_session.message_history if loaded_session is not None else None
             ),
             thinking=resolved_thinking,
+            deps=WorkspaceDeps(workspace_root=normalized_workspace_root),
         ):
             emitted_events.append(event)
             yield event

@@ -29,6 +29,7 @@ from just_another_coding_agent.session import (
     append_run_to_session,
     load_session,
 )
+from just_another_coding_agent.tools.deps import WorkspaceDeps
 
 
 def _all_parts(messages: list[ModelMessage]):
@@ -343,10 +344,12 @@ async def test_stream_session_run_events_inherits_last_persisted_thinking_when_o
         prompt,
         message_history=None,
         thinking=None,
+        deps=None,
     ):
         captured["prompt"] = prompt
         captured["thinking"] = thinking
         captured["message_history"] = message_history
+        captured["deps"] = deps
         yield RunStartedEvent(run_id="run-2")
         yield RunSucceededEvent(run_id="run-2", output_text="done")
 
@@ -368,6 +371,7 @@ async def test_stream_session_run_events_inherits_last_persisted_thinking_when_o
     assert [event.type for event in events] == ["run_started", "run_succeeded"]
     assert captured["prompt"] == "second"
     assert captured["thinking"] == "high"
+    assert captured["deps"] == WorkspaceDeps(workspace_root=workspace_root)
     loaded = load_session(path=session_path, workspace_root=workspace_root)
     assert [run.thinking for run in loaded.runs] == ["high", "high"]
     assert loaded.thinking == "high"

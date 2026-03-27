@@ -2,6 +2,7 @@ import pytest
 from pydantic_ai import Agent
 from pydantic_ai.models.test import TestModel
 
+from just_another_coding_agent.tools.deps import WorkspaceDeps
 from just_another_coding_agent.tools.registry import (
     UnknownToolError,
     build_canonical_toolset,
@@ -23,7 +24,7 @@ def test_registry_exposes_canonical_tool_names() -> None:
 
 def test_build_canonical_toolset_rejects_unknown_tool_name() -> None:
     with pytest.raises(UnknownToolError, match="nope"):
-        build_canonical_toolset(["nope"], workspace_root=".")
+        build_canonical_toolset(["nope"])
 
 
 def test_build_canonical_toolset_registers_implemented_tools_with_pydanticai(
@@ -34,13 +35,13 @@ def test_build_canonical_toolset_registers_implemented_tools_with_pydanticai(
         model,
         toolsets=[
             build_canonical_toolset(
-                ["read", "write", "edit", "bash", "grep", "ls", "find"],
-                workspace_root=tmp_path,
+                ["read", "write", "edit", "bash", "grep", "ls", "find"]
             )
         ],
+        deps_type=WorkspaceDeps,
     )
 
-    agent.run_sync("What tools are available?")
+    agent.run_sync("What tools are available?", deps=WorkspaceDeps(tmp_path))
 
     function_tools = model.last_model_request_parameters.function_tools
     tool_names = [tool.name for tool in function_tools]
@@ -55,13 +56,13 @@ def test_build_canonical_toolset_exposes_rich_model_facing_tool_descriptions(
         model,
         toolsets=[
             build_canonical_toolset(
-                ["read", "write", "edit", "bash", "grep", "ls", "find"],
-                workspace_root=tmp_path,
+                ["read", "write", "edit", "bash", "grep", "ls", "find"]
             )
         ],
+        deps_type=WorkspaceDeps,
     )
 
-    agent.run_sync("What tools are available?")
+    agent.run_sync("What tools are available?", deps=WorkspaceDeps(tmp_path))
 
     function_tools = {
         tool.name: tool for tool in model.last_model_request_parameters.function_tools
@@ -78,14 +79,11 @@ def test_build_canonical_toolset_exposes_rich_model_facing_tool_descriptions(
         ]
         == "Optional 1-indexed line number to start reading from."
     )
-    assert (
-        function_tools["read"].parameters_json_schema["properties"]["limit"][
-            "description"
-        ]
-        == (
-            "Optional maximum number of lines to read before read's own\n"
-            "truncation ceiling."
-        )
+    assert function_tools["read"].parameters_json_schema["properties"]["limit"][
+        "description"
+    ] == (
+        "Optional maximum number of lines to read before read's own\n"
+        "truncation ceiling."
     )
 
     assert function_tools["write"].description == (
@@ -110,15 +108,12 @@ def test_build_canonical_toolset_exposes_rich_model_facing_tool_descriptions(
         "multiple matches return an error result. new_text may be empty "
         "to delete the matched text. Use this for precise surgical changes."
     )
-    assert (
-        function_tools["edit"].parameters_json_schema["properties"]["old_text"][
-            "description"
-        ]
-        == (
-            "Existing text to replace. Exact matching is tried first;\n"
-            "a normalized fallback handles BOM, line endings, and minor\n"
-            "Unicode formatting differences."
-        )
+    assert function_tools["edit"].parameters_json_schema["properties"]["old_text"][
+        "description"
+    ] == (
+        "Existing text to replace. Exact matching is tried first;\n"
+        "a normalized fallback handles BOM, line endings, and minor\n"
+        "Unicode formatting differences."
     )
 
     assert function_tools["bash"].description == (
@@ -152,14 +147,10 @@ def test_build_canonical_toolset_exposes_rich_model_facing_tool_descriptions(
         "and adds '/' suffixes for directories. Output is bounded to 500 "
         "entries or 50 KiB."
     )
-    assert (
-        function_tools["ls"].parameters_json_schema["properties"]["limit"][
-            "description"
-        ]
-        == (
-            "Maximum number of entries to return before ls's own byte\n"
-            "ceiling is applied."
-        )
+    assert function_tools["ls"].parameters_json_schema["properties"]["limit"][
+        "description"
+    ] == (
+        "Maximum number of entries to return before ls's own byte\nceiling is applied."
     )
 
     assert function_tools["find"].description == (

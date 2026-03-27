@@ -1,40 +1,37 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from pathlib import Path
 
 from pydantic_ai import FunctionToolset
+from pydantic_ai.toolsets import AbstractToolset
 
 from just_another_coding_agent.contracts.tools import (
     CANONICAL_TOOL_NAMES,
     CanonicalToolName,
 )
-from just_another_coding_agent.tools._workspace import normalize_workspace_root
-from just_another_coding_agent.tools.bash import create_bash_tool
-from just_another_coding_agent.tools.edit import create_edit_tool
-from just_another_coding_agent.tools.find import create_find_tool
-from just_another_coding_agent.tools.grep import create_grep_tool
-from just_another_coding_agent.tools.ls import create_ls_tool
-from just_another_coding_agent.tools.read import create_read_tool
-from just_another_coding_agent.tools.write import create_write_tool
+from just_another_coding_agent.tools.bash import BASH_TOOL
+from just_another_coding_agent.tools.deps import WorkspaceDeps
+from just_another_coding_agent.tools.edit import EDIT_TOOL
+from just_another_coding_agent.tools.errors import ErrorWrappingToolset
+from just_another_coding_agent.tools.find import FIND_TOOL
+from just_another_coding_agent.tools.grep import GREP_TOOL
+from just_another_coding_agent.tools.ls import LS_TOOL
+from just_another_coding_agent.tools.read import READ_TOOL
+from just_another_coding_agent.tools.write import WRITE_TOOL
 
 
 class UnknownToolError(KeyError):
     """Raised when a requested tool name is outside the canonical registry."""
 
 
-class ToolNotImplementedError(NotImplementedError):
-    """Raised when a canonical tool name exists but has no implementation yet."""
-
-
-_TOOL_FACTORIES = {
-    "bash": create_bash_tool,
-    "edit": create_edit_tool,
-    "find": create_find_tool,
-    "grep": create_grep_tool,
-    "ls": create_ls_tool,
-    "read": create_read_tool,
-    "write": create_write_tool,
+_TOOLS_BY_NAME = {
+    "bash": BASH_TOOL,
+    "edit": EDIT_TOOL,
+    "find": FIND_TOOL,
+    "grep": GREP_TOOL,
+    "ls": LS_TOOL,
+    "read": READ_TOOL,
+    "write": WRITE_TOOL,
 }
 
 
@@ -44,10 +41,7 @@ def list_canonical_tool_names() -> tuple[CanonicalToolName, ...]:
 
 def build_canonical_toolset(
     tool_names: Sequence[str],
-    *,
-    workspace_root: Path | str,
-) -> FunctionToolset[None]:
-    root = normalize_workspace_root(workspace_root)
+) -> AbstractToolset[WorkspaceDeps]:
     resolved_tools = []
     seen_names: set[str] = set()
 
@@ -59,19 +53,14 @@ def build_canonical_toolset(
         if tool_name not in CANONICAL_TOOL_NAMES:
             raise UnknownToolError(f"Unknown canonical tool: {tool_name}")
 
-        tool_factory = _TOOL_FACTORIES.get(tool_name)
-        if tool_factory is None:
-            raise ToolNotImplementedError(
-                f"Canonical tool not implemented yet: {tool_name}"
-            )
+        resolved_tools.append(_TOOLS_BY_NAME[tool_name])
 
-        resolved_tools.append(tool_factory(workspace_root=root))
-
-    return FunctionToolset(resolved_tools, strict=True)
+    return ErrorWrappingToolset(
+        FunctionToolset[WorkspaceDeps](resolved_tools, strict=True)
+    )
 
 
 __all__ = [
-    "ToolNotImplementedError",
     "UnknownToolError",
     "build_canonical_toolset",
     "list_canonical_tool_names",

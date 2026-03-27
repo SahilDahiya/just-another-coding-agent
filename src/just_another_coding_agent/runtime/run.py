@@ -36,6 +36,7 @@ from just_another_coding_agent.contracts.run_events import (
 from just_another_coding_agent.contracts.thinking import ThinkingSetting
 from just_another_coding_agent.runtime.agent import build_canonical_model_settings
 from just_another_coding_agent.runtime.recovery import should_retry_run_error
+from just_another_coding_agent.tools.deps import WorkspaceDeps
 
 _JSON_VALUE_ADAPTER = TypeAdapter(JsonValue)
 logger = logging.getLogger(__name__)
@@ -47,6 +48,7 @@ async def stream_run_events(
     prompt: str,
     message_history: Sequence[ModelMessage] | None = None,
     thinking: ThinkingSetting | None = None,
+    deps: WorkspaceDeps | None = None,
 ) -> AsyncIterator[RunEvent]:
     """Translate one PydanticAI run into the canonical streamed event contract.
 
@@ -68,6 +70,7 @@ async def stream_run_events(
             async for event in agent.run_stream_events(
                 prompt,
                 message_history=message_history,
+                deps=deps,
                 model_settings=build_canonical_model_settings(thinking=thinking),
             ):
                 saw_streamed_event = True
