@@ -174,6 +174,32 @@ def auto_compaction_summary_function(
     )
 
 
+def noisy_compaction_summary_function(
+    _messages: list[ModelMessage],
+    _agent_info: object,
+) -> ModelResponse:
+    return ModelResponse(
+        parts=[
+            TextPart(
+                content=json.dumps(
+                    {
+                        "current_objective": "  finish the draft  ",
+                        "established_facts": [
+                            "  The draft exists.  ",
+                            "",
+                            "The draft exists.",
+                        ],
+                        "user_preferences": [" concise ", "concise", " "],
+                        "important_paths": [" src/app.py ", "src/app.py"],
+                        "open_questions": ["  Should we ship?  ", ""],
+                        "unresolved_work": [" run tests ", "run tests"],
+                    }
+                )
+            )
+        ]
+    )
+
+
 async def compacted_history_probe_stream(
     messages: list[ModelMessage],
     _agent_info: object,
@@ -513,6 +539,39 @@ async def test_summarize_session_for_compaction_uses_model_output_and_prior_summ
     assert summary.important_paths == ["note.txt", "src/app.py"]
     assert summary.open_questions == ["Should we add retries?"]
     assert summary.unresolved_work == ["Run the final acceptance check."]
+
+
+async def test_summarize_session_for_compaction_normalizes_summary_content(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    session_path = tmp_path / "session.jsonl"
+
+    append_run_to_session(
+        path=session_path,
+        workspace_root=workspace_root,
+        prompt="first",
+        thinking=None,
+        messages=[ModelRequest(parts=[UserPromptPart(content="first")])],
+        events=[
+            RunStartedEvent(run_id="run-1"),
+            RunSucceededEvent(run_id="run-1", output_text="done"),
+        ],
+    )
+
+    loaded = load_session(path=session_path, workspace_root=workspace_root)
+    summary = await summarize_session_for_compaction(
+        model=FunctionModel(function=noisy_compaction_summary_function),
+        loaded_session=loaded,
+    )
+
+    assert summary.current_objective == "finish the draft"
+    assert summary.established_facts == ["The draft exists."]
+    assert summary.user_preferences == ["concise"]
+    assert summary.important_paths == ["src/app.py"]
+    assert summary.open_questions == ["Should we ship?"]
+    assert summary.unresolved_work == ["run tests"]
 
 
 async def test_stream_session_run_events_auto_compacts_stale_session_before_resuming(

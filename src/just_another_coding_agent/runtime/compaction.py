@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from pydantic_ai import Agent
+from pydantic_ai import Agent, ModelRetry
 from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
@@ -106,6 +106,27 @@ async def summarize_session_for_compaction(
         output_type=SessionCompactionSummary,
         instructions=COMPACTION_SUMMARY_INSTRUCTIONS,
     )
+
+    @summarizer.output_validator
+    def validate_summary(
+        summary: SessionCompactionSummary,
+    ) -> SessionCompactionSummary:
+        normalized = _normalize_compaction_summary(summary)
+        if (
+            normalized.current_objective is None
+            and not normalized.established_facts
+            and not normalized.user_preferences
+            and not normalized.important_paths
+            and not normalized.open_questions
+            and not normalized.unresolved_work
+        ):
+            raise ModelRetry(
+                "Compaction summary is empty. Preserve at least one durable "
+                "objective, fact, preference, path, question, or unresolved task."
+            )
+
+        return normalized
+
     result = await summarizer.run(_build_compaction_source(loaded_session))
     return result.output
 
@@ -305,6 +326,39 @@ def _render_run(run) -> str:
         lines.append(f"- {event.type}: {event.model_dump_json()}")
 
     return "\n".join(lines)
+
+
+def _normalize_compaction_summary(
+    summary: SessionCompactionSummary,
+) -> SessionCompactionSummary:
+    current_objective = _normalize_optional_text(summary.current_objective)
+    return SessionCompactionSummary(
+        current_objective=current_objective,
+        established_facts=_normalize_summary_items(summary.established_facts),
+        user_preferences=_normalize_summary_items(summary.user_preferences),
+        important_paths=_normalize_summary_items(summary.important_paths),
+        open_questions=_normalize_summary_items(summary.open_questions),
+        unresolved_work=_normalize_summary_items(summary.unresolved_work),
+    )
+
+
+def _normalize_optional_text(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip()
+    return normalized or None
+
+
+def _normalize_summary_items(values: list[str]) -> list[str]:
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        item = value.strip()
+        if not item or item in seen:
+            continue
+        seen.add(item)
+        normalized.append(item)
+    return normalized
 
 
 def _render_message(message: ModelMessage) -> list[str]:
