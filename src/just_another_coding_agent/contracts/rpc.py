@@ -24,6 +24,16 @@ class SessionCreateRequest(_RpcModel):
     payload: SessionCreatePayload
 
 
+class SessionCompactPayload(_RpcModel):
+    session_id: SessionId
+
+
+class SessionCompactRequest(_RpcModel):
+    id: str
+    command: Literal["session.compact"]
+    payload: SessionCompactPayload
+
+
 class RunStartPayload(_RpcModel):
     session_id: SessionId
     prompt: str
@@ -37,7 +47,7 @@ class RunStartRequest(_RpcModel):
 
 
 RpcRequest = Annotated[
-    SessionCreateRequest | RunStartRequest,
+    SessionCreateRequest | SessionCompactRequest | RunStartRequest,
     Field(discriminator="command"),
 ]
 
@@ -46,10 +56,25 @@ class SessionCreateResponse(_RpcModel):
     session_id: SessionId
 
 
+class SessionCompactSummary(_RpcModel):
+    current_objective: str | None = None
+    established_facts: list[str]
+    user_preferences: list[str]
+    important_paths: list[str]
+    open_questions: list[str]
+    unresolved_work: list[str]
+
+
+class SessionCompactResponse(_RpcModel):
+    compaction_id: str
+    summarized_through_run_id: str
+    summary: SessionCompactSummary
+
+
 class RpcResponseEnvelope(_RpcModel):
     type: Literal["rpc_response"] = "rpc_response"
     id: str
-    response: SessionCreateResponse
+    response: SessionCreateResponse | SessionCompactResponse
 
 
 class RpcEventEnvelope(_RpcModel):
@@ -73,6 +98,10 @@ __all__ = [
     "RunStartPayload",
     "RunStartRequest",
     "SessionId",
+    "SessionCompactPayload",
+    "SessionCompactRequest",
+    "SessionCompactResponse",
+    "SessionCompactSummary",
     "SessionCreatePayload",
     "SessionCreateRequest",
     "SessionCreateResponse",

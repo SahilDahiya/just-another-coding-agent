@@ -350,10 +350,13 @@ Initial executable RPC slice:
   - fields: `id`, `command`, `payload`
   - initial commands:
     - `session.create` with payload `{}`
+    - `session.compact` with payload `{"session_id": <opaque-lowercase-hex-string>}`
     - `run.start` with payload `{"session_id": <opaque-lowercase-hex-string>, "prompt": <string>, "thinking": <optional-thinking-setting>}`
 - `rpc_response`
   - fields: `type`, `id`, `response`
-  - initial response payload: `{"session_id": <opaque-lowercase-hex-string>}`
+  - initial response payloads:
+    - `{"session_id": <opaque-lowercase-hex-string>}`
+    - `{"compaction_id": <opaque-lowercase-hex-string>, "summarized_through_run_id": <run_id>, "summary": <structured-compaction-summary>}`
 - `rpc_event`
   - fields: `type`, `id`, `event`
   - `event` must be one canonical streamed run event payload
@@ -363,6 +366,7 @@ Initial executable RPC slice:
 Ordering rules for the RPC slice:
 
 - A valid `session.create` request yields exactly one `rpc_response` containing a server-generated opaque `session_id`
+- A valid `session.compact` request must reference an existing `session_id` and yields exactly one `rpc_response` describing the newly appended compaction entry
 - A valid `run.start` request must reference an existing `session_id` and yields zero or more `rpc_event` lines whose embedded events satisfy the streamed run contract
 - A valid `run.start` request may include `thinking`; when omitted, session-backed execution inherits the latest persisted thinking setting for that session when present
 - A valid request that ends in run failure still yields `rpc_event` lines ending in `run_failed`; it does not switch to `rpc_error`

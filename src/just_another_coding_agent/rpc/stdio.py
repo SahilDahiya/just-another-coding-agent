@@ -14,6 +14,9 @@ from just_another_coding_agent.contracts.rpc import (
     RpcRequest,
     RpcResponseEnvelope,
     RunStartRequest,
+    SessionCompactRequest,
+    SessionCompactResponse,
+    SessionCompactSummary,
     SessionCreateRequest,
     SessionCreateResponse,
 )
@@ -23,7 +26,10 @@ from just_another_coding_agent.rpc.session_store import (
     session_path_for_id,
 )
 from just_another_coding_agent.runtime.session import stream_session_run_events
-from just_another_coding_agent.session import SessionFormatError
+from just_another_coding_agent.session import (
+    SessionFormatError,
+    append_compaction_to_session,
+)
 
 _RPC_REQUEST_ADAPTER = TypeAdapter(RpcRequest)
 
@@ -68,7 +74,6 @@ async def handle_rpc_json_line(
         ).model_dump_json()
         return
 
-    assert isinstance(request, RunStartRequest)
     session_path = session_path_for_id(
         sessions_root=sessions_root,
         session_id=request.payload.session_id,
@@ -81,6 +86,45 @@ async def handle_rpc_json_line(
         ).model_dump_json()
         return
 
+    if isinstance(request, SessionCompactRequest):
+        try:
+            compaction = append_compaction_to_session(
+                path=session_path,
+                workspace_root=workspace_root,
+            )
+        except SessionFormatError as error:
+            yield RpcErrorEnvelope(
+                id=request.id,
+                error_type="InvalidSession",
+                message=str(error),
+            ).model_dump_json()
+            return
+        except Exception as error:
+            yield RpcErrorEnvelope(
+                id=request.id,
+                error_type="InternalError",
+                message=str(error),
+            ).model_dump_json()
+            return
+
+        yield RpcResponseEnvelope(
+            id=request.id,
+            response=SessionCompactResponse(
+                compaction_id=compaction.compaction_id,
+                summarized_through_run_id=compaction.summarized_through_run_id,
+                summary=SessionCompactSummary(
+                    current_objective=compaction.summary.current_objective,
+                    established_facts=compaction.summary.established_facts,
+                    user_preferences=compaction.summary.user_preferences,
+                    important_paths=compaction.summary.important_paths,
+                    open_questions=compaction.summary.open_questions,
+                    unresolved_work=compaction.summary.unresolved_work,
+                ),
+            ),
+        ).model_dump_json()
+        return
+
+    assert isinstance(request, RunStartRequest)
     try:
         async for event in stream_session_run_events(
             model=model,

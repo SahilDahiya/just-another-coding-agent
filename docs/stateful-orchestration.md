@@ -90,6 +90,7 @@ So the right split is:
 
 1. Define the durable compaction contract first.
 2. Add manual `session.compact` as an explicit RPC/session operation.
+   This is now the chosen public command for durable manual compaction.
 3. Rebuild resumed `message_history` from the latest compaction entry plus
    retained native messages.
 4. Use `history_processors` to apply the compacted history view at runtime.

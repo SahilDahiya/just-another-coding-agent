@@ -20,7 +20,9 @@ from just_another_coding_agent.contracts.run_events import (
 from just_another_coding_agent.runtime.run import stream_run_events
 from just_another_coding_agent.session.jsonl import (
     SessionFormatError,
+    append_compaction_to_session,
     append_run_to_session,
+    initialize_session,
     load_session,
 )
 
@@ -378,6 +380,53 @@ def test_load_session_requires_workspace_root(tmp_path) -> None:
 
     with pytest.raises(TypeError):
         load_session(path=path)
+
+
+def test_append_compaction_to_session_appends_structured_summary(tmp_path) -> None:
+    path = tmp_path / "session.jsonl"
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    append_run_to_session(
+        path=path,
+        workspace_root=workspace_root,
+        prompt="create note",
+        thinking="high",
+        events=[
+            RunStartedEvent(run_id="run-1"),
+            RunSucceededEvent(run_id="run-1", output_text="done"),
+        ],
+        messages=[ModelRequest(parts=[UserPromptPart(content="create note")])],
+    )
+
+    compaction = append_compaction_to_session(
+        path=path,
+        workspace_root=workspace_root,
+    )
+
+    loaded = load_session(path=path, workspace_root=workspace_root)
+
+    assert compaction.summarized_through_run_id == "run-1"
+    assert compaction.summary.current_objective == "create note"
+    assert compaction.summary.established_facts == ["Session contains 1 completed run."]
+    assert compaction.summary.user_preferences == []
+    assert compaction.summary.important_paths == []
+    assert compaction.summary.open_questions == []
+    assert compaction.summary.unresolved_work == ["Continue from run run-1."]
+    assert loaded.compactions == [compaction]
+
+
+def test_append_compaction_to_session_rejects_empty_session(tmp_path) -> None:
+    path = tmp_path / "session.jsonl"
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    initialize_session(path=path, workspace_root=workspace_root)
+
+    with pytest.raises(
+        SessionFormatError,
+        match="Cannot compact a session with no completed runs",
+    ):
+        append_compaction_to_session(path=path, workspace_root=workspace_root)
 def test_load_session_tracks_compaction_entries_without_changing_message_history(
     tmp_path,
 ) -> None:

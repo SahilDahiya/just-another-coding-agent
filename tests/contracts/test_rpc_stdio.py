@@ -203,6 +203,112 @@ async def test_handle_rpc_json_line_creates_session_and_resumes_runs(
     assert [run.thinking for run in loaded.runs] == ["high", "high"]
 
 
+async def test_handle_rpc_json_line_compacts_session_and_returns_metadata(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    model = FunctionModel(stream_function=resume_aware_write_stream)
+
+    session_id = await _create_session_id(
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+    await _rpc_messages(
+        request_payload={
+            "id": "req-run",
+            "command": "run.start",
+            "payload": {
+                "session_id": session_id,
+                "prompt": "create note",
+                "thinking": "high",
+            },
+        },
+        model=model,
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+    session_path = session_path_for_id(
+        sessions_root=sessions_root,
+        session_id=session_id,
+    )
+    created_run_id = load_session(
+        path=session_path,
+        workspace_root=workspace_root,
+    ).runs[0].run_id
+
+    messages = await _rpc_messages(
+        request_payload={
+            "id": "req-compact",
+            "command": "session.compact",
+            "payload": {"session_id": session_id},
+        },
+        model=model,
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    assert messages == [
+        {
+            "type": "rpc_response",
+            "id": "req-compact",
+            "response": {
+                "compaction_id": messages[0]["response"]["compaction_id"],
+                "summarized_through_run_id": created_run_id,
+                "summary": {
+                    "current_objective": "create note",
+                    "established_facts": ["Session contains 1 completed run."],
+                    "user_preferences": [],
+                    "important_paths": ["note.txt"],
+                    "open_questions": [],
+                    "unresolved_work": [f"Continue from run {created_run_id}."],
+                },
+            },
+        }
+    ]
+    assert len(messages[0]["response"]["compaction_id"]) == 32
+
+    loaded = load_session(path=session_path, workspace_root=workspace_root)
+    assert loaded.latest_compaction is not None
+    assert (
+        loaded.latest_compaction.compaction_id
+        == messages[0]["response"]["compaction_id"]
+    )
+
+
+async def test_handle_rpc_json_line_returns_invalid_session_for_empty_compaction(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    session_id = await _create_session_id(
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    messages = await _rpc_messages(
+        request_payload={
+            "id": "req-compact-empty",
+            "command": "session.compact",
+            "payload": {"session_id": session_id},
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    assert messages == [
+        {
+            "type": "rpc_error",
+            "id": "req-compact-empty",
+            "error_type": "InvalidSession",
+            "message": "Cannot compact a session with no completed runs",
+        }
+    ]
+
+
 async def test_handle_rpc_json_line_forwards_explicit_thinking_to_session_runtime(
     tmp_path,
     monkeypatch,

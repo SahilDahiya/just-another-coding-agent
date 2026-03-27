@@ -48,6 +48,7 @@ Two commands:
 
 - `session.create` -- creates a new session, returns a server-generated opaque `session_id`
 - `run.start` -- runs a prompt against an existing session, streams run events back, and may carry an optional `thinking` setting
+- `session.compact` -- appends one durable compaction summary entry for an existing session
 
 Example flow:
 
@@ -64,9 +65,15 @@ Example flow:
 {"type": "rpc_event", "id": "req-2", "event": {"type": "run_started", ...}}
 {"type": "rpc_event", "id": "req-2", "event": {"type": "run_succeeded", ...}}
 ```
+```json
+{"id": "req-3", "command": "session.compact", "payload": {"session_id": "a1b2c3..."}}
+```
+```json
+{"type": "rpc_response", "id": "req-3", "response": {"compaction_id": "c0ffee...", "summarized_through_run_id": "abc", "summary": {...}}}
+```
 Three response types:
 
-- `rpc_response` -- synchronous result (e.g., session creation)
+- `rpc_response` -- synchronous result (e.g., session creation or compaction)
 - `rpc_event` -- wraps a run event (including failures; a tool crash is still an `rpc_event`)
 - `rpc_error` -- protocol-level problems only (bad JSON, unknown command, unknown session, invalid session state)
 
