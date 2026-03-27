@@ -110,12 +110,15 @@ Initial executable tool slice:
 - edits one existing UTF-8 text file by replacing exactly one occurrence of `old_text`
 - resolves relative paths against the configured workspace root
 - allows absolute paths and relative paths that resolve outside the workspace root
-- succeeds only when `old_text` matches exactly once
-- exact-match misses, ambiguous matches, and no-op replacements return an explicit tool error result
+- tries exact matching first after BOM stripping and line-ending normalization
+- if exact matching fails, falls back to normalized matching that trims trailing whitespace per line and normalizes common Unicode quote, dash, and space variants
+- succeeds only when the chosen matching mode finds exactly one occurrence
+- exact-match misses, normalized-match misses, ambiguous matches, and no-op replacements return an explicit tool error result
 - allows deletion by using an empty `new_text`
 - missing files, directory targets, and invalid UTF-8 return an explicit tool error result
-- ambiguous matches, missing matches, and no-op replacements return an explicit tool error result
-- no fuzzy matching, normalized matching, or alternate replacement heuristic
+- preserves a leading UTF-8 BOM when present
+- restores the file's original line-ending style after writing
+- when normalized fallback is used, the written file content is the normalized form of the matched content plus `new_text`
 
 `bash` input contract:
 

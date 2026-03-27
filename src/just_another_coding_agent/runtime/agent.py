@@ -19,7 +19,10 @@ CANONICAL_AGENT_INSTRUCTIONS = "\n".join(
         ),
         "Use only these tools: read, write, edit, bash.",
         "Prefer read to examine files instead of bash cat or sed.",
-        "Use edit for precise surgical changes; old_text must match exactly.",
+        (
+            "Use edit for precise surgical changes; it tries exact matching "
+            "first and then a normalized fallback for minor formatting differences."
+        ),
         "Use write only for new files or complete rewrites.",
         "Use bash for search, inspection, builds, and commands (ls, rg, find, grep).",
         (

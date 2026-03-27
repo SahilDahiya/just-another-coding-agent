@@ -170,3 +170,58 @@ def test_edit_tool_allows_relative_path_that_resolves_outside_workspace(
 
     assert result == f"Edited {outside.resolve()}"
     assert outside.read_bytes() == b"hello\nagent\n"
+
+
+def test_edit_tool_matches_old_text_without_bom_in_file(tmp_path) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    path = workspace_root / "note.txt"
+    path.write_bytes("\ufeffhello\nworld\n".encode("utf-8"))
+
+    result = execute_edit(
+        tool_input=EditToolInput(
+            path="note.txt",
+            old_text="hello\nworld\n",
+            new_text="hello\nagent\n",
+        ),
+        workspace_root=workspace_root,
+    )
+
+    assert result == f"Edited {path}"
+    assert path.read_bytes() == "\ufeffhello\nagent\n".encode("utf-8")
+
+
+def test_edit_tool_matches_lf_old_text_against_crlf_file(tmp_path) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    path = workspace_root / "note.txt"
+    path.write_bytes(b"hello\r\nworld\r\n")
+
+    execute_edit(
+        tool_input=EditToolInput(
+            path="note.txt",
+            old_text="hello\nworld\n",
+            new_text="hello\nagent\n",
+        ),
+        workspace_root=workspace_root,
+    )
+
+    assert path.read_bytes() == b"hello\r\nagent\r\n"
+
+
+def test_edit_tool_falls_back_to_normalized_matching(tmp_path) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    path = workspace_root / "note.txt"
+    path.write_text("say “hello”\u00a0-\u00a0world  \n", encoding="utf-8")
+
+    execute_edit(
+        tool_input=EditToolInput(
+            path="note.txt",
+            old_text='say "hello" - world\n',
+            new_text='say "hello" - agent\n',
+        ),
+        workspace_root=workspace_root,
+    )
+
+    assert path.read_text(encoding="utf-8") == 'say "hello" - agent\n'

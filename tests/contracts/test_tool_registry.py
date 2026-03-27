@@ -94,15 +94,22 @@ def test_build_canonical_toolset_exposes_rich_model_facing_tool_descriptions(
 
     assert function_tools["edit"].description == (
         "Edit a UTF-8 text file by replacing exactly one occurrence of "
-        "old_text with new_text. Zero or multiple matches return an error "
-        "result. new_text may be empty to delete the matched text. Use "
-        "this for precise surgical changes."
+        "old_text with new_text. Exact matching is tried first; if that "
+        "fails, the tool falls back to normalized matching that tolerates "
+        "BOM differences, LF versus CRLF, trailing whitespace, and common "
+        "Unicode quote, dash, and space variants. Zero or multiple matches "
+        "return an error result. new_text may be empty to delete the "
+        "matched text. Use this for precise surgical changes."
     )
     assert (
         function_tools["edit"].parameters_json_schema["properties"]["old_text"][
             "description"
         ]
-        == "Exact existing text to replace; it must match exactly once."
+        == (
+            "Existing text to replace. Exact matching is tried first;\n"
+            "a normalized fallback handles BOM, line endings, and minor\n"
+            "Unicode formatting differences."
+        )
     )
 
     assert function_tools["bash"].description == (
