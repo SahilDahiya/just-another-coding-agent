@@ -47,6 +47,26 @@ StatusBar {{
     border-bottom: solid {theme.border};
 }}
 
+StatusBar.phase-streaming {{
+    color: {theme.accent_soft};
+    border-bottom: solid {theme.accent};
+}}
+
+StatusBar.phase-compacting {{
+    color: {theme.accent};
+    border-bottom: solid {theme.accent_soft};
+}}
+
+StatusBar.phase-interrupted {{
+    color: {theme.accent_soft};
+    border-bottom: solid {theme.border_strong};
+}}
+
+StatusBar.phase-error {{
+    color: {theme.error};
+    border-bottom: solid {theme.error};
+}}
+
 #main {{
     height: 1fr;
     background: {theme.background};
@@ -69,12 +89,44 @@ StatusBar {{
     border-top: solid {theme.border};
 }}
 
+#prompt-row.phase-streaming {{
+    border-top: solid {theme.accent};
+}}
+
+#prompt-row.phase-compacting {{
+    border-top: solid {theme.accent_soft};
+}}
+
+#prompt-row.phase-interrupted {{
+    border-top: solid {theme.border_strong};
+}}
+
+#prompt-row.phase-error {{
+    border-top: solid {theme.error};
+}}
+
 #prompt-marker {{
     width: 2;
     height: 1;
     color: {theme.accent};
     text-style: bold;
     padding: 0;
+}}
+
+#prompt-marker.phase-streaming {{
+    color: {theme.accent_soft};
+}}
+
+#prompt-marker.phase-compacting {{
+    color: {theme.accent};
+}}
+
+#prompt-marker.phase-interrupted {{
+    color: {theme.accent_soft};
+}}
+
+#prompt-marker.phase-error {{
+    color: {theme.error};
 }}
 
 #prompt-input {{

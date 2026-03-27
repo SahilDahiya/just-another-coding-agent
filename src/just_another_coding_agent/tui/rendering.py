@@ -8,8 +8,28 @@ from typing import Any
 
 from just_another_coding_agent.contracts.thinking import ThinkingSetting
 
-from .state import UiState
+from .state import UiPhase, UiState
 from .widgets import StatusBar, TranscriptLog
+
+
+def build_phase_label(phase: UiPhase, motion_tick: int = 0) -> str:
+    """Render the current phase, with restrained motion for active states."""
+    if phase in {UiPhase.STREAMING, UiPhase.COMPACTING}:
+        return f"{phase}{'.' * ((motion_tick % 3) + 1)}"
+    return str(phase)
+
+
+def build_prompt_marker_text(phase: UiPhase, motion_tick: int = 0) -> str:
+    """Render the prompt marker for the current shell phase."""
+    if phase == UiPhase.STREAMING:
+        return ">>" if motion_tick % 2 == 0 else "> "
+    if phase == UiPhase.COMPACTING:
+        return "::" if motion_tick % 2 == 0 else ".:"
+    if phase == UiPhase.INTERRUPTED:
+        return "!!"
+    if phase == UiPhase.ERROR:
+        return "x "
+    return "> "
 
 
 def display_path(path: Path) -> str:
@@ -25,10 +45,10 @@ def display_path(path: Path) -> str:
     return resolved_str
 
 
-def build_status_text(state: UiState) -> str:
+def build_status_text(state: UiState, motion_tick: int = 0) -> str:
     """Build the current status-bar line from explicit UI state."""
     parts = [
-        state.phase,
+        build_phase_label(state.phase, motion_tick),
         str(state.model),
         display_path(state.workspace_root),
     ]
@@ -39,9 +59,14 @@ def build_status_text(state: UiState) -> str:
     return " | ".join(parts)
 
 
-def update_status_bar(status_bar: StatusBar, *, state: UiState) -> None:
+def update_status_bar(
+    status_bar: StatusBar,
+    *,
+    state: UiState,
+    motion_tick: int = 0,
+) -> None:
     """Render the current app state into the status bar."""
-    status_bar.update(build_status_text(state))
+    status_bar.update(build_status_text(state, motion_tick))
 
 
 def write_startup_banner(
@@ -109,6 +134,8 @@ def write_stream_event(output: TranscriptLog, event: Any) -> None:
 
 __all__ = [
     "display_path",
+    "build_phase_label",
+    "build_prompt_marker_text",
     "build_status_text",
     "resolve_thinking_setting",
     "update_status_bar",

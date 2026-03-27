@@ -49,6 +49,7 @@ agenda.
 - Keep at most one animated region prominent at a time.
 - No looping decorative motion outside explicit pending/loading feedback.
 - Motion must improve comprehension, not just make the UI feel busy.
+- Default motion surfaces are the status bar and prompt marker, not new widgets or animated backgrounds.
 
 ## Default Interaction Model
 

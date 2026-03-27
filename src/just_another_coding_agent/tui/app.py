@@ -20,6 +20,7 @@ from .drivers import (
     running_in_vscode_terminal,
 )
 from .rendering import (
+    build_prompt_marker_text,
     display_path,
     resolve_thinking_setting,
     update_status_bar,
@@ -36,6 +37,8 @@ class CodingAgentApp(App[None]):
     TITLE = "jaca"
 
     CSS = APP_CSS
+
+    PHASE_CLASSES = tuple(f"phase-{phase}" for phase in UiPhase)
 
     BINDINGS = [
         Binding("ctrl+c", "interrupt", "Interrupt/Quit", priority=True),
@@ -59,6 +62,7 @@ class CodingAgentApp(App[None]):
         self._streaming = False
         self._interrupt_requested = False
         self._last_interrupt_time: float = 0.0
+        self._motion_tick = 0
 
     def compose(self) -> ComposeResult:
         yield StatusBar(id="status-bar")
@@ -83,7 +87,8 @@ class CodingAgentApp(App[None]):
         return driver_class
 
     def on_mount(self) -> None:
-        self._update_status_bar()
+        self.set_interval(0.24, self._advance_motion)
+        self._refresh_shell_chrome()
         self.query_one("#prompt-input", Input).focus()
         output = self.query_one("#output", TranscriptLog)
         write_startup_banner(
@@ -95,12 +100,32 @@ class CodingAgentApp(App[None]):
 
     def _update_status_bar(self) -> None:
         status = self.query_one("#status-bar", StatusBar)
-        update_status_bar(status, state=self._state)
+        update_status_bar(status, state=self._state, motion_tick=self._motion_tick)
+
+    def _refresh_shell_chrome(self) -> None:
+        self._update_status_bar()
+        prompt_marker = self.query_one("#prompt-marker", Static)
+        prompt_marker.update(
+            build_prompt_marker_text(self._state.phase, self._motion_tick)
+        )
+        phase_class = f"phase-{self._state.phase}"
+        for widget in (
+            self.query_one("#status-bar", StatusBar),
+            self.query_one("#prompt-row", Horizontal),
+            prompt_marker,
+        ):
+            widget.remove_class(*self.PHASE_CLASSES)
+            widget.add_class(phase_class)
+
+    def _advance_motion(self) -> None:
+        self._motion_tick += 1
+        if self.is_mounted:
+            self._refresh_shell_chrome()
 
     def _set_phase(self, phase: UiPhase) -> None:
         self._state = self._state.with_phase(phase)
         if self.is_mounted:
-            self._update_status_bar()
+            self._refresh_shell_chrome()
 
     def action_interrupt(self) -> None:
         import time
@@ -177,7 +202,7 @@ class CodingAgentApp(App[None]):
                 output.write_line(f"model set to {self._state.model}")
             else:
                 output.write_line(f"model: {self._state.model}")
-            self._update_status_bar()
+            self._refresh_shell_chrome()
 
         elif cmd == "/thinking":
             if arg:
@@ -191,7 +216,7 @@ class CodingAgentApp(App[None]):
                     )
             else:
                 output.write_line(f"thinking: {self._state.thinking or 'default'}")
-            self._update_status_bar()
+            self._refresh_shell_chrome()
 
         elif cmd == "/workspace":
             output.write_line(f"workspace: {display_path(self._state.workspace_root)}")
@@ -219,7 +244,7 @@ class CodingAgentApp(App[None]):
         elif cmd == "/new":
             self._state = self._state.with_session_id(None).with_phase(UiPhase.IDLE)
             output.write_line("session cleared")
-            self._update_status_bar()
+            self._refresh_shell_chrome()
 
         elif cmd == "/quit":
             self.exit()
@@ -259,7 +284,7 @@ class CodingAgentApp(App[None]):
                 workspace_root=self._state.workspace_root,
             )
             self._state = self._state.with_session_id(session_id)
-            self._update_status_bar()
+            self._refresh_shell_chrome()
 
         session_path = session_path_for_id(
             sessions_root=self._sessions_root,

@@ -24,6 +24,8 @@ def test_build_app_css_uses_theme_tokens() -> None:
     assert "#bbbbbb" in css
     assert "#prompt-input:focus" in css
     assert "StatusBar" in css
+    assert "StatusBar.phase-streaming" in css
+    assert "#prompt-row.phase-error" in css
 
 
 def test_default_theme_tokens_are_distinct_enough_for_hierarchy() -> None:

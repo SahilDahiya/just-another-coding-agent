@@ -2,7 +2,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from textual.widgets import Input
+from textual.widgets import Input, Static
 
 from just_another_coding_agent.tui.app import CodingAgentApp
 from just_another_coding_agent.tui.rendering import write_stream_event
@@ -175,7 +175,39 @@ async def test_status_bar_updates_for_explicit_ui_states(tmp_path: Path) -> None
         assert "idle" in str(status_bar.renderable)
 
         app._set_phase(UiPhase.STREAMING)
-        assert "streaming" in str(status_bar.renderable)
+        assert "streaming." in str(status_bar.renderable)
+        assert status_bar.has_class("phase-streaming")
 
         app._set_phase(UiPhase.ERROR)
         assert "error" in str(status_bar.renderable)
+        assert status_bar.has_class("phase-error")
+
+
+@pytest.mark.asyncio
+async def test_prompt_marker_pulses_for_active_states(tmp_path: Path) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    sessions_root.mkdir()
+
+    app = CodingAgentApp(
+        model="ollama:test",
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+        thinking=None,
+    )
+
+    async with app.run_test() as _pilot:
+        prompt_marker = app.query_one("#prompt-marker", Static)
+
+        app._set_phase(UiPhase.STREAMING)
+        app._motion_tick = 0
+        app._refresh_shell_chrome()
+        assert str(prompt_marker.renderable) == ">>"
+
+        app._motion_tick = 1
+        app._refresh_shell_chrome()
+        assert str(prompt_marker.renderable) == "> "
+
+        app._set_phase(UiPhase.ERROR)
+        assert str(prompt_marker.renderable) == "x "

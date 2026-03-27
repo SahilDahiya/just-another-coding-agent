@@ -1,6 +1,10 @@
 from pathlib import Path
 
-from just_another_coding_agent.tui.rendering import build_status_text
+from just_another_coding_agent.tui.rendering import (
+    build_phase_label,
+    build_prompt_marker_text,
+    build_status_text,
+)
 from just_another_coding_agent.tui.state import UiPhase, UiState
 
 
@@ -13,13 +17,28 @@ def test_build_status_text_includes_phase_and_session() -> None:
         phase=UiPhase.STREAMING,
     )
 
-    status = build_status_text(state)
+    status = build_status_text(state, motion_tick=1)
 
-    assert "streaming" in status
+    assert "streaming.." in status
     assert "ollama:test" in status
     assert "/tmp/workspace" in status
     assert "thinking" in status
     assert "session" in status
+
+
+def test_motion_helpers_are_calm_when_idle_and_active_when_busy() -> None:
+    assert build_phase_label(UiPhase.IDLE, 2) == "idle"
+    assert build_prompt_marker_text(UiPhase.IDLE, 2) == "> "
+
+    assert build_phase_label(UiPhase.STREAMING, 0) == "streaming."
+    assert build_phase_label(UiPhase.STREAMING, 2) == "streaming..."
+    assert build_prompt_marker_text(UiPhase.STREAMING, 0) == ">>"
+    assert build_prompt_marker_text(UiPhase.STREAMING, 1) == "> "
+
+    assert build_phase_label(UiPhase.COMPACTING, 1) == "compacting.."
+    assert build_prompt_marker_text(UiPhase.COMPACTING, 0) == "::"
+    assert build_prompt_marker_text(UiPhase.INTERRUPTED, 0) == "!!"
+    assert build_prompt_marker_text(UiPhase.ERROR, 0) == "x "
 
 
 def test_ui_state_helpers_return_updated_copies(tmp_path: Path) -> None:
