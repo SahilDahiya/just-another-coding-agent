@@ -17,6 +17,7 @@ Prefer direct use of PydanticAI primitives before creating local abstractions:
 - use PydanticAI testing primitives for unit and contract tests
 
 Local code should translate those primitives into the canonical backend contract for tools, events, sessions, RPC, and failure semantics.
+`runtime/models.py` is the sanctioned local seam for explicit model construction and provider-native policy.
 
 The canonical agent assembly must take an explicit workspace root. Tool behavior uses that root as the default base for relative paths and bash cwd rather than relying on process cwd or other implicit global state.
 Persisted sessions must also bind to that explicit workspace root and store native PydanticAI message history so later runs can resume through `message_history` instead of reconstructing context from public events.
@@ -25,6 +26,7 @@ The canonical runtime is unbounded within a single run and does not impose backe
 The canonical prompt should inject the current date and resolved workspace root dynamically at agent-build time so the model can reason about time and paths without inferring hidden process state.
 The canonical prompt must also enforce side-effect truthfulness and verification discipline: the model must not claim to have created or modified files without tool evidence, and it should run the smallest relevant verification step before concluding after code changes or required file outputs.
 The canonical runtime should expose `thinking` as an explicit run setting and pass it through PydanticAI model settings rather than encoding reasoning level in prompt text.
+The canonical runtime should resolve model strings through one local model seam before agent construction so provider-native retries, instrumentation, and OpenAI-specific settings stay centralized instead of leaking through the runtime.
 
 ## Stateful Orchestration Boundary
 
@@ -38,6 +40,7 @@ Use PydanticAI where it already has the right seam:
 - use `history_processors` to shape what history the model sees at runtime
 - use Hooks for observability, classification, and other run-local interception
 - use `model_settings` for explicit run settings such as `thinking`
+- use provider-native model and provider classes when the backend needs retries, instrumentation, or OpenAI Responses history behavior that plain model strings cannot express cleanly
 
 Keep product semantics in this repo's own contract layer:
 
@@ -51,6 +54,24 @@ The rule of thumb is:
 
 - if it changes behavior inside one run step, PydanticAI probably has a seam
 - if it changes what the backend promises across runs or over RPC, we own it
+
+## Model Resolution
+
+Canonical model handling goes through `runtime/models.py`.
+
+Current responsibilities:
+
+- resolve canonical model strings into explicit PydanticAI model objects
+- centralize OpenAI-compatible retry policy at the client transport layer
+- centralize opt-in model instrumentation
+- centralize model-setting policy such as `thinking`
+- enable OpenAI Responses server-side history only for uncompacted resumed sessions
+
+Important boundary:
+
+- durable JSONL session history remains the backend-owned source of truth
+- OpenAI Responses server-side history is only a runtime optimization
+- compacted sessions do not enable server-side history, because compaction must control the replayed context explicitly
 
 ## Compaction Direction
 

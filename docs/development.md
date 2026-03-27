@@ -22,6 +22,11 @@ read_when: you need environment setup, commands, CI, or test workflow
 - Current foundation expects:
   - `OPENAI_API_KEY`
   - `ANTHROPIC_API_KEY`
+- Common optional runtime env vars:
+  - `OPENAI_BASE_URL`
+  - `OLLAMA_BASE_URL`
+  - `OLLAMA_API_KEY`
+  - `JACA_TRACE=1` to wrap resolved models with opt-in OpenTelemetry instrumentation
 
 ## CI
 

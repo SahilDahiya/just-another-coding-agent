@@ -34,6 +34,7 @@ Rules:
 - Model settings must be explicit run inputs, not hidden prompt text.
 - The canonical runtime may expose only deliberately chosen settings instead of leaking arbitrary provider settings through the public contract.
 - When `thinking` is omitted, the runtime uses model default behavior unless a resumed session has a persisted thinking level to inherit.
+- Provider-native model settings may still be applied internally when they do not change the public contract.
 
 `thinking` contract:
 
@@ -42,6 +43,13 @@ Rules:
 - `false` means disable thinking where the provider supports turning it off
 - string values request an explicit thinking effort level
 - the canonical runtime passes `thinking` through PydanticAI model settings instead of encoding it in instructions
+
+OpenAI Responses runtime optimization:
+
+- for resumed uncompacted sessions on `openai-responses:*`, the runtime may set `openai_previous_response_id='auto'`
+- this is an internal optimization, not a public caller-controlled setting
+- durable JSONL message history remains authoritative and must continue to exist even when this optimization is active
+- compacted sessions must not enable this optimization
 
 ## Tool Contract
 
