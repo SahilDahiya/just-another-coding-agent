@@ -12,6 +12,9 @@ from just_another_coding_agent.contracts.tools import (
 from just_another_coding_agent.tools._workspace import normalize_workspace_root
 from just_another_coding_agent.tools.bash import create_bash_tool
 from just_another_coding_agent.tools.edit import create_edit_tool
+from just_another_coding_agent.tools.find import create_find_tool
+from just_another_coding_agent.tools.grep import create_grep_tool
+from just_another_coding_agent.tools.ls import create_ls_tool
 from just_another_coding_agent.tools.read import create_read_tool
 from just_another_coding_agent.tools.write import create_write_tool
 
@@ -27,6 +30,9 @@ class ToolNotImplementedError(NotImplementedError):
 _TOOL_FACTORIES = {
     "bash": create_bash_tool,
     "edit": create_edit_tool,
+    "find": create_find_tool,
+    "grep": create_grep_tool,
+    "ls": create_ls_tool,
     "read": create_read_tool,
     "write": create_write_tool,
 }

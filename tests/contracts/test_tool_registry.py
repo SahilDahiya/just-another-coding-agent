@@ -10,7 +10,15 @@ from just_another_coding_agent.tools.registry import (
 
 
 def test_registry_exposes_canonical_tool_names() -> None:
-    assert list_canonical_tool_names() == ("read", "write", "edit", "bash")
+    assert list_canonical_tool_names() == (
+        "read",
+        "write",
+        "edit",
+        "bash",
+        "grep",
+        "ls",
+        "find",
+    )
 
 
 def test_build_canonical_toolset_rejects_unknown_tool_name() -> None:
@@ -26,7 +34,7 @@ def test_build_canonical_toolset_registers_implemented_tools_with_pydanticai(
         model,
         toolsets=[
             build_canonical_toolset(
-                ["read", "write", "edit", "bash"],
+                ["read", "write", "edit", "bash", "grep", "ls", "find"],
                 workspace_root=tmp_path,
             )
         ],
@@ -36,7 +44,7 @@ def test_build_canonical_toolset_registers_implemented_tools_with_pydanticai(
 
     function_tools = model.last_model_request_parameters.function_tools
     tool_names = [tool.name for tool in function_tools]
-    assert tool_names == ["read", "write", "edit", "bash"]
+    assert tool_names == ["read", "write", "edit", "bash", "grep", "ls", "find"]
 
 
 def test_build_canonical_toolset_exposes_rich_model_facing_tool_descriptions(
@@ -47,7 +55,7 @@ def test_build_canonical_toolset_exposes_rich_model_facing_tool_descriptions(
         model,
         toolsets=[
             build_canonical_toolset(
-                ["read", "write", "edit", "bash"],
+                ["read", "write", "edit", "bash", "grep", "ls", "find"],
                 workspace_root=tmp_path,
             )
         ],
@@ -124,4 +132,43 @@ def test_build_canonical_toolset_exposes_rich_model_facing_tool_descriptions(
             "description"
         ]
         == "Optional timeout in seconds before the command is stopped."
+    )
+
+    assert function_tools["grep"].description == (
+        "Search UTF-8 text files for a pattern using ripgrep. Returns matching "
+        "lines with relative file paths and line numbers. Respects .gitignore "
+        "and bounds output to 100 matches or 50 KiB."
+    )
+    assert (
+        function_tools["grep"].parameters_json_schema["properties"]["pattern"][
+            "description"
+        ]
+        == "Pattern to search for as a regex or literal string."
+    )
+
+    assert function_tools["ls"].description == (
+        "List directory contents in alphabetical order. Includes dotfiles "
+        "and adds '/' suffixes for directories. Output is bounded to 500 "
+        "entries or 50 KiB."
+    )
+    assert (
+        function_tools["ls"].parameters_json_schema["properties"]["limit"][
+            "description"
+        ]
+        == (
+            "Maximum number of entries to return before ls's own byte\n"
+            "ceiling is applied."
+        )
+    )
+
+    assert function_tools["find"].description == (
+        "Find files by glob pattern using ripgrep-backed file discovery. "
+        "Returns paths relative to the searched directory, respects "
+        ".gitignore, and bounds output to 1000 results or 50 KiB."
+    )
+    assert (
+        function_tools["find"].parameters_json_schema["properties"]["pattern"][
+            "description"
+        ]
+        == "Glob pattern to match, such as '*.py' or 'src/**/*.ts'."
     )

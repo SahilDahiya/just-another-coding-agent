@@ -55,9 +55,13 @@ def test_build_canonical_instructions_include_dynamic_context(tmp_path) -> None:
         "Prefer read to examine files instead of bash cat or sed." in instructions
     )
     assert (
-        "Use bash for search, inspection, builds, and commands (ls, rg, find, grep)."
+        "Use only these tools: read, write, edit, bash, grep, ls, find."
         in instructions
     )
+    assert "Use grep for content search across files." in instructions
+    assert "Use ls for bounded directory listings." in instructions
+    assert "Use find for file discovery by glob pattern." in instructions
+    assert "Use bash for builds and commands." in instructions
     assert (
         "Do not claim you created, edited, or saved a file unless you "
         "actually used write or edit, or verified the result with read or bash."

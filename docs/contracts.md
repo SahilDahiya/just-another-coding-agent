@@ -31,6 +31,9 @@ Canonical tool set for the first maintained version:
 - `write`
 - `edit`
 - `bash`
+- `grep`
+- `ls`
+- `find`
 
 Rules:
 
@@ -53,9 +56,9 @@ Expected tool-domain error result:
 
 Initial executable tool slice:
 
-- canonical registry names: `read`, `write`, `edit`, `bash`
+- canonical registry names: `read`, `write`, `edit`, `bash`, `grep`, `ls`, `find`
 - unknown tool names fail explicitly
-- initial concrete tool implementations: `read`, `write`, `edit`, `bash`
+- initial concrete tool implementations: `read`, `write`, `edit`, `bash`, `grep`, `ls`, `find`
 
 `read` input contract:
 
@@ -139,6 +142,67 @@ Initial executable tool slice:
 - timeout returns an explicit tool error result and includes captured output when available
 - shell spawn failure and invalid UTF-8 output return an explicit tool error result
 - no shell fallback, alternate decoder, or hidden retry path
+
+`grep` input contract:
+
+- fields: `pattern`, `path`, `glob`, `ignore_case`, `literal`, `limit`
+- `pattern` must be a non-empty string
+- `path` is optional and, when present, must be a non-empty string
+- `glob` is optional and, when present, must be a non-empty string
+- `ignore_case` must be a boolean
+- `literal` must be a boolean
+- `limit` must be a positive integer
+
+`grep` behavior contract:
+
+- searches UTF-8 text files for matching lines using local `rg`
+- resolves relative `path` values against the configured workspace root
+- allows absolute paths and relative paths that resolve outside the workspace root
+- returns matching lines formatted as `<relative-or-absolute-path>:<line-number>:<line-text>`
+- returns paths relative to the workspace root when possible
+- respects `.gitignore` behavior from `rg`
+- bounds output to at most `100` matches or `50 KiB`, whichever is hit first
+- truncates any single displayed match line to `300` characters
+- when output is bounded or line text is truncated, returns an explicit note telling the model to refine the search
+- no matches return the explicit string `No matches found.`
+- missing search paths, invalid `rg` execution, and non-UTF-8 decode failures return an explicit tool error result
+
+`ls` input contract:
+
+- fields: `path`, `limit`
+- `path` is optional and, when present, must be a non-empty string
+- `limit` must be a positive integer
+
+`ls` behavior contract:
+
+- lists one directory in alphabetical order
+- resolves relative `path` values against the configured workspace root
+- allows absolute paths and relative paths that resolve outside the workspace root
+- includes dotfiles
+- appends `/` to directory names
+- returns the explicit string `(empty directory)` for empty directories
+- bounds output to at most `500` entries or `50 KiB`, whichever is hit first
+- when output is bounded, returns an explicit note telling the model how to ask for more
+- missing paths and non-directory paths return an explicit tool error result
+
+`find` input contract:
+
+- fields: `pattern`, `path`, `limit`
+- `pattern` must be a non-empty string
+- `path` is optional and, when present, must be a non-empty string
+- `limit` must be a positive integer
+
+`find` behavior contract:
+
+- finds files by glob pattern using ripgrep-backed file discovery
+- resolves relative `path` values against the configured workspace root
+- allows absolute paths and relative paths that resolve outside the workspace root
+- searches one directory and returns result paths relative to that searched directory
+- respects `.gitignore` behavior from `rg`
+- returns the explicit string `No files found matching pattern.` when no files match
+- bounds output to at most `1000` results or `50 KiB`, whichever is hit first
+- when output is bounded, returns an explicit note telling the model how to ask for more or refine the pattern
+- missing paths, non-directory search paths, invalid `rg` execution, and non-UTF-8 decode failures return an explicit tool error result
 
 ## Streamed Event Contract
 

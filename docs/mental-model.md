@@ -108,7 +108,7 @@ The RPC layer maps opaque session IDs to session files via `rpc/session_store.py
 
 ### Tools
 
-Four canonical tool names: `read`, `write`, `edit`, `bash`. These are the coding agent's hands.
+Seven canonical tool names: `read`, `write`, `edit`, `bash`, `grep`, `ls`, `find`. These are the coding agent's hands.
 
 Each tool is a workspace-bound factory: `create_read_tool(workspace_root=...)` returns a PydanticAI `Tool` with the workspace root captured in a closure. Relative paths resolve from the configured workspace root, but the tools run in YOLO mode: there is no filesystem sandbox.
 
@@ -116,6 +116,9 @@ Each tool is a workspace-bound factory: `create_read_tool(workspace_root=...)` r
 - `write` -- writes a UTF-8 file, creates parent dirs, returns confirmation
 - `edit` -- replaces exactly one occurrence of `old_text` with `new_text`, trying exact matching first and then a normalized fallback for minor formatting differences; fails on zero/multiple matches or no-op
 - `bash` -- runs `bash -lc <command>` with `cwd` set to workspace root, returns `{"exit_code": 0, "output": str}` on success and explicit tool error results for non-zero exits or timeouts
+- `grep` -- searches UTF-8 text files with ripgrep and returns matching lines with relative paths and line numbers
+- `ls` -- lists directory contents in a bounded alphabetical view with `/` suffixes for directories
+- `find` -- finds files by glob pattern and returns paths relative to the searched directory
 
 `bash` sets `cwd` to the workspace root but has no path sandboxing -- commands can access anything on the system.
 

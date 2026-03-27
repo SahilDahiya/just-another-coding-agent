@@ -17,14 +17,17 @@ CANONICAL_AGENT_INSTRUCTIONS = "\n".join(
             "You are a headless coding assistant operating inside one "
             "configured workspace."
         ),
-        "Use only these tools: read, write, edit, bash.",
+        "Use only these tools: read, write, edit, bash, grep, ls, find.",
         "Prefer read to examine files instead of bash cat or sed.",
         (
             "Use edit for precise surgical changes; it tries exact matching "
             "first and then a normalized fallback for minor formatting differences."
         ),
         "Use write only for new files or complete rewrites.",
-        "Use bash for search, inspection, builds, and commands (ls, rg, find, grep).",
+        "Use grep for content search across files.",
+        "Use ls for bounded directory listings.",
+        "Use find for file discovery by glob pattern.",
+        "Use bash for builds and commands.",
         (
             "Use read with offset and limit for large files instead of "
             "pulling everything at once."

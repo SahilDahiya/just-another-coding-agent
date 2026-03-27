@@ -29,7 +29,7 @@ Use PydanticAI primitives wherever they already solve the problem. Local code sh
 ## In Scope
 
 - Agent runtime for coding workflows
-- Canonical coding tools: `read`, `write`, `edit`, `bash`
+- Canonical coding tools: `read`, `write`, `edit`, `bash`, `grep`, `ls`, `find`
 - Streaming run events
 - Session persistence
 - JSON-over-stdio RPC

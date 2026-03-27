@@ -4,8 +4,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-CANONICAL_TOOL_NAMES = ("read", "write", "edit", "bash")
-CanonicalToolName = Literal["read", "write", "edit", "bash"]
+CANONICAL_TOOL_NAMES = ("read", "write", "edit", "bash", "grep", "ls", "find")
+CanonicalToolName = Literal["read", "write", "edit", "bash", "grep", "ls", "find"]
 
 
 class ReadToolInput(BaseModel):
@@ -38,6 +38,32 @@ class BashToolInput(BaseModel):
     timeout: int | None = Field(default=None, gt=0)
 
 
+class GrepToolInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    pattern: str = Field(min_length=1)
+    path: str | None = None
+    glob: str | None = None
+    ignore_case: bool = False
+    literal: bool = False
+    limit: int = Field(default=100, ge=1)
+
+
+class LsToolInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    path: str | None = None
+    limit: int = Field(default=500, ge=1)
+
+
+class FindToolInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    pattern: str = Field(min_length=1)
+    path: str | None = None
+    limit: int = Field(default=1000, ge=1)
+
+
 class ToolErrorResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
@@ -58,6 +84,9 @@ __all__ = [
     "CANONICAL_TOOL_NAMES",
     "CanonicalToolName",
     "EditToolInput",
+    "FindToolInput",
+    "GrepToolInput",
+    "LsToolInput",
     "ReadToolInput",
     "ToolErrorResult",
     "WriteToolInput",
