@@ -9,7 +9,7 @@ description = "Python-native headless coding-agent backend built around Pydantic
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-  "pydantic-ai-slim[anthropic,mcp,openai]>=1.71.0,<2.0",
+  "pydantic-ai-slim[anthropic,mcp,openai,retries]>=1.71.0,<2.0",
   "textual>=3.0.0,<4.0",
 ]
 

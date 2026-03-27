@@ -7,7 +7,9 @@ from pydantic_ai.models.openai import (
     OpenAIResponsesModel,
     OpenAIResponsesModelSettings,
 )
+from pydantic_ai.providers.ollama import OllamaProvider
 from pydantic_ai.providers.openai import OpenAIProvider
+from pydantic_ai.retries import AsyncTenacityTransport
 
 from just_another_coding_agent.runtime.models import (
     build_canonical_model_settings,
@@ -83,3 +85,32 @@ def test_build_canonical_model_settings_merge_model_defaults() -> None:
         "openai_previous_response_id": "auto",
         "thinking": "high",
     }
+
+
+def test_resolve_canonical_model_uses_retrying_openai_http_transport(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://example.test/v1")
+
+    model = resolve_canonical_model("openai-responses:gpt-5.3-codex")
+    client = model._provider.client
+
+    assert isinstance(model, OpenAIResponsesModel)
+    assert client.max_retries == 0
+    assert isinstance(client._client._transport, AsyncTenacityTransport)
+
+
+def test_resolve_canonical_model_uses_retrying_ollama_http_transport(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("OLLAMA_API_KEY", "test-key")
+    monkeypatch.setenv("OLLAMA_BASE_URL", "https://example.test/v1")
+
+    model = resolve_canonical_model("ollama:glm-5:cloud")
+    client = model._provider.client
+
+    assert isinstance(model, OpenAIChatModel)
+    assert isinstance(model._provider, OllamaProvider)
+    assert client.max_retries == 0
+    assert isinstance(client._client._transport, AsyncTenacityTransport)
