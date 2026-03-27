@@ -311,7 +311,7 @@ Initial executable session slice:
 - `session_compaction`
   - fields: `type`, `compaction_id`, `summarized_through_run_id`, `summary`
   - `summarized_through_run_id` must reference an existing persisted `run_id`
-  - `summary` is structured compaction state, not arbitrary untyped metadata
+  - `summary` is model-generated structured compaction state, not arbitrary untyped metadata
 
 Ordering rules for the session slice:
 
@@ -322,6 +322,7 @@ Ordering rules for the session slice:
 - Authoritative session loads must provide the expected workspace root and it must match the persisted `session_header.workspace_root` exactly
 - Session resume semantics must reconstruct effective conversation context from the latest compaction summary plus retained `session_messages` after that summary boundary when a compaction entry exists; otherwise they replay all persisted `session_messages` in chronological order
 - Runtime compaction must be applied through PydanticAI `history_processors` while keeping the durable session file in full-fidelity append-only form
+- `session.compact` and automatic compaction must generate summaries through a model call; the persistence layer must not invent placeholder summaries locally
 - When a new run omits `thinking`, the session-backed runtime inherits the most recent persisted non-null thinking setting from that session
 - Session-backed runtime streaming persists only after the run reaches a terminal outcome; partially consumed or cancelled streams must not append a partial run
 - Persisted events for a run must satisfy the streamed run contract, including exactly one terminal outcome
@@ -369,6 +370,7 @@ Ordering rules for the RPC slice:
 
 - A valid `session.create` request yields exactly one `rpc_response` containing a server-generated opaque `session_id`
 - A valid `session.compact` request must reference an existing `session_id` and yields exactly one `rpc_response` describing the newly appended compaction entry
+- If model-driven compaction summary generation fails, `session.compact` fails hard; it does not append a placeholder summary
 - A valid `run.start` request must reference an existing `session_id` and yields zero or more `rpc_event` lines whose embedded events satisfy the streamed run contract
 - `run.start` on an existing session is the canonical continue operation; there is no separate `session.continue` command
 - A valid `run.start` request may include `thinking`; when omitted, session-backed execution inherits the latest persisted thinking setting for that session when present

@@ -42,7 +42,7 @@ Use PydanticAI where it already has the right seam:
 Keep product semantics in this repo's own contract layer:
 
 - session JSONL entry types and format versioning
-- explicit session commands such as future `session.compact`
+- explicit session commands such as `session.compact`
 - compaction summary shape and resume semantics
 - continue semantics across runs
 - durable recovery policy and public streamed event behavior
@@ -68,6 +68,7 @@ The important boundary is:
 
 - compaction manages cross-run session size
 - it does not replace external timeouts for live runs
+- the runtime uses a separate model call to generate the durable compaction summary
 - durable compaction state lives in our session file, while PydanticAI
   `history_processors` are the runtime seam that applies the compacted view
 - `run.start` on an existing session is the canonical continue operation; there is no second continue command today

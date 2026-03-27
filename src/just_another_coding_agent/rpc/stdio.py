@@ -25,10 +25,12 @@ from just_another_coding_agent.rpc.session_store import (
     create_session,
     session_path_for_id,
 )
+from just_another_coding_agent.runtime.compaction import (
+    summarize_and_append_compaction_to_session,
+)
 from just_another_coding_agent.runtime.session import stream_session_run_events
 from just_another_coding_agent.session import (
     SessionFormatError,
-    append_compaction_to_session,
 )
 
 _RPC_REQUEST_ADAPTER = TypeAdapter(RpcRequest)
@@ -88,7 +90,8 @@ async def handle_rpc_json_line(
 
     if isinstance(request, SessionCompactRequest):
         try:
-            compaction = append_compaction_to_session(
+            compaction = await summarize_and_append_compaction_to_session(
+                model=model,
                 path=session_path,
                 workspace_root=workspace_root,
             )

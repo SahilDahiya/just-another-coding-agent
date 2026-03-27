@@ -4,7 +4,13 @@ from collections.abc import AsyncIterator
 from types import SimpleNamespace
 
 import pytest
-from pydantic_ai.messages import ModelMessage, ToolReturnPart, UserPromptPart
+from pydantic_ai.messages import (
+    ModelMessage,
+    ModelResponse,
+    TextPart,
+    ToolReturnPart,
+    UserPromptPart,
+)
 from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 
 from just_another_coding_agent.__main__ import main
@@ -64,6 +70,31 @@ async def resume_aware_write_stream(
     raise AssertionError(f"unexpected prompt: {latest_prompt!r}")
 
 
+def compaction_summary_function(
+    messages: list[ModelMessage],
+    _agent_info: object,
+) -> ModelResponse:
+    prompt = _last_user_prompt(messages)
+    assert prompt is not None
+    assert "Prompt: create note" in prompt
+    return ModelResponse(
+        parts=[
+            TextPart(
+                content=json.dumps(
+                    {
+                        "current_objective": "finish note handling",
+                        "established_facts": ["note.txt was created"],
+                        "user_preferences": ["be concise"],
+                        "important_paths": ["note.txt"],
+                        "open_questions": ["Should we add logging?"],
+                        "unresolved_work": ["Run the final verifier."],
+                    }
+                )
+            )
+        ]
+    )
+
+
 async def test_serve_rpc_stdio_handles_multiple_lines_in_one_process(
     tmp_path,
     monkeypatch,
@@ -115,7 +146,10 @@ async def test_serve_rpc_stdio_handles_multiple_lines_in_one_process(
     await serve_rpc_stdio(
         input_stream=input_stream,
         output_stream=output_stream,
-        model=FunctionModel(stream_function=resume_aware_write_stream),
+        model=FunctionModel(
+            function=compaction_summary_function,
+            stream_function=resume_aware_write_stream,
+        ),
         workspace_root=workspace_root,
         sessions_root=sessions_root,
     )
@@ -201,7 +235,10 @@ async def test_serve_rpc_stdio_supports_session_compact(
     await serve_rpc_stdio(
         input_stream=input_stream,
         output_stream=output_stream,
-        model=FunctionModel(stream_function=resume_aware_write_stream),
+        model=FunctionModel(
+            function=compaction_summary_function,
+            stream_function=resume_aware_write_stream,
+        ),
         workspace_root=workspace_root,
         sessions_root=sessions_root,
     )
@@ -214,7 +251,10 @@ async def test_serve_rpc_stdio_supports_session_compact(
     assert compact_response["type"] == "rpc_response"
     assert compact_response["id"] == "req-compact"
     assert len(compact_response["response"]["compaction_id"]) == 32
-    assert compact_response["response"]["summary"]["current_objective"] == "create note"
+    assert (
+        compact_response["response"]["summary"]["current_objective"]
+        == "finish note handling"
+    )
     assert compact_response["response"]["summary"]["important_paths"] == ["note.txt"]
 
     session_path = session_path_for_id(

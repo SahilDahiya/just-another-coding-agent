@@ -14,10 +14,10 @@ from just_another_coding_agent.runtime.compaction import (
     build_session_history_processor,
     should_auto_compact_session,
     strip_compaction_summary_from_messages,
+    summarize_and_append_compaction_to_session,
 )
 from just_another_coding_agent.runtime.run import stream_run_events
 from just_another_coding_agent.session.jsonl import (
-    append_compaction_to_session,
     append_run_to_session,
     load_session,
 )
@@ -46,7 +46,8 @@ async def stream_session_run_events(
             workspace_root=normalized_workspace_root,
         )
         if should_auto_compact_session(loaded_session):
-            append_compaction_to_session(
+            await summarize_and_append_compaction_to_session(
+                model=model,
                 path=session_path,
                 workspace_root=normalized_workspace_root,
             )

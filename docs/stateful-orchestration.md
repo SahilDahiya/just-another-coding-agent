@@ -90,6 +90,7 @@ Today that means:
 
 - the session file keeps full-fidelity native messages plus explicit
   `session_compaction` entries
+- the runtime generates each compaction summary through a separate model call
 - resumed runs inject a synthetic compaction-summary message at runtime and keep
   only native messages after the latest compaction boundary
 - that synthetic summary is stripped back out before the new run's

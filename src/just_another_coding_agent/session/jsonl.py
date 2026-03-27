@@ -111,6 +111,7 @@ def append_compaction_to_session(
     *,
     path: Path,
     workspace_root: Path | str,
+    summary: SessionCompactionSummary,
 ) -> SessionCompactionEntry:
     normalized_workspace_root = normalize_workspace_root(workspace_root)
     loaded = load_session(path=path, workspace_root=normalized_workspace_root)
@@ -121,7 +122,7 @@ def append_compaction_to_session(
     entry = SessionCompactionEntry(
         compaction_id=uuid4().hex,
         summarized_through_run_id=loaded.runs[-1].run_id,
-        summary=_build_compaction_summary(loaded),
+        summary=summary,
     )
 
     with path.open("a", encoding="utf-8") as file_handle:
@@ -345,41 +346,6 @@ def _validate_run_record(run: SessionRunRecord) -> str:
 
     return run.run_id
 
-
-def _build_compaction_summary(
-    loaded_session: LoadedSession,
-) -> SessionCompactionSummary:
-    if not loaded_session.runs:
-        raise SessionFormatError("Cannot compact a session with no completed runs")
-
-    latest_run = loaded_session.runs[-1]
-    return SessionCompactionSummary(
-        current_objective=latest_run.prompt,
-        established_facts=[
-            f"Session contains {len(loaded_session.runs)} completed "
-            f"{'run' if len(loaded_session.runs) == 1 else 'runs'}."
-        ],
-        user_preferences=[],
-        important_paths=_extract_important_paths(loaded_session),
-        open_questions=[],
-        unresolved_work=[f"Continue from run {latest_run.run_id}."],
-    )
-
-
-def _extract_important_paths(loaded_session: LoadedSession) -> list[str]:
-    paths: set[str] = set()
-    for run in loaded_session.runs:
-        for event in run.events:
-            if not isinstance(event, ToolCallStartedEvent):
-                continue
-
-            args = event.args
-            if isinstance(args, dict):
-                path_value = args.get("path")
-                if isinstance(path_value, str) and path_value:
-                    paths.add(path_value)
-
-    return sorted(paths)
 def _parse_entry(*, raw_line: str, line_number: int) -> SessionEntry:
     try:
         payload = json.loads(raw_line)

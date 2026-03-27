@@ -2,7 +2,13 @@ import json
 from collections.abc import AsyncIterator
 
 import pytest
-from pydantic_ai.messages import ModelMessage, ToolReturnPart, UserPromptPart
+from pydantic_ai.messages import (
+    ModelMessage,
+    ModelResponse,
+    TextPart,
+    ToolReturnPart,
+    UserPromptPart,
+)
 from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 
 from just_another_coding_agent.rpc.session_store import session_path_for_id
@@ -86,6 +92,33 @@ async def text_only_stream(
     _agent_info: object,
 ) -> AsyncIterator[str]:
     yield "done"
+
+
+def compaction_summary_function(
+    messages: list[ModelMessage],
+    _agent_info: object,
+) -> ModelResponse:
+    prompt = _last_user_prompt(messages)
+    assert prompt is not None
+    assert "Runs since the latest compaction boundary:" in prompt
+    assert "Prompt: create note" in prompt
+    assert "create note" in prompt
+    return ModelResponse(
+        parts=[
+            TextPart(
+                content=json.dumps(
+                    {
+                        "current_objective": "finish note handling",
+                        "established_facts": ["note.txt was created"],
+                        "user_preferences": ["be concise"],
+                        "important_paths": ["note.txt"],
+                        "open_questions": ["Should we add logging?"],
+                        "unresolved_work": ["Run the final verifier."],
+                    }
+                )
+            )
+        ]
+    )
 
 
 async def exploding_session_stream(*_args, **_kwargs):
@@ -209,7 +242,10 @@ async def test_handle_rpc_json_line_compacts_session_and_returns_metadata(
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
     sessions_root = tmp_path / "sessions"
-    model = FunctionModel(stream_function=resume_aware_write_stream)
+    model = FunctionModel(
+        function=compaction_summary_function,
+        stream_function=resume_aware_write_stream,
+    )
 
     session_id = await _create_session_id(
         workspace_root=workspace_root,
@@ -257,12 +293,12 @@ async def test_handle_rpc_json_line_compacts_session_and_returns_metadata(
                 "compaction_id": messages[0]["response"]["compaction_id"],
                 "summarized_through_run_id": created_run_id,
                 "summary": {
-                    "current_objective": "create note",
-                    "established_facts": ["Session contains 1 completed run."],
-                    "user_preferences": [],
+                    "current_objective": "finish note handling",
+                    "established_facts": ["note.txt was created"],
+                    "user_preferences": ["be concise"],
                     "important_paths": ["note.txt"],
-                    "open_questions": [],
-                    "unresolved_work": [f"Continue from run {created_run_id}."],
+                    "open_questions": ["Should we add logging?"],
+                    "unresolved_work": ["Run the final verifier."],
                 },
             },
         }

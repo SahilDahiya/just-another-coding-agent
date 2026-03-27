@@ -1,10 +1,13 @@
+import json
 from collections.abc import AsyncIterator
 
 import pytest
 from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
+    ModelResponse,
     SystemPromptPart,
+    TextPart,
     ToolReturnPart,
     UserPromptPart,
 )
@@ -15,7 +18,11 @@ from just_another_coding_agent.contracts.run_events import (
     RunSucceededEvent,
     ToolCallSucceededEvent,
 )
+from just_another_coding_agent.contracts.session import SessionCompactionSummary
 from just_another_coding_agent.runtime import stream_session_run_events
+from just_another_coding_agent.runtime.compaction import (
+    summarize_session_for_compaction,
+)
 from just_another_coding_agent.session import (
     SessionFormatError,
     append_compaction_to_session,
@@ -107,6 +114,63 @@ async def text_only_stream(
     _agent_info: object,
 ) -> AsyncIterator[str]:
     yield "done"
+
+
+def model_driven_compaction_function(
+    messages: list[ModelMessage],
+    _agent_info: object,
+) -> ModelResponse:
+    prompt = _last_user_prompt(messages)
+    assert prompt is not None
+    assert "Run run-2" in prompt
+    assert "Previous compaction summary:" in prompt
+    assert "ship the first draft" in prompt
+    assert "Run run-1" not in prompt
+
+    return ModelResponse(
+        parts=[
+            TextPart(
+                content=json.dumps(
+                    {
+                        "current_objective": "finish the second run",
+                        "established_facts": [
+                            "The earlier draft was shipped.",
+                            "The second run is now the active context.",
+                        ],
+                        "user_preferences": ["be concise"],
+                        "important_paths": ["note.txt", "src/app.py"],
+                        "open_questions": ["Should we add retries?"],
+                        "unresolved_work": ["Run the final acceptance check."],
+                    }
+                )
+            )
+        ]
+    )
+
+
+def auto_compaction_summary_function(
+    messages: list[ModelMessage],
+    _agent_info: object,
+) -> ModelResponse:
+    prompt = _last_user_prompt(messages)
+    assert prompt is not None
+    assert "Run run-5" in prompt
+    return ModelResponse(
+        parts=[
+            TextPart(
+                content=json.dumps(
+                    {
+                        "current_objective": "continue after auto compaction",
+                        "established_facts": ["Five runs were summarized."],
+                        "user_preferences": [],
+                        "important_paths": ["note.txt"],
+                        "open_questions": [],
+                        "unresolved_work": ["Handle the follow-up prompt."],
+                    }
+                )
+            )
+        ]
+    )
 
 
 async def compacted_history_probe_stream(
@@ -327,7 +391,18 @@ async def test_stream_session_run_events_replays_compacted_history_keeps_message
             RunSucceededEvent(run_id="run-1", output_text="done"),
         ],
     )
-    append_compaction_to_session(path=session_path, workspace_root=workspace_root)
+    append_compaction_to_session(
+        path=session_path,
+        workspace_root=workspace_root,
+        summary=SessionCompactionSummary(
+            current_objective="summarized first run",
+            established_facts=["The first run completed."],
+            user_preferences=[],
+            important_paths=[],
+            open_questions=[],
+            unresolved_work=["Continue with the next run."],
+        ),
+    )
     append_run_to_session(
         path=session_path,
         workspace_root=workspace_root,
@@ -374,6 +449,65 @@ async def test_stream_session_run_events_replays_compacted_history_keeps_message
     assert len(loaded.compactions) == 1
 
 
+async def test_summarize_session_for_compaction_uses_model_output_and_prior_summary(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    session_path = tmp_path / "session.jsonl"
+
+    append_run_to_session(
+        path=session_path,
+        workspace_root=workspace_root,
+        prompt="first",
+        thinking=None,
+        messages=[ModelRequest(parts=[UserPromptPart(content="first")])],
+        events=[
+            RunStartedEvent(run_id="run-1"),
+            RunSucceededEvent(run_id="run-1", output_text="done"),
+        ],
+    )
+    append_compaction_to_session(
+        path=session_path,
+        workspace_root=workspace_root,
+        summary=SessionCompactionSummary(
+            current_objective="ship the first draft",
+            established_facts=["The first draft was completed."],
+            user_preferences=["be concise"],
+            important_paths=["note.txt"],
+            open_questions=[],
+            unresolved_work=["Start the second run."],
+        ),
+    )
+    append_run_to_session(
+        path=session_path,
+        workspace_root=workspace_root,
+        prompt="second",
+        thinking=None,
+        messages=[ModelRequest(parts=[UserPromptPart(content="second")])],
+        events=[
+            RunStartedEvent(run_id="run-2"),
+            RunSucceededEvent(run_id="run-2", output_text="done"),
+        ],
+    )
+
+    loaded = load_session(path=session_path, workspace_root=workspace_root)
+    summary = await summarize_session_for_compaction(
+        model=FunctionModel(function=model_driven_compaction_function),
+        loaded_session=loaded,
+    )
+
+    assert summary.current_objective == "finish the second run"
+    assert summary.established_facts == [
+        "The earlier draft was shipped.",
+        "The second run is now the active context.",
+    ]
+    assert summary.user_preferences == ["be concise"]
+    assert summary.important_paths == ["note.txt", "src/app.py"]
+    assert summary.open_questions == ["Should we add retries?"]
+    assert summary.unresolved_work == ["Run the final acceptance check."]
+
+
 async def test_stream_session_run_events_auto_compacts_stale_session_before_resuming(
     tmp_path,
 ) -> None:
@@ -400,7 +534,10 @@ async def test_stream_session_run_events_auto_compacts_stale_session_before_resu
     events = [
         event
         async for event in stream_session_run_events(
-            model=FunctionModel(stream_function=text_only_stream),
+            model=FunctionModel(
+                function=auto_compaction_summary_function,
+                stream_function=text_only_stream,
+            ),
             workspace_root=workspace_root,
             session_path=session_path,
             prompt="follow-up",
@@ -417,6 +554,10 @@ async def test_stream_session_run_events_auto_compacts_stale_session_before_resu
     assert len(loaded.compactions) == 1
     assert loaded.latest_compaction is not None
     assert loaded.latest_compaction.summarized_through_run_id == "run-5"
+    assert (
+        loaded.latest_compaction.summary.current_objective
+        == "continue after auto compaction"
+    )
 
 
 async def test_stream_session_run_events_does_not_persist_partial_consumption(
