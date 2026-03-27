@@ -8,6 +8,7 @@ from typing import Any
 
 from just_another_coding_agent.contracts.thinking import ThinkingSetting
 
+from .state import UiState
 from .widgets import StatusBar, TranscriptLog
 
 
@@ -24,24 +25,23 @@ def display_path(path: Path) -> str:
     return resolved_str
 
 
-def update_status_bar(
-    status_bar: StatusBar,
-    *,
-    model: Any,
-    workspace_root: Path,
-    thinking: str | None,
-    session_id: str | None,
-) -> None:
-    """Render the current app state into the status bar."""
+def build_status_text(state: UiState) -> str:
+    """Build the current status-bar line from explicit UI state."""
     parts = [
-        f"[bold]model[/bold] {model}",
-        f"[bold]workspace[/bold] {display_path(workspace_root)}",
+        f"[bold]state[/bold] {state.phase}",
+        f"[bold]model[/bold] {state.model}",
+        f"[bold]workspace[/bold] {display_path(state.workspace_root)}",
     ]
-    if thinking:
-        parts.append(f"[bold]thinking[/bold] {thinking}")
-    if session_id:
-        parts.append(f"[bold]session[/bold] {session_id[:8]}...")
-    status_bar.update("  ".join(parts))
+    if state.thinking:
+        parts.append(f"[bold]thinking[/bold] {state.thinking}")
+    if state.session_id:
+        parts.append(f"[bold]session[/bold] {state.session_id[:8]}...")
+    return "  ".join(parts)
+
+
+def update_status_bar(status_bar: StatusBar, *, state: UiState) -> None:
+    """Render the current app state into the status bar."""
+    status_bar.update(build_status_text(state))
 
 
 def write_startup_banner(
@@ -107,6 +107,7 @@ def write_stream_event(output: TranscriptLog, event: Any) -> None:
 
 __all__ = [
     "display_path",
+    "build_status_text",
     "resolve_thinking_setting",
     "update_status_bar",
     "write_startup_banner",

@@ -26,6 +26,7 @@ from .rendering import (
     write_startup_banner,
     write_stream_event,
 )
+from .state import UiPhase, UiState
 from .widgets import APP_CSS, OutputScroll, StatusBar, TranscriptLog
 
 
@@ -49,11 +50,12 @@ class CodingAgentApp(App[None]):
         thinking: str | None = None,
     ) -> None:
         super().__init__()
-        self._model = model
-        self._workspace_root = workspace_root
         self._sessions_root = sessions_root
-        self._thinking = thinking
-        self._session_id: str | None = None
+        self._state = UiState(
+            model=model,
+            workspace_root=workspace_root,
+            thinking=thinking,
+        )
         self._streaming = False
         self._interrupt_requested = False
         self._last_interrupt_time: float = 0.0
@@ -87,20 +89,19 @@ class CodingAgentApp(App[None]):
         output = self.query_one("#output", TranscriptLog)
         write_startup_banner(
             output,
-            model=self._model,
-            workspace_root=self._workspace_root,
-            thinking=self._thinking,
+            model=self._state.model,
+            workspace_root=self._state.workspace_root,
+            thinking=self._state.thinking,
         )
 
     def _update_status_bar(self) -> None:
         status = self.query_one("#status-bar", StatusBar)
-        update_status_bar(
-            status,
-            model=self._model,
-            workspace_root=self._workspace_root,
-            thinking=self._thinking,
-            session_id=self._session_id,
-        )
+        update_status_bar(status, state=self._state)
+
+    def _set_phase(self, phase: UiPhase) -> None:
+        self._state = self._state.with_phase(phase)
+        if self.is_mounted:
+            self._update_status_bar()
 
     def action_interrupt(self) -> None:
         import time
@@ -108,6 +109,7 @@ class CodingAgentApp(App[None]):
         now = time.monotonic()
         if self._streaming:
             self._interrupt_requested = True
+            self._set_phase(UiPhase.INTERRUPTED)
             output = self.query_one("#output", TranscriptLog)
             output.write("\n")
             output.write_line("interrupted")
@@ -139,9 +141,11 @@ class CodingAgentApp(App[None]):
 
         self._streaming = True
         self._interrupt_requested = False
+        self._set_phase(UiPhase.STREAMING)
         try:
             await self._run_prompt(prompt)
         except Exception as error:
+            self._set_phase(UiPhase.ERROR)
             error_msg = str(error)
             if "api_key" in error_msg.lower():
                 output.write_line(f"ERROR: {error_msg}")
@@ -151,6 +155,8 @@ class CodingAgentApp(App[None]):
         finally:
             self._streaming = False
             self._interrupt_requested = False
+            if self._state.phase != UiPhase.ERROR:
+                self._set_phase(UiPhase.IDLE)
 
     async def _handle_slash_command(self, command: str) -> None:
         output = self.query_one("#output", TranscriptLog)
@@ -166,48 +172,51 @@ class CodingAgentApp(App[None]):
 
         elif cmd == "/model":
             if arg:
-                self._model = arg
-                output.write_line(f"model set to {self._model}")
+                self._state = self._state.with_model(arg)
+                output.write_line(f"model set to {self._state.model}")
             else:
-                output.write_line(f"model: {self._model}")
+                output.write_line(f"model: {self._state.model}")
             self._update_status_bar()
 
         elif cmd == "/thinking":
             if arg:
                 valid = {"true", "false", "minimal", "low", "medium", "high", "xhigh"}
                 if arg.lower() in valid:
-                    self._thinking = arg.lower()
-                    output.write_line(f"thinking set to {self._thinking}")
+                    self._state = self._state.with_thinking(arg.lower())
+                    output.write_line(f"thinking set to {self._state.thinking}")
                 else:
                     output.write_line(
                         f"ERROR: invalid. use: {', '.join(sorted(valid))}"
                     )
             else:
-                output.write_line(f"thinking: {self._thinking or 'default'}")
+                output.write_line(f"thinking: {self._state.thinking or 'default'}")
             self._update_status_bar()
 
         elif cmd == "/workspace":
-            output.write_line(f"workspace: {display_path(self._workspace_root)}")
+            output.write_line(f"workspace: {display_path(self._state.workspace_root)}")
 
         elif cmd == "/session":
-            if self._session_id:
-                output.write_line(f"session: {self._session_id}")
+            if self._state.session_id:
+                output.write_line(f"session: {self._state.session_id}")
             else:
                 output.write_line("no active session")
 
         elif cmd == "/compact":
-            if self._session_id is None:
+            if self._state.session_id is None:
                 output.write_line("ERROR: no active session")
                 return
+            self._set_phase(UiPhase.COMPACTING)
             output.write_line("compacting...")
             try:
                 await self._compact_session()
+                self._set_phase(UiPhase.IDLE)
                 output.write_line("session compacted")
             except Exception as error:
+                self._set_phase(UiPhase.ERROR)
                 output.write_line(f"ERROR: compaction failed: {error}")
 
         elif cmd == "/new":
-            self._session_id = None
+            self._state = self._state.with_session_id(None).with_phase(UiPhase.IDLE)
             output.write_line("session cleared")
             self._update_status_bar()
 
@@ -225,12 +234,12 @@ class CodingAgentApp(App[None]):
 
         session_path = session_path_for_id(
             sessions_root=self._sessions_root,
-            session_id=self._session_id,
+            session_id=self._state.session_id,
         )
         await summarize_and_append_compaction_to_session(
-            model=self._model,
+            model=self._state.model,
             path=session_path,
-            workspace_root=self._workspace_root,
+            workspace_root=self._state.workspace_root,
         )
 
     async def _run_prompt(self, prompt: str) -> None:
@@ -243,25 +252,26 @@ class CodingAgentApp(App[None]):
             stream_session_run_events,
         )
 
-        if self._session_id is None:
-            self._session_id = create_session(
+        if self._state.session_id is None:
+            session_id = create_session(
                 sessions_root=self._sessions_root,
-                workspace_root=self._workspace_root,
+                workspace_root=self._state.workspace_root,
             )
+            self._state = self._state.with_session_id(session_id)
             self._update_status_bar()
 
         session_path = session_path_for_id(
             sessions_root=self._sessions_root,
-            session_id=self._session_id,
+            session_id=self._state.session_id,
         )
 
-        thinking = resolve_thinking_setting(self._thinking)
+        thinking = resolve_thinking_setting(self._state.thinking)
 
         output = self.query_one("#output", TranscriptLog)
 
         async for event in stream_session_run_events(
-            model=self._model,
-            workspace_root=self._workspace_root,
+            model=self._state.model,
+            workspace_root=self._state.workspace_root,
             session_path=session_path,
             prompt=prompt,
             thinking=thinking,
@@ -269,6 +279,9 @@ class CodingAgentApp(App[None]):
             if self._interrupt_requested:
                 output.write_line("stream interrupted")
                 break
+
+            if event.type == "run_failed":
+                self._set_phase(UiPhase.ERROR)
 
             write_stream_event(output, event)
 

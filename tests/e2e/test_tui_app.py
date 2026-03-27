@@ -6,6 +6,7 @@ from textual.widgets import Input
 
 from just_another_coding_agent.tui.app import CodingAgentApp
 from just_another_coding_agent.tui.rendering import write_stream_event
+from just_another_coding_agent.tui.state import UiPhase
 from just_another_coding_agent.tui.widgets import OutputScroll, StatusBar, TranscriptLog
 
 
@@ -113,3 +114,28 @@ async def test_prompt_submission_keeps_spaces_and_streams_single_line(
         transcript = app.query_one("#output", TranscriptLog)
         assert "> hello world" in transcript.lines
         assert "Hello world" in transcript.lines
+
+
+@pytest.mark.asyncio
+async def test_status_bar_updates_for_explicit_ui_states(tmp_path: Path) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    sessions_root.mkdir()
+
+    app = CodingAgentApp(
+        model="ollama:test",
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+        thinking=None,
+    )
+
+    async with app.run_test() as _pilot:
+        status_bar = app.query_one("#status-bar", StatusBar)
+        assert "idle" in str(status_bar.renderable)
+
+        app._set_phase(UiPhase.STREAMING)
+        assert "streaming" in str(status_bar.renderable)
+
+        app._set_phase(UiPhase.ERROR)
+        assert "error" in str(status_bar.renderable)
