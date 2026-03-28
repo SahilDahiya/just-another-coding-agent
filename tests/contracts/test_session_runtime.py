@@ -229,6 +229,38 @@ async def compacted_history_probe_stream(
     yield "done"
 
 
+def make_live_compaction_probe_stream(observed: dict[str, object]):
+    call_count = 0
+
+    async def live_compaction_probe_stream(
+        messages: list[ModelMessage],
+        _agent_info: object,
+    ) -> AsyncIterator[dict[int, DeltaToolCall] | str]:
+        nonlocal call_count
+        call_count += 1
+
+        if call_count == 1:
+            yield {
+                0: DeltaToolCall(
+                    name="read",
+                    json_args='{"path": "big.txt"}',
+                    tool_call_id="call-read",
+                )
+            }
+            return
+
+        tool_returns = [
+            part
+            for part in _all_parts(messages)
+            if isinstance(part, ToolReturnPart) and part.tool_name == "read"
+        ]
+        assert len(tool_returns) == 1
+        observed["compacted_tool_return"] = tool_returns[0].content
+        yield "done"
+
+    return live_compaction_probe_stream
+
+
 async def test_stream_session_run_events_persists_authoritative_session(
     tmp_path,
 ) -> None:
@@ -687,6 +719,64 @@ async def test_stream_session_run_events_auto_compacts_stale_session_before_resu
         loaded.latest_compaction.summary.current_objective
         == "continue after auto compaction"
     )
+
+
+async def test_live_compaction_preserves_raw_persisted_messages(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    session_path = tmp_path / "session.jsonl"
+    big_lines = [f"line-{index:04d} abcdefghijklmnopqrstuvwxyz" for index in range(80)]
+    big_content = "\n".join(big_lines) + "\n"
+    (workspace_root / "big.txt").write_text(big_content, encoding="utf-8")
+
+    observed: dict[str, object] = {}
+    monkeypatch.setattr(
+        "just_another_coding_agent.runtime.compaction."
+        "IN_RUN_COMPACTION_SOFT_CHAR_LIMIT",
+        400,
+    )
+
+    events = [
+        event
+        async for event in stream_session_run_events(
+            model=FunctionModel(
+                stream_function=make_live_compaction_probe_stream(observed)
+            ),
+            workspace_root=workspace_root,
+            session_path=session_path,
+            prompt="inspect the big file",
+        )
+    ]
+
+    assert [event.type for event in events] == [
+        "run_started",
+        "tool_call_started",
+        "tool_call_succeeded",
+        "assistant_text_delta",
+        "run_succeeded",
+    ]
+
+    compacted_tool_return = observed["compacted_tool_return"]
+    assert isinstance(compacted_tool_return, str)
+    assert compacted_tool_return.startswith("Compacted historical read result")
+    assert "big.txt" in compacted_tool_return
+    assert "80 lines" in compacted_tool_return
+    assert "line-0000 abcdefghijklmnopqrstuvwxyz" not in compacted_tool_return
+
+    loaded = load_session(path=session_path, workspace_root=workspace_root)
+    persisted_tool_returns = [
+        part
+        for part in _all_parts(loaded.runs[0].messages)
+        if isinstance(part, ToolReturnPart) and part.tool_name == "read"
+    ]
+    assert len(persisted_tool_returns) == 1
+    persisted_tool_return = persisted_tool_returns[0].content
+    assert isinstance(persisted_tool_return, str)
+    assert persisted_tool_return.startswith("line-0000 abcdefghijklmnopqrstuvwxyz")
+    assert "Compacted historical read result" not in persisted_tool_return
 
 
 async def test_stream_session_run_events_persists_incomplete_partial_consumption(

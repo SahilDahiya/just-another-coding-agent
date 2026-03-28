@@ -12,6 +12,7 @@ from just_another_coding_agent.contracts.tools import CANONICAL_TOOL_NAMES
 from just_another_coding_agent.runtime.agent import build_canonical_agent
 from just_another_coding_agent.runtime.compaction import (
     build_session_history_processor,
+    restore_in_run_compaction_from_messages,
     should_auto_compact_session,
     strip_compaction_summary_from_messages,
     summarize_and_append_compaction_to_session,
@@ -109,7 +110,9 @@ async def stream_session_run_events(
 
     if run_appender is not None:
         run_appender.finalize(
-            messages=strip_compaction_summary_from_messages(list(messages))
+            messages=restore_in_run_compaction_from_messages(
+                strip_compaction_summary_from_messages(list(messages))
+            )
         )
 
 

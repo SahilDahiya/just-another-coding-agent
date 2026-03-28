@@ -1,4 +1,5 @@
 from collections.abc import AsyncIterator
+from contextlib import nullcontext
 
 from pydantic_ai import Agent, AgentRunResult, AgentRunResultEvent
 from pydantic_ai.models.function import DeltaToolCall, FunctionModel
@@ -87,6 +88,9 @@ class RecordingStreamAgent:
         self.last_usage_limits = None
         self.model = model
 
+    def parallel_tool_call_execution_mode(self, _mode: str):
+        return nullcontext()
+
     async def run_stream_events(
         self,
         _prompt: str,
@@ -171,7 +175,10 @@ async def test_stream_run_events_can_enable_openai_server_history() -> None:
     ]
 
     assert [event.type for event in events] == ["run_started", "run_succeeded"]
-    assert agent.last_model_settings == {"openai_previous_response_id": "auto"}
+    assert agent.last_model_settings == {
+        "openai_previous_response_id": "auto",
+        "parallel_tool_calls": True,
+    }
 
 
 async def test_stream_run_events_passes_explicit_unbounded_usage_limits() -> None:

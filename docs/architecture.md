@@ -77,7 +77,11 @@ Important boundary:
 
 ## Compaction Direction
 
-Compaction is the answer for long-lived session growth, not for bounding a live run.
+Compaction has two distinct roles:
+
+- durable compaction manages long-lived session growth across runs
+- run-local compaction uses `history_processors` to reduce live-run context
+  pressure without changing the durable session record
 
 Current sequence:
 
@@ -90,10 +94,14 @@ Current sequence:
 The important boundary is:
 
 - compaction manages cross-run session size
-- it does not replace external timeouts for live runs
+- run-local compaction can shrink historical tool output inside one live run,
+  but it does not replace external timeouts for long-running work
 - the runtime uses a separate model call to generate the durable compaction summary
 - durable compaction state lives in our session file, while PydanticAI
   `history_processors` are the runtime seam that applies the compacted view
+- if run-local history compaction rewrites current-run tool-return content for
+  the model, the persistence layer must restore the original raw tool-return
+  content before `session_messages` are written
 - `run.start` on an existing session is the canonical continue operation; there is no second continue command today
 - `stream_run_events()` may hide one retryable transient failure before any public stream event escapes, but once assistant text or tool lifecycle events have been emitted the runtime does not retry automatically
 

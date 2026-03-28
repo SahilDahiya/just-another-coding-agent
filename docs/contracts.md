@@ -385,6 +385,9 @@ Ordering rules for the session slice:
 - Authoritative session loads must provide the expected workspace root and it must match the persisted `session_header.workspace_root` exactly
 - Session resume semantics must reconstruct effective conversation context from the latest compaction summary plus retained `session_messages` after that summary boundary when a compaction entry exists; otherwise they replay all persisted `session_messages` in chronological order
 - Runtime compaction must be applied through PydanticAI `history_processors` while keeping the durable session file in full-fidelity append-only form
+- Run-local history processors may compact current-run tool-return content for
+  the model when context pressure grows, but the persistence layer must restore
+  the original raw tool-return content before writing `session_messages`
 - `session.compact` and automatic compaction must generate summaries through a model call; the persistence layer must not invent placeholder summaries locally
 - When a new run omits `thinking`, the session-backed runtime inherits the most recent persisted non-null thinking setting from that session
 - Session-backed runtime streaming must append `session_run` and `session_event` entries incrementally as the run streams and append `session_messages` only after terminal completion

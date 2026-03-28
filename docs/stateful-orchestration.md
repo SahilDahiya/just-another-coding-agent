@@ -102,6 +102,11 @@ Today that means:
 - the runtime generates each compaction summary through a separate model call
 - resumed runs inject a synthetic compaction-summary message at runtime and keep
   only native messages after the latest compaction boundary
+- live runs may also compact historical tool-return content at runtime through a
+  history processor when context pressure grows
+- if a live-run processor rewrites current-run tool-return content for the
+  model, the persistence layer must restore the original raw tool-return
+  content before `session_messages` are written
 - that synthetic summary is stripped back out before the new run's
   `session_messages` are persisted
 
