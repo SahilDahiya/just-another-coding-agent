@@ -1,24 +1,24 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_ROOT"
 
-FULL_LAUNCHER="$REPO_ROOT/scripts/run_tb2_submission_glm5.sh"
-SLICE_LAUNCHER="$REPO_ROOT/scripts/run_tb2_submission_glm5_slice.sh"
+FULL_LAUNCHER="$REPO_ROOT/evaluations/scripts/run_tb2_submission_glm5.sh"
+SLICE_LAUNCHER="$REPO_ROOT/evaluations/scripts/run_tb2_submission_glm5_slice.sh"
 
 usage() {
   cat <<'EOF'
 Usage:
-  scripts/tb2_glm5.sh run <submission-id> [--passes N] [task-file ...]
-  scripts/tb2_glm5.sh status <submission-id> [task-file ...]
+  evaluations/scripts/tb2_glm5.sh run <submission-id> [--passes N] [task-file ...]
+  evaluations/scripts/tb2_glm5.sh status <submission-id> [task-file ...]
 
 Examples:
-  scripts/tb2_glm5.sh run glm5-high
-  scripts/tb2_glm5.sh status glm5-high
-  scripts/tb2_glm5.sh run glm5-high tasks/a.txt tasks/b.txt
-  scripts/tb2_glm5.sh status glm5-high tasks/a.txt
-  scripts/tb2_glm5.sh run glm5-high --passes 2 tasks/a.txt
+  evaluations/scripts/tb2_glm5.sh run glm5-high
+  evaluations/scripts/tb2_glm5.sh status glm5-high
+  evaluations/scripts/tb2_glm5.sh run glm5-high tasks/a.txt tasks/b.txt
+  evaluations/scripts/tb2_glm5.sh status glm5-high tasks/a.txt
+  evaluations/scripts/tb2_glm5.sh run glm5-high --passes 2 tasks/a.txt
 EOF
 }
 

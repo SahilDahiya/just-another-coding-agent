@@ -169,23 +169,23 @@ Notes:
 For day-to-day use, prefer the short harness:
 
 ```bash
-scripts/tb2_glm5.sh
+evaluations/scripts/tb2_glm5.sh
 ```
 
 It wraps the longer launchers and gives you two commands:
 
 ```bash
 # Full-dataset run/status.
-scripts/tb2_glm5.sh run <submission-id>
-scripts/tb2_glm5.sh status <submission-id>
+evaluations/scripts/tb2_glm5.sh run <submission-id>
+evaluations/scripts/tb2_glm5.sh status <submission-id>
 
 # One or more slices from task files.
-scripts/tb2_glm5.sh run <submission-id> tasks/a.txt
-scripts/tb2_glm5.sh status <submission-id> tasks/a.txt
-scripts/tb2_glm5.sh run <submission-id> tasks/a.txt tasks/b.txt tasks/c.txt
+evaluations/scripts/tb2_glm5.sh run <submission-id> tasks/a.txt
+evaluations/scripts/tb2_glm5.sh status <submission-id> tasks/a.txt
+evaluations/scripts/tb2_glm5.sh run <submission-id> tasks/a.txt tasks/b.txt tasks/c.txt
 
 # Optional number of passes to run in one invocation.
-scripts/tb2_glm5.sh run <submission-id> --passes 2 tasks/a.txt
+evaluations/scripts/tb2_glm5.sh run <submission-id> --passes 2 tasks/a.txt
 ```
 
 What it does:
@@ -199,16 +199,16 @@ Examples:
 
 ```bash
 # Run the next full pass.
-scripts/tb2_glm5.sh run glm5-high
+evaluations/scripts/tb2_glm5.sh run glm5-high
 
 # Check full-bundle status.
-scripts/tb2_glm5.sh status glm5-high
+evaluations/scripts/tb2_glm5.sh status glm5-high
 
 # Run one pass for three fixed slices.
-scripts/tb2_glm5.sh run glm5-high tasks/a.txt tasks/b.txt tasks/c.txt
+evaluations/scripts/tb2_glm5.sh run glm5-high tasks/a.txt tasks/b.txt tasks/c.txt
 
 # Check one slice.
-scripts/tb2_glm5.sh status glm5-high tasks/a.txt
+evaluations/scripts/tb2_glm5.sh status glm5-high tasks/a.txt
 ```
 
 Starter slice files can live at:
@@ -223,7 +223,7 @@ For the full Terminal Bench 2.0 submission-style GLM-5 run, use the checked-in
 launcher:
 
 ```bash
-scripts/run_tb2_submission_glm5.sh
+evaluations/scripts/run_tb2_submission_glm5.sh
 ```
 
 What it does:
@@ -246,16 +246,16 @@ Useful knobs:
 
 ```bash
 # Show bundle status without starting Harbor.
-ACTION=status scripts/run_tb2_submission_glm5.sh
+ACTION=status evaluations/scripts/run_tb2_submission_glm5.sh
 
 # Use a stable bundle id across reruns.
-SUBMISSION_ID=glm5-high scripts/run_tb2_submission_glm5.sh
+SUBMISSION_ID=glm5-high evaluations/scripts/run_tb2_submission_glm5.sh
 
 # Run two completed passes in one invocation.
-PASSES_PER_RUN=2 scripts/run_tb2_submission_glm5.sh
+PASSES_PER_RUN=2 evaluations/scripts/run_tb2_submission_glm5.sh
 
 # Change the target number of trials per task.
-TARGET_TRIALS=5 scripts/run_tb2_submission_glm5.sh
+TARGET_TRIALS=5 evaluations/scripts/run_tb2_submission_glm5.sh
 ```
 
 Submission guidance:
@@ -273,7 +273,7 @@ If you want to submit in batches, use the slice launcher:
 
 ```bash
 TASK_FILE=tasks/slice-a.txt SUBMISSION_ID=glm5-high \
-scripts/run_tb2_submission_glm5_slice.sh
+evaluations/scripts/run_tb2_submission_glm5_slice.sh
 ```
 
 The task file must be newline-delimited:
@@ -305,15 +305,15 @@ Useful commands:
 ```bash
 # Show status for one slice.
 ACTION=status TASK_FILE=tasks/slice-a.txt SUBMISSION_ID=glm5-high \
-scripts/run_tb2_submission_glm5_slice.sh
+evaluations/scripts/run_tb2_submission_glm5_slice.sh
 
 # Run two slice passes back-to-back.
 PASSES_PER_RUN=2 TASK_FILE=tasks/slice-a.txt SUBMISSION_ID=glm5-high \
-scripts/run_tb2_submission_glm5_slice.sh
+evaluations/scripts/run_tb2_submission_glm5_slice.sh
 
 # Override the derived slice name if needed.
 SLICE_NAME=first-50 TASK_FILE=tasks/slice-a.txt SUBMISSION_ID=glm5-high \
-scripts/run_tb2_submission_glm5_slice.sh
+evaluations/scripts/run_tb2_submission_glm5_slice.sh
 ```
 
 Submission guidance for slices:
