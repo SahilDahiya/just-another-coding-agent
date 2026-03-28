@@ -44,10 +44,11 @@ uv run ruff check .
 uv run pytest
 ```
 
-The default install path stays Python-only so Harbor and headless evaluation
-installs do not require Go.
+That default `uv sync --extra dev --extra test` path is for the Python backend,
+Harbor, and headless evaluation flows. It stays Go-free.
 
-To install the interactive Go TUI locally, build it explicitly:
+If you want the interactive TUI too, rebuild the package explicitly with Go
+enabled:
 
 ```bash
 JACA_BUILD_TUI=1 uv sync --reinstall-package just-another-coding-agent --extra dev --extra test
