@@ -1,5 +1,9 @@
+from just_another_coding_agent.contracts.run_events import ToolActivity
 from just_another_coding_agent.contracts.tools import CANONICAL_TOOL_NAMES
-from just_another_coding_agent.runtime.activity import build_started_tool_activity
+from just_another_coding_agent.runtime.activity import (
+    build_started_tool_activity,
+    build_succeeded_tool_activity,
+)
 
 _SAMPLE_ARGS_BY_TOOL: dict[str, dict[str, object]] = {
     "read": {"path": "note.txt", "offset": 1, "limit": 10},
@@ -31,3 +35,35 @@ def test_activity_metadata_covers_every_canonical_tool() -> None:
 
         assert activity.details is not None
         assert activity.details.kind == tool_name
+
+
+def test_succeeded_activity_prefers_tool_owned_metadata() -> None:
+    activity = build_succeeded_tool_activity(
+        tool_name="read",
+        args={"path": "wrong.txt"},
+        args_valid=True,
+        result="hello\nworld\n",
+        result_metadata={
+            "title": "read note.txt",
+            "summary": "read completed",
+            "details": {
+                "kind": "read",
+                "path": "note.txt",
+                "offset": 2,
+                "limit": 5,
+            },
+        },
+        duration_ms=12,
+    )
+
+    assert activity == ToolActivity(
+        title="read note.txt",
+        summary="read completed",
+        duration_ms=12,
+        details={
+            "kind": "read",
+            "path": "note.txt",
+            "offset": 2,
+            "limit": 5,
+        },
+    )

@@ -150,6 +150,7 @@ Initial executable tool slice:
 - preserves a leading UTF-8 BOM when present
 - restores the file's original line-ending style after writing
 - when normalized fallback is used, matching is computed in normalized space but replacement is applied to the original LF-normalized file content so unmatched surrounding text is preserved
+- on success, the model-facing tool result remains a short confirmation string, while any UI-only diff payload must travel through a separate internal metadata channel and be normalized into typed activity details before it becomes part of the public contract
 
 `bash` input contract:
 
@@ -302,7 +303,7 @@ Initial typed `details` slice:
 - `write`
   - `kind`, `path`, `bytes_written`
 - `edit`
-  - `kind`, `path`
+  - `kind`, `path`, `diff`, `added_lines`, `removed_lines`
 - `grep`
   - `kind`, `pattern`, `path`, `glob`, `ignore_case`, `literal`, `limit`
 - `ls`
@@ -314,10 +315,12 @@ Rules for the initial activity slice:
 
 - v1 remains within the existing event families; no group or timeline events are added
 - `activity` must be derived from canonical tool semantics in the backend, not guessed in the frontend
+- canonical tool success activity should be owned by the tools themselves and passed through an internal carrier such as `ToolReturn.metadata`; the runtime validates and normalizes that metadata before emitting public events
 - v1 must only expose metadata that is derivable from current structured args/results
 - no untyped `artifacts` bag
 - no absolute timestamps in the persisted public event contract
 - existing consumers that ignore `activity` must continue to work unchanged
+- framework-native carriers such as `ToolReturn.metadata` are allowed internally, but they are not themselves part of the public contract; the public contract begins only after the runtime validates and maps that data into typed `activity.details`
 
 Ordering rules for the tool slice:
 

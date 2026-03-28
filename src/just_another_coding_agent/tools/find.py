@@ -6,8 +6,13 @@ from pathlib import Path, PurePosixPath
 
 from pydantic_ai import RunContext, Tool
 
+from just_another_coding_agent.contracts.run_events import FindActivityDetails
 from just_another_coding_agent.contracts.tools import (
     FindToolInput,
+)
+from just_another_coding_agent.tools._activity import (
+    make_tool_return,
+    truncate_activity_label,
 )
 from just_another_coding_agent.tools._workspace import resolve_workspace_path
 from just_another_coding_agent.tools.deps import WorkspaceDeps
@@ -123,9 +128,15 @@ def find(
             ceiling is applied.
     """
 
-    return execute_find(
+    result = execute_find(
         tool_input=FindToolInput(pattern=pattern, path=path, limit=limit),
         workspace_root=ctx.deps.workspace_root,
+    )
+    return make_tool_return(
+        return_value=result,
+        title=f"find {truncate_activity_label(pattern)}",
+        summary="find completed",
+        details=FindActivityDetails(pattern=pattern, path=path, limit=limit),
     )
 
 

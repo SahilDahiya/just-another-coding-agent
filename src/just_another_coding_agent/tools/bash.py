@@ -8,8 +8,13 @@ from pathlib import Path
 
 from pydantic_ai import RunContext, Tool
 
+from just_another_coding_agent.contracts.run_events import BashActivityDetails
 from just_another_coding_agent.contracts.tools import (
     BashToolInput,
+)
+from just_another_coding_agent.tools._activity import (
+    make_tool_return,
+    truncate_activity_label,
 )
 from just_another_coding_agent.tools.deps import WorkspaceDeps
 from just_another_coding_agent.tools.errors import (
@@ -237,10 +242,20 @@ async def bash(
         timeout: Optional timeout in seconds before the command is stopped.
     """
 
-    return await execute_bash(
+    result = await execute_bash(
         ctx=ctx,
         tool_input=BashToolInput(command=command, timeout=timeout),
         workspace_root=ctx.deps.workspace_root,
+    )
+    return make_tool_return(
+        return_value=result,
+        title=f"bash {truncate_activity_label(command)}",
+        summary=f"command exited {result['exit_code']}",
+        details=BashActivityDetails(
+            command_preview=truncate_activity_label(command),
+            timeout=timeout,
+            exit_code=result["exit_code"],
+        ),
     )
 
 

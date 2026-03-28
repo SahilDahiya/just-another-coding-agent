@@ -4,8 +4,13 @@ from pathlib import Path
 
 from pydantic_ai import RunContext, Tool
 
+from just_another_coding_agent.contracts.run_events import WriteActivityDetails
 from just_another_coding_agent.contracts.tools import (
     WriteToolInput,
+)
+from just_another_coding_agent.tools._activity import (
+    make_tool_return,
+    truncate_activity_label,
 )
 from just_another_coding_agent.tools._workspace import resolve_workspace_path
 from just_another_coding_agent.tools.deps import WorkspaceDeps
@@ -33,9 +38,18 @@ def write(ctx: RunContext[WorkspaceDeps], path: str, content: str) -> str:
         content: Full UTF-8 file contents to write.
     """
 
-    return execute_write(
+    result = execute_write(
         tool_input=WriteToolInput(path=path, content=content),
         workspace_root=ctx.deps.workspace_root,
+    )
+    return make_tool_return(
+        return_value=result,
+        title=f"write {truncate_activity_label(path)}",
+        summary="wrote file",
+        details=WriteActivityDetails(
+            path=path,
+            bytes_written=len(content.encode("utf-8")),
+        ),
     )
 
 

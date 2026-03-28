@@ -4,8 +4,13 @@ from pathlib import Path
 
 from pydantic_ai import RunContext, Tool
 
+from just_another_coding_agent.contracts.run_events import LsActivityDetails
 from just_another_coding_agent.contracts.tools import (
     LsToolInput,
+)
+from just_another_coding_agent.tools._activity import (
+    make_tool_return,
+    truncate_activity_label,
 )
 from just_another_coding_agent.tools._workspace import resolve_workspace_path
 from just_another_coding_agent.tools.deps import WorkspaceDeps
@@ -80,9 +85,16 @@ def ls(
             ceiling is applied.
     """
 
-    return execute_ls(
+    result = execute_ls(
         tool_input=LsToolInput(path=path, limit=limit),
         workspace_root=ctx.deps.workspace_root,
+    )
+    title = "ls ." if path is None else f"ls {truncate_activity_label(path)}"
+    return make_tool_return(
+        return_value=result,
+        title=title,
+        summary="listing completed",
+        details=LsActivityDetails(path=path, limit=limit),
     )
 
 

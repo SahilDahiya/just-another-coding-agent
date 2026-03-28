@@ -7,8 +7,13 @@ from pathlib import Path
 
 from pydantic_ai import RunContext, Tool
 
+from just_another_coding_agent.contracts.run_events import GrepActivityDetails
 from just_another_coding_agent.contracts.tools import (
     GrepToolInput,
+)
+from just_another_coding_agent.tools._activity import (
+    make_tool_return,
+    truncate_activity_label,
 )
 from just_another_coding_agent.tools._workspace import resolve_workspace_path
 from just_another_coding_agent.tools.deps import WorkspaceDeps
@@ -185,7 +190,7 @@ def grep(
             ceiling is applied.
     """
 
-    return execute_grep(
+    result = execute_grep(
         tool_input=GrepToolInput(
             pattern=pattern,
             path=path,
@@ -195,6 +200,19 @@ def grep(
             limit=limit,
         ),
         workspace_root=ctx.deps.workspace_root,
+    )
+    return make_tool_return(
+        return_value=result,
+        title=f"grep {truncate_activity_label(pattern)}",
+        summary="search completed",
+        details=GrepActivityDetails(
+            pattern=pattern,
+            path=path,
+            glob=glob,
+            ignore_case=ignore_case,
+            literal=literal,
+            limit=limit,
+        ),
     )
 
 

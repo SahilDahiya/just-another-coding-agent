@@ -4,8 +4,13 @@ from pathlib import Path
 
 from pydantic_ai import RunContext, Tool
 
+from just_another_coding_agent.contracts.run_events import ReadActivityDetails
 from just_another_coding_agent.contracts.tools import (
     ReadToolInput,
+)
+from just_another_coding_agent.tools._activity import (
+    make_tool_return,
+    truncate_activity_label,
 )
 from just_another_coding_agent.tools._workspace import resolve_workspace_path
 from just_another_coding_agent.tools.deps import WorkspaceDeps
@@ -103,9 +108,15 @@ def read(
             truncation ceiling.
     """
 
-    return execute_read(
+    result = execute_read(
         tool_input=ReadToolInput(path=path, offset=offset, limit=limit),
         workspace_root=ctx.deps.workspace_root,
+    )
+    return make_tool_return(
+        return_value=result,
+        title=f"read {truncate_activity_label(path)}",
+        summary="read completed",
+        details=ReadActivityDetails(path=path, offset=offset, limit=limit),
     )
 
 
