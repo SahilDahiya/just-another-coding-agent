@@ -117,8 +117,20 @@ def build_tool_preview(
     args: Any,
     *,
     args_valid: bool | None,
+    activity: Any | None = None,
 ) -> str | None:
     """Build a short human-readable preview for a tool call."""
+    activity_title = getattr(activity, "title", None)
+    if isinstance(activity_title, str):
+        normalized_title = " ".join(activity_title.split())
+        if normalized_title == tool_name:
+            return None
+        prefix = f"{tool_name} "
+        if normalized_title.startswith(prefix):
+            return normalized_title[len(prefix) :]
+        if normalized_title:
+            return normalized_title
+
     if args_valid is False or not isinstance(args, dict):
         return None
     if tool_name == "bash":
@@ -139,6 +151,16 @@ def build_tool_preview(
     if isinstance(value, str) and value.strip():
         return _truncate_inline(value)
     return None
+
+
+def build_tool_summary(activity: Any | None, fallback: str | None = None) -> str | None:
+    """Prefer backend-owned activity summaries over transport-level text."""
+    activity_summary = getattr(activity, "summary", None)
+    if isinstance(activity_summary, str):
+        normalized_summary = " ".join(activity_summary.split())
+        if normalized_summary:
+            return normalized_summary
+    return fallback
 
 
 def _truncate_inline(text: str, *, limit: int = 56) -> str:
@@ -165,6 +187,7 @@ def write_stream_event(output: TranscriptLog, event: Any) -> None:
     if event.type == "assistant_text_delta":
         output.append_live_text(event.delta)  # type: ignore[union-attr]
     elif event.type == "tool_call_started":
+        activity = getattr(event, "activity", None)
         output.start_tool_activity(
             event.tool_call_id,  # type: ignore[union-attr]
             event.tool_name,  # type: ignore[union-attr]
@@ -172,23 +195,37 @@ def write_stream_event(output: TranscriptLog, event: Any) -> None:
                 event.tool_name,  # type: ignore[union-attr]
                 event.args,  # type: ignore[union-attr]
                 args_valid=event.args_valid,  # type: ignore[union-attr]
+                activity=activity,
             ),
         )
     elif event.type == "tool_call_succeeded":
+        activity = getattr(event, "activity", None)
         result = event.result  # type: ignore[union-attr]
         if isinstance(result, dict) and result.get("ok") is False:
             output.fail_tool_activity(
                 event.tool_call_id,  # type: ignore[union-attr]
                 event.tool_name,  # type: ignore[union-attr]
-                str(result.get("message", "")),
+                build_tool_summary(
+                    activity,
+                    str(result.get("message", "")),
+                )
+                or "tool error",
             )
         else:
-            output.finish_tool_activity(event.tool_call_id)  # type: ignore[union-attr]
+            output.finish_tool_activity(
+                event.tool_call_id,  # type: ignore[union-attr]
+                build_tool_summary(activity),
+            )
     elif event.type == "tool_call_failed":
+        activity = getattr(event, "activity", None)
         output.fail_tool_activity(
             event.tool_call_id,  # type: ignore[union-attr]
             event.tool_name,  # type: ignore[union-attr]
-            event.message,  # type: ignore[union-attr]
+            build_tool_summary(
+                activity,
+                event.message,  # type: ignore[union-attr]
+            )
+            or "tool failure",
         )
     elif event.type == "run_failed":
         output.end_live_text()
@@ -205,6 +242,7 @@ __all__ = [
     "build_prompt_marker_text",
     "build_status_text",
     "build_tool_preview",
+    "build_tool_summary",
     "resolve_thinking_setting",
     "update_status_bar",
     "write_startup_banner",

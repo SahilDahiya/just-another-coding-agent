@@ -61,6 +61,7 @@ agenda.
 - The transcript is the single durable surface for all work: prompts, streaming assistant output, tool activity, warnings, and errors.
 - Tool activity should collapse into terse, useful rows instead of printing repetitive lifecycle noise.
 - Tool rows should prefer one row per action with a short preview and outcome, not anonymous repeated tool labels.
+- Tool rows should treat backend `activity.title` and `activity.summary` as the authoritative label/summary when those fields are present.
 - Completed assistant turns should settle into readable prose/Markdown instead of remaining raw streamed text.
 - The prompt is the single input surface for chat and slash commands.
 - Composer ergonomics should favor shell-like recall over editor-like complexity.

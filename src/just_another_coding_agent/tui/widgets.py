@@ -189,7 +189,11 @@ class TranscriptLog(RichLog):
         )
         self._rerender()
 
-    def finish_tool_activity(self, tool_call_id: str) -> None:
+    def finish_tool_activity(
+        self,
+        tool_call_id: str,
+        summary: str | None = None,
+    ) -> None:
         """Mark one tool row as completed successfully."""
         tool_row = self._tool_rows.pop(tool_call_id, None)
         if tool_row is None:
@@ -198,6 +202,7 @@ class TranscriptLog(RichLog):
             tool_name=tool_row.tool_name,
             preview=tool_row.preview,
             outcome="ok",
+            message=summary if tool_row.preview is None else None,
         )
         self._parts[tool_row.index] = TranscriptPart(line, line)
         self._rerender()

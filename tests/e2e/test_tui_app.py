@@ -317,8 +317,12 @@ async def test_tool_activity_rows_show_preview_and_success_state(
                 type="tool_call_started",
                 tool_name="bash",
                 tool_call_id="call-1",
-                args={"command": "git show HEAD --stat"},
+                args={"command": "echo stale preview"},
                 args_valid=True,
+                activity=SimpleNamespace(
+                    title="bash git show HEAD --stat",
+                    summary=None,
+                ),
             ),
         )
         write_stream_event(
@@ -328,10 +332,15 @@ async def test_tool_activity_rows_show_preview_and_success_state(
                 tool_name="bash",
                 tool_call_id="call-1",
                 result={"ok": True},
+                activity=SimpleNamespace(
+                    title="bash git show HEAD --stat",
+                    summary="command exited 0",
+                ),
             ),
         )
 
         assert "bash ok  git show HEAD --stat" in transcript.plain_text
+        assert "echo stale preview" not in transcript.plain_text
         assert "bash x2" not in transcript.plain_text
         assert "tool bash" not in transcript.plain_text
 
@@ -360,8 +369,12 @@ async def test_file_tool_rows_use_path_preview_and_success_state(
                 type="tool_call_started",
                 tool_name="write",
                 tool_call_id="call-write",
-                args={"path": "notes/plan.md", "content": "hello"},
+                args={"path": "wrong/path.md", "content": "hello"},
                 args_valid=True,
+                activity=SimpleNamespace(
+                    title="write notes/plan.md",
+                    summary=None,
+                ),
             ),
         )
         write_stream_event(
@@ -371,10 +384,15 @@ async def test_file_tool_rows_use_path_preview_and_success_state(
                 tool_name="write",
                 tool_call_id="call-write",
                 result="Wrote /tmp/workspace/notes/plan.md",
+                activity=SimpleNamespace(
+                    title="write notes/plan.md",
+                    summary="wrote file",
+                ),
             ),
         )
 
         assert "write ok  notes/plan.md" in transcript.plain_text
+        assert "wrong/path.md" not in transcript.plain_text
 
 
 @pytest.mark.asyncio
@@ -401,8 +419,12 @@ async def test_tool_failures_render_as_preview_aware_error_rows(
                 type="tool_call_started",
                 tool_name="bash",
                 tool_call_id="call-1",
-                args={"command": "pytest -q"},
+                args={"command": "echo stale preview"},
                 args_valid=True,
+                activity=SimpleNamespace(
+                    title="bash pytest -q",
+                    summary=None,
+                ),
             ),
         )
         write_stream_event(
@@ -412,7 +434,11 @@ async def test_tool_failures_render_as_preview_aware_error_rows(
                 tool_name="bash",
                 tool_call_id="call-1",
                 error_type="RuntimeError",
-                message="Command timed out after 60 seconds",
+                message="raw runtime message",
+                activity=SimpleNamespace(
+                    title="bash pytest -q",
+                    summary="Command timed out after 60 seconds",
+                ),
             ),
         )
 
@@ -420,6 +446,65 @@ async def test_tool_failures_render_as_preview_aware_error_rows(
             "bash error  pytest -q  |  Command timed out after 60 seconds"
             in transcript.plain_text
         )
+        assert "raw runtime message" not in transcript.plain_text
+
+
+@pytest.mark.asyncio
+async def test_tool_error_results_prefer_backend_activity_metadata(
+    tmp_path: Path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    sessions_root.mkdir()
+
+    app = CodingAgentApp(
+        model="ollama:test",
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+        thinking=None,
+    )
+
+    async with app.run_test() as _pilot:
+        transcript = app.query_one("#output", TranscriptLog)
+        write_stream_event(
+            transcript,
+            SimpleNamespace(
+                type="tool_call_started",
+                tool_name="read",
+                tool_call_id="call-read",
+                args={"path": "stale.txt"},
+                args_valid=True,
+                activity=SimpleNamespace(
+                    title="read missing.txt",
+                    summary=None,
+                ),
+            ),
+        )
+        write_stream_event(
+            transcript,
+            SimpleNamespace(
+                type="tool_call_succeeded",
+                tool_name="read",
+                tool_call_id="call-read",
+                result={
+                    "ok": False,
+                    "error_type": "ToolPathError",
+                    "message": "stale low-level message",
+                },
+                activity=SimpleNamespace(
+                    title="read missing.txt",
+                    summary="No such file or directory",
+                ),
+            ),
+        )
+
+        assert (
+            "read error  missing.txt  |  No such file or directory"
+            in transcript.plain_text
+        )
+        assert "stale.txt" not in transcript.plain_text
+        assert "stale low-level message" not in transcript.plain_text
 
 
 @pytest.mark.asyncio
