@@ -5,6 +5,7 @@ import os
 import signal
 import tempfile
 from pathlib import Path
+from typing import Protocol
 
 from pydantic_ai import CallDeferred, RunContext, Tool
 
@@ -28,6 +29,12 @@ from just_another_coding_agent.tools.truncation import (
 
 BASH_MAX_LINES = 2000
 BASH_MAX_BYTES = 50 * 1024
+
+
+class BashExecutionContext(Protocol):
+    deps: WorkspaceDeps
+    tool_call_id: str | None
+    tool_name: str | None
 
 
 def _format_bash_failure(output: str, failure_message: str) -> str:
@@ -129,7 +136,7 @@ async def _terminate_process(process: asyncio.subprocess.Process) -> None:
 
 async def _publish_bash_update(
     *,
-    ctx: RunContext[WorkspaceDeps] | None,
+    ctx: BashExecutionContext | None,
     output: str,
 ) -> None:
     if ctx is None or ctx.deps.tool_update_sink is None:
@@ -146,7 +153,7 @@ async def _publish_bash_update(
 
 async def execute_bash(
     *,
-    ctx: RunContext[WorkspaceDeps] | None = None,
+    ctx: BashExecutionContext | None = None,
     tool_input: BashToolInput,
     workspace_root: Path | str,
 ) -> dict[str, int | str]:

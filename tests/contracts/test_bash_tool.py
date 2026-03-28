@@ -66,6 +66,43 @@ async def test_bash_tool_returns_empty_output_when_command_prints_nothing(
     assert result == {"exit_code": 0, "output": ""}
 
 
+async def test_execute_bash_accepts_minimal_execution_context_and_streams_updates(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    monkeypatch.chdir(tmp_path)
+    updates: list[tuple[str, str, object | None]] = []
+
+    async def sink(
+        tool_call_id: str,
+        tool_name: str,
+        payload: object | None,
+    ) -> None:
+        updates.append((tool_call_id, tool_name, payload))
+
+    ctx = _FakeRunContext(
+        deps=WorkspaceDeps(
+            workspace_root=workspace_root,
+            tool_update_sink=sink,
+        ),
+        tool_call_id="call-bash",
+        tool_name="bash",
+    )
+
+    result = await execute_bash(
+        ctx=ctx,
+        tool_input=BashToolInput(command="printf 'hello'"),
+        workspace_root=workspace_root,
+    )
+
+    assert result == {"exit_code": 0, "output": "hello"}
+    assert updates == [
+        ("call-bash", "bash", {"output": "hello"}),
+    ]
+
+
 def test_bash_tool_rejects_empty_command() -> None:
     with pytest.raises(ValidationError):
         BashToolInput(command="")
