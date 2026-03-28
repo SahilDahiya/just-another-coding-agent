@@ -41,14 +41,14 @@ def build_app_css(theme: ThemeTokens = DEFAULT_THEME) -> str:
     """Build the application stylesheet from theme tokens."""
     return f"""
 Screen {{
-    background: {theme.background};
+    background: transparent;
 }}
 
 StatusBar {{
     dock: top;
     height: 1;
-    padding: 0 1;
-    background: {theme.background};
+    padding: 0;
+    background: transparent;
     color: {theme.text_muted};
     border-bottom: solid {theme.border};
 }}
@@ -80,23 +80,22 @@ StatusBar.phase-error {{
 
 #main {{
     height: 1fr;
-    background: {theme.background};
+    background: transparent;
 }}
 
 #output {{
     height: 1fr;
-    padding: 0 2;
+    padding: 0;
     color: {theme.text};
-    background: {theme.background};
-    border-top: solid {theme.border_strong};
+    background: transparent;
     border-bottom: solid {theme.border};
 }}
 
 #prompt-row {{
     dock: bottom;
     height: auto;
-    padding: 0 1;
-    background: {theme.background};
+    padding: 0;
+    background: transparent;
     border-top: solid {theme.border};
 }}
 
@@ -106,7 +105,7 @@ StatusBar.phase-error {{
 
 #prompt-footer {{
     height: 1;
-    padding: 0 0 0 3;
+    padding: 0;
     color: {theme.text_muted};
 }}
 
@@ -182,14 +181,14 @@ StatusBar.phase-error {{
     width: 1fr;
     border: none;
     padding: 0;
-    background: {theme.background};
+    background: transparent;
     color: {theme.text_soft};
 }}
 
 #prompt-input.-textual-compact {{
     border: none;
     padding: 0;
-    background: {theme.background};
+    background: transparent;
     color: {theme.text_soft};
 }}
 
