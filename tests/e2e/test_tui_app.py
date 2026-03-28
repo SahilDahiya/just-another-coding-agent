@@ -39,6 +39,7 @@ async def test_tui_app_starts_and_focuses_prompt(tmp_path: Path) -> None:
         await _pilot.pause()
 
         assert prompt_input.has_focus
+        assert prompt_input.placeholder == ""
         assert transcript.can_focus is False
         assert transcript.wrap is True
         assert transcript.styles.scrollbar_size_vertical == 0
@@ -366,7 +367,7 @@ async def test_tool_activity_rows_show_preview_and_success_state(
             ),
         )
 
-        assert "bash ok  git show HEAD --stat  (120ms)" in transcript.plain_text
+        assert "bash  git show HEAD --stat  ok 120ms" in transcript.plain_text
         assert "echo stale preview" not in transcript.plain_text
         assert "bash x2" not in transcript.plain_text
         assert "tool bash" not in transcript.plain_text
@@ -420,7 +421,7 @@ async def test_file_tool_rows_use_path_preview_and_success_state(
             ),
         )
 
-        assert "write ok  notes/plan.md  (35ms)" in transcript.plain_text
+        assert "write  notes/plan.md  ok 35ms" in transcript.plain_text
         assert "wrong/path.md" not in transcript.plain_text
 
 
@@ -474,7 +475,7 @@ async def test_tool_failures_render_as_preview_aware_error_rows(
         )
 
         assert (
-            "bash error  pytest -q  |  Command timed out after 60 seconds  (1.2s)"
+            "bash  pytest -q  error  Command timed out after 60 seconds  1.2s"
             in transcript.plain_text
         )
         assert "raw runtime message" not in transcript.plain_text
@@ -533,7 +534,7 @@ async def test_tool_error_results_prefer_backend_activity_metadata(
         )
 
         assert (
-            "read error  missing.txt  |  No such file or directory  (8ms)"
+            "read  missing.txt  error  No such file or directory  8ms"
             in transcript.plain_text
         )
         assert "stale.txt" not in transcript.plain_text
@@ -600,7 +601,7 @@ async def test_tool_rows_preserve_interleaved_assistant_sequence(
         )
 
         first = transcript.plain_text.index("Checking the repo...")
-        tool = transcript.plain_text.index("bash ok  git status --short")
+        tool = transcript.plain_text.index("bash  git status --short")
         second = transcript.plain_text.index("Working tree is clean.")
 
         assert first < tool < second

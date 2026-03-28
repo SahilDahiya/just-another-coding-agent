@@ -82,7 +82,7 @@ class CodingAgentApp(App[None]):
             with Horizontal(id="prompt-row"):
                 yield Static("> ", id="prompt-marker")
                 yield ComposerInput(
-                    placeholder="/help",
+                    placeholder="",
                     id="prompt-input",
                     classes="-textual-compact",
                 )

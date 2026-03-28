@@ -149,9 +149,9 @@ def write_user_turn(output: TranscriptLog, prompt: str) -> None:
     """Render one user prompt as the start of a compact transcript turn."""
     output.ensure_block_gap()
     user_line = Text()
-    user_line.append(">", style=Style(color=DEFAULT_THEME.accent, bold=True))
+    user_line.append(">", style=Style(color=DEFAULT_THEME.accent))
     user_line.append(" ")
-    user_line.append(prompt, style=Style(color=DEFAULT_THEME.text_soft, bold=True))
+    user_line.append(prompt, style=Style(color=DEFAULT_THEME.text_soft))
     user_line.append("\n")
     output.write_renderable(user_line, f"> {prompt}\n")
 

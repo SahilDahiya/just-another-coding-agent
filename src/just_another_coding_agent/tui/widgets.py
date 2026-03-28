@@ -358,18 +358,18 @@ class TranscriptLog(RichLog):
         message: str | None = None,
         duration: str | None = None,
     ) -> str:
-        parts = [tool_name]
-        if outcome is not None:
-            parts.append(outcome)
-        head = " ".join(parts)
-        suffix = f"  ({duration})" if duration else ""
-        if preview and message:
-            return f"{head}  {preview}  |  {message}{suffix}\n"
-        if preview:
-            return f"{head}  {preview}{suffix}\n"
-        if message:
-            return f"{head}  {message}{suffix}\n"
-        return f"{head}{suffix}\n"
+        head = tool_name if not preview else f"{tool_name}  {preview}"
+        if outcome and duration and not message:
+            return f"{head}  {outcome} {duration}\n"
+        if outcome and message and duration:
+            return f"{head}  {outcome}  {message}  {duration}\n"
+        if outcome and message:
+            return f"{head}  {outcome}  {message}\n"
+        if outcome:
+            return f"{head}  {outcome}\n"
+        if duration:
+            return f"{head}  {duration}\n"
+        return f"{head}\n"
 
     @staticmethod
     def _render_tool_activity_line(
@@ -382,15 +382,24 @@ class TranscriptLog(RichLog):
     ) -> Text:
         text = Text()
         text.append(tool_name, style=Style(color=DEFAULT_THEME.text_muted))
-        if outcome == "ok":
-            text.append(" ok", style=Style(color=DEFAULT_THEME.success_soft))
-        elif outcome == "error":
-            text.append(" error", style=Style(color=DEFAULT_THEME.error))
         if preview:
             text.append("  ")
             text.append(preview, style=Style(color=DEFAULT_THEME.text))
+        if outcome == "ok":
+            text.append("  ")
+            text.append("ok", style=Style(color=DEFAULT_THEME.success_soft))
+            if duration and not message:
+                text.append(" ")
+                text.append(
+                    duration,
+                    style=Style(color=DEFAULT_THEME.text_muted, dim=True),
+                )
+                duration = None
+        elif outcome == "error":
+            text.append("  ")
+            text.append("error", style=Style(color=DEFAULT_THEME.error))
         if message:
-            text.append("  |  ")
+            text.append("  ")
             text.append(
                 message,
                 style=Style(
@@ -404,7 +413,7 @@ class TranscriptLog(RichLog):
         if duration:
             text.append("  ")
             text.append(
-                f"({duration})",
+                duration,
                 style=Style(color=DEFAULT_THEME.text_muted, dim=True),
             )
         text.append("\n")
