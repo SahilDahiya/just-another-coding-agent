@@ -8,6 +8,7 @@ import pytest
 
 import just_another_coding_agent.__main__ as entry
 from just_another_coding_agent.__main__ import main
+from just_another_coding_agent.go_tui import GO_TUI_BINARY
 
 
 def test_main_launches_go_tui_for_interactive_mode(
@@ -20,8 +21,12 @@ def test_main_launches_go_tui_for_interactive_mode(
     go_binary = tmp_path / ("jaca-go.exe" if os.name == "nt" else "jaca-go")
     captured: dict[str, object] = {}
 
-    monkeypatch.setattr(entry, "_resolve_go_tui_binary", lambda: go_binary)
-    monkeypatch.setattr(entry.sys, "executable", "/tmp/fake-python")
+    monkeypatch.setattr(entry, "resolve_go_tui_binary", lambda: go_binary)
+    monkeypatch.setattr(
+        entry,
+        "default_backend_command",
+        lambda: ["/tmp/fake-python", "-m", "just_another_coding_agent"],
+    )
 
     def fake_run(command, *, check):
         captured["command"] = command
@@ -73,13 +78,25 @@ def test_main_fails_fast_when_go_binary_is_missing(
     workspace_root.mkdir()
     sessions_root = tmp_path / "sessions"
 
-    missing = tmp_path / "missing" / "jaca-go"
-    monkeypatch.setattr(entry, "GO_TUI_BINARY", missing.name)
-    monkeypatch.setattr(entry.sysconfig, "get_path", lambda key: str(missing.parent))
+    missing = tmp_path / "missing" / GO_TUI_BINARY
+    monkeypatch.setattr(
+        entry,
+        "resolve_go_tui_binary",
+        lambda: (_ for _ in ()).throw(
+            RuntimeError(
+                "Installed Go TUI binary is missing. Build it explicitly with "
+                "`JACA_BUILD_TUI=1 uv sync --reinstall-package "
+                f"just-another-coding-agent --extra dev --extra test`: {missing}"
+            )
+        ),
+    )
 
     with pytest.raises(
         RuntimeError,
-        match="Installed Go TUI binary is missing",
+        match=(
+            "JACA_BUILD_TUI=1 uv sync --reinstall-package "
+            "just-another-coding-agent --extra dev --extra test"
+        ),
     ):
         main(
             [

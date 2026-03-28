@@ -13,6 +13,7 @@ read_when: you need environment setup, commands, CI, or test workflow
 ## Commands
 
 - Install dependencies: `uv sync --extra dev --extra test`
+- Install the Go TUI binary explicitly: `JACA_BUILD_TUI=1 uv sync --reinstall-package just-another-coding-agent --extra dev --extra test`
 - Lint: `uv run ruff check .`
 - Format: `uv run ruff format .`
 - Test: `uv run pytest`
@@ -28,7 +29,8 @@ canonical Python headless backend.
 
 - The Go entrypoint is `cmd/jaca`
 - The Go client packages live under `internal/jaca/`
-- `uv sync` builds and installs the platform-native `jaca-go` binary for the current environment
+- The default Python install path stays Go-free so Harbor and headless evaluation installs still work
+- `JACA_BUILD_TUI=1 uv sync --reinstall-package just-another-coding-agent --extra dev --extra test` builds and installs the platform-native `jaca-go` binary for the current environment
 - `uv run jaca` launches that installed binary through the Python console-script entrypoint
 - The Go client requires an explicit backend command and the canonical launcher passes `["<python>", "-m", "just_another_coding_agent"]`
 - The Go client launches the Python backend over stdio RPC with `--headless`

@@ -17,6 +17,8 @@ def test_install_script_uses_virtualenv_for_local_package_install() -> None:
     assert 'VENV_PYTHON="$VENV_PATH/bin/python"' in script
     assert '"$VENV_PYTHON" -m pip install "$PACKAGE_ROOT"' in script
     assert '"$VENV_PYTHON" -m just_another_coding_agent --help' in script
+    assert "go build" not in script
+    assert "JACA_BUILD_TUI" not in script
 
 
 def test_install_script_retries_venv_creation_after_installing_python3_venv() -> None:

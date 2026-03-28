@@ -44,7 +44,14 @@ uv run ruff check .
 uv run pytest
 ```
 
-`uv sync` builds and installs the platform-native Go TUI binary used by `uv run jaca`, so local setup requires the Go toolchain as well as Python.
+The default install path stays Python-only so Harbor and headless evaluation
+installs do not require Go.
+
+To install the interactive Go TUI locally, build it explicitly:
+
+```bash
+JACA_BUILD_TUI=1 uv sync --reinstall-package just-another-coding-agent --extra dev --extra test
+```
 
 ## Run
 
@@ -67,6 +74,12 @@ uv run jaca
 
 The interactive launcher executes the installed Go TUI binary, which talks to
 the Python backend over stdio RPC.
+
+If `uv run jaca` says the Go TUI binary is missing, rebuild the environment with:
+
+```bash
+JACA_BUILD_TUI=1 uv sync --reinstall-package just-another-coding-agent --extra dev --extra test
+```
 
 For direct Go TUI development, pass the backend command explicitly:
 

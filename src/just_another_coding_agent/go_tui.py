@@ -1,0 +1,42 @@
+from __future__ import annotations
+
+import os
+import sys
+import sysconfig
+from collections.abc import Mapping
+from pathlib import Path
+
+GO_TUI_BINARY = "jaca-go.exe" if os.name == "nt" else "jaca-go"
+GO_TUI_BUILD_ENV = "JACA_BUILD_TUI"
+
+
+def default_backend_command(python_executable: str | None = None) -> list[str]:
+    executable = sys.executable if python_executable is None else python_executable
+    return [executable, "-m", "just_another_coding_agent"]
+
+
+def go_tui_build_requested(env: Mapping[str, str] | None = None) -> bool:
+    values = os.environ if env is None else env
+    raw = values.get(GO_TUI_BUILD_ENV, "")
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def go_tui_install_command() -> str:
+    return (
+        f"{GO_TUI_BUILD_ENV}=1 uv sync "
+        "--reinstall-package just-another-coding-agent "
+        "--extra dev --extra test"
+    )
+
+
+def resolve_go_tui_binary() -> Path:
+    scripts_dir = sysconfig.get_path("scripts")
+    if not scripts_dir:
+        raise RuntimeError("Python scripts directory is unavailable")
+    binary = Path(scripts_dir) / GO_TUI_BINARY
+    if not binary.is_file():
+        raise RuntimeError(
+            "Installed Go TUI binary is missing. Build it explicitly with "
+            f"`{go_tui_install_command()}`: {binary}"
+        )
+    return binary

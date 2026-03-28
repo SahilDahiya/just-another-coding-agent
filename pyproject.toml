@@ -31,7 +31,7 @@ just-another-coding-agent-exec-prompt = "evaluations.bench.exec_prompt:main"
 packages = ["src/just_another_coding_agent", "evaluations"]
 
 [tool.hatch.build.targets.wheel.hooks.custom]
-path = "hatch_build.py"
+path = "src/just_another_coding_agent/_hatch_build.py"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

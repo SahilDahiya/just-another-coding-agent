@@ -2,18 +2,19 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 from hatchling.builders.hooks.plugin.interface import BuildHookInterface
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-def _go_tui_binary_name() -> str:
-    return "jaca-go.exe" if os.name == "nt" else "jaca-go"
+from just_another_coding_agent.go_tui import GO_TUI_BINARY, go_tui_build_requested
 
 
 def _build_go_tui_binary(project_root: Path, build_dir: Path) -> Path:
     build_dir.mkdir(parents=True, exist_ok=True)
-    output_path = build_dir / _go_tui_binary_name()
+    output_path = build_dir / GO_TUI_BINARY
     env = os.environ.copy()
     env.setdefault("CGO_ENABLED", "0")
     completed = subprocess.run(
@@ -40,6 +41,9 @@ def _build_go_tui_binary(project_root: Path, build_dir: Path) -> Path:
 
 class build_hook(BuildHookInterface):  # noqa: N801
     def initialize(self, version: str, build_data: dict[str, object]) -> None:
+        del version
+        if not go_tui_build_requested():
+            return
         binary_path = _build_go_tui_binary(
             project_root=Path(self.root),
             build_dir=Path(self.directory) / "go-tui",
