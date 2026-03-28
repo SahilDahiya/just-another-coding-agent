@@ -131,6 +131,9 @@ def _build_tool_details(
     args_valid: bool | None,
     result: Any,
 ) -> ToolActivityDetails | None:
+    # Keep this dispatch in sync with CANONICAL_TOOL_NAMES. The representative
+    # coverage test in tests/contracts/test_activity_metadata.py is intended to
+    # fail when a new canonical tool lands without an explicit details branch.
     if args_valid is False or not isinstance(args, dict):
         return None
 
