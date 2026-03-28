@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import contextlib
-import os
 from dataclasses import dataclass, field
 
 from opentelemetry import trace
 from opentelemetry.trace import Span
+
+from just_another_coding_agent.runtime.env import env_flag
 
 RUN_SPAN_NAME = "jaca.run"
 TOOL_SPAN_NAME = "jaca.tool_call"
@@ -30,7 +31,7 @@ class RuntimeTraceRecorder:
     _tool_spans: dict[str, Span] = field(default_factory=dict, init=False, repr=False)
 
     def __post_init__(self) -> None:
-        if not _env_flag("JACA_TRACE"):
+        if not env_flag("JACA_TRACE"):
             return
 
         tracer = trace.get_tracer("just_another_coding_agent.runtime")
@@ -95,15 +96,6 @@ class RuntimeTraceRecorder:
         self.enabled = False
         self._run_span = None
         self._run_scope = None
-
-
-def _env_flag(name: str) -> bool:
-    value = os.environ.get(name)
-    if value is None:
-        return False
-    return value.strip().lower() not in {"", "0", "false", "no", "off"}
-
-
 __all__ = [
     "RUN_ID_ATTRIBUTE",
     "RUN_SPAN_NAME",
