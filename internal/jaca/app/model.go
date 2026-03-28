@@ -26,12 +26,11 @@ type Options struct {
 type Phase string
 
 const (
-	PhaseIdle        Phase = "idle"
-	PhaseStreaming   Phase = "streaming"
-	PhaseCompleted   Phase = "completed"
-	PhaseInterrupted Phase = "interrupted"
-	PhaseError       Phase = "error"
-	PhaseCompacting  Phase = "compacting"
+	PhaseIdle       Phase = "idle"
+	PhaseStreaming  Phase = "streaming"
+	PhaseCompleted  Phase = "completed"
+	PhaseError      Phase = "error"
+	PhaseCompacting Phase = "compacting"
 )
 
 const (
@@ -39,7 +38,6 @@ const (
 	liveFlushDelay       = 50 * time.Millisecond
 	motionTickDelay      = 240 * time.Millisecond
 	completionSettle     = 850 * time.Millisecond
-	interruptSettle      = 1050 * time.Millisecond
 	doubleInterruptDelay = 2 * time.Second
 )
 
@@ -75,8 +73,6 @@ type model struct {
 	visibleZones       int
 	motionTick         int
 	streaming          bool
-	interruptRequested bool
-	dropRunEvents      bool
 	activeRunSucceeded bool
 	promptHistory      []string
 	historyIndex       int
@@ -141,7 +137,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.flushPendingAssistantDelta()
 		return m, nil
 	case phaseResetMsg:
-		if !m.streaming && (m.phase == PhaseCompleted || m.phase == PhaseInterrupted) {
+		if !m.streaming && m.phase == PhaseCompleted {
 			m.phase = PhaseIdle
 		}
 		return m, nil
@@ -150,7 +146,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.phase = PhaseError
 			m.transcript.WriteError(msg.Err.Error())
 			m.streaming = false
-			m.dropRunEvents = false
+			m.lastInterrupt = time.Time{}
 			m.refreshViewport()
 			return m, nil
 		}
@@ -160,8 +156,8 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Err != nil {
 			m.flushPendingAssistantDelta()
 			m.streaming = false
-			m.dropRunEvents = false
 			m.phase = PhaseError
+			m.lastInterrupt = time.Time{}
 			m.transcript.WriteError(msg.Err.Error())
 			m.refreshViewport()
 			return m, nil
@@ -169,12 +165,9 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Done {
 			m.flushPendingAssistantDelta()
 			m.streaming = false
-			m.dropRunEvents = false
+			m.lastInterrupt = time.Time{}
 			cmd := tea.Cmd(nil)
 			switch {
-			case m.interruptRequested:
-				m.phase = PhaseInterrupted
-				cmd = tea.Tick(interruptSettle, func(time.Time) tea.Msg { return phaseResetMsg{} })
 			case m.phase == PhaseError:
 			case m.activeRunSucceeded:
 				m.phase = PhaseCompleted
@@ -182,7 +175,6 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			default:
 				m.phase = PhaseIdle
 			}
-			m.interruptRequested = false
 			m.activeRunSucceeded = false
 			m.refreshViewport()
 			return m, cmd
@@ -190,17 +182,15 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Event.Type == "run_succeeded" {
 			m.activeRunSucceeded = true
 		}
-		if msg.Event.Type == "run_failed" && !m.interruptRequested {
+		if msg.Event.Type == "run_failed" {
 			m.phase = PhaseError
 		}
-		if !m.dropRunEvents {
-			if msg.Event.Type == "assistant_text_delta" {
-				m.pendingAssistant += msg.Event.Delta
-				return m, tea.Batch(listenAsync(m.asyncCh), m.scheduleLiveFlush())
-			}
-			m.flushPendingAssistantDelta()
-			m.transcript.ApplyRunEvent(msg.Event)
+		if msg.Event.Type == "assistant_text_delta" {
+			m.pendingAssistant += msg.Event.Delta
+			return m, tea.Batch(listenAsync(m.asyncCh), m.scheduleLiveFlush())
 		}
+		m.flushPendingAssistantDelta()
+		m.transcript.ApplyRunEvent(msg.Event)
 		m.refreshViewport()
 		return m, listenAsync(m.asyncCh)
 	case compactDoneMsg:
@@ -282,15 +272,17 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m *model) handleInterrupt() (tea.Model, tea.Cmd) {
 	now := time.Now()
 	if m.streaming {
-		if !m.interruptRequested {
-			m.interruptRequested = true
-			m.dropRunEvents = true
-			m.phase = PhaseInterrupted
-			m.transcript.WriteLine("interrupted")
-			m.refreshViewport()
-			return m, nil
+		if now.Sub(m.lastInterrupt) < doubleInterruptDelay {
+			return m, tea.Quit
 		}
-		m.transcript.WriteNote("warning", []string{"waiting for backend to settle before quit"})
+		m.lastInterrupt = now
+		m.transcript.WriteNote(
+			"warning",
+			[]string{
+				"backend cancellation is not implemented",
+				"ctrl+c again to quit",
+			},
+		)
 		m.refreshViewport()
 		return m, nil
 	}
@@ -316,8 +308,7 @@ func (m *model) handleEnter() (tea.Model, tea.Cmd) {
 	m.transcript.WriteUserTurn(prompt)
 	m.phase = PhaseStreaming
 	m.streaming = true
-	m.interruptRequested = false
-	m.dropRunEvents = false
+	m.lastInterrupt = time.Time{}
 	m.activeRunSucceeded = false
 	m.refreshViewport()
 	m.asyncCh = make(chan tea.Msg, 128)

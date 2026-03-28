@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 )
@@ -37,7 +38,7 @@ func Load() (map[string]string, error) {
 	}
 	config := map[string]string{}
 	if err := json.Unmarshal(data, &config); err != nil {
-		return map[string]string{}, nil
+		return nil, fmt.Errorf("invalid config JSON at %s: %w", path, err)
 	}
 	return config, nil
 }

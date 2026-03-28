@@ -34,6 +34,8 @@ canonical Python headless backend.
 - `uv run jaca` launches that installed binary through the Python console-script entrypoint
 - The Go client requires an explicit backend command and the canonical launcher passes `["<python>", "-m", "just_another_coding_agent"]`
 - The Go client launches the Python backend over stdio RPC with `--headless`
+- Corrupt `~/.jaca/config.json` now fails fast at startup instead of being ignored
+- `ctrl+c` during an active Go TUI run is warning-only today; it does not claim backend cancellation, and a second `ctrl+c` quits the UI
 
 ## Environment
 

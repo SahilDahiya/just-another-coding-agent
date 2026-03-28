@@ -119,7 +119,7 @@ func (t *Transcript) WriteHelp() {
 		"  up                 previous prompt",
 		"  down               next prompt / restore draft",
 		"  ctrl+u             clear prompt",
-		"  ctrl+c             interrupt, then quit",
+		"  ctrl+c             warn during active run, ctrl+c again quits",
 		"",
 		"provider setup",
 		"  /provider ollama                     local ollama, no key needed",

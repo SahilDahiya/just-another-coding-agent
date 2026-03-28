@@ -82,8 +82,6 @@ func renderStatus(vm viewModel) string {
 		style = style.Foreground(defaultTheme.accent).BorderForeground(defaultTheme.accentSoft)
 	case PhaseCompleted:
 		style = style.Foreground(defaultTheme.successSoft).BorderForeground(defaultTheme.success)
-	case PhaseInterrupted:
-		style = style.Foreground(defaultTheme.accentSoft).BorderForeground(defaultTheme.accent)
 	case PhaseError:
 		style = style.Foreground(defaultTheme.err).BorderForeground(defaultTheme.err)
 	}
@@ -107,8 +105,6 @@ func renderPrompt(vm viewModel) string {
 		rowBorder = defaultTheme.accentSoft
 	case PhaseCompleted:
 		rowBorder = defaultTheme.success
-	case PhaseInterrupted:
-		rowBorder = defaultTheme.accent
 	case PhaseError:
 		rowBorder = defaultTheme.err
 	}
@@ -118,8 +114,6 @@ func renderPrompt(vm viewModel) string {
 		markerColor = defaultTheme.accentSoft
 	case PhaseCompleted:
 		markerColor = defaultTheme.successSoft
-	case PhaseInterrupted:
-		markerColor = defaultTheme.accentSoft
 	case PhaseError:
 		markerColor = defaultTheme.err
 	}
@@ -131,8 +125,6 @@ func renderPrompt(vm viewModel) string {
 		footerColor = defaultTheme.accent
 	case PhaseCompleted:
 		footerColor = defaultTheme.successSoft
-	case PhaseInterrupted:
-		footerColor = defaultTheme.accentSoft
 	case PhaseError:
 		footerColor = defaultTheme.err
 	}
@@ -180,8 +172,6 @@ func buildPromptMarkerText(phase Phase, motionTick int) string {
 		return ".:"
 	case PhaseCompleted:
 		return "ok"
-	case PhaseInterrupted:
-		return "!!"
 	case PhaseError:
 		return "x "
 	default:
@@ -192,13 +182,11 @@ func buildPromptMarkerText(phase Phase, motionTick int) string {
 func buildPromptFooterText(phase Phase) string {
 	switch phase {
 	case PhaseStreaming:
-		return "working  ctrl+c interrupt"
+		return "working  ctrl+c warns, ctrl+c quits"
 	case PhaseCompacting:
 		return "compacting session"
 	case PhaseCompleted:
 		return "ready"
-	case PhaseInterrupted:
-		return "interrupted  enter next prompt"
 	case PhaseError:
 		return "last run failed  edit prompt or retry"
 	default:

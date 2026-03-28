@@ -1,7 +1,9 @@
 package config
 
 import (
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -42,5 +44,29 @@ func TestSaveProviderClearsStaleOllamaConfigAndEnv(t *testing.T) {
 		t.Fatalf("ConfigPath() returned error: %v", err)
 	} else if path != filepath.Join(home, ".jaca", "config.json") {
 		t.Fatalf("ConfigPath() = %q", path)
+	}
+}
+
+func TestLoadFailsOnCorruptConfigJSON(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	path, err := ConfigPath()
+	if err != nil {
+		t.Fatalf("ConfigPath() returned error: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll() returned error: %v", err)
+	}
+	if err := os.WriteFile(path, []byte("{not-json\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile() returned error: %v", err)
+	}
+
+	_, err = Load()
+	if err == nil {
+		t.Fatal("Load() unexpectedly succeeded")
+	}
+	if !strings.Contains(err.Error(), path) {
+		t.Fatalf("Load() error = %q, want config path %q", err, path)
 	}
 }

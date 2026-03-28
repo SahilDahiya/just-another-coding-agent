@@ -92,3 +92,30 @@ func TestMouseWheelScrollsViewport(t *testing.T) {
 		t.Fatal("expected mouse wheel to scroll viewport")
 	}
 }
+
+func TestCtrlCWhileStreamingDoesNotPretendRunWasInterrupted(t *testing.T) {
+	m := newTestModel()
+	m.streaming = true
+	m.phase = PhaseStreaming
+
+	m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+
+	if m.phase != PhaseStreaming {
+		t.Fatalf("phase = %q, want %q", m.phase, PhaseStreaming)
+	}
+
+	rendered := stripANSI(m.transcript.Render())
+	if strings.Contains(rendered, "interrupted") {
+		t.Fatalf("transcript falsely claims interruption: %q", rendered)
+	}
+	if !strings.Contains(rendered, "backend cancellation is not implemented") {
+		t.Fatalf("transcript missing cancellation warning: %q", rendered)
+	}
+
+	m.Update(runEventMsg{Event: rpc.RunEvent{Type: "assistant_text_delta", Delta: "still running"}})
+	m.Update(liveFlushMsg{})
+	rendered = stripANSI(m.transcript.Render())
+	if !strings.Contains(rendered, "still running") {
+		t.Fatalf("streaming output was dropped after ctrl+c: %q", rendered)
+	}
+}
