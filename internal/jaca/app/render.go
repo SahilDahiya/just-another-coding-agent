@@ -50,6 +50,7 @@ type viewModel struct {
 	MotionTick    int
 	Transcript    string
 	PromptValue   string
+	PromptFooter  string
 	VisibleZones  int
 }
 
@@ -142,7 +143,7 @@ func renderPrompt(vm viewModel) string {
 					" ",
 					lipgloss.NewStyle().Foreground(defaultTheme.textSoft).Render(vm.PromptValue),
 				),
-				lipgloss.NewStyle().Foreground(footerColor).Render(buildPromptFooterText(vm.Phase)),
+				lipgloss.NewStyle().Foreground(footerColor).Render(buildPromptFooterText(vm.Phase, vm.PromptFooter)),
 			),
 		)
 	return row
@@ -179,10 +180,13 @@ func buildPromptMarkerText(phase Phase, motionTick int) string {
 	}
 }
 
-func buildPromptFooterText(phase Phase) string {
+func buildPromptFooterText(phase Phase, override string) string {
+	if override != "" {
+		return override
+	}
 	switch phase {
 	case PhaseStreaming:
-		return "working  ctrl+c warns, ctrl+c quits"
+		return "working  esc interrupt"
 	case PhaseCompacting:
 		return "compacting session"
 	case PhaseCompleted:
@@ -190,7 +194,7 @@ func buildPromptFooterText(phase Phase) string {
 	case PhaseError:
 		return "last run failed  edit prompt or retry"
 	default:
-		return "ready  /help  up/down recall  ctrl+u clear"
+		return "ready  /help  up/down recall  esc clear"
 	}
 }
 

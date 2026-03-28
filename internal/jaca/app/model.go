@@ -78,7 +78,9 @@ type model struct {
 	historyIndex       int
 	historyDraft       string
 	lastInterrupt      time.Time
+	activeRunCancel    context.CancelFunc
 	editPreviousArmed  bool
+	promptFooterNotice string
 	pendingAssistant   string
 	liveFlushScheduled bool
 	asyncCh            chan tea.Msg
@@ -147,6 +149,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.phase = PhaseError
 			m.transcript.WriteError(msg.Err.Error())
 			m.streaming = false
+			m.activeRunCancel = nil
 			m.lastInterrupt = time.Time{}
 			m.refreshViewport()
 			return m, nil
@@ -157,6 +160,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Err != nil {
 			m.flushPendingAssistantDelta()
 			m.streaming = false
+			m.activeRunCancel = nil
 			m.phase = PhaseError
 			m.lastInterrupt = time.Time{}
 			m.transcript.WriteError(msg.Err.Error())
@@ -166,6 +170,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Done {
 			m.flushPendingAssistantDelta()
 			m.streaming = false
+			m.activeRunCancel = nil
 			m.lastInterrupt = time.Time{}
 			cmd := tea.Cmd(nil)
 			switch {
@@ -228,6 +233,7 @@ func (m *model) View() string {
 		MotionTick:    m.motionTick,
 		Transcript:    m.viewport.View(),
 		PromptValue:   m.textInput.Value(),
+		PromptFooter:  m.promptFooterNotice,
 		VisibleZones:  m.visibleZones,
 	})
 }
@@ -260,6 +266,7 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if !m.streaming {
 			m.textInput.SetValue("")
 			m.resetHistoryNavigation()
+			m.clearInterruptGuidance()
 		}
 		return m, nil
 	case "enter":
@@ -267,6 +274,7 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	var cmd tea.Cmd
 	if !m.streaming {
+		m.clearInterruptGuidance()
 		m.textInput, cmd = m.textInput.Update(msg)
 	}
 	return m, cmd
@@ -275,53 +283,42 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m *model) handleInterrupt() (tea.Model, tea.Cmd) {
 	now := time.Now()
 	if m.streaming {
-		m.transcript.WriteNote(
-			"warning",
-			[]string{
-				"Conversation interrupted.",
-				"Esc again to edit previous message.",
-			},
-		)
+		m.promptFooterNotice = "Conversation interrupted. Esc again to edit previous message."
 		m.editPreviousArmed = true
 		m.refreshViewport()
 		return m, nil
 	}
 	if strings.TrimSpace(m.textInput.Value()) != "" {
-		m.textInput.SetValue("")
-		m.resetHistoryNavigation()
-		m.editPreviousArmed = false
 		return m, nil
 	}
 	if now.Sub(m.lastInterrupt) < doubleInterruptDelay {
 		return m, tea.Quit
 	}
 	m.lastInterrupt = now
+	m.promptFooterNotice = ""
 	m.transcript.WriteNote("warning", []string{"ctrl+c again to quit"})
 	m.refreshViewport()
 	return m, nil
 }
 
 func (m *model) handleEscape() (tea.Model, tea.Cmd) {
-	if m.streaming {
-		m.transcript.WriteNote(
-			"warning",
-			[]string{
-				"Conversation interrupted.",
-				"Esc again to edit previous message.",
-			},
-		)
-		m.editPreviousArmed = true
-		m.refreshViewport()
-		return m, nil
-	}
 	if m.editPreviousArmed {
 		m.editPreviousArmed = false
+		m.promptFooterNotice = ""
 		m.restorePreviousPrompt()
+		return m, nil
+	}
+	if m.streaming {
+		m.requestRunCancel()
+		m.promptFooterNotice = "Conversation interrupted. Esc again to edit previous message."
+		m.editPreviousArmed = true
+		m.refreshViewport()
 		return m, nil
 	}
 	if strings.TrimSpace(m.textInput.Value()) != "" {
 		m.textInput.SetValue("")
 		m.resetHistoryNavigation()
+		m.promptFooterNotice = ""
 		return m, nil
 	}
 	return m, nil
@@ -336,6 +333,15 @@ func (m *model) restorePreviousPrompt() {
 	m.refreshViewport()
 }
 
+func (m *model) requestRunCancel() {
+	if m.activeRunCancel == nil {
+		return
+	}
+	cancel := m.activeRunCancel
+	m.activeRunCancel = nil
+	cancel()
+}
+
 func (m *model) handleEnter() (tea.Model, tea.Cmd) {
 	prompt := strings.TrimSpace(m.textInput.Value())
 	if prompt == "" || m.streaming {
@@ -343,12 +349,14 @@ func (m *model) handleEnter() (tea.Model, tea.Cmd) {
 	}
 	m.recordPromptHistory(prompt)
 	m.textInput.SetValue("")
+	m.clearInterruptGuidance()
 	if strings.HasPrefix(prompt, "/") {
 		return m.handleSlashCommand(prompt)
 	}
 	m.transcript.WriteUserTurn(prompt)
 	m.phase = PhaseStreaming
 	m.streaming = true
+	m.editPreviousArmed = false
 	m.lastInterrupt = time.Time{}
 	m.activeRunSucceeded = false
 	m.refreshViewport()
@@ -356,7 +364,9 @@ func (m *model) handleEnter() (tea.Model, tea.Cmd) {
 	backend := m.options.Backend
 	sessionID := m.sessionID
 	thinking := m.options.Thinking
-	go m.runPrompt(prompt, sessionID, thinking, backend, m.asyncCh)
+	runCtx, cancel := context.WithCancel(context.Background())
+	m.activeRunCancel = cancel
+	go m.runPrompt(runCtx, prompt, sessionID, thinking, backend, m.asyncCh)
 	return m, listenAsync(m.asyncCh)
 }
 
@@ -517,6 +527,7 @@ func (m *model) handleProvider(arg string) ([]string, bool, error) {
 }
 
 func (m *model) runPrompt(
+	ctx context.Context,
 	prompt string,
 	sessionID string,
 	thinking string,
@@ -524,7 +535,6 @@ func (m *model) runPrompt(
 	ch chan tea.Msg,
 ) {
 	defer close(ch)
-	ctx := context.Background()
 	if sessionID == "" {
 		created, err := backend.CreateSession(ctx)
 		ch <- sessionCreatedMsg{SessionID: created, Err: err}
@@ -538,6 +548,16 @@ func (m *model) runPrompt(
 		return nil
 	})
 	if err != nil {
+		if ctx.Err() != nil {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 1200*time.Millisecond)
+			defer cancel()
+			if shutdownErr := backend.Interrupt(shutdownCtx); shutdownErr != nil {
+				ch <- runEventMsg{Err: shutdownErr}
+				return
+			}
+			ch <- runEventMsg{Done: true}
+			return
+		}
 		ch <- runEventMsg{Err: err}
 		return
 	}
@@ -563,6 +583,11 @@ func (m *model) resetHistoryNavigation() {
 	m.historyDraft = ""
 }
 
+func (m *model) clearInterruptGuidance() {
+	m.editPreviousArmed = false
+	m.promptFooterNotice = ""
+}
+
 func (m *model) recordPromptHistory(prompt string) {
 	m.promptHistory = append(m.promptHistory, prompt)
 	m.resetHistoryNavigation()
@@ -572,6 +597,7 @@ func (m *model) historyPrevious() {
 	if m.streaming || len(m.promptHistory) == 0 {
 		return
 	}
+	m.clearInterruptGuidance()
 	if m.historyIndex == -1 {
 		m.historyDraft = m.textInput.Value()
 		m.historyIndex = len(m.promptHistory) - 1
@@ -586,6 +612,7 @@ func (m *model) historyNext() {
 	if m.streaming || m.historyIndex == -1 {
 		return
 	}
+	m.clearInterruptGuidance()
 	next := m.historyIndex + 1
 	if next >= len(m.promptHistory) {
 		draft := m.historyDraft

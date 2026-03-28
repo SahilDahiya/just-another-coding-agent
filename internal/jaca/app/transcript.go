@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"regexp"
-	"sort"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -119,7 +118,8 @@ func (t *Transcript) WriteHelp() {
 		"  up                 previous prompt",
 		"  down               next prompt / restore draft",
 		"  ctrl+u             clear prompt",
-		"  ctrl+c             warn during active run, ctrl+c again quits",
+		"  esc                interrupt active run, esc again edits previous prompt",
+		"  ctrl+c             copy-safe, ctrl+c again quits when idle",
 		"",
 		"provider setup",
 		"  /provider ollama                     local ollama, no key needed",
@@ -677,13 +677,4 @@ func truncateInline(text string, limit int) string {
 		return normalized
 	}
 	return strings.TrimSpace(normalized[:limit-3]) + "..."
-}
-
-func sortedKeys(m map[string]any) []string {
-	keys := make([]string, 0, len(m))
-	for key := range m {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	return keys
 }

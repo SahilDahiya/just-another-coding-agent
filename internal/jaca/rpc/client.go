@@ -8,10 +8,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 type BackendConfig struct {
@@ -51,6 +53,17 @@ func (m *Manager) Restart(ctx context.Context) error {
 
 func (m *Manager) Shutdown(ctx context.Context) error {
 	return m.Restart(ctx)
+}
+
+func (m *Manager) Interrupt(ctx context.Context) error {
+	m.mu.Lock()
+	client := m.client
+	m.client = nil
+	m.mu.Unlock()
+	if client != nil {
+		return client.Interrupt(ctx)
+	}
+	return nil
 }
 
 func (m *Manager) ensureStartedLocked() (*Client, error) {
@@ -147,14 +160,49 @@ func StartClient(cfg BackendConfig) (*Client, error) {
 }
 
 func (c *Client) Close(ctx context.Context) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.cmd.Process != nil {
-		_ = c.stdin.Close()
-		if err := c.cmd.Process.Kill(); err != nil && !strings.Contains(err.Error(), "process already finished") {
-			return err
-		}
+	if c.cmd.Process == nil {
+		return nil
 	}
+	_ = c.stdin.Close()
+	if err := c.waitGracefulExit(ctx, 350*time.Millisecond); err == nil {
+		return nil
+	}
+	if err := c.cmd.Process.Kill(); err != nil && !strings.Contains(err.Error(), "process already finished") {
+		return err
+	}
+	return c.waitExit(context.Background())
+}
+
+func (c *Client) Interrupt(ctx context.Context) error {
+	if c.cmd.Process == nil {
+		return nil
+	}
+	if err := c.cmd.Process.Signal(os.Interrupt); err != nil {
+		if strings.Contains(err.Error(), "process already finished") {
+			return nil
+		}
+		return c.Close(ctx)
+	}
+	if err := c.waitGracefulExit(ctx, 1200*time.Millisecond); err == nil {
+		return nil
+	}
+	if err := c.cmd.Process.Kill(); err != nil && !strings.Contains(err.Error(), "process already finished") {
+		return err
+	}
+	return c.waitExit(context.Background())
+}
+
+func (c *Client) waitGracefulExit(ctx context.Context, fallback time.Duration) error {
+	waitCtx := ctx
+	cancel := func() {}
+	if _, ok := ctx.Deadline(); !ok {
+		waitCtx, cancel = context.WithTimeout(ctx, fallback)
+	}
+	defer cancel()
+	return c.waitExit(waitCtx)
+}
+
+func (c *Client) waitExit(ctx context.Context) error {
 	waitCh := make(chan error, 1)
 	go func() {
 		waitCh <- c.cmd.Wait()
@@ -163,7 +211,7 @@ func (c *Client) Close(ctx context.Context) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	case err := <-waitCh:
-		if err != nil && !strings.Contains(err.Error(), "signal: killed") {
+		if err != nil && !strings.Contains(err.Error(), "signal: killed") && !strings.Contains(err.Error(), "signal: interrupt") {
 			return err
 		}
 		return nil

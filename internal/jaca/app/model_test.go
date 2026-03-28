@@ -93,7 +93,7 @@ func TestMouseWheelScrollsViewport(t *testing.T) {
 	}
 }
 
-func TestCtrlCWhileStreamingShowsInterruptGuidance(t *testing.T) {
+func TestCtrlCWhileStreamingShowsInterruptGuidanceInPromptFooter(t *testing.T) {
 	m := newTestModel()
 	m.streaming = true
 	m.phase = PhaseStreaming
@@ -104,12 +104,9 @@ func TestCtrlCWhileStreamingShowsInterruptGuidance(t *testing.T) {
 		t.Fatalf("phase = %q, want %q", m.phase, PhaseStreaming)
 	}
 
-	rendered := stripANSI(m.transcript.Render())
-	if !strings.Contains(rendered, "Conversation interrupted.") {
-		t.Fatalf("transcript missing interrupt guidance: %q", rendered)
-	}
-	if !strings.Contains(rendered, "Esc again to edit previous message.") {
-		t.Fatalf("transcript missing second-escape guidance: %q", rendered)
+	rendered := stripANSI(m.View())
+	if !strings.Contains(rendered, "Conversation interrupted. Esc again to edit previous message.") {
+		t.Fatalf("view missing interrupt guidance: %q", rendered)
 	}
 
 	m.Update(runEventMsg{Event: rpc.RunEvent{Type: "assistant_text_delta", Delta: "still running"}})
@@ -120,7 +117,7 @@ func TestCtrlCWhileStreamingShowsInterruptGuidance(t *testing.T) {
 	}
 }
 
-func TestCtrlCClearsPromptWhenNotStreaming(t *testing.T) {
+func TestCtrlCIsNonDestructiveWhenPromptHasText(t *testing.T) {
 	m := newTestModel()
 	m.textInput.SetValue("draft prompt")
 
@@ -130,8 +127,8 @@ func TestCtrlCClearsPromptWhenNotStreaming(t *testing.T) {
 	}
 	m = updated.(*model)
 
-	if got := m.textInput.Value(); got != "" {
-		t.Fatalf("textInput.Value() = %q, want empty", got)
+	if got := m.textInput.Value(); got != "draft prompt" {
+		t.Fatalf("textInput.Value() = %q, want %q", got, "draft prompt")
 	}
 	if m.phase != PhaseIdle {
 		t.Fatalf("phase = %q, want %q", m.phase, PhaseIdle)
@@ -142,6 +139,10 @@ func TestEscWhileStreamingWritesInterruptGuidance(t *testing.T) {
 	m := newTestModel()
 	m.streaming = true
 	m.phase = PhaseStreaming
+	canceled := false
+	m.activeRunCancel = func() {
+		canceled = true
+	}
 
 	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	if cmd != nil {
@@ -149,12 +150,12 @@ func TestEscWhileStreamingWritesInterruptGuidance(t *testing.T) {
 	}
 	m = updated.(*model)
 
-	rendered := stripANSI(m.transcript.Render())
-	if !strings.Contains(rendered, "Conversation interrupted.") {
-		t.Fatalf("missing interrupt guidance in transcript: %q", rendered)
+	rendered := stripANSI(m.View())
+	if !strings.Contains(rendered, "Conversation interrupted. Esc again to edit previous message.") {
+		t.Fatalf("missing interrupt guidance in prompt footer: %q", rendered)
 	}
-	if !strings.Contains(rendered, "Esc again to edit previous message.") {
-		t.Fatalf("missing second-escape guidance in transcript: %q", rendered)
+	if !canceled {
+		t.Fatal("expected first escape to request run cancellation")
 	}
 }
 
@@ -169,12 +170,10 @@ func TestSecondEscLoadsPreviousPromptIntoComposer(t *testing.T) {
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	m = updated.(*model)
 
-	if !strings.Contains(stripANSI(m.transcript.Render()), "Esc again to edit previous message.") {
-		t.Fatalf("first escape did not arm edit-previous flow: %q", stripANSI(m.transcript.Render()))
+	if !strings.Contains(stripANSI(m.View()), "Esc again to edit previous message.") {
+		t.Fatalf("first escape did not arm edit-previous flow: %q", stripANSI(m.View()))
 	}
 
-	m.streaming = false
-	m.phase = PhaseIdle
 	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	m = updated.(*model)
 
@@ -192,5 +191,26 @@ func TestEscClearsPromptWhenIdle(t *testing.T) {
 
 	if got := m.textInput.Value(); got != "" {
 		t.Fatalf("textInput.Value() = %q, want empty", got)
+	}
+}
+
+func TestCtrlCWhileStreamingDoesNotRequestRunCancellation(t *testing.T) {
+	m := newTestModel()
+	m.streaming = true
+	m.phase = PhaseStreaming
+	canceled := false
+	m.activeRunCancel = func() {
+		canceled = true
+	}
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	m = updated.(*model)
+
+	if canceled {
+		t.Fatal("expected ctrl+c to remain copy-safe while streaming")
+	}
+	rendered := stripANSI(m.View())
+	if !strings.Contains(rendered, "Conversation interrupted. Esc again to edit previous message.") {
+		t.Fatalf("missing interrupt guidance in prompt footer: %q", rendered)
 	}
 }

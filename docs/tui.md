@@ -74,6 +74,8 @@ The core architectural risk is semantic drift between the Go shell and the Pytho
 - Completed assistant turns should settle into readable prose/Markdown instead of remaining raw streamed text.
 - The prompt is the single input surface for chat and slash commands.
 - The prompt zone should behave like a compact two-line shell composer: one input line, one low-salience footer line for state and recall hints.
+- `esc` is the primary conversation-control key: first `esc` requests interrupt for an active run, second `esc` restores the previous user prompt for editing.
+- single `ctrl+c` must remain copy-safe and non-destructive; if the shell receives it without an active selection, only an idle second `ctrl+c` may quit.
 - Historical user turns should still read like prompt echoes in the transcript, not like assistant prose.
 - Composer ergonomics should favor shell-like recall over editor-like complexity.
 - Persistent helper chrome should be minimal; slash-command discoverability must not dominate the idle shell.
