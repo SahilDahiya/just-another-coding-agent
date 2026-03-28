@@ -797,9 +797,9 @@ async def test_live_compaction_preserves_raw_persisted_messages(
 
     observed: dict[str, object] = {}
     monkeypatch.setattr(
-        "just_another_coding_agent.runtime.compaction."
-        "IN_RUN_COMPACTION_SOFT_CHAR_LIMIT",
-        400,
+        "just_another_coding_agent.runtime.agent."
+        "build_in_run_compaction_soft_char_limit",
+        lambda _model: 400,
     )
 
     events = [

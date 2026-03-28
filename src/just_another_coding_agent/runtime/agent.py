@@ -10,7 +10,10 @@ from pydantic_ai.messages import ModelMessage
 
 from just_another_coding_agent.contracts.tools import CANONICAL_TOOL_NAMES
 from just_another_coding_agent.runtime.compaction import build_in_run_history_processor
-from just_another_coding_agent.runtime.models import resolve_canonical_model
+from just_another_coding_agent.runtime.models import (
+    build_in_run_compaction_soft_char_limit,
+    resolve_canonical_model,
+)
 from just_another_coding_agent.tools._workspace import normalize_workspace_root
 from just_another_coding_agent.tools.deps import WorkspaceDeps
 from just_another_coding_agent.tools.registry import build_canonical_toolset
@@ -84,11 +87,18 @@ def build_canonical_agent(
     | None = None,
 ) -> Agent[WorkspaceDeps, str]:
     root = normalize_workspace_root(workspace_root)
+    resolved_model = resolve_canonical_model(model)
     effective_history_processors = list(history_processors or [])
-    effective_history_processors.append(build_in_run_history_processor())
+    effective_history_processors.append(
+        build_in_run_history_processor(
+            soft_char_limit=build_in_run_compaction_soft_char_limit(
+                resolved_model
+            )
+        )
+    )
 
     return Agent(
-        resolve_canonical_model(model),
+        resolved_model,
         output_type=str,
         instructions=build_canonical_instructions(workspace_root=root),
         deps_type=WorkspaceDeps,

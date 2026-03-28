@@ -35,6 +35,9 @@ Rules:
 - The canonical runtime may expose only deliberately chosen settings instead of leaking arbitrary provider settings through the public contract.
 - When `thinking` is omitted, the runtime uses model default behavior unless a resumed session has a persisted thinking level to inherit.
 - Provider-native model settings may still be applied internally when they do not change the public contract.
+- Run-local history compaction may derive its soft threshold from explicit
+  model-context metadata in the runtime model seam, but that threshold remains
+  an internal heuristic rather than a caller-controlled contract field.
 
 `thinking` contract:
 

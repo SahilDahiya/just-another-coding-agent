@@ -98,6 +98,12 @@ The important boundary is:
 - compaction manages cross-run session size
 - run-local compaction can shrink historical tool output inside one live run,
   but it does not replace external timeouts for long-running work
+- run-local compaction thresholds are derived from a repo-owned model-context
+  lookup in `runtime/models.py` when canonical context metadata is known; the
+  current heuristic uses about 80% of the context window and approximates one
+  token as four characters
+- if no canonical context metadata is known for the active model, live-run
+  compaction falls back to one conservative default soft char limit
 - deferred tools are the separate seam for long shell/build/test work that
   should leave the current model step and resume with explicit results
 - the runtime uses a separate model call to generate the durable compaction summary

@@ -125,3 +125,30 @@ def test_build_canonical_agent_resolves_string_models(tmp_path, monkeypatch) -> 
 
     assert isinstance(agent.model, OpenAIResponsesModel)
     assert agent.model.model_name == "gpt-5.3-codex"
+
+
+def test_build_canonical_agent_uses_model_aware_live_compaction_limit(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    observed: dict[str, int] = {}
+
+    def fake_build_in_run_history_processor(*, soft_char_limit: int):
+        observed["soft_char_limit"] = soft_char_limit
+        return lambda messages: messages
+
+    monkeypatch.setattr(
+        "just_another_coding_agent.runtime.agent.build_in_run_history_processor",
+        fake_build_in_run_history_processor,
+    )
+
+    build_canonical_agent(
+        model="openai-responses:gpt-5.3-codex",
+        workspace_root=workspace_root,
+        tool_names=[],
+    )
+
+    assert observed["soft_char_limit"] == 1_280_000

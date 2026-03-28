@@ -25,7 +25,10 @@ from just_another_coding_agent.contracts.session import (
     SessionCompactionEntry,
     SessionCompactionSummary,
 )
-from just_another_coding_agent.runtime.models import resolve_canonical_model
+from just_another_coding_agent.runtime.models import (
+    DEFAULT_IN_RUN_COMPACTION_SOFT_CHAR_LIMIT,
+    resolve_canonical_model,
+)
 from just_another_coding_agent.session.jsonl import (
     SessionFormatError,
     append_compaction_to_session,
@@ -33,7 +36,7 @@ from just_another_coding_agent.session.jsonl import (
 
 COMPACTION_SUMMARY_DYNAMIC_REF = "session-compaction-summary"
 AUTO_COMPACTION_RUN_THRESHOLD = 5
-IN_RUN_COMPACTION_SOFT_CHAR_LIMIT = 12_000
+IN_RUN_COMPACTION_SOFT_CHAR_LIMIT = DEFAULT_IN_RUN_COMPACTION_SOFT_CHAR_LIMIT
 IN_RUN_COMPACTION_METADATA_KEY = "_jaca_in_run_compaction"
 COMPACTION_SUMMARY_INSTRUCTIONS = "\n".join(
     [
@@ -100,12 +103,21 @@ def build_session_history_processor(
     return apply_compaction
 
 
-def build_in_run_history_processor() -> Callable[
+def build_in_run_history_processor(
+    *,
+    soft_char_limit: int | None = None,
+) -> Callable[
     [list[ModelMessage]], list[ModelMessage]
 ]:
+    effective_soft_char_limit = (
+        IN_RUN_COMPACTION_SOFT_CHAR_LIMIT
+        if soft_char_limit is None
+        else soft_char_limit
+    )
+
     def apply_in_run_compaction(messages: list[ModelMessage]) -> list[ModelMessage]:
         current_size = _estimate_message_history_size(messages)
-        if current_size <= IN_RUN_COMPACTION_SOFT_CHAR_LIMIT:
+        if current_size <= effective_soft_char_limit:
             return messages
 
         tool_calls_by_id = _index_tool_calls(messages)
@@ -141,7 +153,7 @@ def build_in_run_history_processor() -> Callable[
                     parts=updated_parts,
                 )
                 current_size = _estimate_message_history_size(compacted_messages)
-                if current_size <= IN_RUN_COMPACTION_SOFT_CHAR_LIMIT:
+                if current_size <= effective_soft_char_limit:
                     return compacted_messages
 
             if message_changed:

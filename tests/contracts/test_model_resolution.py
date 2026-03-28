@@ -15,6 +15,8 @@ from pydantic_ai.retries import AsyncTenacityTransport
 
 from just_another_coding_agent.runtime.models import (
     build_canonical_model_settings,
+    build_in_run_compaction_soft_char_limit,
+    get_model_context_window_tokens,
     resolve_canonical_model,
 )
 
@@ -188,3 +190,37 @@ def test_build_canonical_model_settings_unwraps_instrumented_models() -> None:
         "openai_previous_response_id": "auto",
         "parallel_tool_calls": True,
     }
+
+
+def test_get_model_context_window_tokens_for_supported_models(monkeypatch) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
+    assert get_model_context_window_tokens("openai-responses:gpt-5.3-codex") == 400_000
+    assert get_model_context_window_tokens("openai:gpt-4o") == 128_000
+    assert get_model_context_window_tokens("ollama:glm-5:cloud") == 198_000
+    assert get_model_context_window_tokens("ollama:kimi-k2:1t-cloud") == 256_000
+
+
+def test_build_in_run_compaction_soft_char_limit_scales_with_model_context(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
+    assert (
+        build_in_run_compaction_soft_char_limit("openai-responses:gpt-5.3-codex")
+        == 1_280_000
+    )
+    assert build_in_run_compaction_soft_char_limit("openai:gpt-4o") == 409_600
+    assert build_in_run_compaction_soft_char_limit("ollama:glm-5:cloud") == 633_600
+    assert (
+        build_in_run_compaction_soft_char_limit("ollama:kimi-k2:1t-cloud")
+        == 819_200
+    )
+
+
+def test_build_in_run_compaction_soft_char_limit_uses_default_for_unknown_models(
+) -> None:
+    model = FunctionModel(function=lambda _messages, _info: "")
+
+    assert get_model_context_window_tokens(model) is None
+    assert build_in_run_compaction_soft_char_limit(model) == 12_000

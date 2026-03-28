@@ -27,6 +27,18 @@ OPENAI_COMPATIBLE_RETRYABLE_STATUS_CODES = frozenset(
 )
 OPENAI_COMPATIBLE_HTTP_RETRY_ATTEMPTS = 3
 OPENAI_COMPATIBLE_HTTP_RETRY_MAX_WAIT_SECONDS = 30
+DEFAULT_IN_RUN_COMPACTION_SOFT_CHAR_LIMIT = 12_000
+IN_RUN_COMPACTION_CONTEXT_WINDOW_UTILIZATION = 0.8
+IN_RUN_COMPACTION_CHARS_PER_TOKEN_HEURISTIC = 4
+OPENAI_CONTEXT_WINDOW_TOKENS_BY_PREFIX: tuple[tuple[str, int], ...] = (
+    ("gpt-5.3-codex", 400_000),
+    ("gpt-5-codex", 400_000),
+    ("gpt-4o", 128_000),
+)
+OLLAMA_CONTEXT_WINDOW_TOKENS_BY_PREFIX: tuple[tuple[str, int], ...] = (
+    ("glm-5", 198_000),
+    ("kimi-k2", 256_000),
+)
 
 
 def resolve_canonical_model(model: Any) -> Model:
@@ -196,6 +208,72 @@ def _supports_parallel_tool_calls(model: Model) -> bool:
     return isinstance(model, AnthropicModel)
 
 
+def get_model_context_window_tokens(model: Any) -> int | None:
+    if isinstance(model, str):
+        if model.startswith("openai-responses:"):
+            return _match_model_name_prefix(
+                model.split(":", 1)[1],
+                OPENAI_CONTEXT_WINDOW_TOKENS_BY_PREFIX,
+            )
+        if model.startswith("openai:") or model.startswith("openai-chat:"):
+            return _match_model_name_prefix(
+                model.split(":", 1)[1],
+                OPENAI_CONTEXT_WINDOW_TOKENS_BY_PREFIX,
+            )
+        if model.startswith("ollama:"):
+            return _match_model_name_prefix(
+                model.split(":", 1)[1],
+                OLLAMA_CONTEXT_WINDOW_TOKENS_BY_PREFIX,
+            )
+        return None
+
+    resolved_model = resolve_canonical_model(model)
+    policy_model = _unwrap_policy_model(resolved_model)
+
+    if isinstance(policy_model, OpenAIResponsesModel):
+        return _match_model_name_prefix(
+            policy_model.model_name,
+            OPENAI_CONTEXT_WINDOW_TOKENS_BY_PREFIX,
+        )
+
+    if isinstance(policy_model, OpenAIChatModel):
+        if isinstance(policy_model._provider, OpenAIProvider):
+            return _match_model_name_prefix(
+                policy_model.model_name,
+                OPENAI_CONTEXT_WINDOW_TOKENS_BY_PREFIX,
+            )
+        if isinstance(policy_model._provider, OllamaProvider):
+            return _match_model_name_prefix(
+                policy_model.model_name,
+                OLLAMA_CONTEXT_WINDOW_TOKENS_BY_PREFIX,
+            )
+
+    return None
+
+
+def build_in_run_compaction_soft_char_limit(model: Any) -> int:
+    context_window_tokens = get_model_context_window_tokens(model)
+    if context_window_tokens is None:
+        return DEFAULT_IN_RUN_COMPACTION_SOFT_CHAR_LIMIT
+
+    return int(
+        context_window_tokens
+        * IN_RUN_COMPACTION_CONTEXT_WINDOW_UTILIZATION
+        * IN_RUN_COMPACTION_CHARS_PER_TOKEN_HEURISTIC
+    )
+
+
+def _match_model_name_prefix(
+    model_name: str,
+    candidates: tuple[tuple[str, int], ...],
+) -> int | None:
+    for prefix, context_window_tokens in candidates:
+        if model_name.startswith(prefix):
+            return context_window_tokens
+
+    return None
+
+
 def _env_flag(name: str) -> bool:
     value = os.environ.get(name)
     if value is None:
@@ -203,4 +281,9 @@ def _env_flag(name: str) -> bool:
     return value.strip().lower() not in {"", "0", "false", "no", "off"}
 
 
-__all__ = ["build_canonical_model_settings", "resolve_canonical_model"]
+__all__ = [
+    "build_canonical_model_settings",
+    "build_in_run_compaction_soft_char_limit",
+    "get_model_context_window_tokens",
+    "resolve_canonical_model",
+]
