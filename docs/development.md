@@ -48,7 +48,7 @@ canonical Python headless backend.
   - `OPENAI_BASE_URL`
   - `OLLAMA_BASE_URL`
   - `OLLAMA_API_KEY`
-  - `JACA_TRACE=1` to wrap resolved models with opt-in OpenTelemetry instrumentation and emit canonical run/tool spans for watchdog analysis
+  - `JACA_TRACE=1` to wrap resolved models with opt-in OpenTelemetry instrumentation and emit canonical run/tool spans for evaluation-side watchdog analysis
 
 ## CI
 

@@ -1,4 +1,4 @@
-"""Watchdog helpers for diagnosing long-running agent behavior."""
+"""Evaluation-side watchdog helpers for traced runs."""
 
 from .evaluators import BashHeavyWithoutEditsEvaluator, has_long_tool_span
 

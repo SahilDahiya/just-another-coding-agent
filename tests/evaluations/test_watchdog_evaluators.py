@@ -5,14 +5,14 @@ from datetime import UTC, datetime, timedelta
 
 from pydantic_evals.otel.span_tree import SpanNode, SpanTree
 
+from evaluations.watchdog.evaluators import (
+    BashHeavyWithoutEditsEvaluator,
+    has_long_tool_span,
+)
 from just_another_coding_agent.runtime.tracing import (
     RUN_SPAN_NAME,
     TOOL_NAME_ATTRIBUTE,
     TOOL_SPAN_NAME,
-)
-from just_another_coding_agent.watchdog.evaluators import (
-    BashHeavyWithoutEditsEvaluator,
-    has_long_tool_span,
 )
 
 

@@ -153,7 +153,7 @@ The system prompt tells the model what tools it has, how to approach coding task
 That prompt layer also carries two behavioral rules that matter for benchmark and real coding tasks alike: do not claim a file was created or changed without tool evidence, and verify code changes or required file outputs before concluding.
 Thinking is not carried in the prompt. The runtime passes it through PydanticAI model settings as an explicit run input.
 Provider-native model behavior is centralized separately in `runtime/models.py`, which resolves model strings, applies OpenAI-compatible retry transport policy, enables OpenAI Responses server history only when appropriate, and can wrap models with opt-in instrumentation via `JACA_TRACE=1`.
-When tracing is enabled, the runtime also emits canonical `jaca.run` and `jaca.tool_call` spans so watchdog evaluators can detect long-tool and bash-heavy probe loops without inspecting session JSONL by hand.
+When tracing is enabled, the runtime also emits canonical `jaca.run` and `jaca.tool_call` spans so evaluation-side watchdog helpers can detect long-tool and bash-heavy probe loops without inspecting session JSONL by hand.
 
 ### Runtime
 

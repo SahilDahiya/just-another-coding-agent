@@ -31,7 +31,7 @@ The canonical prompt must also enforce side-effect truthfulness and verification
 The canonical runtime should expose `thinking` as an explicit run setting and pass it through PydanticAI model settings rather than encoding reasoning level in prompt text.
 The canonical runtime should resolve model strings through one local model seam before agent construction so provider-native retries, instrumentation, and OpenAI-specific settings stay centralized instead of leaking through the runtime.
 The canonical tool concurrency policy should also be explicit rather than left to framework defaults: read-only tools may run in parallel, mutating tools remain serialized, and provider-side `parallel_tool_calls` should be enabled by default for the canonical provider paths unless the backend explicitly carves out a known-bad model path.
-Opt-in tracing should stay in one place too: `JACA_TRACE=1` turns on model instrumentation plus canonical runtime spans so watchdog evaluators can reason about long-run behavior from OTel data instead of ad hoc log scraping.
+Opt-in tracing should stay in one place too: `JACA_TRACE=1` turns on model instrumentation plus canonical runtime spans so evaluation-side watchdog helpers can reason about long-run behavior from OTel data instead of ad hoc log scraping.
 Internal tool executors should also depend only on the execution context they actually use. If an executor only needs `deps`, `tool_call_id`, and `tool_name`, that narrower structural contract should be explicit instead of pretending to require a full PydanticAI `RunContext`.
 
 ## Stateful Orchestration Boundary
