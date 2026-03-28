@@ -311,7 +311,7 @@ async def test_stream_run_events_tool_failure_is_terminal_error_event() -> None:
     assert events[3].message == "tool boom"
 
 
-async def test_stream_run_events_retry_prompt_emits_tool_failed_event() -> None:
+async def test_stream_run_events_retry_prompt_emits_tool_error_result() -> None:
     agent = StubStreamAgent(
         events=[
             FunctionToolCallEvent(
@@ -343,12 +343,20 @@ async def test_stream_run_events_retry_prompt_emits_tool_failed_event() -> None:
     assert len(events) == 4
     assert isinstance(events[0], RunStartedEvent)
     assert isinstance(events[1], ToolCallStartedEvent)
-    assert isinstance(events[2], ToolCallFailedEvent)
+    assert isinstance(events[2], ToolCallSucceededEvent)
     assert isinstance(events[3], RunSucceededEvent)
     assert events[2].tool_call_id == "call-validate"
     assert events[2].tool_name == "validate"
-    assert events[2].error_type == "RetryPromptPart"
-    assert events[2].message == "bad input"
+    assert events[2].result == {
+        "ok": False,
+        "error_type": "RetryPromptPart",
+        "message": "bad input",
+    }
+    assert events[2].activity is not None
+    assert events[2].activity.title == "validate"
+    assert events[2].activity.summary == "bad input"
+    assert events[2].activity.duration_ms is not None
+    assert events[2].activity.duration_ms >= 0
     assert events[3].output_text == "done"
 
 

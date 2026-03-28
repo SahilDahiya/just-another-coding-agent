@@ -136,17 +136,20 @@ async def stream_run_events(
                             result_tool_name=event.result.tool_name,
                         )
                         retry_message = _retry_prompt_message(event.result)
-                        yield ToolCallFailedEvent(
+                        retry_result = _tool_error_result(
+                            error_type="RetryPromptPart",
+                            message=retry_message,
+                        )
+                        yield ToolCallSucceededEvent(
                             run_id=run_id,
                             tool_call_id=event.tool_call_id,
                             tool_name=pending_tool_call.tool_name,
-                            error_type="RetryPromptPart",
-                            message=retry_message,
-                            activity=build_failed_tool_activity(
+                            result=retry_result,
+                            activity=build_succeeded_tool_activity(
                                 tool_name=pending_tool_call.tool_name,
                                 args=pending_tool_call.args,
                                 args_valid=pending_tool_call.args_valid,
-                                message=retry_message,
+                                result=retry_result,
                                 duration_ms=_duration_ms_since(
                                     pending_tool_call.started_at
                                 ),
@@ -311,3 +314,11 @@ def _retry_prompt_message(part: RetryPromptPart) -> str:
 
 def _duration_ms_since(started_at: float) -> int:
     return max(0, int((monotonic() - started_at) * 1000))
+
+
+def _tool_error_result(*, error_type: str, message: str) -> dict[str, str | bool]:
+    return {
+        "ok": False,
+        "error_type": error_type,
+        "message": message,
+    }

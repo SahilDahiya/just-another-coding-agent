@@ -323,6 +323,7 @@ Ordering rules for the tool slice:
 
 - Each `tool_call_started` must be followed by exactly one matching `tool_call_succeeded` or `tool_call_failed`
 - Expected tool-domain failures should normally be represented as `tool_call_succeeded` with an explicit error result object
+- `RetryPromptPart` tool validation failures must be represented as `tool_call_succeeded` with an explicit error result object; they are not terminal by themselves
 - `tool_call_failed` is reserved for uncaught tool failures or invalid runtime state and is terminal for the current run
 - A tool exception that aborts the run must emit `tool_call_failed` before `run_failed`
 - A tool result must match an existing pending `tool_call_started`; tool name mismatches or orphaned tool results are invalid state and fail the run explicitly
