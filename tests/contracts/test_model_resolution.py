@@ -1,6 +1,7 @@
 import os
 
 from pydantic_ai.models import infer_model
+from pydantic_ai.models.anthropic import AnthropicModel
 from pydantic_ai.models.function import FunctionModel
 from pydantic_ai.models.instrumented import InstrumentedModel
 from pydantic_ai.models.openai import (
@@ -84,6 +85,7 @@ def test_build_canonical_model_settings_merge_model_defaults() -> None:
 
     assert build_canonical_model_settings(model=model, thinking="high") == {
         "openai_previous_response_id": "auto",
+        "parallel_tool_calls": True,
         "thinking": "high",
     }
 
@@ -97,7 +99,32 @@ def test_build_canonical_model_settings_enable_openai_server_history() -> None:
     assert build_canonical_model_settings(
         model=model,
         enable_server_history=True,
-    ) == {"openai_previous_response_id": "auto"}
+    ) == {
+        "openai_previous_response_id": "auto",
+        "parallel_tool_calls": True,
+    }
+
+
+def test_build_canonical_model_settings_enable_parallel_tool_calls_for_supported_models(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    model = infer_model("anthropic:claude-3-5-haiku-latest")
+
+    assert isinstance(model, AnthropicModel)
+    assert build_canonical_model_settings(model=model) == {
+        "parallel_tool_calls": True
+    }
+
+
+def test_build_canonical_model_settings_do_not_enable_parallel_tool_calls_for_ollama(
+) -> None:
+    model = OpenAIChatModel(
+        "glm-5:cloud",
+        provider=OllamaProvider(base_url="https://example.test/v1", api_key="test-key"),
+    )
+
+    assert build_canonical_model_settings(model=model) is None
 
 
 def test_resolve_canonical_model_uses_retrying_openai_http_transport(
@@ -155,4 +182,7 @@ def test_build_canonical_model_settings_unwraps_instrumented_models() -> None:
     assert build_canonical_model_settings(
         model=model,
         enable_server_history=True,
-    ) == {"openai_previous_response_id": "auto"}
+    ) == {
+        "openai_previous_response_id": "auto",
+        "parallel_tool_calls": True,
+    }

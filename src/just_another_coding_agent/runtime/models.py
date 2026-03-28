@@ -6,6 +6,7 @@ from typing import Any
 import httpx
 from openai import AsyncOpenAI, DefaultAsyncHttpxClient
 from pydantic_ai.models import Model, infer_model
+from pydantic_ai.models.anthropic import AnthropicModel
 from pydantic_ai.models.instrumented import InstrumentedModel
 from pydantic_ai.models.openai import (
     OpenAIChatModel,
@@ -149,6 +150,7 @@ def build_canonical_model_settings(
             settings.update(
                 OpenAIResponsesModelSettings(openai_previous_response_id="auto")
             )
+        _apply_parallel_tool_call_policy(settings=settings, model=policy_model)
     if thinking is not None:
         settings["thinking"] = thinking
 
@@ -168,6 +170,30 @@ def _unwrap_policy_model(model: Model) -> Model:
     while isinstance(current, WrapperModel):
         current = current.wrapped
     return current
+
+
+def _apply_parallel_tool_call_policy(*, settings: dict[str, Any], model: Model) -> None:
+    supported = _supports_parallel_tool_calls(model)
+    configured = settings.get("parallel_tool_calls")
+    if configured is not None:
+        if not isinstance(configured, bool):
+            raise TypeError("parallel_tool_calls must be a boolean when provided")
+        if configured is not supported:
+            raise ValueError(
+                "parallel_tool_calls conflicts with canonical provider support"
+            )
+        return
+
+    if supported:
+        settings["parallel_tool_calls"] = True
+
+
+def _supports_parallel_tool_calls(model: Model) -> bool:
+    if isinstance(model, OpenAIResponsesModel):
+        return isinstance(model._provider, OpenAIProvider)
+    if isinstance(model, OpenAIChatModel):
+        return isinstance(model._provider, OpenAIProvider)
+    return isinstance(model, AnthropicModel)
 
 
 def _env_flag(name: str) -> bool:

@@ -137,18 +137,19 @@ async def stream_run_events(
 
         async def _pump_agent_events() -> None:
             try:
-                async for event in agent.run_stream_events(
-                    prompt,
-                    message_history=message_history,
-                    deps=queued_deps,
-                    model_settings=build_canonical_model_settings(
-                        model=getattr(agent, "model", None),
-                        thinking=thinking,
-                        enable_server_history=enable_server_history,
-                    ),
-                    usage_limits=_build_unbounded_usage_limits(),
-                ):
-                    await queue.put(event)
+                with agent.parallel_tool_call_execution_mode("parallel"):
+                    async for event in agent.run_stream_events(
+                        prompt,
+                        message_history=message_history,
+                        deps=queued_deps,
+                        model_settings=build_canonical_model_settings(
+                            model=getattr(agent, "model", None),
+                            thinking=thinking,
+                            enable_server_history=enable_server_history,
+                        ),
+                        usage_limits=_build_unbounded_usage_limits(),
+                    ):
+                        await queue.put(event)
             except Exception as error:
                 await queue.put(_QueuedRunError(error))
             else:

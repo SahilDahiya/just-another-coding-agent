@@ -65,6 +65,7 @@ WRITE_TOOL = Tool(
     docstring_format="google",
     require_parameter_descriptions=True,
     strict=True,
+    sequential=True,
 )
 
 __all__ = ["WRITE_TOOL", "execute_write", "write"]

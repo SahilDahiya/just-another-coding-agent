@@ -1,5 +1,6 @@
 import json
 from collections.abc import AsyncIterator
+from contextlib import contextmanager
 
 from pydantic_ai import (
     Agent,
@@ -55,6 +56,12 @@ class StubStreamAgent:
 
         if self._error is not None:
             raise self._error
+
+    @staticmethod
+    @contextmanager
+    def parallel_tool_call_execution_mode(mode: str = "parallel"):
+        assert mode == "parallel"
+        yield
 
 
 async def successful_tool_stream(

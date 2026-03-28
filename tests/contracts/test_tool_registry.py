@@ -2,12 +2,21 @@ import pytest
 from pydantic_ai import Agent
 from pydantic_ai.models.test import TestModel
 
+from just_another_coding_agent.tools.bash import BASH_TOOL
 from just_another_coding_agent.tools.deps import WorkspaceDeps
+from just_another_coding_agent.tools.edit import EDIT_TOOL
+from just_another_coding_agent.tools.find import FIND_TOOL
+from just_another_coding_agent.tools.grep import GREP_TOOL
+from just_another_coding_agent.tools.ls import LS_TOOL
+from just_another_coding_agent.tools.read import READ_TOOL
 from just_another_coding_agent.tools.registry import (
+    PARALLEL_CANONICAL_TOOL_NAMES,
+    SEQUENTIAL_CANONICAL_TOOL_NAMES,
     UnknownToolError,
     build_canonical_toolset,
     list_canonical_tool_names,
 )
+from just_another_coding_agent.tools.write import WRITE_TOOL
 
 
 def test_registry_exposes_canonical_tool_names() -> None:
@@ -25,6 +34,23 @@ def test_registry_exposes_canonical_tool_names() -> None:
 def test_build_canonical_toolset_rejects_unknown_tool_name() -> None:
     with pytest.raises(UnknownToolError, match="nope"):
         build_canonical_toolset(["nope"])
+
+
+def test_registry_exposes_explicit_parallel_tool_policy() -> None:
+    assert set(PARALLEL_CANONICAL_TOOL_NAMES).isdisjoint(
+        SEQUENTIAL_CANONICAL_TOOL_NAMES
+    )
+    assert set(PARALLEL_CANONICAL_TOOL_NAMES) | set(
+        SEQUENTIAL_CANONICAL_TOOL_NAMES
+    ) == set(list_canonical_tool_names())
+
+    assert READ_TOOL.sequential is False
+    assert GREP_TOOL.sequential is False
+    assert FIND_TOOL.sequential is False
+    assert LS_TOOL.sequential is False
+    assert WRITE_TOOL.sequential is True
+    assert EDIT_TOOL.sequential is True
+    assert BASH_TOOL.sequential is True
 
 
 def test_build_canonical_toolset_registers_implemented_tools_with_pydanticai(

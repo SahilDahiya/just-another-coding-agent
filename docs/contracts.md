@@ -322,6 +322,13 @@ Rules for the initial activity slice:
 - existing consumers that ignore `activity` must continue to work unchanged
 - framework-native carriers such as `ToolReturn.metadata` are allowed internally, but they are not themselves part of the public contract; the public contract begins only after the runtime validates and maps that data into typed `activity.details`
 
+Canonical tool concurrency policy:
+
+- `read`, `grep`, `find`, and `ls` are parallel-eligible
+- `write`, `edit`, and `bash` are sequential only
+- the runtime must set tool execution mode explicitly instead of relying on framework defaults
+- provider-side `parallel_tool_calls` must only be enabled for canonical model/provider combinations the backend explicitly supports
+
 Ordering rules for the tool slice:
 
 - Each `tool_call_started` must be followed by exactly one matching `tool_call_succeeded` or `tool_call_failed`

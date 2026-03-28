@@ -244,6 +244,7 @@ EDIT_TOOL = Tool(
     docstring_format="google",
     require_parameter_descriptions=True,
     strict=True,
+    sequential=True,
 )
 
 def _generate_unified_diff(

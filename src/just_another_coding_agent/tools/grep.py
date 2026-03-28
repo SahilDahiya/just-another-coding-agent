@@ -228,6 +228,7 @@ GREP_TOOL = Tool(
     docstring_format="google",
     require_parameter_descriptions=True,
     strict=True,
+    sequential=False,
 )
 
 
