@@ -18,8 +18,8 @@ from just_another_coding_agent.runtime.compaction import (
 )
 from just_another_coding_agent.runtime.run import stream_run_events
 from just_another_coding_agent.session.jsonl import (
-    append_run_to_session,
     load_session,
+    start_run_to_session,
 )
 from just_another_coding_agent.tools._workspace import normalize_workspace_root
 from just_another_coding_agent.tools.deps import WorkspaceDeps
@@ -34,10 +34,12 @@ async def stream_session_run_events(
     tool_names: Sequence[str] = CANONICAL_TOOL_NAMES,
     thinking: ThinkingSetting | None = None,
 ) -> AsyncIterator[RunEvent]:
-    """Stream one run and persist it only after terminal completion.
+    """Stream one run and persist session entries incrementally.
 
-    Callers that stop consuming before a terminal event do not get a partial
-    session append; append-only persistence requires a fully observed run.
+    The canonical session format only becomes loadable after terminal
+    completion, when session_messages are appended. Interrupted runs remain
+    visible on disk as incomplete trailing runs and load_session(...) fails
+    hard instead of silently hiding them.
     """
     normalized_workspace_root = normalize_workspace_root(workspace_root)
     loaded_session = None
@@ -81,7 +83,7 @@ async def stream_session_run_events(
             [history_processor] if history_processor is not None else None
         ),
     )
-    emitted_events: list[RunEvent] = []
+    run_appender = None
 
     with capture_run_messages() as messages:
         async for event in stream_run_events(
@@ -94,17 +96,21 @@ async def stream_session_run_events(
             deps=WorkspaceDeps(workspace_root=normalized_workspace_root),
             enable_server_history=enable_server_history,
         ):
-            emitted_events.append(event)
+            if run_appender is None:
+                run_appender = start_run_to_session(
+                    path=session_path,
+                    workspace_root=normalized_workspace_root,
+                    run_id=event.run_id,
+                    prompt=prompt,
+                    thinking=resolved_thinking,
+                )
+            run_appender.append_event(event)
             yield event
 
-    append_run_to_session(
-        path=session_path,
-        workspace_root=normalized_workspace_root,
-        prompt=prompt,
-        thinking=resolved_thinking,
-        events=emitted_events,
-        messages=strip_compaction_summary_from_messages(list(messages)),
-    )
+    if run_appender is not None:
+        run_appender.finalize(
+            messages=strip_compaction_summary_from_messages(list(messages))
+        )
 
 
 __all__ = ["stream_session_run_events"]

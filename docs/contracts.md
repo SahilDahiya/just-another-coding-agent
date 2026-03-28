@@ -368,7 +368,8 @@ Initial executable session slice:
 Ordering rules for the session slice:
 
 - The first line must be exactly one `session_header`
-- Each `session_run` is followed by exactly one `session_messages` line and then zero or more `session_event` lines for the same `run_id`
+- Each completed `session_run` is followed by one or more `session_event` lines for the same `run_id` and then exactly one trailing `session_messages` line for that run
+- A trailing run without `session_messages` is an incomplete run and authoritative session load must fail hard
 - `session_compaction` may appear only at a completed run boundary, never in the middle of a run
 - `session_compaction` entries are append-only and must not move the summary boundary backward
 - Authoritative session loads must provide the expected workspace root and it must match the persisted `session_header.workspace_root` exactly
@@ -376,7 +377,7 @@ Ordering rules for the session slice:
 - Runtime compaction must be applied through PydanticAI `history_processors` while keeping the durable session file in full-fidelity append-only form
 - `session.compact` and automatic compaction must generate summaries through a model call; the persistence layer must not invent placeholder summaries locally
 - When a new run omits `thinking`, the session-backed runtime inherits the most recent persisted non-null thinking setting from that session
-- Session-backed runtime streaming persists only after the run reaches a terminal outcome; partially consumed or cancelled streams must not append a partial run
+- Session-backed runtime streaming must append `session_run` and `session_event` entries incrementally as the run streams and append `session_messages` only after terminal completion
 - Persisted events for a run must satisfy the streamed run contract, including exactly one terminal outcome
 - Persisted `session_event` payloads must preserve any tool `activity` metadata unchanged
 - Appending a new run must preserve all existing lines and write the header only once

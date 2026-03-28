@@ -92,11 +92,11 @@ A session is the append-only JSONL file that records what happened across multip
 Example:
 
 ```json
-{"type":"session_header","version":4,"workspace_root":"/abs/path/to/workspace"}
+{"type":"session_header","version":5,"workspace_root":"/abs/path/to/workspace"}
 {"type":"session_run","run_id":"abc","prompt":"fix bug","thinking":"high"}
-{"type":"session_messages","run_id":"abc","messages":[...]}
 {"type":"session_event","run_id":"abc","event":{"type":"run_started","run_id":"abc"}}
 {"type":"session_event","run_id":"abc","event":{"type":"run_succeeded","run_id":"abc","output_text":"done"}}
+{"type":"session_messages","run_id":"abc","messages":[...]}
 {"type":"session_compaction","compaction_id":"cmp-1","summarized_through_run_id":"abc","summary":{"current_objective":"ship the fix","established_facts":[],"user_preferences":[],"important_paths":[],"open_questions":[],"unresolved_work":[]}}
 ```
 
@@ -115,7 +115,7 @@ If a new run omits `thinking`, the session runtime inherits the most recent pers
 
 `run.start` against an existing session is the canonical continue operation. There is no separate `session.continue` command.
 
-The coordinator `stream_session_run_events()` handles the full lifecycle: load session, optionally auto-compact stale history, build the agent, stream events, capture messages, strip synthetic compaction-summary messages back out, then persist both events and messages after the run completes. Persistence only happens after terminal completion -- partially consumed streams do not append.
+The coordinator `stream_session_run_events()` handles the full lifecycle: load session, optionally auto-compact stale history, build the agent, stream events, capture messages, strip synthetic compaction-summary messages back out, append `session_run` plus streamed `session_event` lines incrementally, then append trailing `session_messages` after terminal completion. If a stream is interrupted after events have been appended but before `session_messages` are written, the session file contains an incomplete trailing run and `load_session(...)` fails hard.
 
 The current deterministic auto-compaction trigger is simple: before a resumed run starts, the runtime appends one automatic compaction entry when at least five completed runs have accumulated since the latest compaction boundary.
 
@@ -200,7 +200,7 @@ Benchmark harness / CLI / TUI / UI (any language)
   Contracts (contracts/) -- defines all the shapes above
 ```
 
-The consumer sends RPC requests. The RPC server delegates to the session coordinator, which loads (or creates) a session, builds the canonical agent, streams events through the runtime, and persists both events and messages after completion. The session coordinator is the single path -- both RPC and direct Python calls use it.
+The consumer sends RPC requests. The RPC server delegates to the session coordinator, which loads (or creates) a session, builds the canonical agent, streams events through the runtime, persists `session_run` plus `session_event` entries as they happen, and appends `session_messages` only after completion. The session coordinator is the single path -- both RPC and direct Python calls use it.
 
 ## Adapters
 

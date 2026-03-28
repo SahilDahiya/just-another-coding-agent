@@ -8,7 +8,7 @@ from pydantic_ai.messages import ModelMessage
 from .run_events import RunEvent
 from .thinking import ThinkingSetting
 
-SESSION_FORMAT_VERSION = 4
+SESSION_FORMAT_VERSION = 5
 
 
 class _SessionEntryBase(BaseModel):

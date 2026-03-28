@@ -16,6 +16,7 @@ from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 from just_another_coding_agent.contracts.run_events import (
     RunStartedEvent,
     RunSucceededEvent,
+    ToolCallStartedEvent,
     ToolCallSucceededEvent,
 )
 from just_another_coding_agent.contracts.session import SessionCompactionSummary
@@ -343,6 +344,68 @@ async def test_stream_session_run_events_resumes_with_pydanticai_message_history
     assert _has_tool_return(loaded.message_history, tool_name="write")
 
 
+async def test_stream_session_run_events_persists_partial_run_before_completion(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    session_path = tmp_path / "session.jsonl"
+
+    async def failing_stream_run_events(
+        *,
+        agent,
+        prompt,
+        message_history=None,
+        thinking=None,
+        deps=None,
+        enable_server_history=False,
+    ):
+        del agent, prompt, message_history, thinking, deps, enable_server_history
+        yield RunStartedEvent(run_id="run-1")
+        yield ToolCallStartedEvent(
+            run_id="run-1",
+            tool_call_id="call-write",
+            tool_name="write",
+            args={"path": "note.txt", "content": "hello\n"},
+            args_valid=True,
+        )
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(
+        "just_another_coding_agent.runtime.session.stream_run_events",
+        failing_stream_run_events,
+    )
+
+    with pytest.raises(RuntimeError, match="boom"):
+        _ = [
+            event
+            async for event in stream_session_run_events(
+                model=FunctionModel(stream_function=make_write_stream()),
+                workspace_root=workspace_root,
+                session_path=session_path,
+                prompt="go",
+            )
+        ]
+
+    line_types = [
+        json.loads(line)["type"]
+        for line in session_path.read_text(encoding="utf-8").splitlines()
+    ]
+    assert line_types == [
+        "session_header",
+        "session_run",
+        "session_event",
+        "session_event",
+    ]
+
+    with pytest.raises(
+        SessionFormatError,
+        match="Session ended with incomplete run",
+    ):
+        load_session(path=session_path, workspace_root=workspace_root)
+
+
 async def test_stream_session_run_events_inherits_last_persisted_thinking_when_omitted(
     tmp_path,
     monkeypatch,
@@ -626,7 +689,7 @@ async def test_stream_session_run_events_auto_compacts_stale_session_before_resu
     )
 
 
-async def test_stream_session_run_events_does_not_persist_partial_consumption(
+async def test_stream_session_run_events_persists_incomplete_partial_consumption(
     tmp_path,
 ) -> None:
     workspace_root = tmp_path / "workspace"
@@ -644,4 +707,14 @@ async def test_stream_session_run_events_does_not_persist_partial_consumption(
 
     await stream.aclose()
 
-    assert not session_path.exists()
+    assert session_path.exists()
+    assert [
+        json.loads(line)["type"]
+        for line in session_path.read_text(encoding="utf-8").splitlines()
+    ] == ["session_header", "session_run", "session_event"]
+
+    with pytest.raises(
+        SessionFormatError,
+        match="Session ended with incomplete run",
+    ):
+        load_session(path=session_path, workspace_root=workspace_root)

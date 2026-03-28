@@ -21,7 +21,10 @@ from just_another_coding_agent.contracts.run_events import (
     ToolCallSucceededEvent,
     ToolCallUpdatedEvent,
 )
-from just_another_coding_agent.contracts.session import SessionCompactionSummary
+from just_another_coding_agent.contracts.session import (
+    SESSION_FORMAT_VERSION,
+    SessionCompactionSummary,
+)
 from just_another_coding_agent.runtime.run import stream_run_events
 from just_another_coding_agent.session.jsonl import (
     SessionFormatError,
@@ -75,7 +78,7 @@ async def test_append_and_load_session_with_runtime_events(tmp_path) -> None:
     )
     loaded = load_session(path=path, workspace_root=workspace_root)
 
-    assert loaded.header.version == 4
+    assert loaded.header.version == SESSION_FORMAT_VERSION
     assert loaded.header.workspace_root == str(workspace_root.resolve())
     assert len(loaded.runs) == 1
     assert loaded.runs[0].run_id == events[0].run_id
@@ -142,6 +145,37 @@ def test_append_run_to_session_appends_without_rewriting_header(tmp_path) -> Non
     assert loaded.message_history == first_messages + second_messages
     assert [run.thinking for run in loaded.runs] == [None, "medium"]
     assert loaded.thinking == "medium"
+
+
+def test_append_run_to_session_writes_events_before_messages(tmp_path) -> None:
+    path = tmp_path / "session.jsonl"
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    append_run_to_session(
+        path=path,
+        workspace_root=workspace_root,
+        prompt="go",
+        thinking=None,
+        events=[
+            RunStartedEvent(run_id="run-1"),
+            RunSucceededEvent(run_id="run-1", output_text="done"),
+        ],
+        messages=[ModelRequest(parts=[UserPromptPart(content="go")])],
+    )
+
+    line_types = [
+        json.loads(line)["type"]
+        for line in path.read_text(encoding="utf-8").splitlines()
+    ]
+
+    assert line_types == [
+        "session_header",
+        "session_run",
+        "session_event",
+        "session_event",
+        "session_messages",
+    ]
 
 
 def test_append_and_load_session_preserves_tool_activity_metadata(tmp_path) -> None:
@@ -302,24 +336,10 @@ def test_load_session_fails_when_tool_update_has_no_started_call(tmp_path) -> No
     lines = [
         {
             "type": "session_header",
-            "version": 4,
+            "version": SESSION_FORMAT_VERSION,
             "workspace_root": str(workspace_root.resolve()),
         },
         {"type": "session_run", "run_id": "run-1", "prompt": "go"},
-        {
-            "type": "session_messages",
-            "run_id": "run-1",
-            "messages": [
-                {
-                    "kind": "request",
-                    "parts": [{"part_kind": "user-prompt", "content": "go"}],
-                    "timestamp": None,
-                    "run_id": None,
-                    "metadata": None,
-                    "instructions": None,
-                }
-            ],
-        },
         {
             "type": "session_event",
             "run_id": "run-1",
@@ -347,6 +367,20 @@ def test_load_session_fails_when_tool_update_has_no_started_call(tmp_path) -> No
                 "message": "boom",
             },
         },
+        {
+            "type": "session_messages",
+            "run_id": "run-1",
+            "messages": [
+                {
+                    "kind": "request",
+                    "parts": [{"part_kind": "user-prompt", "content": "go"}],
+                    "timestamp": None,
+                    "run_id": None,
+                    "metadata": None,
+                    "instructions": None,
+                }
+            ],
+        },
     ]
     path.write_text(
         "".join(json.dumps(line) + "\n" for line in lines),
@@ -356,6 +390,35 @@ def test_load_session_fails_when_tool_update_has_no_started_call(tmp_path) -> No
     with pytest.raises(
         SessionFormatError,
         match="Tool update must follow tool_call_started",
+    ):
+        load_session(path=path, workspace_root=workspace_root)
+
+
+def test_load_session_fails_when_trailing_run_is_incomplete(tmp_path) -> None:
+    path = tmp_path / "session.jsonl"
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    lines = [
+        {
+            "type": "session_header",
+            "version": SESSION_FORMAT_VERSION,
+            "workspace_root": str(workspace_root.resolve()),
+        },
+        {"type": "session_run", "run_id": "run-1", "prompt": "go"},
+        {
+            "type": "session_event",
+            "run_id": "run-1",
+            "event": {"type": "run_started", "run_id": "run-1"},
+        },
+    ]
+    path.write_text(
+        "".join(json.dumps(line) + "\n" for line in lines),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        SessionFormatError,
+        match="Session ended with incomplete run",
     ):
         load_session(path=path, workspace_root=workspace_root)
 
@@ -377,24 +440,10 @@ def test_load_session_fails_on_duplicate_run_id(tmp_path) -> None:
     lines = [
         {
             "type": "session_header",
-            "version": 4,
+            "version": SESSION_FORMAT_VERSION,
             "workspace_root": str(workspace_root.resolve()),
         },
         {"type": "session_run", "run_id": "run-1", "prompt": "first"},
-        {
-            "type": "session_messages",
-            "run_id": "run-1",
-            "messages": [
-                {
-                    "kind": "request",
-                    "parts": [{"part_kind": "user-prompt", "content": "first"}],
-                    "timestamp": None,
-                    "run_id": None,
-                    "metadata": None,
-                    "instructions": None,
-                }
-            ],
-        },
         {
             "type": "session_event",
             "run_id": "run-1",
@@ -409,6 +458,20 @@ def test_load_session_fails_on_duplicate_run_id(tmp_path) -> None:
                 "error_type": "RuntimeError",
                 "message": "boom",
             },
+        },
+        {
+            "type": "session_messages",
+            "run_id": "run-1",
+            "messages": [
+                {
+                    "kind": "request",
+                    "parts": [{"part_kind": "user-prompt", "content": "first"}],
+                    "timestamp": None,
+                    "run_id": None,
+                    "metadata": None,
+                    "instructions": None,
+                }
+            ],
         },
         {"type": "session_run", "run_id": "run-1", "prompt": "second"},
     ]
@@ -451,10 +514,19 @@ def test_load_session_fails_when_run_event_order_is_invalid(tmp_path) -> None:
     lines = [
         {
             "type": "session_header",
-            "version": 4,
+            "version": SESSION_FORMAT_VERSION,
             "workspace_root": str(workspace_root.resolve()),
         },
         {"type": "session_run", "run_id": "run-1", "prompt": "go"},
+        {
+            "type": "session_event",
+            "run_id": "run-1",
+            "event": {
+                "type": "run_succeeded",
+                "run_id": "run-1",
+                "output_text": "done",
+            },
+        },
         {
             "type": "session_messages",
             "run_id": "run-1",
@@ -468,15 +540,6 @@ def test_load_session_fails_when_run_event_order_is_invalid(tmp_path) -> None:
                     "instructions": None,
                 }
             ],
-        },
-        {
-            "type": "session_event",
-            "run_id": "run-1",
-            "event": {
-                "type": "run_succeeded",
-                "run_id": "run-1",
-                "output_text": "done",
-            },
         },
     ]
     path.write_text(
@@ -493,7 +556,8 @@ def test_load_session_fails_when_header_has_no_workspace_root(tmp_path) -> None:
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
     path.write_text(
-        json.dumps({"type": "session_header", "version": 4}) + "\n",
+        json.dumps({"type": "session_header", "version": SESSION_FORMAT_VERSION})
+        + "\n",
         encoding="utf-8",
     )
 
@@ -533,7 +597,7 @@ def test_load_session_fails_when_session_messages_are_missing(tmp_path) -> None:
     lines = [
         {
             "type": "session_header",
-            "version": 4,
+            "version": SESSION_FORMAT_VERSION,
             "workspace_root": str(workspace_root.resolve()),
         },
         {"type": "session_run", "run_id": "run-1", "prompt": "go"},
@@ -559,7 +623,7 @@ def test_load_session_fails_when_session_messages_are_missing(tmp_path) -> None:
 
     with pytest.raises(
         SessionFormatError,
-        match="session_run must be followed by exactly one session_messages entry",
+        match="Session ended with incomplete run",
     ):
         load_session(path=path, workspace_root=workspace_root)
 
@@ -722,7 +786,7 @@ def test_load_session_fails_when_compaction_precedes_any_run(tmp_path) -> None:
                 json.dumps(
                     {
                         "type": "session_header",
-                        "version": 4,
+                        "version": SESSION_FORMAT_VERSION,
                         "workspace_root": str(workspace_root.resolve()),
                     }
                 ),

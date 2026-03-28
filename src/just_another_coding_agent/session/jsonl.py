@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Sequence
 from pathlib import Path
 from typing import TextIO
@@ -41,6 +42,72 @@ class SessionFormatError(ValueError):
     """Raised when persisted session data violates the canonical JSONL contract."""
 
 
+class SessionRunAppender:
+    """Append one run incrementally to the canonical session JSONL file."""
+
+    def __init__(
+        self,
+        *,
+        path: Path,
+        workspace_root: Path | str,
+        run_id: str,
+        prompt: str,
+        thinking: ThinkingSetting | None = None,
+    ) -> None:
+        self._path = path
+        self._workspace_root = normalize_workspace_root(workspace_root)
+        self._run_id = run_id
+        self._events: list[RunEvent] = []
+        self._finalized = False
+
+        _ensure_session_is_appendable(
+            path=self._path,
+            workspace_root=self._workspace_root,
+        )
+        _append_entry_to_path(
+            self._path,
+            SessionRunEntry(run_id=run_id, prompt=prompt, thinking=thinking),
+        )
+
+    def append_event(self, event: RunEvent) -> None:
+        if self._finalized:
+            raise RuntimeError("Cannot append events after session run finalization")
+        if event.run_id != self._run_id:
+            raise SessionFormatError(
+                "Persisted run event run_id must match session run_id"
+            )
+
+        candidate_events = [*self._events, event]
+        _validate_run_events(
+            run_id=self._run_id,
+            events=candidate_events,
+            require_terminal=False,
+        )
+        self._events = candidate_events
+        _append_entry_to_path(
+            self._path,
+            SessionEventEntry(run_id=self._run_id, event=event),
+        )
+
+    def finalize(self, *, messages: Sequence[ModelMessage]) -> None:
+        if self._finalized:
+            raise RuntimeError("Session run already finalized")
+
+        run_record = SessionRunRecord(
+            run_id=self._run_id,
+            prompt="",
+            thinking=None,
+            messages=list(messages),
+            events=list(self._events),
+        )
+        _validate_run_record(run_record)
+        _append_entry_to_path(
+            self._path,
+            SessionMessagesEntry(run_id=self._run_id, messages=list(messages)),
+        )
+        self._finalized = True
+
+
 def initialize_session(
     *,
     path: Path,
@@ -56,6 +123,7 @@ def initialize_session(
             file_handle,
             SessionHeaderEntry(workspace_root=str(normalized_workspace_root)),
         )
+        _flush_file_handle(file_handle)
 
 
 def append_run_to_session(
@@ -69,43 +137,17 @@ def append_run_to_session(
 ) -> None:
     run_events = list(events)
     run_messages = list(messages)
-    run_record = SessionRunRecord(
-        run_id=_extract_run_id(run_events),
+    run_id = _extract_run_id(run_events)
+    appender = SessionRunAppender(
+        path=path,
+        workspace_root=workspace_root,
+        run_id=run_id,
         prompt=prompt,
         thinking=thinking,
-        messages=run_messages,
-        events=run_events,
     )
-    run_id = _validate_run_record(run_record)
-    normalized_workspace_root = normalize_workspace_root(workspace_root)
-
-    if path.exists():
-        load_session(path=path, workspace_root=normalized_workspace_root)
-        should_write_header = False
-    else:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        should_write_header = True
-
-    with path.open("a", encoding="utf-8") as file_handle:
-        if should_write_header:
-            _write_entry(
-                file_handle,
-                SessionHeaderEntry(workspace_root=str(normalized_workspace_root)),
-            )
-
-        _write_entry(
-            file_handle,
-            SessionRunEntry(run_id=run_id, prompt=prompt, thinking=thinking),
-        )
-        _write_entry(
-            file_handle,
-            SessionMessagesEntry(run_id=run_id, messages=run_messages),
-        )
-        for event in run_events:
-            _write_entry(
-                file_handle,
-                SessionEventEntry(run_id=run_id, event=event),
-            )
+    for event in run_events:
+        appender.append_event(event)
+    appender.finalize(messages=run_messages)
 
 
 def append_compaction_to_session(
@@ -128,6 +170,7 @@ def append_compaction_to_session(
 
     with path.open("a", encoding="utf-8") as file_handle:
         _write_entry(file_handle, entry)
+        _flush_file_handle(file_handle)
 
     return entry
 
@@ -149,7 +192,6 @@ def load_session(
     runs: list[SessionRunRecord] = []
     compactions: list[SessionCompactionEntry] = []
     current_run: SessionRunRecord | None = None
-    current_run_has_messages = False
     known_run_ids: set[str] = set()
     run_order: list[str] = []
     latest_compaction_run_index = -1
@@ -176,10 +218,8 @@ def load_session(
             raise SessionFormatError("Session header must be first entry")
 
         if isinstance(entry, SessionRunEntry):
-            if current_run is not None and not current_run_has_messages:
-                raise SessionFormatError(
-                    "session_run must be followed by exactly one session_messages entry"
-                )
+            if current_run is not None:
+                raise SessionFormatError("Session ended with incomplete run")
             if entry.run_id in known_run_ids:
                 raise SessionFormatError(f"Duplicate session run_id: {entry.run_id}")
 
@@ -190,10 +230,7 @@ def load_session(
                 messages=[],
                 events=[],
             )
-            current_run_has_messages = False
             known_run_ids.add(entry.run_id)
-            run_order.append(entry.run_id)
-            runs.append(current_run)
             continue
 
         if isinstance(entry, SessionMessagesEntry):
@@ -201,32 +238,22 @@ def load_session(
                 raise SessionFormatError(
                     "Session messages entry must follow a session_run entry"
                 )
-            if current_run_has_messages:
-                raise SessionFormatError(
-                    "session_run must be followed by exactly one session_messages entry"
-                )
             if entry.run_id != current_run.run_id:
                 raise SessionFormatError(
                     "Session messages entry must belong to the current run"
                 )
             current_run.messages.extend(entry.messages)
-            current_run_has_messages = True
+            _validate_run_record(current_run)
+            runs.append(current_run)
+            run_order.append(current_run.run_id)
+            current_run = None
             continue
 
         if isinstance(entry, SessionCompactionEntry):
             if current_run is not None:
-                if not current_run_has_messages:
-                    raise SessionFormatError(
-                        "Session compaction entry must follow at least one complete run"
-                    )
-                try:
-                    _validate_run_record(current_run)
-                except SessionFormatError as error:
-                    raise SessionFormatError(
-                        "Session compaction entry must follow at least one complete run"
-                    ) from error
-                current_run = None
-                current_run_has_messages = False
+                raise SessionFormatError(
+                    "Session compaction entry must follow at least one complete run"
+                )
             elif not runs:
                 raise SessionFormatError(
                     "Session compaction entry must follow at least one complete run"
@@ -253,11 +280,6 @@ def load_session(
             raise SessionFormatError(
                 "Session event entry must follow a session_run entry"
             )
-        if not current_run_has_messages:
-            raise SessionFormatError(
-                "session_run must be followed by exactly one session_messages entry"
-            )
-
         if entry.run_id != current_run.run_id:
             raise SessionFormatError(
                 "Session event entry must belong to the current run"
@@ -267,16 +289,16 @@ def load_session(
             raise SessionFormatError("Session event run_id must match entry run_id")
 
         current_run.events.append(entry.event)
+        _validate_run_events(
+            run_id=current_run.run_id,
+            events=current_run.events,
+            require_terminal=False,
+        )
 
     if header is None:
         raise SessionFormatError("Session header must be first entry")
-    if current_run is not None and not current_run_has_messages:
-        raise SessionFormatError(
-            "session_run must be followed by exactly one session_messages entry"
-        )
-
-    for run in runs:
-        _validate_run_record(run)
+    if current_run is not None:
+        raise SessionFormatError("Session ended with incomplete run")
 
     return LoadedSession(header=header, runs=runs, compactions=compactions)
 
@@ -293,18 +315,28 @@ def _extract_run_id(events: Sequence[RunEvent]) -> str:
 
 
 def _validate_run_record(run: SessionRunRecord) -> str:
-    if not run.events:
+    _validate_run_events(run_id=run.run_id, events=run.events, require_terminal=True)
+    return run.run_id
+
+
+def _validate_run_events(
+    *,
+    run_id: str,
+    events: Sequence[RunEvent],
+    require_terminal: bool,
+) -> None:
+    if not events:
         raise SessionFormatError("Run must contain at least one event")
 
-    first_event = run.events[0]
+    first_event = events[0]
     if not isinstance(first_event, RunStartedEvent):
         raise SessionFormatError("Run must start with run_started")
 
     terminal_seen = False
     pending_tool_calls: dict[str, str] = {}
 
-    for event in run.events:
-        if event.run_id != run.run_id:
+    for event in events:
+        if event.run_id != run_id:
             raise SessionFormatError(
                 "Persisted run event run_id must match session run_id"
             )
@@ -353,9 +385,26 @@ def _validate_run_record(run: SessionRunRecord) -> str:
             terminal_seen = True
 
     if not terminal_seen:
-        raise SessionFormatError("Run must end with a terminal outcome")
+        if require_terminal:
+            raise SessionFormatError("Run must end with a terminal outcome")
 
-    return run.run_id
+
+def start_run_to_session(
+    *,
+    path: Path,
+    workspace_root: Path | str,
+    run_id: str,
+    prompt: str,
+    thinking: ThinkingSetting | None = None,
+) -> SessionRunAppender:
+    return SessionRunAppender(
+        path=path,
+        workspace_root=workspace_root,
+        run_id=run_id,
+        prompt=prompt,
+        thinking=thinking,
+    )
+
 
 def _parse_entry(*, raw_line: str, line_number: int) -> SessionEntry:
     try:
@@ -393,3 +442,41 @@ def _write_entry(
 ) -> None:
     file_handle.write(entry.model_dump_json())
     file_handle.write("\n")
+
+
+def _append_entry_to_path(
+    path: Path,
+    entry: (
+        SessionHeaderEntry
+        | SessionRunEntry
+        | SessionMessagesEntry
+        | SessionEventEntry
+        | SessionCompactionEntry
+    ),
+) -> None:
+    with path.open("a", encoding="utf-8") as file_handle:
+        _write_entry(file_handle, entry)
+        _flush_file_handle(file_handle)
+
+
+def _ensure_session_is_appendable(
+    *,
+    path: Path,
+    workspace_root: Path,
+) -> None:
+    if path.exists():
+        load_session(path=path, workspace_root=workspace_root)
+        return
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as file_handle:
+        _write_entry(
+            file_handle,
+            SessionHeaderEntry(workspace_root=str(workspace_root)),
+        )
+        _flush_file_handle(file_handle)
+
+
+def _flush_file_handle(file_handle: TextIO) -> None:
+    file_handle.flush()
+    os.fsync(file_handle.fileno())

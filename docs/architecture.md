@@ -139,5 +139,5 @@ The important boundary is:
 2. The runtime creates or resumes a coding-agent run using PydanticAI primitives directly where possible, with `WorkspaceDeps(workspace_root=...)` passed as run deps, a thin canonical tool registry selecting the requested toolset, and persisted `message_history` supplied for session continuation.
 3. Tools execute through the canonical tool layer.
 4. Events are translated into the public streamed event contract rather than exposing raw framework internals directly.
-5. Session entries persist both the public run events and the native PydanticAI message history for that run, bound to the authoritative workspace root, along with the effective per-run thinking setting.
+5. Session persistence appends `session_run` plus public `session_event` entries incrementally during streaming, then appends the native PydanticAI `session_messages` for that run only after terminal completion, all bound to the authoritative workspace root and effective per-run thinking setting.
 6. The TUI, when used, consumes the same runtime/session path rather than introducing a second execution model.

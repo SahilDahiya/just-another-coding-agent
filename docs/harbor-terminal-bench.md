@@ -206,10 +206,11 @@ Useful artifacts for this adapter path:
 
 Important diagnostic note:
 
-- session JSONL is append-only after terminal completion
-- a timed-out run can therefore leave only the `session_header` line in the
-  session file even if the backend already emitted `run_started`,
-  `assistant_text_delta`, and `tool_call_*` events
+- session JSONL now appends `session_run` and `session_event` lines as the run
+  streams, and appends `session_messages` only after terminal completion
+- a timed-out or interrupted run can therefore leave an incomplete trailing run
+  on disk, and authoritative `load_session(...)` will fail hard instead of
+  silently hiding it
 - for timeout investigations, check `exec-prompt-phases.json` and
   `exec-prompt-rpc-transcript.jsonl` before assuming the backend never started
 
