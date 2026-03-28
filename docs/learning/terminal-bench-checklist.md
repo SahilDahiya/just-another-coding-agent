@@ -25,6 +25,7 @@ For run details, artifacts, historical green runs, and task-picking notes, see [
 - Total cached `terminal-bench@2.0` tasks: `89`
 - Current tracked baseline: Codex Harbor exploration through the `thinking=high` failed-task rerun on `2026-03-26`
   - sources: `jaca-codex-nine-20260326121757`, `jaca-harbor-next20.thv1lw`, the related canary reruns, and `thinking-failed-rerun-20260326223900`
+  - note: the later full submission attempt `submission-codex53-high-20260327-r2` is recorded in the journal only and intentionally excluded from this checklist because Docker pull-rate limiting and OpenAI quota failures contaminated the batch
 - Passed in current tracked baseline: `21`
 - Failed in current tracked baseline: `8`
 - Untried in current tracked baseline: `60`

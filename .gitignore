@@ -156,6 +156,7 @@ venv.bak/
 
 # Benchmark artifacts
 jobs/
+tasks/
 
 # mypy
 .mypy_cache/

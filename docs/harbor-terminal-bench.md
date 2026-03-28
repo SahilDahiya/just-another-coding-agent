@@ -211,6 +211,12 @@ scripts/tb2_glm5.sh run glm5-high tasks/a.txt tasks/b.txt tasks/c.txt
 scripts/tb2_glm5.sh status glm5-high tasks/a.txt
 ```
 
+Starter slice files can live at:
+
+- `tasks/a.txt`
+- `tasks/b.txt`
+- `tasks/c.txt`
+
 ## Full Submission Run
 
 For the full Terminal Bench 2.0 submission-style GLM-5 run, use the checked-in

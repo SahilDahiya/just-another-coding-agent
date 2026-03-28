@@ -253,11 +253,60 @@ Notable detail:
 
 - `extract-elf` recorded `reward=0.0` and also the batch-level lone `AgentTimeoutError`; Harbor still counted it as a completed red trial in the aggregate reward distribution.
 
+### Stopped Full Submission Attempt
+
+- batch: `submission-codex53-high-20260327-r2`
+- model: `openai-responses:gpt-5.3-codex`
+- setting: `thinking=high`
+- intended shape: full `terminal-bench@2.0` run with `5` attempts per task
+- outcome: stopped and excluded from the tracked baseline because infra failures contaminated too much of the batch
+- artifacts: `/home/dahiy/repos/urban-octo-guacamole/jobs/submission-codex53-high-20260327-r2`
+
+Clean-vs-system split across the `379` written trial results:
+
+- actual pass: `58`
+- actual fail: `28`
+- system-contaminated: `293`
+
+System contamination split:
+
+- Docker Hub unauthenticated pull-rate limit: `203`
+- OpenAI quota exhaustion visible in trial logs: `81`
+- `AgentTimeoutError`: `9`
+
+Important interpretation:
+
+- the raw batch mean from Harbor is not useful as an agent-quality score for this run
+- many apparent red outcomes were not clean agent failures
+- only `86` completed trials were cleanly agent-evaluable, and those split `58` pass / `28` fail
+
+Task-level signal:
+
+- system-only tasks with no clean agent signal:
+  - `caffe-cifar-10`
+  - `db-wal-recovery`
+  - `financial-document-processor`
+  - `gcode-to-text`
+  - `path-tracing`
+  - `qemu-alpine-ssh`
+  - `query-optimize`
+  - `rstan-to-pystan`
+  - `train-fasttext`
+  - `winning-avg-corewars`
+- all other tasks were mixed: they had at least one clean agent outcome and at least one system-contaminated outcome
+- no task had a fully clean `5/5` set of attempts in this stopped batch
+
+Representative evidence:
+
+- Docker pull-rate-limit failure: `/home/dahiy/repos/urban-octo-guacamole/jobs/submission-codex53-high-20260327-r2/extract-elf__MdMKamE/result.json`
+- OpenAI quota failure: `/home/dahiy/repos/urban-octo-guacamole/jobs/submission-codex53-high-20260327-r2/vulnerable-secret__bEe4nF4/agent/command-0/stdout.txt`
+
 ## Operational Learnings
 
 - For Harbor-backed Ollama Cloud runs, the container must receive both `OLLAMA_BASE_URL` and `OLLAMA_API_KEY`.
 - Use `https://ollama.com/v1` as the base URL for Ollama Cloud.
 - Kimi K2 is materially slower than `openai-responses:gpt-5.3-codex` on the same `fix-git` task, but it still completed successfully.
+- A full Harbor submission batch is not trustworthy unless both model quota and Docker image pulls are stable for the whole run.
 - Narrow file-output tasks and simple Git recovery tasks are the best first picks for building a green set.
 - Narrow scripting and file-generation tasks continue to be the best Kimi queue candidates under Harbor.
 - Small Python implementation tasks with explicit tests are also good Kimi candidates.
