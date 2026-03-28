@@ -84,6 +84,28 @@ def make_write_stream():
     return write_stream
 
 
+def make_deferred_bash_stream():
+    call_count = 0
+
+    async def deferred_bash_stream(_messages, _agent_info):
+        nonlocal call_count
+        call_count += 1
+
+        if call_count == 1:
+            yield {
+                0: DeltaToolCall(
+                    name="bash",
+                    json_args='{"command": "printf ok", "defer": true}',
+                    tool_call_id="call-bash",
+                )
+            }
+            return
+
+        yield "done"
+
+    return deferred_bash_stream
+
+
 async def resume_aware_write_stream(messages, _agent_info):
     latest_prompt = _last_user_prompt(messages)
     saw_write = _has_tool_return(messages, tool_name="write")
@@ -300,6 +322,36 @@ async def test_stream_session_run_events_persists_authoritative_session(
     assert loaded.message_history == loaded.runs[0].messages
 
 
+async def test_stream_session_run_events_persists_deferred_bash_tool_return(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    session_path = tmp_path / "session.jsonl"
+
+    events = [
+        event
+        async for event in stream_session_run_events(
+            model=FunctionModel(stream_function=make_deferred_bash_stream()),
+            workspace_root=workspace_root,
+            session_path=session_path,
+            prompt="go",
+            tool_names=("bash",),
+        )
+    ]
+
+    assert [event.type for event in events] == [
+        "run_started",
+        "tool_call_started",
+        "tool_call_succeeded",
+        "assistant_text_delta",
+        "run_succeeded",
+    ]
+
+    loaded = load_session(path=session_path, workspace_root=workspace_root)
+    assert _has_tool_return(loaded.message_history, tool_name="bash")
+
+
 async def test_stream_session_run_events_rejects_mismatched_existing_workspace(
     tmp_path,
 ) -> None:
@@ -392,8 +444,17 @@ async def test_stream_session_run_events_persists_partial_run_before_completion(
         thinking=None,
         deps=None,
         enable_server_history=False,
+        message_history_sink=None,
     ):
-        del agent, prompt, message_history, thinking, deps, enable_server_history
+        del (
+            agent,
+            prompt,
+            message_history,
+            thinking,
+            deps,
+            enable_server_history,
+            message_history_sink,
+        )
         yield RunStartedEvent(run_id="run-1")
         yield ToolCallStartedEvent(
             run_id="run-1",
@@ -467,12 +528,14 @@ async def test_stream_session_run_events_inherits_last_persisted_thinking_when_o
         thinking=None,
         deps=None,
         enable_server_history=False,
+        message_history_sink=None,
     ):
         captured["prompt"] = prompt
         captured["thinking"] = thinking
         captured["message_history"] = message_history
         captured["deps"] = deps
         captured["enable_server_history"] = enable_server_history
+        captured["message_history_sink"] = message_history_sink
         yield RunStartedEvent(run_id="run-2")
         yield RunSucceededEvent(run_id="run-2", output_text="done")
 

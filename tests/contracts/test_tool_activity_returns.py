@@ -169,6 +169,7 @@ async def test_bash_returns_tool_owned_activity_metadata(tmp_path, monkeypatch) 
             "kind": "bash",
             "command_preview": "printf ok",
             "timeout": 9,
+            "deferred": False,
             "exit_code": 0,
         },
     }

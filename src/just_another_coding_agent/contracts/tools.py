@@ -36,6 +36,7 @@ class BashToolInput(BaseModel):
 
     command: str = Field(min_length=1)
     timeout: int | None = Field(default=None, gt=0)
+    defer: bool = False
 
 
 class GrepToolInput(BaseModel):

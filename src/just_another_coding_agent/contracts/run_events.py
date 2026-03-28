@@ -25,6 +25,7 @@ class BashActivityDetails(_ToolActivityDetailsBase):
     kind: Literal["bash"] = "bash"
     command_preview: str
     timeout: int | None = None
+    deferred: bool = False
     exit_code: int | None = None
 
 

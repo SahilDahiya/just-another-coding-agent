@@ -147,13 +147,21 @@ def test_build_canonical_toolset_exposes_rich_model_facing_tool_descriptions(
         "combined stdout and stderr on success. Non-zero exits and "
         "timeouts become error results. Large output is truncated to the "
         "last 2000 lines or 50 KiB, and the full output is saved to a "
-        "temp file."
+        "temp file. Set defer=true for genuinely long shell, build, or "
+        "test work that should run outside the current model step."
     )
     assert (
         function_tools["bash"].parameters_json_schema["properties"]["timeout"][
             "description"
         ]
         == "Optional timeout in seconds before the command is stopped."
+    )
+    assert (
+        function_tools["bash"].parameters_json_schema["properties"]["defer"][
+            "description"
+        ]
+        == "When true, request deferred execution so the runtime can run\n"
+        "long shell, build, or test work outside the current model step."
     )
 
     assert function_tools["grep"].description == (

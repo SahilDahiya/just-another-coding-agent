@@ -4,7 +4,7 @@ import asyncio
 import contextlib
 import json
 import logging
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Callable, Sequence
 from dataclasses import dataclass, replace
 from time import monotonic
 from typing import Any
@@ -14,6 +14,8 @@ from pydantic import TypeAdapter
 from pydantic_ai import (
     Agent,
     AgentRunResultEvent,
+    DeferredToolRequests,
+    DeferredToolResults,
     FunctionToolCallEvent,
     FunctionToolResultEvent,
     PartDeltaEvent,
@@ -46,8 +48,10 @@ from just_another_coding_agent.runtime.activity import (
     build_succeeded_tool_activity,
     build_updated_tool_activity,
 )
+from just_another_coding_agent.runtime.deferred import execute_deferred_tool_requests
 from just_another_coding_agent.runtime.models import build_canonical_model_settings
 from just_another_coding_agent.runtime.recovery import should_retry_run_error
+from just_another_coding_agent.runtime.tracing import RuntimeTraceRecorder
 from just_another_coding_agent.tools.deps import WorkspaceDeps
 
 _JSON_VALUE_ADAPTER = TypeAdapter(JsonValue)
@@ -79,6 +83,12 @@ class _QueuedRunFinished:
     pass
 
 
+@dataclass(frozen=True)
+class _DeferredContinuation:
+    message_history: Sequence[ModelMessage]
+    deferred_tool_results: DeferredToolResults
+
+
 def _build_unbounded_usage_limits() -> UsageLimits:
     return UsageLimits(
         request_limit=None,
@@ -97,6 +107,7 @@ async def stream_run_events(
     thinking: ThinkingSetting | None = None,
     deps: WorkspaceDeps | None = None,
     enable_server_history: bool = False,
+    message_history_sink: Callable[[Sequence[ModelMessage]], None] | None = None,
 ) -> AsyncIterator[RunEvent]:
     """Translate one PydanticAI run into the canonical streamed event contract.
 
@@ -106,13 +117,18 @@ async def stream_run_events(
     """
     run_id = uuid4().hex
     recovery_attempts = 0
+    pending_tool_calls: dict[str, _PendingToolCall] = {}
+    trace_recorder = RuntimeTraceRecorder(run_id=run_id)
+    current_prompt: str | None = prompt
+    current_message_history = message_history
+    current_deferred_tool_results: DeferredToolResults | None = None
 
     yield RunStartedEvent(run_id=run_id)
 
     while True:
-        pending_tool_calls: dict[str, _PendingToolCall] = {}
         saw_streamed_event = False
         terminal_emitted = False
+        deferred_continuation: _DeferredContinuation | None = None
         queue: asyncio.Queue[object] = asyncio.Queue()
 
         async def _queue_tool_update(
@@ -139,8 +155,10 @@ async def stream_run_events(
             try:
                 with agent.parallel_tool_call_execution_mode("parallel"):
                     async for event in agent.run_stream_events(
-                        prompt,
-                        message_history=message_history,
+                        current_prompt,
+                        output_type=[str, DeferredToolRequests],
+                        message_history=current_message_history,
+                        deferred_tool_results=current_deferred_tool_results,
                         deps=queued_deps,
                         model_settings=build_canonical_model_settings(
                             model=getattr(agent, "model", None),
@@ -161,6 +179,13 @@ async def stream_run_events(
             while True:
                 event = await queue.get()
                 if isinstance(event, _QueuedRunFinished):
+                    if deferred_continuation is not None:
+                        current_prompt = None
+                        current_message_history = deferred_continuation.message_history
+                        current_deferred_tool_results = (
+                            deferred_continuation.deferred_tool_results
+                        )
+                        break
                     if not terminal_emitted:
                         raise RuntimeError(
                             "PydanticAI stream ended without a terminal result"
@@ -196,11 +221,27 @@ async def stream_run_events(
                 saw_streamed_event = True
                 if isinstance(event, FunctionToolCallEvent):
                     args = _normalize_tool_args(event.part.args)
+                    existing_tool_call = pending_tool_calls.get(event.tool_call_id)
+                    if existing_tool_call is not None:
+                        if (
+                            existing_tool_call.tool_name != event.part.tool_name
+                            or existing_tool_call.args != args
+                        ):
+                            raise RuntimeError(
+                                "Deferred tool restart mismatch for tool_call_id "
+                                f"{event.tool_call_id!r}"
+                            )
+                        continue
+
                     pending_tool_calls[event.tool_call_id] = _PendingToolCall(
                         tool_name=event.part.tool_name,
                         args=args,
                         args_valid=event.args_valid,
                         started_at=monotonic(),
+                    )
+                    trace_recorder.start_tool(
+                        tool_call_id=event.tool_call_id,
+                        tool_name=event.part.tool_name,
                     )
                     yield ToolCallStartedEvent(
                         run_id=run_id,
@@ -228,6 +269,10 @@ async def stream_run_events(
                             error_type="RetryPromptPart",
                             message=retry_message,
                         )
+                        trace_recorder.finish_tool(
+                            tool_call_id=event.tool_call_id,
+                            status="succeeded",
+                        )
                         yield ToolCallSucceededEvent(
                             run_id=run_id,
                             tool_call_id=event.tool_call_id,
@@ -252,6 +297,10 @@ async def stream_run_events(
                     )
                     result = _normalize_json_value(event.result.content)
                     result_metadata = getattr(event.result, "metadata", None)
+                    trace_recorder.finish_tool(
+                        tool_call_id=event.tool_call_id,
+                        status="succeeded",
+                    )
                     yield ToolCallSucceededEvent(
                         run_id=run_id,
                         tool_call_id=event.tool_call_id,
@@ -277,6 +326,21 @@ async def stream_run_events(
 
                 if isinstance(event, AgentRunResultEvent):
                     output = event.result.output
+                    if isinstance(output, DeferredToolRequests):
+                        if message_history_sink is not None:
+                            message_history_sink(event.result.all_messages())
+                        deferred_continuation = _DeferredContinuation(
+                            message_history=event.result.all_messages(),
+                            deferred_tool_results=(
+                                await execute_deferred_tool_requests(
+                                    requests=output,
+                                    deps=queued_deps
+                                    if isinstance(queued_deps, WorkspaceDeps)
+                                    else None,
+                                )
+                            ),
+                        )
+                        continue
                     if not isinstance(output, str):
                         output_type = type(output).__name__
                         raise TypeError(
@@ -284,6 +348,9 @@ async def stream_run_events(
                         )
 
                     terminal_emitted = True
+                    if message_history_sink is not None:
+                        message_history_sink(event.result.all_messages())
+                    trace_recorder.finish_run(status="succeeded")
                     yield RunSucceededEvent(run_id=run_id, output_text=output)
         except Exception as error:
             if terminal_emitted:
@@ -311,6 +378,10 @@ async def stream_run_events(
                 continue
 
             for tool_call_id, pending_tool_call in pending_tool_calls.items():
+                trace_recorder.finish_tool(
+                    tool_call_id=tool_call_id,
+                    status="failed",
+                )
                 yield ToolCallFailedEvent(
                     run_id=run_id,
                     tool_call_id=tool_call_id,
@@ -328,6 +399,7 @@ async def stream_run_events(
                     ),
                 )
 
+            trace_recorder.finish_run(status="failed")
             yield RunFailedEvent(
                 run_id=run_id,
                 error_type=type(error).__name__,

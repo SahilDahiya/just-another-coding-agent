@@ -6,7 +6,7 @@ import signal
 import tempfile
 from pathlib import Path
 
-from pydantic_ai import RunContext, Tool
+from pydantic_ai import CallDeferred, RunContext, Tool
 
 from just_another_coding_agent.contracts.run_events import BashActivityDetails
 from just_another_coding_agent.contracts.tools import (
@@ -234,17 +234,22 @@ async def bash(
     ctx: RunContext[WorkspaceDeps],
     command: str,
     timeout: int | None = None,
+    defer: bool = False,
 ) -> dict[str, int | str]:
     """Execute one local bash command in the workspace root.
 
     Args:
         command: Bash command to execute with `bash -lc`.
         timeout: Optional timeout in seconds before the command is stopped.
+        defer: When true, request deferred execution so the runtime can run
+            long shell, build, or test work outside the current model step.
     """
+    if defer:
+        raise CallDeferred(metadata={"executor": "local-bash"})
 
     result = await execute_bash(
         ctx=ctx,
-        tool_input=BashToolInput(command=command, timeout=timeout),
+        tool_input=BashToolInput(command=command, timeout=timeout, defer=defer),
         workspace_root=ctx.deps.workspace_root,
     )
     return make_tool_return(
@@ -254,6 +259,7 @@ async def bash(
         details=BashActivityDetails(
             command_preview=truncate_activity_label(command),
             timeout=timeout,
+            deferred=defer,
             exit_code=result["exit_code"],
         ),
     )
@@ -268,7 +274,8 @@ BASH_TOOL = Tool(
         "combined stdout and stderr on success. Non-zero exits and "
         "timeouts become error results. Large output is truncated to the "
         "last 2000 lines or 50 KiB, and the full output is saved to a "
-        "temp file."
+        "temp file. Set defer=true for genuinely long shell, build, or "
+        "test work that should run outside the current model step."
     ),
     docstring_format="google",
     require_parameter_descriptions=True,

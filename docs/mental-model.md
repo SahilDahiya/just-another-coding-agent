@@ -132,7 +132,7 @@ Each canonical tool is a plain PydanticAI tool function that takes `RunContext[W
 - `read` -- reads a UTF-8 file, returns contents
 - `write` -- writes a UTF-8 file, creates parent dirs, returns confirmation
 - `edit` -- replaces exactly one occurrence of `old_text` with `new_text`, trying exact matching first and then a normalized fallback for minor formatting differences while preserving surrounding unmatched content; fails on zero/multiple matches or no-op
-- `bash` -- runs `bash -lc <command>` with `cwd` set to workspace root, returns `{"exit_code": 0, "output": str}` on success and explicit tool error results for non-zero exits or timeouts
+- `bash` -- runs `bash -lc <command>` with `cwd` set to workspace root, returns `{"exit_code": 0, "output": str}` on success and explicit tool error results for non-zero exits or timeouts; `defer=true` is the explicit contract for genuinely long shell/build/test work
 - `grep` -- searches UTF-8 text files with ripgrep and returns matching lines with relative paths and line numbers
 - `ls` -- lists directory contents in a bounded alphabetical view with `/` suffixes for directories
 - `find` -- finds files by glob pattern and returns paths relative to the searched directory
@@ -153,6 +153,7 @@ The system prompt tells the model what tools it has, how to approach coding task
 That prompt layer also carries two behavioral rules that matter for benchmark and real coding tasks alike: do not claim a file was created or changed without tool evidence, and verify code changes or required file outputs before concluding.
 Thinking is not carried in the prompt. The runtime passes it through PydanticAI model settings as an explicit run input.
 Provider-native model behavior is centralized separately in `runtime/models.py`, which resolves model strings, applies OpenAI-compatible retry transport policy, enables OpenAI Responses server history only when appropriate, and can wrap models with opt-in instrumentation via `JACA_TRACE=1`.
+When tracing is enabled, the runtime also emits canonical `jaca.run` and `jaca.tool_call` spans so watchdog evaluators can detect long-tool and bash-heavy probe loops without inspecting session JSONL by hand.
 
 ### Runtime
 

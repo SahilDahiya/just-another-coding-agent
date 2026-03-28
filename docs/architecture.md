@@ -29,6 +29,7 @@ The canonical prompt must also enforce side-effect truthfulness and verification
 The canonical runtime should expose `thinking` as an explicit run setting and pass it through PydanticAI model settings rather than encoding reasoning level in prompt text.
 The canonical runtime should resolve model strings through one local model seam before agent construction so provider-native retries, instrumentation, and OpenAI-specific settings stay centralized instead of leaking through the runtime.
 The canonical tool concurrency policy should also be explicit rather than left to framework defaults: read-only tools may run in parallel, mutating tools remain serialized, and provider-side `parallel_tool_calls` should be enabled by default for the canonical provider paths unless the backend explicitly carves out a known-bad model path.
+Opt-in tracing should stay in one place too: `JACA_TRACE=1` turns on model instrumentation plus canonical runtime spans so watchdog evaluators can reason about long-run behavior from OTel data instead of ad hoc log scraping.
 
 ## Stateful Orchestration Boundary
 
@@ -43,6 +44,7 @@ Use PydanticAI where it already has the right seam:
 - use Hooks for observability, classification, and other run-local interception
 - use `model_settings` for explicit run settings such as `thinking`
 - use provider-native model and provider classes when the backend needs retries, instrumentation, or OpenAI Responses history behavior that plain model strings cannot express cleanly
+- use deferred tools when a tool call should leave the current model step and resume later with explicit results, but keep the public backend contract explicit about which tools actually support that behavior
 
 Keep product semantics in this repo's own contract layer:
 
@@ -96,6 +98,8 @@ The important boundary is:
 - compaction manages cross-run session size
 - run-local compaction can shrink historical tool output inside one live run,
   but it does not replace external timeouts for long-running work
+- deferred tools are the separate seam for long shell/build/test work that
+  should leave the current model step and resume with explicit results
 - the runtime uses a separate model call to generate the durable compaction summary
 - durable compaction state lives in our session file, while PydanticAI
   `history_processors` are the runtime seam that applies the compacted view

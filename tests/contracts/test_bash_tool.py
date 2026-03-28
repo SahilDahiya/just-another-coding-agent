@@ -1,12 +1,22 @@
 import re
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
+from pydantic_ai import CallDeferred
 
 from just_another_coding_agent.contracts.tools import BashToolInput
-from just_another_coding_agent.tools.bash import execute_bash
+from just_another_coding_agent.tools.bash import bash, execute_bash
+from just_another_coding_agent.tools.deps import WorkspaceDeps
 from just_another_coding_agent.tools.errors import ToolCommandError, ToolEncodingError
+
+
+@dataclass(frozen=True)
+class _FakeRunContext:
+    deps: WorkspaceDeps
+    tool_call_id: str | None = None
+    tool_name: str | None = None
 
 
 async def test_bash_tool_runs_in_explicit_workspace_root(tmp_path, monkeypatch) -> None:
@@ -69,6 +79,26 @@ def test_bash_tool_rejects_non_string_command() -> None:
 def test_bash_tool_rejects_non_positive_timeout() -> None:
     with pytest.raises(ValidationError):
         BashToolInput(command="pwd", timeout=0)
+
+
+def test_bash_tool_accepts_explicit_defer_flag() -> None:
+    assert BashToolInput(command="pytest", defer=True).defer is True
+
+
+async def test_bash_tool_can_request_deferred_execution(tmp_path) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    with pytest.raises(CallDeferred):
+        await bash(
+            _FakeRunContext(
+                deps=WorkspaceDeps.from_workspace_root(workspace_root),
+                tool_call_id="call-bash",
+                tool_name="bash",
+            ),
+            "pytest -q",
+            defer=True,
+        )
 
 
 async def test_bash_tool_fails_on_timeout(monkeypatch, tmp_path) -> None:

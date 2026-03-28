@@ -1,7 +1,12 @@
 from collections.abc import AsyncIterator
 from contextlib import nullcontext
 
-from pydantic_ai import Agent, AgentRunResult, AgentRunResultEvent
+from pydantic_ai import (
+    Agent,
+    AgentRunResult,
+    AgentRunResultEvent,
+    DeferredToolRequests,
+)
 from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 from pydantic_ai.models.openai import OpenAIResponsesModel
 from pydantic_ai.providers.openai import OpenAIProvider
@@ -95,12 +100,16 @@ class RecordingStreamAgent:
         self,
         _prompt: str,
         *,
+        output_type=None,
         message_history=None,
+        deferred_tool_results=None,
         deps=None,
         model_settings=None,
         usage_limits=None,
     ) -> AsyncIterator[object]:
+        assert output_type == [str, DeferredToolRequests]
         assert message_history is None
+        assert deferred_tool_results is None
         assert deps is None
         self.last_model_settings = model_settings
         self.last_usage_limits = usage_limits

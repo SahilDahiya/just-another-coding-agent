@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from pydantic_ai import capture_run_messages
+from pydantic_ai.messages import ModelMessage
 
 from just_another_coding_agent.contracts.run_events import RunEvent
 from just_another_coding_agent.contracts.thinking import ThinkingSetting
@@ -85,6 +86,11 @@ async def stream_session_run_events(
         ),
     )
     run_appender = None
+    authoritative_messages: list[ModelMessage] | None = None
+
+    def _record_message_history(messages: Sequence[ModelMessage]) -> None:
+        nonlocal authoritative_messages
+        authoritative_messages = list(messages)
 
     with capture_run_messages() as messages:
         async for event in stream_run_events(
@@ -96,6 +102,7 @@ async def stream_session_run_events(
             thinking=resolved_thinking,
             deps=WorkspaceDeps(workspace_root=normalized_workspace_root),
             enable_server_history=enable_server_history,
+            message_history_sink=_record_message_history,
         ):
             if run_appender is None:
                 run_appender = start_run_to_session(
@@ -111,7 +118,11 @@ async def stream_session_run_events(
     if run_appender is not None:
         run_appender.finalize(
             messages=restore_in_run_compaction_from_messages(
-                strip_compaction_summary_from_messages(list(messages))
+                strip_compaction_summary_from_messages(
+                    authoritative_messages
+                    if authoritative_messages is not None
+                    else list(messages)
+                )
             )
         )
 

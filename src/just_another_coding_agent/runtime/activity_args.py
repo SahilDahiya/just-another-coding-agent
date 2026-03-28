@@ -68,6 +68,7 @@ def build_args_tool_details(
         return BashActivityDetails(
             command_preview=truncate_activity_label(command),
             timeout=_optional_int(args.get("timeout")),
+            deferred=bool(args.get("defer", False)),
             exit_code=exit_code,
         )
 
