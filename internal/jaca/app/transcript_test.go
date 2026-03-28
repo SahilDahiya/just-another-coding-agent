@@ -153,6 +153,46 @@ func TestEditToolRowsRenderStructuredDiffPreview(t *testing.T) {
 	}
 }
 
+func TestRenderOnlyInvalidatesFromFirstDirtyRow(t *testing.T) {
+	transcript := NewTranscript()
+	transcript.WriteLine("first")
+	transcript.WriteLine("second")
+
+	initial := transcript.Render()
+	if transcript.dirtyFrom != -1 {
+		t.Fatalf("dirtyFrom = %d, want -1 after render", transcript.dirtyFrom)
+	}
+	if len(transcript.renderOffsets) != len(transcript.blocks)+1 {
+		t.Fatalf("renderOffsets len = %d, want %d", len(transcript.renderOffsets), len(transcript.blocks)+1)
+	}
+
+	transcript.WriteLine("third")
+	if transcript.dirtyFrom != 2 {
+		t.Fatalf("dirtyFrom after append = %d, want 2", transcript.dirtyFrom)
+	}
+
+	rendered := transcript.Render()
+	if rendered != initial+"third\n" {
+		t.Fatalf("Render() after append = %q, want %q", rendered, initial+"third\n")
+	}
+	if transcript.renderOffsets[2] != len(initial) {
+		t.Fatalf("renderOffsets[2] = %d, want %d", transcript.renderOffsets[2], len(initial))
+	}
+
+	transcript.replaceBlock(1, transcriptBlock{
+		plain:    "SECOND\n",
+		rendered: "SECOND\n",
+	})
+	if transcript.dirtyFrom != 1 {
+		t.Fatalf("dirtyFrom after replace = %d, want 1", transcript.dirtyFrom)
+	}
+
+	rendered = transcript.Render()
+	if !strings.Contains(rendered, "SECOND\nthird\n") {
+		t.Fatalf("Render() after replace = %q, want updated suffix", rendered)
+	}
+}
+
 func strPtr(value string) *string {
 	return &value
 }

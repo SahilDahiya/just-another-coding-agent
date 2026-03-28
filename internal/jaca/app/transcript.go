@@ -20,6 +20,9 @@ type Transcript struct {
 	blocks           []transcriptBlock
 	liveAssistantIdx int
 	toolGroup        *toolGroup
+	renderedCache    string
+	renderOffsets    []int
+	dirtyFrom        int
 }
 
 type toolEntry struct {
@@ -42,15 +45,61 @@ type toolGroup struct {
 func NewTranscript() *Transcript {
 	return &Transcript{
 		liveAssistantIdx: -1,
+		dirtyFrom:        -1,
 	}
 }
 
 func (t *Transcript) Render() string {
-	rendered := make([]string, 0, len(t.blocks))
-	for _, block := range t.blocks {
-		rendered = append(rendered, block.rendered)
+	if t.dirtyFrom == -1 {
+		return t.renderedCache
 	}
-	return strings.Join(rendered, "")
+
+	startIndex := t.dirtyFrom
+	prefix := ""
+	offsets := make([]int, len(t.blocks)+1)
+	if startIndex > 0 && len(t.renderOffsets) > startIndex {
+		prefix = t.renderedCache[:t.renderOffsets[startIndex]]
+		copy(offsets[:startIndex+1], t.renderOffsets[:startIndex+1])
+	} else {
+		startIndex = 0
+	}
+
+	var rendered strings.Builder
+	rendered.Grow(len(prefix))
+	rendered.WriteString(prefix)
+	currentOffset := len(prefix)
+	for i := startIndex; i < len(t.blocks); i++ {
+		offsets[i] = currentOffset
+		rendered.WriteString(t.blocks[i].rendered)
+		currentOffset += len(t.blocks[i].rendered)
+	}
+	offsets[len(t.blocks)] = currentOffset
+
+	t.renderedCache = rendered.String()
+	t.renderOffsets = offsets
+	t.dirtyFrom = -1
+	return t.renderedCache
+}
+
+func (t *Transcript) appendBlock(block transcriptBlock) int {
+	t.blocks = append(t.blocks, block)
+	index := len(t.blocks) - 1
+	t.markDirty(index)
+	return index
+}
+
+func (t *Transcript) replaceBlock(index int, block transcriptBlock) {
+	t.blocks[index] = block
+	t.markDirty(index)
+}
+
+func (t *Transcript) markDirty(index int) {
+	if index < 0 {
+		return
+	}
+	if t.dirtyFrom == -1 || index < t.dirtyFrom {
+		t.dirtyFrom = index
+	}
 }
 
 func (t *Transcript) WriteStartupBanner(model string, workspaceRoot string, thinking string) {
@@ -96,7 +145,7 @@ func (t *Transcript) WriteStartupBanner(model string, workspaceRoot string, thin
 			lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render("use /provider anthropic <key>"),
 		)
 	}
-	t.blocks = append(t.blocks, transcriptBlock{
+	t.appendBlock(transcriptBlock{
 		plain:    strings.Join(plainLines, "\n") + "\n\n",
 		rendered: strings.Join(renderedLines, "\n") + "\n\n",
 	})
@@ -133,7 +182,7 @@ func (t *Transcript) WriteNote(title string, lines []string) {
 	t.endToolGroup()
 	t.endLiveAssistant()
 	if len(t.blocks) > 0 && !strings.HasSuffix(t.blocks[len(t.blocks)-1].plain, "\n\n") {
-		t.blocks = append(t.blocks, transcriptBlock{plain: "\n", rendered: "\n"})
+		t.appendBlock(transcriptBlock{plain: "\n", rendered: "\n"})
 	}
 	header := lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render("note") +
 		"  " + lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Bold(true).Render(title)
@@ -147,18 +196,18 @@ func (t *Transcript) WriteNote(title string, lines []string) {
 		rendered += "\n"
 		plain += "\n"
 	}
-	t.blocks = append(t.blocks, transcriptBlock{plain: plain, rendered: rendered})
+	t.appendBlock(transcriptBlock{plain: plain, rendered: rendered})
 }
 
 func (t *Transcript) WriteUserTurn(prompt string) {
 	t.endToolGroup()
 	t.endLiveAssistant()
 	if len(t.blocks) > 0 && !strings.HasSuffix(t.blocks[len(t.blocks)-1].plain, "\n\n") {
-		t.blocks = append(t.blocks, transcriptBlock{plain: "\n", rendered: "\n"})
+		t.appendBlock(transcriptBlock{plain: "\n", rendered: "\n"})
 	}
 	line := lipgloss.NewStyle().Foreground(defaultTheme.accent).Render(">") + " " +
 		lipgloss.NewStyle().Foreground(defaultTheme.text).Bold(true).Render(prompt)
-	t.blocks = append(t.blocks, transcriptBlock{
+	t.appendBlock(transcriptBlock{
 		plain:    "> " + prompt + "\n",
 		rendered: line + "\n",
 	})
@@ -167,7 +216,7 @@ func (t *Transcript) WriteUserTurn(prompt string) {
 func (t *Transcript) WriteLine(line string) {
 	t.endToolGroup()
 	t.endLiveAssistant()
-	t.blocks = append(t.blocks, transcriptBlock{plain: line + "\n", rendered: line + "\n"})
+	t.appendBlock(transcriptBlock{plain: line + "\n", rendered: line + "\n"})
 }
 
 func (t *Transcript) WriteError(message string) {
@@ -186,7 +235,7 @@ func (t *Transcript) ApplyRunEvent(event rpc.RunEvent) {
 		t.failTool(event)
 	case "run_failed":
 		t.endLiveAssistant()
-		t.blocks = append(t.blocks, transcriptBlock{
+		t.appendBlock(transcriptBlock{
 			plain:    "error  " + event.Message + "\n",
 			rendered: "error  " + event.Message + "\n",
 		})
@@ -198,31 +247,31 @@ func (t *Transcript) ApplyRunEvent(event rpc.RunEvent) {
 func (t *Transcript) appendAssistantDelta(delta string) {
 	t.endToolGroup()
 	if t.liveAssistantIdx == -1 {
-		t.blocks = append(t.blocks, transcriptBlock{
+		t.liveAssistantIdx = t.appendBlock(transcriptBlock{
 			plain:    delta,
 			rendered: lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render("◦ ") + lipgloss.NewStyle().Foreground(defaultTheme.textSoft).Render(delta),
 		})
-		t.liveAssistantIdx = len(t.blocks) - 1
 		return
 	}
 	block := &t.blocks[t.liveAssistantIdx]
 	block.plain += delta
 	block.rendered = lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render("◦ ") +
 		lipgloss.NewStyle().Foreground(defaultTheme.textSoft).Render(block.plain)
+	t.markDirty(t.liveAssistantIdx)
 }
 
 func (t *Transcript) completeAssistant(markdown string) {
 	t.endToolGroup()
 	rendered := renderCompletedAssistantMarkdown(markdown)
 	if t.liveAssistantIdx != -1 {
-		t.blocks[t.liveAssistantIdx] = transcriptBlock{
+		t.replaceBlock(t.liveAssistantIdx, transcriptBlock{
 			plain:    markdown,
 			rendered: rendered,
-		}
+		})
 		t.liveAssistantIdx = -1
 		return
 	}
-	t.blocks = append(t.blocks, transcriptBlock{plain: markdown + "\n", rendered: rendered})
+	t.appendBlock(transcriptBlock{plain: markdown + "\n", rendered: rendered})
 }
 
 func (t *Transcript) endLiveAssistant() {
@@ -233,11 +282,11 @@ func (t *Transcript) startTool(event rpc.RunEvent) {
 	t.endLiveAssistant()
 	if t.toolGroup == nil {
 		if len(t.blocks) > 0 && !strings.HasSuffix(t.blocks[len(t.blocks)-1].plain, "\n") {
-			t.blocks = append(t.blocks, transcriptBlock{plain: "\n", rendered: "\n"})
+			t.appendBlock(transcriptBlock{plain: "\n", rendered: "\n"})
 		}
-		t.blocks = append(t.blocks, transcriptBlock{})
+		index := t.appendBlock(transcriptBlock{})
 		t.toolGroup = &toolGroup{
-			index:   len(t.blocks) - 1,
+			index:   index,
 			entries: map[string]*toolEntry{},
 		}
 	}
@@ -320,10 +369,10 @@ func (t *Transcript) rewriteToolGroup() {
 			rendered.WriteString(lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render("    ...") + "\n")
 		}
 	}
-	t.blocks[t.toolGroup.index] = transcriptBlock{
+	t.replaceBlock(t.toolGroup.index, transcriptBlock{
 		plain:    plain.String(),
 		rendered: rendered.String(),
-	}
+	})
 }
 
 func formatToolActivityLine(entry *toolEntry) string {
