@@ -559,6 +559,24 @@ async def test_stream_run_events_recovers_from_edit_mismatch_within_one_run(
     assert events[4].tool_call_id == "call-edit-2"
     assert events[4].tool_name == "edit"
     assert events[4].result == f"Edited {note}"
+    assert events[4].activity is not None
+    assert events[4].activity.title == f"edit {note.name}"
+    assert events[4].activity.summary == "edit applied"
+    assert events[4].activity.details is not None
+    assert events[4].activity.details.model_dump() == {
+        "kind": "edit",
+        "path": "note.txt",
+        "diff": (
+            f"--- {note}\n"
+            f"+++ {note}\n"
+            "@@ -1,2 +1,2 @@\n"
+            " hello\n"
+            "-world\n"
+            "+agent\n"
+        ),
+        "added_lines": 1,
+        "removed_lines": 1,
+    }
     assert events[6].output_text == "done"
     assert note.read_text(encoding="utf-8") == "hello\nagent\n"
 

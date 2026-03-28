@@ -235,6 +235,77 @@ def test_append_and_load_session_preserves_tool_activity_metadata(tmp_path) -> N
     assert loaded.runs[0].events == run_events
 
 
+def test_append_and_load_session_preserves_edit_diff_activity_metadata(
+    tmp_path,
+) -> None:
+    path = tmp_path / "session.jsonl"
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    run_events = [
+        RunStartedEvent(run_id="run-1"),
+        ToolCallStartedEvent(
+            run_id="run-1",
+            tool_call_id="call-edit",
+            tool_name="edit",
+            args={
+                "path": "note.txt",
+                "old_text": "world",
+                "new_text": "agent",
+            },
+            args_valid=True,
+            activity=ToolActivity(
+                title="edit note.txt",
+                details={
+                    "kind": "edit",
+                    "path": "note.txt",
+                    "diff": None,
+                    "added_lines": None,
+                    "removed_lines": None,
+                },
+            ),
+        ),
+        ToolCallSucceededEvent(
+            run_id="run-1",
+            tool_call_id="call-edit",
+            tool_name="edit",
+            result="Edited /tmp/workspace/note.txt",
+            activity=ToolActivity(
+                title="edit note.txt",
+                summary="edit applied",
+                duration_ms=12,
+                details={
+                    "kind": "edit",
+                    "path": "note.txt",
+                    "diff": (
+                        "--- /tmp/workspace/note.txt\n"
+                        "+++ /tmp/workspace/note.txt\n"
+                        "@@ -1 +1 @@\n"
+                        "-world\n"
+                        "+agent\n"
+                    ),
+                    "added_lines": 1,
+                    "removed_lines": 1,
+                },
+            ),
+        ),
+        RunSucceededEvent(run_id="run-1", output_text="done"),
+    ]
+
+    append_run_to_session(
+        path=path,
+        workspace_root=workspace_root,
+        prompt="go",
+        thinking=None,
+        events=run_events,
+        messages=[ModelRequest(parts=[UserPromptPart(content="go")])],
+    )
+
+    loaded = load_session(path=path, workspace_root=workspace_root)
+
+    assert loaded.runs[0].events == run_events
+
+
 def test_append_and_load_session_preserves_tool_call_updates(tmp_path) -> None:
     path = tmp_path / "session.jsonl"
     workspace_root = tmp_path / "workspace"

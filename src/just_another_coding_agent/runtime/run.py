@@ -250,6 +250,7 @@ async def stream_run_events(
                         result_tool_name=event.result.tool_name,
                     )
                     result = _normalize_json_value(event.result.content)
+                    result_metadata = getattr(event.result, "metadata", None)
                     yield ToolCallSucceededEvent(
                         run_id=run_id,
                         tool_call_id=event.tool_call_id,
@@ -260,6 +261,7 @@ async def stream_run_events(
                             args=pending_tool_call.args,
                             args_valid=pending_tool_call.args_valid,
                             result=result,
+                            result_metadata=result_metadata,
                             duration_ms=_duration_ms_since(
                                 pending_tool_call.started_at
                             ),

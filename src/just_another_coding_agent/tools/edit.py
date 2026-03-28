@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import difflib
 import unicodedata
+from dataclasses import dataclass
 from pathlib import Path
 
 from pydantic_ai import RunContext, Tool
+from pydantic_ai.messages import ToolReturn
 
 from just_another_coding_agent.contracts.tools import (
     EditToolInput,
@@ -15,6 +18,14 @@ from just_another_coding_agent.tools.errors import (
     ToolMatchError,
     reraise_path_error,
 )
+
+
+@dataclass(frozen=True)
+class EditResult:
+    path: str
+    diff: str
+    added_lines: int
+    removed_lines: int
 
 
 def strip_bom(content: str) -> tuple[str, str]:
@@ -158,12 +169,24 @@ def execute_edit(*, tool_input: EditToolInput, workspace_root: Path | str) -> st
     if updated == base_content:
         raise ToolMatchError(f"Edit would not change file contents: {path}")
 
+    diff_text = _generate_unified_diff(
+        old_content=base_content,
+        new_content=updated,
+        file_path=str(path),
+    )
+    added_lines, removed_lines = _count_changed_lines(diff_text)
+
     final_content = bom + restore_line_endings(updated, original_line_ending)
     try:
         path.write_bytes(final_content.encode("utf-8"))
     except OSError as error:
         reraise_path_error(error)
-    return f"Edited {path}"
+    return EditResult(
+        path=str(path),
+        diff=diff_text,
+        added_lines=added_lines,
+        removed_lines=removed_lines,
+    )
 
 
 def edit(
@@ -179,13 +202,21 @@ def edit(
         new_text: Replacement text to insert in place of old_text.
     """
 
-    return execute_edit(
+    result = execute_edit(
         tool_input=EditToolInput(
             path=path,
             old_text=old_text,
             new_text=new_text,
         ),
         workspace_root=ctx.deps.workspace_root,
+    )
+    return ToolReturn(
+        return_value=f"Edited {result.path}",
+        metadata={
+            "diff": result.diff,
+            "added_lines": result.added_lines,
+            "removed_lines": result.removed_lines,
+        },
     )
 
 
@@ -208,4 +239,39 @@ EDIT_TOOL = Tool(
     strict=True,
 )
 
-__all__ = ["EDIT_TOOL", "edit", "execute_edit"]
+def _generate_unified_diff(
+    *,
+    old_content: str,
+    new_content: str,
+    file_path: str,
+    context_lines: int = 3,
+) -> str:
+    old_lines = old_content.splitlines(keepends=True)
+    new_lines = new_content.splitlines(keepends=True)
+    diff_lines = difflib.unified_diff(
+        old_lines,
+        new_lines,
+        fromfile=file_path,
+        tofile=file_path,
+        n=context_lines,
+    )
+    return "".join(diff_lines)
+
+
+def _count_changed_lines(diff_text: str) -> tuple[int, int]:
+    added_lines = 0
+    removed_lines = 0
+
+    for line in diff_text.splitlines():
+        if line.startswith("--- ") or line.startswith("+++ ") or line.startswith("@@"):
+            continue
+        if line.startswith("+"):
+            added_lines += 1
+            continue
+        if line.startswith("-"):
+            removed_lines += 1
+
+    return added_lines, removed_lines
+
+
+__all__ = ["EDIT_TOOL", "EditResult", "edit", "execute_edit"]

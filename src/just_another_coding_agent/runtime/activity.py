@@ -38,6 +38,7 @@ def build_succeeded_tool_activity(
     args: Any,
     args_valid: bool | None,
     result: Any,
+    result_metadata: Any = None,
     duration_ms: int,
 ) -> ToolActivity:
     return ToolActivity(
@@ -49,6 +50,7 @@ def build_succeeded_tool_activity(
             args=args,
             args_valid=args_valid,
             result=result,
+            result_metadata=result_metadata,
         ),
     )
 
@@ -166,6 +168,7 @@ def _build_tool_details(
     args: Any,
     args_valid: bool | None,
     result: Any,
+    result_metadata: Any = None,
 ) -> ToolActivityDetails | None:
     # Keep this dispatch in sync with CANONICAL_TOOL_NAMES. The representative
     # coverage test in tests/contracts/test_activity_metadata.py is intended to
@@ -213,7 +216,19 @@ def _build_tool_details(
     if tool_name == "edit":
         path = args.get("path")
         if isinstance(path, str) and path:
-            return EditActivityDetails(path=path)
+            diff = None
+            added_lines = None
+            removed_lines = None
+            if isinstance(result_metadata, dict):
+                diff = _optional_str(result_metadata.get("diff"))
+                added_lines = _optional_int(result_metadata.get("added_lines"))
+                removed_lines = _optional_int(result_metadata.get("removed_lines"))
+            return EditActivityDetails(
+                path=path,
+                diff=diff,
+                added_lines=added_lines,
+                removed_lines=removed_lines,
+            )
         return None
 
     if tool_name == "grep":

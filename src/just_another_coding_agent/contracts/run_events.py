@@ -44,6 +44,9 @@ class WriteActivityDetails(_ToolActivityDetailsBase):
 class EditActivityDetails(_ToolActivityDetailsBase):
     kind: Literal["edit"] = "edit"
     path: str
+    diff: str | None = None
+    added_lines: int | None = None
+    removed_lines: int | None = None
 
 
 class GrepActivityDetails(_ToolActivityDetailsBase):

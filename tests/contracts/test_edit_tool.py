@@ -2,7 +2,7 @@ import pytest
 from pydantic import ValidationError
 
 from just_another_coding_agent.contracts.tools import EditToolInput
-from just_another_coding_agent.tools.edit import execute_edit
+from just_another_coding_agent.tools.edit import EditResult, execute_edit
 from just_another_coding_agent.tools.errors import (
     ToolEncodingError,
     ToolMatchError,
@@ -26,7 +26,36 @@ def test_edit_tool_replaces_exact_unique_text(tmp_path) -> None:
     )
 
     assert path.read_bytes() == b"hello\nagent\n"
-    assert result == f"Edited {path}"
+    assert isinstance(result, EditResult)
+    assert result.path == str(path)
+    assert "-world" in result.diff
+    assert "+agent" in result.diff
+    assert result.added_lines == 1
+    assert result.removed_lines == 1
+
+
+def test_edit_tool_counts_changed_lines_that_look_like_diff_headers(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    path = workspace_root / "note.txt"
+    path.write_text("keep\n--- separator\n", encoding="utf-8")
+
+    result = execute_edit(
+        tool_input=EditToolInput(
+            path="note.txt",
+            old_text="--- separator\n",
+            new_text="+++ separator\n",
+        ),
+        workspace_root=workspace_root,
+    )
+
+    assert isinstance(result, EditResult)
+    assert result.added_lines == 1
+    assert result.removed_lines == 1
+    assert "---- separator" in result.diff
+    assert "++++ separator" in result.diff
 
 
 def test_edit_tool_allows_deleting_text(tmp_path) -> None:
@@ -173,7 +202,8 @@ def test_edit_tool_allows_relative_path_that_resolves_outside_workspace(
         workspace_root=workspace_root,
     )
 
-    assert result == f"Edited {outside.resolve()}"
+    assert isinstance(result, EditResult)
+    assert result.path == str(outside.resolve())
     assert outside.read_bytes() == b"hello\nagent\n"
 
 
@@ -192,7 +222,8 @@ def test_edit_tool_matches_old_text_without_bom_in_file(tmp_path) -> None:
         workspace_root=workspace_root,
     )
 
-    assert result == f"Edited {path}"
+    assert isinstance(result, EditResult)
+    assert result.path == str(path)
     assert path.read_bytes() == "\ufeffhello\nagent\n".encode("utf-8")
 
 
