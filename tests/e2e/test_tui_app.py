@@ -322,6 +322,7 @@ async def test_tool_activity_rows_show_preview_and_success_state(
                 activity=SimpleNamespace(
                     title="bash git show HEAD --stat",
                     summary=None,
+                    duration_ms=None,
                 ),
             ),
         )
@@ -335,11 +336,12 @@ async def test_tool_activity_rows_show_preview_and_success_state(
                 activity=SimpleNamespace(
                     title="bash git show HEAD --stat",
                     summary="command exited 0",
+                    duration_ms=120,
                 ),
             ),
         )
 
-        assert "bash ok  git show HEAD --stat" in transcript.plain_text
+        assert "bash ok  git show HEAD --stat  (120ms)" in transcript.plain_text
         assert "echo stale preview" not in transcript.plain_text
         assert "bash x2" not in transcript.plain_text
         assert "tool bash" not in transcript.plain_text
@@ -374,6 +376,7 @@ async def test_file_tool_rows_use_path_preview_and_success_state(
                 activity=SimpleNamespace(
                     title="write notes/plan.md",
                     summary=None,
+                    duration_ms=None,
                 ),
             ),
         )
@@ -387,11 +390,12 @@ async def test_file_tool_rows_use_path_preview_and_success_state(
                 activity=SimpleNamespace(
                     title="write notes/plan.md",
                     summary="wrote file",
+                    duration_ms=35,
                 ),
             ),
         )
 
-        assert "write ok  notes/plan.md" in transcript.plain_text
+        assert "write ok  notes/plan.md  (35ms)" in transcript.plain_text
         assert "wrong/path.md" not in transcript.plain_text
 
 
@@ -424,6 +428,7 @@ async def test_tool_failures_render_as_preview_aware_error_rows(
                 activity=SimpleNamespace(
                     title="bash pytest -q",
                     summary=None,
+                    duration_ms=None,
                 ),
             ),
         )
@@ -438,12 +443,13 @@ async def test_tool_failures_render_as_preview_aware_error_rows(
                 activity=SimpleNamespace(
                     title="bash pytest -q",
                     summary="Command timed out after 60 seconds",
+                    duration_ms=1250,
                 ),
             ),
         )
 
         assert (
-            "bash error  pytest -q  |  Command timed out after 60 seconds"
+            "bash error  pytest -q  |  Command timed out after 60 seconds  (1.2s)"
             in transcript.plain_text
         )
         assert "raw runtime message" not in transcript.plain_text
@@ -478,6 +484,7 @@ async def test_tool_error_results_prefer_backend_activity_metadata(
                 activity=SimpleNamespace(
                     title="read missing.txt",
                     summary=None,
+                    duration_ms=None,
                 ),
             ),
         )
@@ -495,12 +502,13 @@ async def test_tool_error_results_prefer_backend_activity_metadata(
                 activity=SimpleNamespace(
                     title="read missing.txt",
                     summary="No such file or directory",
+                    duration_ms=8,
                 ),
             ),
         )
 
         assert (
-            "read error  missing.txt  |  No such file or directory"
+            "read error  missing.txt  |  No such file or directory  (8ms)"
             in transcript.plain_text
         )
         assert "stale.txt" not in transcript.plain_text

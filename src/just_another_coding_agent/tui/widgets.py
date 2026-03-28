@@ -193,6 +193,7 @@ class TranscriptLog(RichLog):
         self,
         tool_call_id: str,
         summary: str | None = None,
+        duration: str | None = None,
     ) -> None:
         """Mark one tool row as completed successfully."""
         tool_row = self._tool_rows.pop(tool_call_id, None)
@@ -203,6 +204,7 @@ class TranscriptLog(RichLog):
             preview=tool_row.preview,
             outcome="ok",
             message=summary if tool_row.preview is None else None,
+            duration=duration,
         )
         self._parts[tool_row.index] = TranscriptPart(line, line)
         self._rerender()
@@ -212,6 +214,7 @@ class TranscriptLog(RichLog):
         tool_call_id: str,
         tool_name: str,
         message: str,
+        duration: str | None = None,
     ) -> None:
         """Mark one tool row as failed, preserving any start-row preview."""
         self.flush_live_text()
@@ -222,6 +225,7 @@ class TranscriptLog(RichLog):
             preview=preview,
             outcome="error",
             message=message,
+            duration=duration,
         )
         if tool_row is None:
             if self._parts and not self.plain_text.endswith("\n"):
@@ -284,18 +288,20 @@ class TranscriptLog(RichLog):
         preview: str | None,
         outcome: str | None,
         message: str | None = None,
+        duration: str | None = None,
     ) -> str:
         parts = [tool_name]
         if outcome is not None:
             parts.append(outcome)
         head = " ".join(parts)
+        suffix = f"  ({duration})" if duration else ""
         if preview and message:
-            return f"{head}  {preview}  |  {message}\n"
+            return f"{head}  {preview}  |  {message}{suffix}\n"
         if preview:
-            return f"{head}  {preview}\n"
+            return f"{head}  {preview}{suffix}\n"
         if message:
-            return f"{head}  {message}\n"
-        return f"{head}\n"
+            return f"{head}  {message}{suffix}\n"
+        return f"{head}{suffix}\n"
 
 
 __all__ = ["APP_CSS", "ComposerInput", "StatusBar", "TranscriptLog", "TranscriptPart"]

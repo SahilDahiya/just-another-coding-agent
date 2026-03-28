@@ -163,6 +163,16 @@ def build_tool_summary(activity: Any | None, fallback: str | None = None) -> str
     return fallback
 
 
+def build_tool_duration(activity: Any | None) -> str | None:
+    """Render backend-owned duration metadata for compact tool rows."""
+    duration_ms = getattr(activity, "duration_ms", None)
+    if not isinstance(duration_ms, int) or duration_ms < 0:
+        return None
+    if duration_ms < 1000:
+        return f"{duration_ms}ms"
+    return f"{duration_ms / 1000:.1f}s"
+
+
 def _truncate_inline(text: str, *, limit: int = 56) -> str:
     """Collapse whitespace and truncate for compact transcript rows."""
     normalized = " ".join(text.split())
@@ -210,11 +220,13 @@ def write_stream_event(output: TranscriptLog, event: Any) -> None:
                     str(result.get("message", "")),
                 )
                 or "tool error",
+                build_tool_duration(activity),
             )
         else:
             output.finish_tool_activity(
                 event.tool_call_id,  # type: ignore[union-attr]
                 build_tool_summary(activity),
+                build_tool_duration(activity),
             )
     elif event.type == "tool_call_failed":
         activity = getattr(event, "activity", None)
@@ -226,6 +238,7 @@ def write_stream_event(output: TranscriptLog, event: Any) -> None:
                 event.message,  # type: ignore[union-attr]
             )
             or "tool failure",
+            build_tool_duration(activity),
         )
     elif event.type == "run_failed":
         output.end_live_text()
@@ -241,6 +254,7 @@ __all__ = [
     "build_phase_label",
     "build_prompt_marker_text",
     "build_status_text",
+    "build_tool_duration",
     "build_tool_preview",
     "build_tool_summary",
     "resolve_thinking_setting",
