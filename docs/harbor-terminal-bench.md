@@ -178,8 +178,41 @@ What it does:
 - loads `.env` if present
 - defaults to `ollama:glm-5:cloud`
 - defaults to `JUST_ANOTHER_CODING_AGENT_THINKING=high`
-- runs `5` attempts per task with Harbor against `terminal-bench@2.0`
-- writes the Harbor job under `jobs/`
+- treats a submission as a bundle of intact Harbor jobs, one trial-per-task pass
+  per job
+- by default runs `1` pass per invocation, with `--n-attempts 1`
+- records only completed pass jobs under a submission bundle manifest
+- writes Harbor jobs under `jobs/`
+- writes the submission bundle state under `jobs/submission-bundles/`
+
+This is deliberately not in-place resume. If you stop a run mid-pass, that
+partial Harbor job is left on disk but is not recorded in the bundle. Rerunning
+the launcher starts the next needed pass from the last completed recorded pass.
+
+Useful knobs:
+
+```bash
+# Show bundle status without starting Harbor.
+ACTION=status scripts/run_tb2_submission_glm5.sh
+
+# Use a stable bundle id across reruns.
+SUBMISSION_ID=glm5-high scripts/run_tb2_submission_glm5.sh
+
+# Run two completed passes in one invocation.
+PASSES_PER_RUN=2 scripts/run_tb2_submission_glm5.sh
+
+# Change the target number of trials per task.
+TARGET_TRIALS=5 scripts/run_tb2_submission_glm5.sh
+```
+
+Submission guidance:
+
+- only submit the completed Harbor job directories recorded in the bundle
+  manifest
+- do not splice trials from different Harbor jobs into one job directory
+- interrupted current-pass jobs are for local analysis only unless you
+  explicitly decide to package them separately after validating they satisfy the
+  official submission rules
 
 Expected prerequisites before you launch it:
 
