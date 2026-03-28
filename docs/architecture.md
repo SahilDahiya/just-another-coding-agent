@@ -131,9 +131,11 @@ The important boundary is:
 - `src/just_another_coding_agent/rpc/`
   - JSON-over-stdio protocol
   - command handlers
-- `src/just_another_coding_agent/tui/`
-  - first-party terminal UI
-  - presentation, input handling, and shell-specific state
+- `cmd/jaca/`
+  - canonical interactive TUI entrypoint
+- `internal/jaca/`
+  - first-party Go terminal UI
+  - presentation, input handling, shell state, and RPC client bridge
 - `src/just_another_coding_agent/contracts/`
   - contract types, constants, and schema helpers
 - `evaluations/`

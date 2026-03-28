@@ -1,4 +1,4 @@
-"""Persistent TUI configuration stored at ~/.jaca/config.json."""
+"""Persistent runtime configuration stored at ~/.jaca/config.json."""
 
 from __future__ import annotations
 

@@ -289,6 +289,7 @@ def test_main_parses_args_and_runs_stdio_server(tmp_path, monkeypatch) -> None:
         [
             "--model",
             "openai:test-model",
+            "--headless",
             "--workspace-root",
             str(workspace_root),
             "--sessions-root",
@@ -372,6 +373,7 @@ def test_main_exits_cleanly_on_keyboard_interrupt(
         [
             "--model",
             "openai:test-model",
+            "--headless",
             "--workspace-root",
             str(workspace_root),
             "--sessions-root",

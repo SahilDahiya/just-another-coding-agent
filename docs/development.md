@@ -5,6 +5,7 @@ read_when: you need environment setup, commands, CI, or test workflow
 ## Runtime
 
 - Python `3.12`
+- Go `1.23`
 - `uv` for environment management
 - `ruff` for linting
 - `pytest` for tests
@@ -15,6 +16,20 @@ read_when: you need environment setup, commands, CI, or test workflow
 - Lint: `uv run ruff check .`
 - Format: `uv run ruff format .`
 - Test: `uv run pytest`
+- Test Go packages: `go test ./...`
+- Run the Go TUI client directly: `go run ./cmd/jaca`
+- Run the canonical interactive launcher: `uv run jaca`
+- Run the Python headless backend directly: `uv run just-another-coding-agent --headless`
+
+## Go TUI
+
+The first-party TUI is now implemented in Go as a thin client over the
+canonical Python headless backend.
+
+- The Go entrypoint is `cmd/jaca`
+- The Go client packages live under `internal/jaca/`
+- `uv run jaca` launches the Go client through the Python console-script shim
+- The Go client launches the Python backend over stdio RPC with `--headless`
 
 ## Environment
 

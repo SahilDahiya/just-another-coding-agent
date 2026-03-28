@@ -2,7 +2,7 @@
 
 read_when: you need the repo overview, scope, or setup commands
 
-Python-native coding-agent backend built around PydanticAI, with a thin first-party terminal UI.
+Python-native coding-agent backend built around PydanticAI, with a thin first-party Go terminal UI.
 
 This repo preserves the backend product shape of pi's coding agent while rebuilding it as a clean Python implementation around PydanticAI. It does not inherit pi-mono's monorepo layout, extension ecosystem, or migration burden.
 
@@ -25,13 +25,14 @@ It is intentionally narrow: coding-agent backend first, a thin first-party termi
 
 ## Project Layout
 
+- `cmd/jaca/` - Go TUI entrypoint
+- `internal/jaca/` - Go TUI client, rendering, config, and RPC bridge
 - `src/just_another_coding_agent/` - canonical Python package
 - `src/just_another_coding_agent/runtime/` - runtime and orchestration entrypoints
 - `src/just_another_coding_agent/tools/` - coding tools
 - `src/just_another_coding_agent/session/` - session persistence
 - `src/just_another_coding_agent/rpc/` - RPC transport
 - `src/just_another_coding_agent/contracts/` - public contract helpers and schemas
-- `src/just_another_coding_agent/tui/` - first-party terminal UI
 - `tests/` - unit tests first, e2e later
 - `docs/` - scope, architecture, contracts, ADRs, development
 
@@ -60,6 +61,13 @@ Launch the first-party terminal UI:
 
 ```bash
 uv run jaca
+```
+
+The interactive launcher now delegates to the canonical Go TUI, which talks to
+the Python backend over stdio RPC. You can also run the Go client directly:
+
+```bash
+go run ./cmd/jaca
 ```
 
 ## Docs

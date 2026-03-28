@@ -3,14 +3,15 @@ from __future__ import annotations
 import argparse
 import asyncio
 import os
+import subprocess
 import sys
 from collections.abc import Sequence
 from pathlib import Path
 from typing import TextIO
 
+from just_another_coding_agent.config import apply_config_to_env, load_config
 from just_another_coding_agent.rpc import serve_rpc_stdio
 from just_another_coding_agent.tools._workspace import normalize_workspace_root
-from just_another_coding_agent.tui.config import apply_config_to_env, load_config
 
 apply_config_to_env(load_config())
 
@@ -103,16 +104,31 @@ def _run_tui(
     sessions_root: Path,
     thinking: str | None,
 ) -> int:
-    from just_another_coding_agent.tui import CodingAgentApp
-
-    app = CodingAgentApp(
-        model=model,
-        workspace_root=workspace_root,
-        sessions_root=sessions_root,
-        thinking=thinking,
-    )
-    app.run()
-    return 0
+    # Temporary packaging shim: the canonical interactive TUI now lives in Go,
+    # but the project still exposes `jaca` through the Python console-script
+    # entrypoint. Delete this subprocess launcher once installation/build
+    # exposes the Go `jaca` binary directly.
+    repo_root = Path(__file__).resolve().parents[2]
+    command = [
+        "go",
+        "run",
+        "./cmd/jaca",
+        "--model",
+        model,
+        "--workspace-root",
+        str(workspace_root),
+        "--sessions-root",
+        str(sessions_root),
+    ]
+    if thinking is not None:
+        command.extend(["--thinking", thinking])
+    try:
+        completed = subprocess.run(command, cwd=repo_root, check=False)
+    except FileNotFoundError as error:
+        raise RuntimeError(
+            "Go toolchain is required for the canonical TUI launcher"
+        ) from error
+    return completed.returncode
 
 
 def _resolve_sessions_root(raw_sessions_root: str | None) -> Path:

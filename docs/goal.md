@@ -4,7 +4,7 @@ read_when: you need the authoritative scope and product intent
 
 ## Goal
 
-Build a Python-native coding-agent backend around PydanticAI, with a thin first-party terminal UI over the same runtime.
+Build a Python-native coding-agent backend around PydanticAI, with a thin first-party Go terminal UI over the same runtime.
 
 The product is a coding agent backend first. The TUI is a first-party shell over that backend, not a second product and not an invitation to build a terminal IDE.
 
