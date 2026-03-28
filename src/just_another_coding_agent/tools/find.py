@@ -3,13 +3,12 @@ from __future__ import annotations
 import shutil
 import subprocess
 from pathlib import Path, PurePosixPath
+from typing import Annotated
 
+from pydantic import Field
 from pydantic_ai import RunContext, Tool
 
 from just_another_coding_agent.contracts.run_events import FindActivityDetails
-from just_another_coding_agent.contracts.tools import (
-    FindToolInput,
-)
 from just_another_coding_agent.tools._activity import (
     make_tool_return,
     truncate_activity_label,
@@ -27,6 +26,8 @@ from just_another_coding_agent.tools.truncation import (
 
 FIND_DEFAULT_LIMIT = 1000
 FIND_MAX_BYTES = 50 * 1024
+
+
 def _matches_pattern(path_text: str, pattern: str) -> bool:
     path = PurePosixPath(path_text)
     if path.match(pattern):
@@ -40,7 +41,13 @@ def _normalize_rg_path(path_text: str) -> str:
     return path_text.removeprefix("./")
 
 
-def execute_find(*, tool_input: FindToolInput, workspace_root: Path | str) -> str:
+def execute_find(
+    *,
+    workspace_root: Path | str,
+    pattern: str,
+    path: str | None = None,
+    limit: int = FIND_DEFAULT_LIMIT,
+) -> str:
     rg_path = shutil.which("rg")
     if rg_path is None:
         raise ToolCommandError("ripgrep (rg) is not installed")
@@ -48,7 +55,7 @@ def execute_find(*, tool_input: FindToolInput, workspace_root: Path | str) -> st
     try:
         search_path = resolve_workspace_path(
             workspace_root=workspace_root,
-            tool_path=tool_input.path or ".",
+            tool_path=path or ".",
         )
         if not search_path.exists():
             raise FileNotFoundError(search_path)
@@ -81,7 +88,7 @@ def execute_find(*, tool_input: FindToolInput, workspace_root: Path | str) -> st
         [
             path_text
             for path_text in all_paths
-            if _matches_pattern(path_text, tool_input.pattern)
+            if _matches_pattern(path_text, pattern)
         ],
         key=str.lower,
     )
@@ -90,7 +97,7 @@ def execute_find(*, tool_input: FindToolInput, workspace_root: Path | str) -> st
 
     bounded = collect_bounded_items(
         matches,
-        item_limit=tool_input.limit,
+        item_limit=limit,
         max_bytes=FIND_MAX_BYTES,
     )
 
@@ -99,7 +106,7 @@ def execute_find(*, tool_input: FindToolInput, workspace_root: Path | str) -> st
     if bounded.limit_hit:
         notices.append(
             "Showing first "
-            f"{tool_input.limit} results. Use limit={tool_input.limit * 2} "
+            f"{limit} results. Use limit={limit * 2} "
             "for more or refine the pattern."
         )
     if bounded.byte_limit_hit:
@@ -114,9 +121,9 @@ def execute_find(*, tool_input: FindToolInput, workspace_root: Path | str) -> st
 
 def find(
     ctx: RunContext[WorkspaceDeps],
-    pattern: str,
-    path: str | None = None,
-    limit: int = FIND_DEFAULT_LIMIT,
+    pattern: Annotated[str, Field(min_length=1)],
+    path: Annotated[str | None, Field(min_length=1)] = None,
+    limit: Annotated[int, Field(ge=1)] = FIND_DEFAULT_LIMIT,
 ) -> str:
     """Find files by glob pattern with ripgrep-backed file discovery.
 
@@ -129,8 +136,10 @@ def find(
     """
 
     result = execute_find(
-        tool_input=FindToolInput(pattern=pattern, path=path, limit=limit),
         workspace_root=ctx.deps.workspace_root,
+        pattern=pattern,
+        path=path,
+        limit=limit,
     )
     return make_tool_return(
         return_value=result,

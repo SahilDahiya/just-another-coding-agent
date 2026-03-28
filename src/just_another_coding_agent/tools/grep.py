@@ -4,13 +4,12 @@ import json
 import shutil
 import subprocess
 from pathlib import Path
+from typing import Annotated
 
+from pydantic import Field
 from pydantic_ai import RunContext, Tool
 
 from just_another_coding_agent.contracts.run_events import GrepActivityDetails
-from just_another_coding_agent.contracts.tools import (
-    GrepToolInput,
-)
 from just_another_coding_agent.tools._activity import (
     make_tool_return,
     truncate_activity_label,
@@ -52,7 +51,16 @@ def _resolve_match_path(*, path_text: str, workspace_root: Path) -> Path:
     return (workspace_root / match_path).resolve()
 
 
-def execute_grep(*, tool_input: GrepToolInput, workspace_root: Path | str) -> str:
+def execute_grep(
+    *,
+    workspace_root: Path | str,
+    pattern: str,
+    path: str | None = None,
+    glob: str | None = None,
+    ignore_case: bool = False,
+    literal: bool = False,
+    limit: int = GREP_MAX_MATCHES,
+) -> str:
     root = Path(workspace_root)
     rg_path = shutil.which("rg")
     if rg_path is None:
@@ -61,7 +69,7 @@ def execute_grep(*, tool_input: GrepToolInput, workspace_root: Path | str) -> st
     try:
         search_path = resolve_workspace_path(
             workspace_root=root,
-            tool_path=tool_input.path or ".",
+            tool_path=path or ".",
         )
         if not search_path.exists():
             raise FileNotFoundError(search_path)
@@ -77,13 +85,13 @@ def execute_grep(*, tool_input: GrepToolInput, workspace_root: Path | str) -> st
         "--color=never",
         "--hidden",
     ]
-    if tool_input.ignore_case:
+    if ignore_case:
         args.append("--ignore-case")
-    if tool_input.literal:
+    if literal:
         args.append("--fixed-strings")
-    if tool_input.glob is not None:
-        args.extend(["--glob", tool_input.glob])
-    args.extend([tool_input.pattern, str(search_path)])
+    if glob is not None:
+        args.extend(["--glob", glob])
+    args.extend([pattern, str(search_path)])
 
     matches: list[str] = []
     limit_hit = False
@@ -142,7 +150,7 @@ def execute_grep(*, tool_input: GrepToolInput, workspace_root: Path | str) -> st
 
     bounded = collect_bounded_items(
         matches,
-        item_limit=min(tool_input.limit, GREP_MAX_MATCHES),
+        item_limit=min(limit, GREP_MAX_MATCHES),
         max_bytes=GREP_MAX_BYTES,
     )
     limit_hit = bounded.limit_hit
@@ -151,7 +159,7 @@ def execute_grep(*, tool_input: GrepToolInput, workspace_root: Path | str) -> st
     notices: list[str] = []
     if limit_hit:
         notices.append(
-            f"Showing first {min(tool_input.limit, GREP_MAX_MATCHES)} matches. "
+            f"Showing first {min(limit, GREP_MAX_MATCHES)} matches. "
             "Refine pattern or path to narrow results."
         )
     if byte_limit_hit:
@@ -169,12 +177,12 @@ def execute_grep(*, tool_input: GrepToolInput, workspace_root: Path | str) -> st
 
 def grep(
     ctx: RunContext[WorkspaceDeps],
-    pattern: str,
-    path: str | None = None,
-    glob: str | None = None,
+    pattern: Annotated[str, Field(min_length=1)],
+    path: Annotated[str | None, Field(min_length=1)] = None,
+    glob: Annotated[str | None, Field(min_length=1)] = None,
     ignore_case: bool = False,
     literal: bool = False,
-    limit: int = GREP_MAX_MATCHES,
+    limit: Annotated[int, Field(ge=1)] = GREP_MAX_MATCHES,
 ) -> str:
     """Search UTF-8 text files for matching lines with ripgrep.
 
@@ -191,15 +199,13 @@ def grep(
     """
 
     result = execute_grep(
-        tool_input=GrepToolInput(
-            pattern=pattern,
-            path=path,
-            glob=glob,
-            ignore_case=ignore_case,
-            literal=literal,
-            limit=limit,
-        ),
         workspace_root=ctx.deps.workspace_root,
+        pattern=pattern,
+        path=path,
+        glob=glob,
+        ignore_case=ignore_case,
+        literal=literal,
+        limit=limit,
     )
     return make_tool_return(
         return_value=result,

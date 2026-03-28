@@ -3,10 +3,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
-from pydantic import ValidationError
 from pydantic_ai import CallDeferred
 
-from just_another_coding_agent.contracts.tools import BashToolInput
 from just_another_coding_agent.tools.bash import bash, execute_bash
 from just_another_coding_agent.tools.deps import WorkspaceDeps
 from just_another_coding_agent.tools.errors import ToolCommandError, ToolEncodingError
@@ -27,8 +25,8 @@ async def test_bash_tool_runs_in_explicit_workspace_root(tmp_path, monkeypatch) 
     monkeypatch.chdir(other_dir)
 
     result = await execute_bash(
-        tool_input=BashToolInput(command="pwd"),
         workspace_root=workspace_root,
+        command="pwd",
     )
 
     assert result["exit_code"] == 0
@@ -45,8 +43,8 @@ async def test_bash_tool_fails_on_non_zero_exit_and_includes_output(
 
     with pytest.raises(ToolCommandError, match="boom\n\nCommand exited with code 7"):
         await execute_bash(
-            tool_input=BashToolInput(command="printf 'boom' >&2; exit 7"),
             workspace_root=workspace_root,
+            command="printf 'boom' >&2; exit 7",
         )
 
 
@@ -59,8 +57,8 @@ async def test_bash_tool_returns_empty_output_when_command_prints_nothing(
     monkeypatch.chdir(tmp_path)
 
     result = await execute_bash(
-        tool_input=BashToolInput(command=":"),
         workspace_root=workspace_root,
+        command=":",
     )
 
     assert result == {"exit_code": 0, "output": ""}
@@ -93,34 +91,14 @@ async def test_execute_bash_accepts_minimal_execution_context_and_streams_update
 
     result = await execute_bash(
         ctx=ctx,
-        tool_input=BashToolInput(command="printf 'hello'"),
         workspace_root=workspace_root,
+        command="printf 'hello'",
     )
 
     assert result == {"exit_code": 0, "output": "hello"}
     assert updates == [
         ("call-bash", "bash", {"output": "hello"}),
     ]
-
-
-def test_bash_tool_rejects_empty_command() -> None:
-    with pytest.raises(ValidationError):
-        BashToolInput(command="")
-
-
-def test_bash_tool_rejects_non_string_command() -> None:
-    with pytest.raises(ValidationError):
-        BashToolInput(command=123)
-
-
-def test_bash_tool_rejects_non_positive_timeout() -> None:
-    with pytest.raises(ValidationError):
-        BashToolInput(command="pwd", timeout=0)
-
-
-def test_bash_tool_accepts_explicit_defer_flag() -> None:
-    assert BashToolInput(command="pytest", defer=True).defer is True
-
 
 async def test_bash_tool_can_request_deferred_execution(tmp_path) -> None:
     workspace_root = tmp_path / "workspace"
@@ -148,11 +126,9 @@ async def test_bash_tool_fails_on_timeout(monkeypatch, tmp_path) -> None:
         match="partial output\n\nCommand timed out after 1 seconds",
     ):
         await execute_bash(
-            tool_input=BashToolInput(
-                command="printf 'partial output'; sleep 2",
-                timeout=1,
-            ),
             workspace_root=workspace_root,
+            command="printf 'partial output'; sleep 2",
+            timeout=1,
         )
 
 
@@ -165,15 +141,13 @@ async def test_bash_tool_truncates_large_output_and_saves_full_output(
     monkeypatch.chdir(tmp_path)
 
     result = await execute_bash(
-        tool_input=BashToolInput(
-            command=(
-                "python - <<'PY'\n"
-                "for i in range(1, 2105):\n"
-                '    print(f"line {i}")\n'
-                "PY"
-            )
-        ),
         workspace_root=workspace_root,
+        command=(
+            "python - <<'PY'\n"
+            "for i in range(1, 2105):\n"
+            '    print(f"line {i}")\n'
+            "PY"
+        ),
     )
 
     assert result["exit_code"] == 0
@@ -198,8 +172,6 @@ async def test_bash_tool_fails_for_invalid_utf8_output(monkeypatch, tmp_path) ->
 
     with pytest.raises(ToolEncodingError):
         await execute_bash(
-            tool_input=BashToolInput(
-                command="python -c \"import sys; sys.stdout.buffer.write(b'\\xff')\""
-            ),
             workspace_root=workspace_root,
+            command="python -c \"import sys; sys.stdout.buffer.write(b'\\xff')\"",
         )

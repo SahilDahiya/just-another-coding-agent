@@ -5,14 +5,12 @@ import os
 import signal
 import tempfile
 from pathlib import Path
-from typing import Protocol
+from typing import Annotated, Any, Protocol
 
+from pydantic import BaseModel, ConfigDict, Field
 from pydantic_ai import CallDeferred, RunContext, Tool
 
 from just_another_coding_agent.contracts.run_events import BashActivityDetails
-from just_another_coding_agent.contracts.tools import (
-    BashToolInput,
-)
 from just_another_coding_agent.tools._activity import (
     make_tool_return,
     truncate_activity_label,
@@ -29,6 +27,14 @@ from just_another_coding_agent.tools.truncation import (
 
 BASH_MAX_LINES = 2000
 BASH_MAX_BYTES = 50 * 1024
+
+
+class _DeferredBashCall(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    command: str = Field(min_length=1)
+    timeout: int | None = Field(default=None, gt=0)
+    defer: bool = False
 
 
 class BashExecutionContext(Protocol):
@@ -154,13 +160,14 @@ async def _publish_bash_update(
 async def execute_bash(
     *,
     ctx: BashExecutionContext | None = None,
-    tool_input: BashToolInput,
     workspace_root: Path | str,
+    command: str,
+    timeout: int | None = None,
 ) -> dict[str, int | str]:
     process = await asyncio.create_subprocess_exec(
         "bash",
         "-lc",
-        tool_input.command,
+        command,
         cwd=str(workspace_root),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
@@ -191,13 +198,13 @@ async def execute_bash(
     reader_task = asyncio.create_task(_read_output())
 
     try:
-        if tool_input.timeout is None:
+        if timeout is None:
             await asyncio.gather(process.wait(), reader_task)
         else:
             try:
                 await asyncio.wait_for(
                     asyncio.gather(process.wait(), reader_task),
-                    timeout=tool_input.timeout,
+                    timeout=timeout,
                 )
             except TimeoutError as error:
                 await _terminate_process(process)
@@ -211,7 +218,7 @@ async def execute_bash(
                 raise ToolCommandError(
                     _format_bash_failure(
                         output,
-                        f"Command timed out after {tool_input.timeout} seconds",
+                        f"Command timed out after {timeout} seconds",
                     )
                 ) from error
     except ToolEncodingError:
@@ -239,8 +246,8 @@ async def execute_bash(
 
 async def bash(
     ctx: RunContext[WorkspaceDeps],
-    command: str,
-    timeout: int | None = None,
+    command: Annotated[str, Field(min_length=1)],
+    timeout: Annotated[int | None, Field(gt=0)] = None,
     defer: bool = False,
 ) -> dict[str, int | str]:
     """Execute one local bash command in the workspace root.
@@ -256,8 +263,9 @@ async def bash(
 
     result = await execute_bash(
         ctx=ctx,
-        tool_input=BashToolInput(command=command, timeout=timeout, defer=defer),
         workspace_root=ctx.deps.workspace_root,
+        command=command,
+        timeout=timeout,
     )
     return make_tool_return(
         return_value=result,
@@ -291,4 +299,16 @@ BASH_TOOL = Tool(
 )
 
 
-__all__ = ["BASH_TOOL", "bash", "execute_bash"]
+def parse_deferred_bash_call_args(args: str | dict[str, Any]) -> tuple[str, int | None]:
+    if isinstance(args, str):
+        call = _DeferredBashCall.model_validate_json(args)
+    else:
+        call = _DeferredBashCall.model_validate(args)
+
+    if not call.defer:
+        raise RuntimeError("Deferred canonical bash call must set defer=true")
+
+    return call.command, call.timeout
+
+
+__all__ = ["BASH_TOOL", "bash", "execute_bash", "parse_deferred_bash_call_args"]

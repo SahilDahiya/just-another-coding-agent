@@ -4,7 +4,7 @@ read_when: you are new to the repo or need to understand how the pieces fit toge
 
 ## Overview
 
-This is a coding-agent backend with a thin first-party terminal UI. External consumers can talk to it over a line-based JSON-over-stdio protocol and receive a stream of typed events. The TUI is a shell over that same runtime rather than a separate product surface. Everything that crosses a boundary has a strict, typed shape called a contract.
+This is a coding-agent backend with a thin first-party terminal UI. External consumers can talk to it over a line-based JSON-over-stdio protocol and receive a stream of typed events. The TUI is a shell over that same runtime rather than a separate product surface. Everything that crosses a boundary has a strict shape called a contract.
 
 The backend is inspired by the pi coding agent's product behavior but does not inherit its architecture. It is built on PydanticAI as the engine.
 
@@ -12,14 +12,14 @@ The backend is inspired by the pi coding agent's product behavior but does not i
 
 ### Contract
 
-A contract is a strict specification of what data looks like when it crosses a boundary. Contracts are Pydantic models with `frozen=True` (immutable) and `extra="forbid"` (no unknown fields). If data doesn't match, it crashes.
+A contract is a strict specification of what data looks like when it crosses a boundary. Most backend-owned contracts are Pydantic models with `frozen=True` (immutable) and `extra="forbid"` (no unknown fields). Tool input contracts are the main exception: they live on canonical PydanticAI tool function signatures plus parameter constraints. If data doesn't match, it crashes.
 
 There are contracts for:
 
 - **Run events** -- what the agent emits during a run
 - **Session entries** -- what gets persisted to disk
 - **RPC envelopes** -- what goes over the wire to external consumers
-- **Tool inputs** -- what each tool accepts
+- **Tool inputs** -- what each tool accepts through its canonical function signature
 
 The backend remains the canonical execution core, so any consumer (the first-party TUI, a CLI, a web app, an IDE plugin, or a benchmark harness) relies on these shapes being stable and predictable. The contract is the product surface.
 
@@ -127,7 +127,7 @@ The RPC layer maps opaque session IDs to session files via `rpc/session_store.py
 
 Seven canonical tool names: `read`, `write`, `edit`, `bash`, `grep`, `ls`, `find`. These are the coding agent's hands.
 
-Each canonical tool entrypoint is a plain PydanticAI tool function that takes `RunContext[WorkspaceDeps]`. The runtime passes one normalized `WorkspaceDeps(workspace_root=...)` per run, so relative paths resolve from the configured workspace root without per-tool closure factories. Internal tool executors may still depend on a narrower structural context when they only need a subset of `RunContext`, but that narrower contract must be explicit in the implementation. The tools still run in YOLO mode: there is no filesystem sandbox.
+Each canonical tool entrypoint is a plain PydanticAI tool function that takes `RunContext[WorkspaceDeps]`. Those function signatures, including parameter constraints, are the public tool schema seen by the model. The runtime passes one normalized `WorkspaceDeps(workspace_root=...)` per run, so relative paths resolve from the configured workspace root without per-tool closure factories. Internal tool executors may still depend on a narrower structural context when they only need a subset of `RunContext`, but that narrower contract must be explicit in the implementation. The tools still run in YOLO mode: there is no filesystem sandbox.
 
 - `read` -- reads a UTF-8 file, returns contents
 - `write` -- writes a UTF-8 file, creates parent dirs, returns confirmation
@@ -140,6 +140,7 @@ Each canonical tool entrypoint is a plain PydanticAI tool function that takes `R
 `bash` sets `cwd` to the workspace root but has no path sandboxing -- commands can access anything on the system.
 
 The registry (`tools/registry.py`) is thin: it validates canonical tool names, selects the requested tool functions, and returns one wrapped PydanticAI `FunctionToolset`. Expected operational failures are raised as explicit `ToolOperationalError` subclasses and converted to model-visible `{ok: false, ...}` results by a single toolset wrapper. Unexpected exceptions still fail hard.
+Shared public tool contract helpers such as canonical names and the `{ok: false, ...}` error result shape live in `contracts/tools.py`, but per-tool input carriers do not.
 
 Canonical tool success activity is now tool-owned. Each canonical tool can use PydanticAI's `ToolReturn` split internally so the model sees the same concise success value while the app gets backend-owned activity metadata in `ToolReturn.metadata`. That metadata is only an internal carrier. It becomes part of the product surface only after the runtime validates and maps it into typed `ToolActivity` fields such as `title`, `summary`, and `details`.
 

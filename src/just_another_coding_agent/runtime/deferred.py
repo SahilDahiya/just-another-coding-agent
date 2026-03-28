@@ -6,11 +6,11 @@ from typing import Any
 from pydantic_ai import DeferredToolRequests, DeferredToolResults
 from pydantic_ai.messages import ToolCallPart
 
-from just_another_coding_agent.contracts.tools import (
-    BashToolInput,
-    make_tool_error_result,
+from just_another_coding_agent.contracts.tools import make_tool_error_result
+from just_another_coding_agent.tools.bash import (
+    execute_bash,
+    parse_deferred_bash_call_args,
 )
-from just_another_coding_agent.tools.bash import execute_bash
 from just_another_coding_agent.tools.deps import WorkspaceDeps
 from just_another_coding_agent.tools.errors import ToolOperationalError
 
@@ -53,7 +53,7 @@ async def _execute_deferred_tool_call(
     if deps is None:
         raise RuntimeError("Deferred canonical bash execution requires WorkspaceDeps")
 
-    tool_input = _validate_deferred_bash_call(call)
+    command, timeout = _validate_deferred_bash_call(call)
     ctx = _DeferredBashExecutionContext(
         deps=deps,
         tool_call_id=call.tool_call_id,
@@ -63,25 +63,16 @@ async def _execute_deferred_tool_call(
     try:
         return await execute_bash(
             ctx=ctx,
-            tool_input=tool_input,
             workspace_root=deps.workspace_root,
+            command=command,
+            timeout=timeout,
         )
     except ToolOperationalError as error:
         return make_tool_error_result(error)
 
 
-def _validate_deferred_bash_call(call: ToolCallPart) -> BashToolInput:
-    if isinstance(call.args, str):
-        tool_input = BashToolInput.model_validate_json(call.args)
-    else:
-        tool_input = BashToolInput.model_validate(call.args)
-
-    if not tool_input.defer:
-        raise RuntimeError(
-            "Deferred canonical bash call must set defer=true"
-        )
-
-    return tool_input
+def _validate_deferred_bash_call(call: ToolCallPart) -> tuple[str, int | None]:
+    return parse_deferred_bash_call_args(call.args)
 
 
 __all__ = ["execute_deferred_tool_requests"]

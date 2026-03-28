@@ -70,6 +70,11 @@ Rules:
 
 - Tool names are stable once published.
 - Tool inputs must be explicit and validated.
+- Canonical public tool schema and validation live on the PydanticAI tool
+  function signatures plus parameter constraints, not on duplicate public
+  `*ToolInput` carrier models.
+- `contracts/tools.py` should contain only shared public tool contract types
+  such as canonical names and explicit tool error result shapes.
 - Tool definitions sent to the model must have explicit top-level descriptions and parameter descriptions.
 - Expected tool-domain failures must be explicit, model-visible results.
 - Tools do not silently recover from invalid parameters or unsafe state.

@@ -105,12 +105,21 @@ def test_build_canonical_toolset_exposes_rich_model_facing_tool_descriptions(
         ]
         == "Optional 1-indexed line number to start reading from."
     )
+    assert function_tools["read"].parameters_json_schema["properties"]["path"][
+        "minLength"
+    ] == 1
+    assert function_tools["read"].parameters_json_schema["properties"]["offset"][
+        "anyOf"
+    ][0]["minimum"] == 1
     assert function_tools["read"].parameters_json_schema["properties"]["limit"][
         "description"
     ] == (
         "Optional maximum number of lines to read before read's own\n"
         "truncation ceiling."
     )
+    assert function_tools["read"].parameters_json_schema["properties"]["limit"][
+        "anyOf"
+    ][0]["minimum"] == 1
 
     assert function_tools["write"].description == (
         "Create or overwrite an entire UTF-8 text file. Creates parent "
@@ -123,6 +132,9 @@ def test_build_canonical_toolset_exposes_rich_model_facing_tool_descriptions(
         ]
         == "Full UTF-8 file contents to write."
     )
+    assert function_tools["write"].parameters_json_schema["properties"]["path"][
+        "minLength"
+    ] == 1
 
     assert function_tools["edit"].description == (
         "Edit a UTF-8 text file by replacing exactly one occurrence of "
@@ -141,6 +153,12 @@ def test_build_canonical_toolset_exposes_rich_model_facing_tool_descriptions(
         "a normalized fallback handles BOM, line endings, and minor\n"
         "Unicode formatting differences."
     )
+    assert function_tools["edit"].parameters_json_schema["properties"]["path"][
+        "minLength"
+    ] == 1
+    assert function_tools["edit"].parameters_json_schema["properties"]["old_text"][
+        "minLength"
+    ] == 1
 
     assert function_tools["bash"].description == (
         "Execute a local bash command in the workspace root. Returns "
@@ -156,6 +174,9 @@ def test_build_canonical_toolset_exposes_rich_model_facing_tool_descriptions(
         ]
         == "Optional timeout in seconds before the command is stopped."
     )
+    assert function_tools["bash"].parameters_json_schema["properties"]["command"][
+        "minLength"
+    ] == 1
     assert (
         function_tools["bash"].parameters_json_schema["properties"]["defer"][
             "description"
@@ -163,6 +184,9 @@ def test_build_canonical_toolset_exposes_rich_model_facing_tool_descriptions(
         == "When true, request deferred execution so the runtime can run\n"
         "long shell, build, or test work outside the current model step."
     )
+    assert function_tools["bash"].parameters_json_schema["properties"]["timeout"][
+        "anyOf"
+    ][0]["exclusiveMinimum"] == 0
 
     assert function_tools["grep"].description == (
         "Search UTF-8 text files for a pattern using ripgrep. Returns matching "
@@ -175,6 +199,12 @@ def test_build_canonical_toolset_exposes_rich_model_facing_tool_descriptions(
         ]
         == "Pattern to search for as a regex or literal string."
     )
+    assert function_tools["grep"].parameters_json_schema["properties"]["pattern"][
+        "minLength"
+    ] == 1
+    assert function_tools["grep"].parameters_json_schema["properties"]["limit"][
+        "minimum"
+    ] == 1
 
     assert function_tools["ls"].description == (
         "List directory contents in alphabetical order. Includes dotfiles "
@@ -186,6 +216,9 @@ def test_build_canonical_toolset_exposes_rich_model_facing_tool_descriptions(
     ] == (
         "Maximum number of entries to return before ls's own byte\nceiling is applied."
     )
+    assert function_tools["ls"].parameters_json_schema["properties"]["limit"][
+        "minimum"
+    ] == 1
 
     assert function_tools["find"].description == (
         "Find files by glob pattern using ripgrep-backed file discovery. "
@@ -198,3 +231,9 @@ def test_build_canonical_toolset_exposes_rich_model_facing_tool_descriptions(
         ]
         == "Glob pattern to match, such as '*.py' or 'src/**/*.ts'."
     )
+    assert function_tools["find"].parameters_json_schema["properties"]["pattern"][
+        "minLength"
+    ] == 1
+    assert function_tools["find"].parameters_json_schema["properties"]["limit"][
+        "minimum"
+    ] == 1

@@ -2,68 +2,10 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
 CANONICAL_TOOL_NAMES = ("read", "write", "edit", "bash", "grep", "ls", "find")
 CanonicalToolName = Literal["read", "write", "edit", "bash", "grep", "ls", "find"]
-
-
-class ReadToolInput(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-
-    path: str = Field(min_length=1)
-    offset: int | None = Field(default=None, ge=1)
-    limit: int | None = Field(default=None, ge=1)
-
-
-class WriteToolInput(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-
-    path: str = Field(min_length=1)
-    content: str
-
-
-class EditToolInput(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-
-    path: str = Field(min_length=1)
-    old_text: str = Field(min_length=1)
-    new_text: str
-
-
-class BashToolInput(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-
-    command: str = Field(min_length=1)
-    timeout: int | None = Field(default=None, gt=0)
-    defer: bool = False
-
-
-class GrepToolInput(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-
-    pattern: str = Field(min_length=1)
-    path: str | None = None
-    glob: str | None = None
-    ignore_case: bool = False
-    literal: bool = False
-    limit: int = Field(default=100, ge=1)
-
-
-class LsToolInput(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-
-    path: str | None = None
-    limit: int = Field(default=500, ge=1)
-
-
-class FindToolInput(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-
-    pattern: str = Field(min_length=1)
-    path: str | None = None
-    limit: int = Field(default=1000, ge=1)
-
 
 class ToolErrorResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
@@ -81,15 +23,8 @@ def make_tool_error_result(error: Exception) -> dict[str, bool | str]:
 
 
 __all__ = [
-    "BashToolInput",
     "CANONICAL_TOOL_NAMES",
     "CanonicalToolName",
-    "EditToolInput",
-    "FindToolInput",
-    "GrepToolInput",
-    "LsToolInput",
-    "ReadToolInput",
     "ToolErrorResult",
-    "WriteToolInput",
     "make_tool_error_result",
 ]

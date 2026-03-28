@@ -14,6 +14,9 @@ Prefer direct use of PydanticAI primitives before creating local abstractions:
 
 - use PydanticAI agent runs and streaming as the execution core
 - use PydanticAI function tools and toolsets as the default tool substrate
+- use PydanticAI function signatures plus parameter constraints as the public
+  canonical tool schema instead of mirroring per-tool input carriers in
+  `contracts/`
 - use PydanticAI message-history primitives as the default conversation substrate
 - use PydanticAI `instructions` for the canonical agent prompt; keep a static baseline plus explicit dynamic runtime context rather than preserving prompt messages in history unless that is explicitly required
 - use PydanticAI testing primitives for unit and contract tests
@@ -21,6 +24,9 @@ Prefer direct use of PydanticAI primitives before creating local abstractions:
 Local code should translate those primitives into the canonical backend contract for tools, events, sessions, RPC, and failure semantics.
 `runtime/models.py` is the sanctioned local seam for explicit model construction and provider-native policy.
 PydanticAI-native carrier features such as `ToolReturn.metadata` may be used internally, but they must be normalized immediately into typed backend contract fields before crossing the public stream/session boundary. For canonical tools, success activity ownership lives with the tools themselves; the runtime only validates and maps that metadata into the public event/session contract.
+If a tool needs extra validation for a non-agent runtime seam such as deferred
+re-entry, that validator should stay private to the tool or runtime seam rather
+than becoming a second public source of truth in `contracts/`.
 
 The canonical agent assembly must take an explicit workspace root. Tool behavior uses that root as the default base for relative paths and bash cwd rather than relying on process cwd or other implicit global state.
 Persisted sessions must also bind to that explicit workspace root and store native PydanticAI message history so later runs can resume through `message_history` instead of reconstructing context from public events.

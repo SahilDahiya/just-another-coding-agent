@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Annotated
 
+from pydantic import Field
 from pydantic_ai import RunContext, Tool
 
 from just_another_coding_agent.contracts.run_events import LsActivityDetails
-from just_another_coding_agent.contracts.tools import (
-    LsToolInput,
-)
 from just_another_coding_agent.tools._activity import (
     make_tool_return,
     truncate_activity_label,
@@ -22,15 +21,22 @@ from just_another_coding_agent.tools.truncation import (
 
 LS_MAX_BYTES = 50 * 1024
 LS_DEFAULT_LIMIT = 500
+
+
 def _format_entry(entry: Path) -> str:
     return f"{entry.name}/" if entry.is_dir() else entry.name
 
 
-def execute_ls(*, tool_input: LsToolInput, workspace_root: Path | str) -> str:
+def execute_ls(
+    *,
+    workspace_root: Path | str,
+    path: str | None = None,
+    limit: int = LS_DEFAULT_LIMIT,
+) -> str:
     try:
         directory = resolve_workspace_path(
             workspace_root=workspace_root,
-            tool_path=tool_input.path or ".",
+            tool_path=path or ".",
         )
 
         if not directory.exists():
@@ -48,7 +54,7 @@ def execute_ls(*, tool_input: LsToolInput, workspace_root: Path | str) -> str:
     formatted_entries = [_format_entry(entry) for entry in entries]
     bounded = collect_bounded_items(
         formatted_entries,
-        item_limit=tool_input.limit,
+        item_limit=limit,
         max_bytes=LS_MAX_BYTES,
     )
 
@@ -57,7 +63,7 @@ def execute_ls(*, tool_input: LsToolInput, workspace_root: Path | str) -> str:
     if bounded.limit_hit:
         notices.append(
             "Showing first "
-            f"{tool_input.limit} entries. Use limit={tool_input.limit * 2} "
+            f"{limit} entries. Use limit={limit * 2} "
             "for more."
         )
     if bounded.byte_limit_hit:
@@ -73,8 +79,8 @@ def execute_ls(*, tool_input: LsToolInput, workspace_root: Path | str) -> str:
 
 def ls(
     ctx: RunContext[WorkspaceDeps],
-    path: str | None = None,
-    limit: int = LS_DEFAULT_LIMIT,
+    path: Annotated[str | None, Field(min_length=1)] = None,
+    limit: Annotated[int, Field(ge=1)] = LS_DEFAULT_LIMIT,
 ) -> str:
     """List directory contents in a bounded, sorted view.
 
@@ -86,8 +92,9 @@ def ls(
     """
 
     result = execute_ls(
-        tool_input=LsToolInput(path=path, limit=limit),
         workspace_root=ctx.deps.workspace_root,
+        path=path,
+        limit=limit,
     )
     title = "ls ." if path is None else f"ls {truncate_activity_label(path)}"
     return make_tool_return(

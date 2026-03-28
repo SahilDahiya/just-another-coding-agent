@@ -1,9 +1,7 @@
 import shutil
 
 import pytest
-from pydantic import ValidationError
 
-from just_another_coding_agent.contracts.tools import GrepToolInput
 from just_another_coding_agent.tools.errors import ToolPathError
 from just_another_coding_agent.tools.grep import execute_grep
 
@@ -19,8 +17,8 @@ def test_grep_tool_finds_matches_with_paths_and_line_numbers(tmp_path) -> None:
     beta.write_text("needle two\nother\n", encoding="utf-8")
 
     result = execute_grep(
-        tool_input=GrepToolInput(pattern="needle"),
         workspace_root=workspace_root,
+        pattern="needle",
     )
 
     assert result == "alpha.txt:2:needle one\nbeta.txt:1:needle two"
@@ -32,8 +30,8 @@ def test_grep_tool_returns_explicit_no_match_message(tmp_path) -> None:
     (workspace_root / "alpha.txt").write_text("first line\n", encoding="utf-8")
 
     result = execute_grep(
-        tool_input=GrepToolInput(pattern="needle"),
         workspace_root=workspace_root,
+        pattern="needle",
     )
 
     assert result == "No matches found."
@@ -45,8 +43,9 @@ def test_grep_tool_fails_for_missing_search_path(tmp_path) -> None:
 
     with pytest.raises(ToolPathError):
         execute_grep(
-            tool_input=GrepToolInput(pattern="needle", path="missing"),
             workspace_root=workspace_root,
+            pattern="needle",
+            path="missing",
         )
 
 
@@ -57,8 +56,9 @@ def test_grep_tool_respects_global_match_limit(tmp_path) -> None:
     path.write_text("needle one\nneedle two\nneedle three\n", encoding="utf-8")
 
     result = execute_grep(
-        tool_input=GrepToolInput(pattern="needle", limit=2),
         workspace_root=workspace_root,
+        pattern="needle",
+        limit=2,
     )
 
     assert result == (
@@ -66,8 +66,3 @@ def test_grep_tool_respects_global_match_limit(tmp_path) -> None:
         "alpha.txt:2:needle two\n\n"
         "[Showing first 2 matches. Refine pattern or path to narrow results.]"
     )
-
-
-def test_grep_tool_rejects_empty_pattern() -> None:
-    with pytest.raises(ValidationError):
-        GrepToolInput(pattern="")

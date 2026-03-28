@@ -4,13 +4,12 @@ import difflib
 import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Annotated
 
+from pydantic import Field
 from pydantic_ai import RunContext, Tool
 
 from just_another_coding_agent.contracts.run_events import EditActivityDetails
-from just_another_coding_agent.contracts.tools import (
-    EditToolInput,
-)
 from just_another_coding_agent.tools._activity import (
     make_tool_return,
     truncate_activity_label,
@@ -123,29 +122,35 @@ def build_fuzzy_view(text: str) -> tuple[str, list[tuple[int, int]]]:
     return "".join(view_parts), spans
 
 
-def execute_edit(*, tool_input: EditToolInput, workspace_root: Path | str) -> str:
+def execute_edit(
+    *,
+    workspace_root: Path | str,
+    path: str,
+    old_text: str,
+    new_text: str,
+) -> EditResult:
     try:
-        path = resolve_workspace_path(
+        resolved_path = resolve_workspace_path(
             workspace_root=workspace_root,
-            tool_path=tool_input.path,
+            tool_path=path,
         )
-        raw_content = path.read_bytes().decode("utf-8")
+        raw_content = resolved_path.read_bytes().decode("utf-8")
     except UnicodeError as error:
-        raise ToolEncodingError(f"{tool_input.path} is not valid UTF-8 text") from error
+        raise ToolEncodingError(f"{path} is not valid UTF-8 text") from error
     except OSError as error:
         reraise_path_error(error)
 
     bom, content = strip_bom(raw_content)
     original_line_ending = detect_line_ending(content)
     normalized_content = normalize_to_lf(content)
-    normalized_old_text = normalize_to_lf(tool_input.old_text)
-    normalized_new_text = normalize_to_lf(tool_input.new_text)
+    normalized_old_text = normalize_to_lf(old_text)
+    normalized_new_text = normalize_to_lf(new_text)
 
     exact_occurrences = normalized_content.count(normalized_old_text)
     if exact_occurrences > 1:
         raise ToolMatchError(
             "old_text must match exactly once in "
-            f"{path}; found {exact_occurrences} occurrences"
+            f"{resolved_path}; found {exact_occurrences} occurrences"
         )
 
     if exact_occurrences == 1:
@@ -159,7 +164,7 @@ def execute_edit(*, tool_input: EditToolInput, workspace_root: Path | str) -> st
         if fuzzy_occurrences != 1:
             raise ToolMatchError(
                 "old_text must match exactly once in "
-                f"{path}; found {fuzzy_occurrences} occurrences"
+                f"{resolved_path}; found {fuzzy_occurrences} occurrences"
             )
         match_start = fuzzy_content.index(fuzzy_old_text)
         match_end = match_start + len(fuzzy_old_text)
@@ -171,22 +176,22 @@ def execute_edit(*, tool_input: EditToolInput, workspace_root: Path | str) -> st
 
     updated = base_content.replace(old_text_to_replace, new_text_to_insert, 1)
     if updated == base_content:
-        raise ToolMatchError(f"Edit would not change file contents: {path}")
+        raise ToolMatchError(f"Edit would not change file contents: {resolved_path}")
 
     diff_text = _generate_unified_diff(
         old_content=base_content,
         new_content=updated,
-        file_path=str(path),
+        file_path=str(resolved_path),
     )
     added_lines, removed_lines = _count_changed_lines(diff_text)
 
     final_content = bom + restore_line_endings(updated, original_line_ending)
     try:
-        path.write_bytes(final_content.encode("utf-8"))
+        resolved_path.write_bytes(final_content.encode("utf-8"))
     except OSError as error:
         reraise_path_error(error)
     return EditResult(
-        path=str(path),
+        path=str(resolved_path),
         diff=diff_text,
         added_lines=added_lines,
         removed_lines=removed_lines,
@@ -194,7 +199,10 @@ def execute_edit(*, tool_input: EditToolInput, workspace_root: Path | str) -> st
 
 
 def edit(
-    ctx: RunContext[WorkspaceDeps], path: str, old_text: str, new_text: str
+    ctx: RunContext[WorkspaceDeps],
+    path: Annotated[str, Field(min_length=1)],
+    old_text: Annotated[str, Field(min_length=1)],
+    new_text: str,
 ) -> str:
     """Edit a UTF-8 text file by replacing one exact or normalized text match.
 
@@ -207,12 +215,10 @@ def edit(
     """
 
     result = execute_edit(
-        tool_input=EditToolInput(
-            path=path,
-            old_text=old_text,
-            new_text=new_text,
-        ),
         workspace_root=ctx.deps.workspace_root,
+        path=path,
+        old_text=old_text,
+        new_text=new_text,
     )
     return make_tool_return(
         return_value=f"Edited {result.path}",

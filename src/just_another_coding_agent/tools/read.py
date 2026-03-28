@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Annotated
 
+from pydantic import Field
 from pydantic_ai import RunContext, Tool
 
 from just_another_coding_agent.contracts.run_events import ReadActivityDetails
-from just_another_coding_agent.contracts.tools import (
-    ReadToolInput,
-)
 from just_another_coding_agent.tools._activity import (
     make_tool_return,
     truncate_activity_label,
@@ -28,26 +27,32 @@ READ_MAX_LINES = 2000
 READ_MAX_BYTES = 50 * 1024
 
 
-def execute_read(*, tool_input: ReadToolInput, workspace_root: Path | str) -> str:
+def execute_read(
+    *,
+    workspace_root: Path | str,
+    path: str,
+    offset: int | None = None,
+    limit: int | None = None,
+) -> str:
     try:
-        path = resolve_workspace_path(
+        resolved_path = resolve_workspace_path(
             workspace_root=workspace_root,
-            tool_path=tool_input.path,
+            tool_path=path,
         )
-        lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+        lines = resolved_path.read_text(encoding="utf-8").splitlines(keepends=True)
     except UnicodeError as error:
-        raise ToolEncodingError(f"{tool_input.path} is not valid UTF-8 text") from error
+        raise ToolEncodingError(f"{path} is not valid UTF-8 text") from error
     except OSError as error:
         reraise_path_error(error)
 
     if not lines:
-        if tool_input.offset not in (None, 1):
+        if offset not in (None, 1):
             raise ToolOperationalError(
-                f"Offset {tool_input.offset} is beyond end of file (0 lines total)"
+                f"Offset {offset} is beyond end of file (0 lines total)"
             )
         return ""
 
-    start_line = tool_input.offset or 1
+    start_line = offset or 1
     start_index = start_line - 1
     if start_index >= len(lines):
         raise ToolOperationalError(
@@ -55,8 +60,8 @@ def execute_read(*, tool_input: ReadToolInput, workspace_root: Path | str) -> st
         )
 
     selected_lines = lines[start_index:]
-    if tool_input.limit is not None:
-        selected_lines = selected_lines[: tool_input.limit]
+    if limit is not None:
+        selected_lines = selected_lines[:limit]
 
     window = truncate_head_line_window(
         selected_lines,
@@ -79,7 +84,7 @@ def execute_read(*, tool_input: ReadToolInput, workspace_root: Path | str) -> st
             ),
         )
 
-    if tool_input.limit is not None and start_index + len(selected_lines) < len(lines):
+    if limit is not None and start_index + len(selected_lines) < len(lines):
         next_offset = start_index + len(selected_lines) + 1
         remaining_lines = len(lines) - (start_index + len(selected_lines))
         return append_tool_note(
@@ -95,9 +100,9 @@ def execute_read(*, tool_input: ReadToolInput, workspace_root: Path | str) -> st
 
 def read(
     ctx: RunContext[WorkspaceDeps],
-    path: str,
-    offset: int | None = None,
-    limit: int | None = None,
+    path: Annotated[str, Field(min_length=1)],
+    offset: Annotated[int | None, Field(ge=1)] = None,
+    limit: Annotated[int | None, Field(ge=1)] = None,
 ) -> str:
     """Read a UTF-8 text file in bounded line windows.
 
@@ -109,8 +114,10 @@ def read(
     """
 
     result = execute_read(
-        tool_input=ReadToolInput(path=path, offset=offset, limit=limit),
         workspace_root=ctx.deps.workspace_root,
+        path=path,
+        offset=offset,
+        limit=limit,
     )
     return make_tool_return(
         return_value=result,

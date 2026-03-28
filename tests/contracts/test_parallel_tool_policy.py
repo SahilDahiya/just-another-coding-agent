@@ -111,7 +111,7 @@ async def test_parallel_read_only_tool_calls_overlap(monkeypatch, tmp_path) -> N
     max_active = 0
     lock = threading.Lock()
 
-    def _fake_execute_read(*, tool_input, workspace_root):
+    def _fake_execute_read(*, workspace_root, path, offset=None, limit=None):
         nonlocal active, max_active
         with lock:
             active += 1
@@ -119,7 +119,7 @@ async def test_parallel_read_only_tool_calls_overlap(monkeypatch, tmp_path) -> N
         time.sleep(0.05)
         with lock:
             active -= 1
-        return f"contents for {tool_input.path}"
+        return f"contents for {path}"
 
     monkeypatch.setattr(read_module, "execute_read", _fake_execute_read)
 
@@ -157,7 +157,7 @@ async def test_mutating_tool_calls_remain_serialized(monkeypatch, tmp_path) -> N
     max_active = 0
     lock = threading.Lock()
 
-    def _fake_execute_write(*, tool_input, workspace_root):
+    def _fake_execute_write(*, workspace_root, path, content):
         nonlocal active, max_active
         with lock:
             active += 1
@@ -165,7 +165,7 @@ async def test_mutating_tool_calls_remain_serialized(monkeypatch, tmp_path) -> N
         time.sleep(0.05)
         with lock:
             active -= 1
-        return f"Wrote {workspace_root / tool_input.path}"
+        return f"Wrote {workspace_root / path}"
 
     monkeypatch.setattr(write_module, "execute_write", _fake_execute_write)
 

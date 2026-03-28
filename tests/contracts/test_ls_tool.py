@@ -1,6 +1,5 @@
 import pytest
 
-from just_another_coding_agent.contracts.tools import LsToolInput
 from just_another_coding_agent.tools.errors import ToolPathError
 from just_another_coding_agent.tools.ls import execute_ls
 
@@ -13,7 +12,6 @@ def test_ls_tool_lists_directory_entries_with_directory_suffix(tmp_path) -> None
     (workspace_root / "beta").mkdir()
 
     result = execute_ls(
-        tool_input=LsToolInput(),
         workspace_root=workspace_root,
     )
 
@@ -25,7 +23,6 @@ def test_ls_tool_returns_empty_directory_marker(tmp_path) -> None:
     workspace_root.mkdir()
 
     result = execute_ls(
-        tool_input=LsToolInput(),
         workspace_root=workspace_root,
     )
 
@@ -38,8 +35,8 @@ def test_ls_tool_fails_for_missing_path(tmp_path) -> None:
 
     with pytest.raises(ToolPathError):
         execute_ls(
-            tool_input=LsToolInput(path="missing"),
             workspace_root=workspace_root,
+            path="missing",
         )
 
 
@@ -50,8 +47,8 @@ def test_ls_tool_fails_for_non_directory_path(tmp_path) -> None:
 
     with pytest.raises(ToolPathError):
         execute_ls(
-            tool_input=LsToolInput(path="alpha.txt"),
             workspace_root=workspace_root,
+            path="alpha.txt",
         )
 
 
@@ -62,8 +59,8 @@ def test_ls_tool_respects_entry_limit(tmp_path) -> None:
         (workspace_root / name).write_text("", encoding="utf-8")
 
     result = execute_ls(
-        tool_input=LsToolInput(limit=2),
         workspace_root=workspace_root,
+        limit=2,
     )
 
     assert result == (

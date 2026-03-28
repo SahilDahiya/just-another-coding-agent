@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Annotated
 
+from pydantic import Field
 from pydantic_ai import RunContext, Tool
 
 from just_another_coding_agent.contracts.run_events import WriteActivityDetails
-from just_another_coding_agent.contracts.tools import (
-    WriteToolInput,
-)
 from just_another_coding_agent.tools._activity import (
     make_tool_return,
     truncate_activity_label,
@@ -17,20 +16,29 @@ from just_another_coding_agent.tools.deps import WorkspaceDeps
 from just_another_coding_agent.tools.errors import reraise_path_error
 
 
-def execute_write(*, tool_input: WriteToolInput, workspace_root: Path | str) -> str:
+def execute_write(
+    *,
+    workspace_root: Path | str,
+    path: str,
+    content: str,
+) -> str:
     try:
-        path = resolve_workspace_path(
+        resolved_path = resolve_workspace_path(
             workspace_root=workspace_root,
-            tool_path=tool_input.path,
+            tool_path=path,
         )
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(tool_input.content.encode("utf-8"))
+        resolved_path.parent.mkdir(parents=True, exist_ok=True)
+        resolved_path.write_bytes(content.encode("utf-8"))
     except OSError as error:
         reraise_path_error(error)
-    return f"Wrote {path}"
+    return f"Wrote {resolved_path}"
 
 
-def write(ctx: RunContext[WorkspaceDeps], path: str, content: str) -> str:
+def write(
+    ctx: RunContext[WorkspaceDeps],
+    path: Annotated[str, Field(min_length=1)],
+    content: str,
+) -> str:
     """Create or overwrite a UTF-8 text file.
 
     Args:
@@ -39,8 +47,9 @@ def write(ctx: RunContext[WorkspaceDeps], path: str, content: str) -> str:
     """
 
     result = execute_write(
-        tool_input=WriteToolInput(path=path, content=content),
         workspace_root=ctx.deps.workspace_root,
+        path=path,
+        content=content,
     )
     return make_tool_return(
         return_value=result,
