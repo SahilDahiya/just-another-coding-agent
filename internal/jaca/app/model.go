@@ -78,6 +78,7 @@ type model struct {
 	historyIndex       int
 	historyDraft       string
 	lastInterrupt      time.Time
+	editPreviousArmed  bool
 	pendingAssistant   string
 	liveFlushScheduled bool
 	asyncCh            chan tea.Msg
@@ -235,6 +236,8 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+c":
 		return m.handleInterrupt()
+	case "esc":
+		return m.handleEscape()
 	case "up":
 		m.historyPrevious()
 		return m, nil
@@ -272,18 +275,21 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m *model) handleInterrupt() (tea.Model, tea.Cmd) {
 	now := time.Now()
 	if m.streaming {
-		if now.Sub(m.lastInterrupt) < doubleInterruptDelay {
-			return m, tea.Quit
-		}
-		m.lastInterrupt = now
 		m.transcript.WriteNote(
 			"warning",
 			[]string{
-				"backend cancellation is not implemented",
-				"ctrl+c again to quit",
+				"Conversation interrupted.",
+				"Esc again to edit previous message.",
 			},
 		)
+		m.editPreviousArmed = true
 		m.refreshViewport()
+		return m, nil
+	}
+	if strings.TrimSpace(m.textInput.Value()) != "" {
+		m.textInput.SetValue("")
+		m.resetHistoryNavigation()
+		m.editPreviousArmed = false
 		return m, nil
 	}
 	if now.Sub(m.lastInterrupt) < doubleInterruptDelay {
@@ -293,6 +299,41 @@ func (m *model) handleInterrupt() (tea.Model, tea.Cmd) {
 	m.transcript.WriteNote("warning", []string{"ctrl+c again to quit"})
 	m.refreshViewport()
 	return m, nil
+}
+
+func (m *model) handleEscape() (tea.Model, tea.Cmd) {
+	if m.streaming {
+		m.transcript.WriteNote(
+			"warning",
+			[]string{
+				"Conversation interrupted.",
+				"Esc again to edit previous message.",
+			},
+		)
+		m.editPreviousArmed = true
+		m.refreshViewport()
+		return m, nil
+	}
+	if m.editPreviousArmed {
+		m.editPreviousArmed = false
+		m.restorePreviousPrompt()
+		return m, nil
+	}
+	if strings.TrimSpace(m.textInput.Value()) != "" {
+		m.textInput.SetValue("")
+		m.resetHistoryNavigation()
+		return m, nil
+	}
+	return m, nil
+}
+
+func (m *model) restorePreviousPrompt() {
+	if len(m.promptHistory) == 0 {
+		return
+	}
+	m.textInput.SetValue(m.promptHistory[len(m.promptHistory)-1])
+	m.historyIndex = len(m.promptHistory) - 1
+	m.refreshViewport()
 }
 
 func (m *model) handleEnter() (tea.Model, tea.Cmd) {

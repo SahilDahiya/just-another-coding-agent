@@ -93,7 +93,7 @@ func TestMouseWheelScrollsViewport(t *testing.T) {
 	}
 }
 
-func TestCtrlCWhileStreamingDoesNotPretendRunWasInterrupted(t *testing.T) {
+func TestCtrlCWhileStreamingShowsInterruptGuidance(t *testing.T) {
 	m := newTestModel()
 	m.streaming = true
 	m.phase = PhaseStreaming
@@ -105,11 +105,11 @@ func TestCtrlCWhileStreamingDoesNotPretendRunWasInterrupted(t *testing.T) {
 	}
 
 	rendered := stripANSI(m.transcript.Render())
-	if strings.Contains(rendered, "interrupted") {
-		t.Fatalf("transcript falsely claims interruption: %q", rendered)
+	if !strings.Contains(rendered, "Conversation interrupted.") {
+		t.Fatalf("transcript missing interrupt guidance: %q", rendered)
 	}
-	if !strings.Contains(rendered, "backend cancellation is not implemented") {
-		t.Fatalf("transcript missing cancellation warning: %q", rendered)
+	if !strings.Contains(rendered, "Esc again to edit previous message.") {
+		t.Fatalf("transcript missing second-escape guidance: %q", rendered)
 	}
 
 	m.Update(runEventMsg{Event: rpc.RunEvent{Type: "assistant_text_delta", Delta: "still running"}})
@@ -117,5 +117,80 @@ func TestCtrlCWhileStreamingDoesNotPretendRunWasInterrupted(t *testing.T) {
 	rendered = stripANSI(m.transcript.Render())
 	if !strings.Contains(rendered, "still running") {
 		t.Fatalf("streaming output was dropped after ctrl+c: %q", rendered)
+	}
+}
+
+func TestCtrlCClearsPromptWhenNotStreaming(t *testing.T) {
+	m := newTestModel()
+	m.textInput.SetValue("draft prompt")
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	if cmd != nil {
+		t.Fatalf("expected no command, got %v", cmd)
+	}
+	m = updated.(*model)
+
+	if got := m.textInput.Value(); got != "" {
+		t.Fatalf("textInput.Value() = %q, want empty", got)
+	}
+	if m.phase != PhaseIdle {
+		t.Fatalf("phase = %q, want %q", m.phase, PhaseIdle)
+	}
+}
+
+func TestEscWhileStreamingWritesInterruptGuidance(t *testing.T) {
+	m := newTestModel()
+	m.streaming = true
+	m.phase = PhaseStreaming
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if cmd != nil {
+		t.Fatalf("expected no command, got %v", cmd)
+	}
+	m = updated.(*model)
+
+	rendered := stripANSI(m.transcript.Render())
+	if !strings.Contains(rendered, "Conversation interrupted.") {
+		t.Fatalf("missing interrupt guidance in transcript: %q", rendered)
+	}
+	if !strings.Contains(rendered, "Esc again to edit previous message.") {
+		t.Fatalf("missing second-escape guidance in transcript: %q", rendered)
+	}
+}
+
+func TestSecondEscLoadsPreviousPromptIntoComposer(t *testing.T) {
+	m := newTestModel()
+	m.promptHistory = []string{"first prompt", "previous prompt"}
+	m.historyIndex = -1
+	m.textInput.SetValue("")
+	m.streaming = true
+	m.phase = PhaseStreaming
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = updated.(*model)
+
+	if !strings.Contains(stripANSI(m.transcript.Render()), "Esc again to edit previous message.") {
+		t.Fatalf("first escape did not arm edit-previous flow: %q", stripANSI(m.transcript.Render()))
+	}
+
+	m.streaming = false
+	m.phase = PhaseIdle
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = updated.(*model)
+
+	if got := m.textInput.Value(); got != "previous prompt" {
+		t.Fatalf("textInput.Value() = %q, want %q", got, "previous prompt")
+	}
+}
+
+func TestEscClearsPromptWhenIdle(t *testing.T) {
+	m := newTestModel()
+	m.textInput.SetValue("draft prompt")
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = updated.(*model)
+
+	if got := m.textInput.Value(); got != "" {
+		t.Fatalf("textInput.Value() = %q, want empty", got)
 	}
 }
