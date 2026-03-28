@@ -50,6 +50,31 @@ async def test_tui_app_starts_and_focuses_prompt(tmp_path: Path) -> None:
         assert "system" not in transcript.plain_text
         assert "idle" in str(status_bar.renderable)
         assert "ollama:test" in str(status_bar.renderable)
+        assert transcript.plain_text.count("jaca  ") == 1
+        assert transcript.plain_text.count("ollama http://localhost:11434/v1") == 1
+
+
+@pytest.mark.asyncio
+async def test_startup_banner_is_idempotent(tmp_path: Path) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    sessions_root.mkdir()
+
+    app = CodingAgentApp(
+        model="ollama:test",
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+        thinking=None,
+    )
+
+    async with app.run_test() as _pilot:
+        transcript = app.query_one("#output", TranscriptLog)
+        app._ensure_startup_banner(transcript)
+        app._ensure_startup_banner(transcript)
+
+        assert transcript.plain_text.count("jaca  ") == 1
+        assert transcript.plain_text.count("ollama http://localhost:11434/v1") == 1
 
 
 @pytest.mark.asyncio

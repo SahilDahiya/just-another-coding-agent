@@ -139,7 +139,10 @@ class TranscriptLog(RichLog):
         if self._live_part_index is None:
             self._parts.append(
                 TranscriptPart(
-                    Text("", style=Style(color=DEFAULT_THEME.text_soft)),
+                    Text(
+                        "",
+                        style=Style(color=DEFAULT_THEME.text_soft, dim=True),
+                    ),
                     "",
                 )
             )
@@ -147,7 +150,10 @@ class TranscriptLog(RichLog):
         existing_text = self._parts[self._live_part_index].plain_text
         updated_text = existing_text + text
         self._parts[self._live_part_index] = TranscriptPart(
-            Text(updated_text, style=Style(color=DEFAULT_THEME.text_soft)),
+            Text(
+                updated_text,
+                style=Style(color=DEFAULT_THEME.text_soft, dim=True),
+            ),
             updated_text,
         )
         self._live_dirty = True
@@ -176,7 +182,7 @@ class TranscriptLog(RichLog):
                 code_theme="bw",
                 inline_code_theme="bw",
                 hyperlinks=False,
-                style=Style(color=DEFAULT_THEME.text_soft),
+                style=Style(color=DEFAULT_THEME.text_soft, dim=True),
             ),
             markdown_text,
         )

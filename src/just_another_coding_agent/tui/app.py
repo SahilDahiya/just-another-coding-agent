@@ -73,6 +73,7 @@ class CodingAgentApp(App[None]):
         self._prompt_history: list[str] = []
         self._history_index: int | None = None
         self._history_draft: str = ""
+        self._startup_banner_rendered = False
 
     def compose(self) -> ComposeResult:
         yield StatusBar(id="status-bar")
@@ -103,13 +104,19 @@ class CodingAgentApp(App[None]):
         self._refresh_shell_chrome()
         self.query_one("#prompt-input", Input).focus()
         output = self.query_one("#output", TranscriptLog)
+        self._ensure_startup_banner(output)
+        self._start_startup_reveal()
+
+    def _ensure_startup_banner(self, output: TranscriptLog) -> None:
+        if self._startup_banner_rendered:
+            return
         write_startup_banner(
             output,
             model=self._state.model,
             workspace_root=self._state.workspace_root,
             thinking=self._state.thinking,
         )
-        self._start_startup_reveal()
+        self._startup_banner_rendered = True
 
     def _prepare_startup_reveal(self) -> None:
         for widget in self._shell_widgets():
