@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 from rich.markdown import Markdown
+from rich.padding import Padding
 from textual.containers import Horizontal
 from textual.widgets import Input, Static
 
@@ -290,7 +291,8 @@ async def test_completed_assistant_turn_is_rendered_as_markdown(
         markdown_parts = [
             part.renderable
             for part in transcript._parts
-            if isinstance(part.renderable, Markdown)
+            if isinstance(part.renderable, Padding)
+            and isinstance(part.renderable.renderable, Markdown)
         ]
 
         assert markdown_parts

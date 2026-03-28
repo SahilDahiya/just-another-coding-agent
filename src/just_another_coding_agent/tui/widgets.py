@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Self
 
 from rich.markdown import Markdown
+from rich.padding import Padding
 from rich.style import Style
 from rich.text import Text
 from textual import events
@@ -81,6 +82,7 @@ class TranscriptLog(RichLog):
     """Read-only transcript log with wrapped streaming support."""
 
     LIVE_FLUSH_DELAY = 0.05
+    ASSISTANT_LEFT_PAD = 2
 
     def __init__(
         self,
@@ -139,10 +141,7 @@ class TranscriptLog(RichLog):
         if self._live_part_index is None:
             self._parts.append(
                 TranscriptPart(
-                    Text(
-                        "",
-                        style=Style(color=DEFAULT_THEME.text_soft, dim=True),
-                    ),
+                    self._render_assistant_text(""),
                     "",
                 )
             )
@@ -150,10 +149,7 @@ class TranscriptLog(RichLog):
         existing_text = self._parts[self._live_part_index].plain_text
         updated_text = existing_text + text
         self._parts[self._live_part_index] = TranscriptPart(
-            Text(
-                updated_text,
-                style=Style(color=DEFAULT_THEME.text_soft, dim=True),
-            ),
+            self._render_assistant_text(updated_text),
             updated_text,
         )
         self._live_dirty = True
@@ -177,12 +173,15 @@ class TranscriptLog(RichLog):
             return
 
         markdown_part = TranscriptPart(
-            Markdown(
-                markdown_text,
-                code_theme="bw",
-                inline_code_theme="bw",
-                hyperlinks=False,
-                style=Style(color=DEFAULT_THEME.text_soft, dim=True),
+            Padding.indent(
+                Markdown(
+                    markdown_text,
+                    code_theme="bw",
+                    inline_code_theme="bw",
+                    hyperlinks=False,
+                    style=Style(color=DEFAULT_THEME.text_soft, dim=True),
+                ),
+                self.ASSISTANT_LEFT_PAD,
             ),
             markdown_text,
         )
@@ -418,6 +417,12 @@ class TranscriptLog(RichLog):
             )
         text.append("\n")
         return text
+
+    def _render_assistant_text(self, text: str) -> Padding:
+        return Padding.indent(
+            Text(text, style=Style(color=DEFAULT_THEME.text_soft, dim=True)),
+            self.ASSISTANT_LEFT_PAD,
+        )
 
 
 __all__ = ["APP_CSS", "ComposerInput", "StatusBar", "TranscriptLog", "TranscriptPart"]

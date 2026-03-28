@@ -8,6 +8,7 @@ from typing import Any
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
+from textual.css.query import NoMatches
 from textual.driver import Driver
 from textual.drivers.linux_driver import LinuxDriver
 from textual.drivers.linux_inline_driver import LinuxInlineDriver
@@ -140,19 +141,29 @@ class CodingAgentApp(App[None]):
         )
 
     def _update_status_bar(self) -> None:
-        status = self.query_one("#status-bar", StatusBar)
+        try:
+            status = self.query_one("#status-bar", StatusBar)
+        except NoMatches:
+            return
         update_status_bar(status, state=self._state, motion_tick=self._motion_tick)
 
     def _refresh_shell_chrome(self) -> None:
+        if not self.is_mounted:
+            return
         self._update_status_bar()
-        prompt_marker = self.query_one("#prompt-marker", Static)
+        try:
+            prompt_marker = self.query_one("#prompt-marker", Static)
+            status_bar = self.query_one("#status-bar", StatusBar)
+            prompt_row = self.query_one("#prompt-row", Horizontal)
+        except NoMatches:
+            return
         prompt_marker.update(
             build_prompt_marker_text(self._state.phase, self._motion_tick)
         )
         phase_class = f"phase-{self._state.phase}"
         for widget in (
-            self.query_one("#status-bar", StatusBar),
-            self.query_one("#prompt-row", Horizontal),
+            status_bar,
+            prompt_row,
             prompt_marker,
         ):
             widget.remove_class(*self.PHASE_CLASSES)
