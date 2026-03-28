@@ -498,10 +498,7 @@ class TranscriptLog(RichLog):
 
             ordered_match = self._ORDERED_ITEM_RE.match(line)
             if ordered_match is not None:
-                text.append(
-                    f"{ordered_match.group(1)}. ",
-                    style=Style(color=DEFAULT_THEME.text_muted),
-                )
+                text.append("    ", style=Style(color=DEFAULT_THEME.text_muted))
                 self._append_inline_segments(
                     text,
                     ordered_match.group(2),

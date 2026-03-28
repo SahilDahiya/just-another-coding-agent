@@ -302,6 +302,9 @@ async def test_completed_assistant_turn_is_rendered_as_markdown(
         assert assistant_blocks
         assert "## Review" in transcript.plain_text
         assert "- first point" in transcript.plain_text
+        rendered_assistant = assistant_blocks[-1].renderable
+        assert "  - " not in rendered_assistant.plain
+        assert "1. " not in rendered_assistant.plain
 
 
 @pytest.mark.asyncio
