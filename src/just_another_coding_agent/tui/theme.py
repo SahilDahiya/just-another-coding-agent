@@ -13,6 +13,7 @@ class ThemeTokens:
     border: str
     border_strong: str
     text: str
+    text_soft: str
     text_muted: str
     accent: str
     accent_soft: str
@@ -26,6 +27,7 @@ DEFAULT_THEME = ThemeTokens(
     border="#2a313c",
     border_strong="#4a596d",
     text="#f1ede4",
+    text_soft="#ddd7cb",
     text_muted="#a7a39a",
     accent="#d79a41",
     accent_soft="#f1c27a",
@@ -149,15 +151,23 @@ StatusBar.phase-error {{
 #prompt-input {{
     width: 1fr;
     border: none;
-    padding: 0 1;
+    padding: 0;
     background: {theme.background};
-    color: {theme.text};
+    color: {theme.text_soft};
+}}
+
+#prompt-input.-textual-compact {{
+    border: none;
+    padding: 0;
+    background: {theme.background};
+    color: {theme.text_soft};
 }}
 
 #prompt-input:focus {{
     border: none;
-    color: {theme.accent_soft};
-    text-style: bold;
+    color: {theme.text};
+    text-style: none;
+    background-tint: 0%;
 }}
 """
 

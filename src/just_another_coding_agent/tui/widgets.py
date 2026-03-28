@@ -6,12 +6,14 @@ from dataclasses import dataclass
 from typing import Self
 
 from rich.markdown import Markdown
+from rich.style import Style
+from rich.text import Text
 from textual import events
 from textual.binding import Binding
 from textual.timer import Timer
 from textual.widgets import Input, RichLog, Static
 
-from .theme import build_app_css
+from .theme import DEFAULT_THEME, build_app_css
 
 APP_CSS = build_app_css()
 
@@ -127,14 +129,27 @@ class TranscriptLog(RichLog):
     def write_line(self, line: str) -> None:
         self.write(f"{line}\n")
 
+    def write_renderable(self, renderable: object, plain_text: str) -> Self:
+        self.flush_live_text()
+        self._parts.append(TranscriptPart(renderable, plain_text))
+        return super().write(renderable, scroll_end=True)
+
     def append_live_text(self, text: str) -> None:
         """Append streaming assistant text into one wrapped transcript block."""
         if self._live_part_index is None:
-            self._parts.append(TranscriptPart("", ""))
+            self._parts.append(
+                TranscriptPart(
+                    Text("", style=Style(color=DEFAULT_THEME.text_soft)),
+                    "",
+                )
+            )
             self._live_part_index = len(self._parts) - 1
         existing_text = self._parts[self._live_part_index].plain_text
         updated_text = existing_text + text
-        self._parts[self._live_part_index] = TranscriptPart(updated_text, updated_text)
+        self._parts[self._live_part_index] = TranscriptPart(
+            Text(updated_text, style=Style(color=DEFAULT_THEME.text_soft)),
+            updated_text,
+        )
         self._live_dirty = True
         if self._live_flush_timer is None:
             self._live_flush_timer = self.set_timer(
@@ -155,7 +170,16 @@ class TranscriptLog(RichLog):
             self._live_part_index = None
             return
 
-        markdown_part = TranscriptPart(Markdown(markdown_text), markdown_text)
+        markdown_part = TranscriptPart(
+            Markdown(
+                markdown_text,
+                code_theme="bw",
+                inline_code_theme="bw",
+                hyperlinks=False,
+                style=Style(color=DEFAULT_THEME.text_soft),
+            ),
+            markdown_text,
+        )
         if self._live_part_index is not None:
             self._parts[self._live_part_index] = markdown_part
             self._rerender()
@@ -181,7 +205,16 @@ class TranscriptLog(RichLog):
             preview=preview,
             outcome=None,
         )
-        self._parts.append(TranscriptPart(line, line))
+        self._parts.append(
+            TranscriptPart(
+                self._render_tool_activity_line(
+                    tool_name=tool_name,
+                    preview=preview,
+                    outcome=None,
+                ),
+                line,
+            )
+        )
         self._tool_rows[tool_call_id] = ToolRow(
             index=len(self._parts) - 1,
             tool_name=tool_name,
@@ -206,7 +239,16 @@ class TranscriptLog(RichLog):
             message=summary if tool_row.preview is None else None,
             duration=duration,
         )
-        self._parts[tool_row.index] = TranscriptPart(line, line)
+        self._parts[tool_row.index] = TranscriptPart(
+            self._render_tool_activity_line(
+                tool_name=tool_row.tool_name,
+                preview=tool_row.preview,
+                outcome="ok",
+                message=summary if tool_row.preview is None else None,
+                duration=duration,
+            ),
+            line,
+        )
         self._rerender()
 
     def fail_tool_activity(
@@ -230,9 +272,29 @@ class TranscriptLog(RichLog):
         if tool_row is None:
             if self._parts and not self.plain_text.endswith("\n"):
                 self._parts.append(TranscriptPart("\n", "\n"))
-            self._parts.append(TranscriptPart(line, line))
+            self._parts.append(
+                TranscriptPart(
+                    self._render_tool_activity_line(
+                        tool_name=tool_name,
+                        preview=preview,
+                        outcome="error",
+                        message=message,
+                        duration=duration,
+                    ),
+                    line,
+                )
+            )
         else:
-            self._parts[tool_row.index] = TranscriptPart(line, line)
+            self._parts[tool_row.index] = TranscriptPart(
+                self._render_tool_activity_line(
+                    tool_name=tool_row.tool_name,
+                    preview=preview,
+                    outcome="error",
+                    message=message,
+                    duration=duration,
+                ),
+                line,
+            )
         self._rerender()
 
     def clear(self) -> TranscriptLog:
@@ -302,6 +364,45 @@ class TranscriptLog(RichLog):
         if message:
             return f"{head}  {message}{suffix}\n"
         return f"{head}{suffix}\n"
+
+    @staticmethod
+    def _render_tool_activity_line(
+        *,
+        tool_name: str,
+        preview: str | None,
+        outcome: str | None,
+        message: str | None = None,
+        duration: str | None = None,
+    ) -> Text:
+        text = Text()
+        text.append(tool_name, style=Style(color=DEFAULT_THEME.text_muted))
+        if outcome == "ok":
+            text.append(" ok", style=Style(color=DEFAULT_THEME.success_soft))
+        elif outcome == "error":
+            text.append(" error", style=Style(color=DEFAULT_THEME.error))
+        if preview:
+            text.append("  ")
+            text.append(preview, style=Style(color=DEFAULT_THEME.text))
+        if message:
+            text.append("  |  ")
+            text.append(
+                message,
+                style=Style(
+                    color=(
+                        DEFAULT_THEME.text_muted
+                        if outcome != "error"
+                        else DEFAULT_THEME.error
+                    )
+                ),
+            )
+        if duration:
+            text.append("  ")
+            text.append(
+                f"({duration})",
+                style=Style(color=DEFAULT_THEME.text_muted, dim=True),
+            )
+        text.append("\n")
+        return text
 
 
 __all__ = ["APP_CSS", "ComposerInput", "StatusBar", "TranscriptLog", "TranscriptPart"]

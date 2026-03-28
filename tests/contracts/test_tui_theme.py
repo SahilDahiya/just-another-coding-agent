@@ -11,6 +11,7 @@ def test_build_app_css_uses_theme_tokens() -> None:
         border="#666666",
         border_strong="#777777",
         text="#888888",
+        text_soft="#898989",
         text_muted="#999999",
         accent="#aaaaaa",
         accent_soft="#bbbbbb",

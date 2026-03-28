@@ -4,14 +4,24 @@ from __future__ import annotations
 
 import os
 
+from rich.style import Style
+from rich.text import Text
+
 from .config import save_provider_config
+from .theme import DEFAULT_THEME
 from .widgets import TranscriptLog
 
 
 def start_note_block(output: TranscriptLog, title: str) -> None:
     """Open a compact informational block in the transcript."""
     output.ensure_block_gap()
-    output.write_line(f"note  {title}")
+    line = f"note  {title}\n"
+    renderable = Text()
+    renderable.append("note", style=Style(color=DEFAULT_THEME.text_muted))
+    renderable.append("  ")
+    renderable.append(title, style=Style(color=DEFAULT_THEME.text_muted, bold=True))
+    renderable.append("\n")
+    output.write_renderable(renderable, line)
 
 
 def write_help(output: TranscriptLog) -> None:

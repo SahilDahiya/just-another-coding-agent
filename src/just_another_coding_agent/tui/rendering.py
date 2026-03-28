@@ -6,9 +6,13 @@ import os
 from pathlib import Path
 from typing import Any
 
+from rich.style import Style
+from rich.text import Text
+
 from just_another_coding_agent.contracts.thinking import ThinkingSetting
 
 from .state import UiPhase, UiState
+from .theme import DEFAULT_THEME
 from .widgets import StatusBar, TranscriptLog
 
 
@@ -84,24 +88,59 @@ def write_startup_banner(
     headline = f"jaca  {display_path(workspace_root)}  |  model {model}"
     if thinking:
         headline += f"  |  thinking {thinking}"
-    output.write_line(headline)
+    output.write_renderable(
+        Text(headline + "\n", style=Style(color=DEFAULT_THEME.text_soft, bold=True)),
+        headline + "\n",
+    )
 
     model_str = str(model)
     if model_str.startswith("ollama"):
         base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434/v1")
-        output.write_line(f"ollama {base_url}")
+        provider_line = f"ollama {base_url}"
+        output.write_renderable(
+            Text(provider_line + "\n", style=Style(color=DEFAULT_THEME.text_muted)),
+            provider_line + "\n",
+        )
         if "localhost" in base_url or "127.0.0.1" in base_url:
-            output.write_line("local ollama, no key needed")
+            local_hint = "local ollama, no key needed"
+            output.write_renderable(
+                Text(local_hint + "\n", style=Style(color=DEFAULT_THEME.text_muted)),
+                local_hint + "\n",
+            )
     elif model_str.startswith("openai") and not os.environ.get("OPENAI_API_KEY"):
         output.write("\n")
-        output.write_line("no OPENAI_API_KEY")
-        output.write_line("use /provider openai <key>")
+        output.write_renderable(
+            Text(
+                "no OPENAI_API_KEY\n",
+                style=Style(color=DEFAULT_THEME.error),
+            ),
+            "no OPENAI_API_KEY\n",
+        )
+        output.write_renderable(
+            Text(
+                "use /provider openai <key>\n",
+                style=Style(color=DEFAULT_THEME.text_muted),
+            ),
+            "use /provider openai <key>\n",
+        )
     elif model_str.startswith("anthropic") and not os.environ.get(
         "ANTHROPIC_API_KEY"
     ):
         output.write("\n")
-        output.write_line("no ANTHROPIC_API_KEY")
-        output.write_line("use /provider anthropic <key>")
+        output.write_renderable(
+            Text(
+                "no ANTHROPIC_API_KEY\n",
+                style=Style(color=DEFAULT_THEME.error),
+            ),
+            "no ANTHROPIC_API_KEY\n",
+        )
+        output.write_renderable(
+            Text(
+                "use /provider anthropic <key>\n",
+                style=Style(color=DEFAULT_THEME.text_muted),
+            ),
+            "use /provider anthropic <key>\n",
+        )
 
     output.write("\n")
 
@@ -109,7 +148,12 @@ def write_startup_banner(
 def write_user_turn(output: TranscriptLog, prompt: str) -> None:
     """Render one user prompt as the start of a compact transcript turn."""
     output.ensure_block_gap()
-    output.write_line(f"> {prompt}")
+    user_line = Text()
+    user_line.append(">", style=Style(color=DEFAULT_THEME.accent, bold=True))
+    user_line.append(" ")
+    user_line.append(prompt, style=Style(color=DEFAULT_THEME.text_soft, bold=True))
+    user_line.append("\n")
+    output.write_renderable(user_line, f"> {prompt}\n")
 
 
 def build_tool_preview(
