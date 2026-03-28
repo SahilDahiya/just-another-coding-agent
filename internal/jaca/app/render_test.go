@@ -32,3 +32,21 @@ func TestBuildStatusTextIncludesTruncatedSessionAndThinking(t *testing.T) {
 		t.Fatalf("buildStatusText() = %q, want %q", got, want)
 	}
 }
+
+func TestBuildPromptFooterTextShowsInterruptAndEffort(t *testing.T) {
+	got := buildPromptFooterText(PhaseStreaming, "medium", "")
+
+	want := "esc to interrupt  ◐ medium · effort"
+	if got != want {
+		t.Fatalf("buildPromptFooterText() = %q, want %q", got, want)
+	}
+}
+
+func TestBuildPromptFooterTextPreservesOverride(t *testing.T) {
+	got := buildPromptFooterText(PhaseStreaming, "medium", "Conversation interrupted. Esc again to edit previous message.")
+
+	want := "Conversation interrupted. Esc again to edit previous message."
+	if got != want {
+		t.Fatalf("buildPromptFooterText() = %q, want %q", got, want)
+	}
+}

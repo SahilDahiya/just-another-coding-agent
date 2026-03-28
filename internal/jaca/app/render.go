@@ -143,7 +143,7 @@ func renderPrompt(vm viewModel) string {
 					" ",
 					lipgloss.NewStyle().Foreground(defaultTheme.textSoft).Render(vm.PromptValue),
 				),
-				lipgloss.NewStyle().Foreground(footerColor).Render(buildPromptFooterText(vm.Phase, vm.PromptFooter)),
+				lipgloss.NewStyle().Foreground(footerColor).Render(buildPromptFooterText(vm.Phase, vm.Thinking, vm.PromptFooter)),
 			),
 		)
 	return row
@@ -180,22 +180,47 @@ func buildPromptMarkerText(phase Phase, motionTick int) string {
 	}
 }
 
-func buildPromptFooterText(phase Phase, override string) string {
+func buildPromptFooterText(phase Phase, thinking string, override string) string {
 	if override != "" {
 		return override
 	}
+	effort := buildThinkingFooterText(thinking)
 	switch phase {
 	case PhaseStreaming:
-		return "working  esc interrupt"
+		return joinFooterParts("esc to interrupt", effort)
 	case PhaseCompacting:
-		return "compacting session"
+		return joinFooterParts("compacting session", effort)
 	case PhaseCompleted:
-		return "ready"
+		return joinFooterParts("ready", effort)
 	case PhaseError:
-		return "last run failed  edit prompt or retry"
+		return joinFooterParts("last run failed", "edit prompt or retry", effort)
 	default:
-		return "ready  /help  up/down recall  esc clear"
+		return joinFooterParts("ready", "/help", "up/down recall", "esc clear", effort)
 	}
+}
+
+func buildThinkingFooterText(thinking string) string {
+	switch thinking {
+	case "":
+		return ""
+	case "true":
+		return "◐ on · effort"
+	case "false":
+		return "◐ off · effort"
+	default:
+		return fmt.Sprintf("◐ %s · effort", thinking)
+	}
+}
+
+func joinFooterParts(parts ...string) string {
+	filtered := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if strings.TrimSpace(part) == "" {
+			continue
+		}
+		filtered = append(filtered, part)
+	}
+	return strings.Join(filtered, "  ")
 }
 
 func buildStatusText(vm viewModel) string {
