@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from pathlib import Path
+import json
+import os
 from types import SimpleNamespace
 
 import pytest
@@ -16,11 +17,14 @@ def test_main_launches_go_tui_for_interactive_mode(
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
     sessions_root = tmp_path / "sessions"
+    go_binary = tmp_path / ("jaca-go.exe" if os.name == "nt" else "jaca-go")
     captured: dict[str, object] = {}
 
-    def fake_run(command, *, cwd, check):
+    monkeypatch.setattr(entry, "_resolve_go_tui_binary", lambda: go_binary)
+    monkeypatch.setattr(entry.sys, "executable", "/tmp/fake-python")
+
+    def fake_run(command, *, check):
         captured["command"] = command
-        captured["cwd"] = cwd
         captured["check"] = check
         return SimpleNamespace(returncode=17)
 
@@ -39,16 +43,15 @@ def test_main_launches_go_tui_for_interactive_mode(
             str(sessions_root),
             "--thinking",
             "high",
-        ]
-    )
+            ]
+        )
 
-    repo_root = Path(entry.__file__).resolve().parents[2]
     assert exit_code == 17
     assert captured == {
         "command": [
-            "go",
-            "run",
-            "./cmd/jaca",
+            str(go_binary),
+            "--backend-command-json",
+            json.dumps(["/tmp/fake-python", "-m", "just_another_coding_agent"]),
             "--model",
             "openai:test-model",
             "--workspace-root",
@@ -58,12 +61,11 @@ def test_main_launches_go_tui_for_interactive_mode(
             "--thinking",
             "high",
         ],
-        "cwd": repo_root,
         "check": False,
     }
 
 
-def test_main_fails_fast_when_go_launcher_is_missing(
+def test_main_fails_fast_when_go_binary_is_missing(
     tmp_path,
     monkeypatch,
 ) -> None:
@@ -71,17 +73,13 @@ def test_main_fails_fast_when_go_launcher_is_missing(
     workspace_root.mkdir()
     sessions_root = tmp_path / "sessions"
 
-    def fake_run(command, *, cwd, check):
-        raise FileNotFoundError("go")
-
-    monkeypatch.setattr(
-        "just_another_coding_agent.__main__.subprocess.run",
-        fake_run,
-    )
+    missing = tmp_path / "missing" / "jaca-go"
+    monkeypatch.setattr(entry, "GO_TUI_BINARY", missing.name)
+    monkeypatch.setattr(entry.sysconfig, "get_path", lambda key: str(missing.parent))
 
     with pytest.raises(
         RuntimeError,
-        match="Go toolchain is required for the canonical TUI launcher",
+        match="Installed Go TUI binary is missing",
     ):
         main(
             [

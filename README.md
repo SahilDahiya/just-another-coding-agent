@@ -44,6 +44,8 @@ uv run ruff check .
 uv run pytest
 ```
 
+`uv sync` builds and installs the platform-native Go TUI binary used by `uv run jaca`, so local setup requires the Go toolchain as well as Python.
+
 ## Run
 
 Launch the long-lived stdio RPC server with explicit backend configuration:
@@ -63,11 +65,14 @@ Launch the first-party terminal UI:
 uv run jaca
 ```
 
-The interactive launcher now delegates to the canonical Go TUI, which talks to
-the Python backend over stdio RPC. You can also run the Go client directly:
+The interactive launcher executes the installed Go TUI binary, which talks to
+the Python backend over stdio RPC.
+
+For direct Go TUI development, pass the backend command explicitly:
 
 ```bash
-go run ./cmd/jaca
+go run ./cmd/jaca \
+  --backend-command-json='["uv","run","python","-m","just_another_coding_agent"]'
 ```
 
 ## Docs

@@ -17,9 +17,9 @@ read_when: you need environment setup, commands, CI, or test workflow
 - Format: `uv run ruff format .`
 - Test: `uv run pytest`
 - Test Go packages: `go test ./...`
-- Run the Go TUI client directly: `go run ./cmd/jaca`
 - Run the canonical interactive launcher: `uv run jaca`
 - Run the Python headless backend directly: `uv run just-another-coding-agent --headless`
+- Run the Go TUI client directly: `go run ./cmd/jaca --backend-command-json='["uv","run","python","-m","just_another_coding_agent"]'`
 
 ## Go TUI
 
@@ -28,7 +28,9 @@ canonical Python headless backend.
 
 - The Go entrypoint is `cmd/jaca`
 - The Go client packages live under `internal/jaca/`
-- `uv run jaca` launches the Go client through the Python console-script shim
+- `uv sync` builds and installs the platform-native `jaca-go` binary for the current environment
+- `uv run jaca` launches that installed binary through the Python console-script entrypoint
+- The Go client requires an explicit backend command and the canonical launcher passes `["<python>", "-m", "just_another_coding_agent"]`
 - The Go client launches the Python backend over stdio RPC with `--headless`
 
 ## Environment

@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import os
 import subprocess
 import sys
+import sysconfig
 from collections.abc import Sequence
 from pathlib import Path
 from typing import TextIO
@@ -16,6 +18,7 @@ from just_another_coding_agent.tools._workspace import normalize_workspace_root
 apply_config_to_env(load_config())
 
 DEFAULT_MODEL = os.environ.get("JACA_MODEL", "ollama:kimi-k2:1t-cloud")
+GO_TUI_BINARY = "jaca-go.exe" if os.name == "nt" else "jaca-go"
 
 
 def main(
@@ -104,15 +107,11 @@ def _run_tui(
     sessions_root: Path,
     thinking: str | None,
 ) -> int:
-    # Temporary packaging shim: the canonical interactive TUI now lives in Go,
-    # but the project still exposes `jaca` through the Python console-script
-    # entrypoint. Delete this subprocess launcher once installation/build
-    # exposes the Go `jaca` binary directly.
-    repo_root = Path(__file__).resolve().parents[2]
+    binary = _resolve_go_tui_binary()
     command = [
-        "go",
-        "run",
-        "./cmd/jaca",
+        str(binary),
+        "--backend-command-json",
+        json.dumps(_default_backend_command()),
         "--model",
         model,
         "--workspace-root",
@@ -122,13 +121,25 @@ def _run_tui(
     ]
     if thinking is not None:
         command.extend(["--thinking", thinking])
-    try:
-        completed = subprocess.run(command, cwd=repo_root, check=False)
-    except FileNotFoundError as error:
-        raise RuntimeError(
-            "Go toolchain is required for the canonical TUI launcher"
-        ) from error
+    completed = subprocess.run(command, check=False)
     return completed.returncode
+
+
+def _default_backend_command() -> list[str]:
+    return [sys.executable, "-m", "just_another_coding_agent"]
+
+
+def _resolve_go_tui_binary() -> Path:
+    scripts_dir = sysconfig.get_path("scripts")
+    if not scripts_dir:
+        raise RuntimeError("Python scripts directory is unavailable")
+    binary = Path(scripts_dir) / GO_TUI_BINARY
+    if not binary.is_file():
+        raise RuntimeError(
+            "Installed Go TUI binary is missing. Reinstall the package to rebuild "
+            f"the launcher: {binary}"
+        )
+    return binary
 
 
 def _resolve_sessions_root(raw_sessions_root: str | None) -> Path:
