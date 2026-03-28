@@ -2,17 +2,25 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 
-import httpx
-import openai
-
 CANONICAL_RUN_RECOVERY_RETRY_LIMIT = 1
 
-_RETRYABLE_RUN_ERROR_TYPES = (
-    TimeoutError,
-    httpx.TransportError,
-    openai.APIConnectionError,
-    openai.APITimeoutError,
-)
+
+def _get_retryable_run_error_types() -> tuple[type[BaseException], ...]:
+    types: list[type[BaseException]] = [TimeoutError]
+    try:
+        import httpx
+
+        types.append(httpx.TransportError)
+    except ImportError:
+        pass
+    try:
+        import openai
+
+        types.append(openai.APIConnectionError)
+        types.append(openai.APITimeoutError)
+    except ImportError:
+        pass
+    return tuple(types)
 
 
 def should_retry_run_error(
@@ -29,8 +37,9 @@ def should_retry_run_error(
 
 
 def is_retryable_run_error(error: BaseException) -> bool:
+    retryable_types = _get_retryable_run_error_types()
     return any(
-        isinstance(current, _RETRYABLE_RUN_ERROR_TYPES)
+        isinstance(current, retryable_types)
         for current in _iter_error_chain(error)
     )
 
