@@ -28,12 +28,23 @@ class TranscriptPart:
 
 
 @dataclass(slots=True)
-class ToolRow:
-    """Track one visible tool-activity row by tool call id."""
+class ToolEntry:
+    """One tool row within a grouped live tool burst."""
 
-    index: int
     tool_name: str
     preview: str | None
+    outcome: str | None = None
+    message: str | None = None
+    duration: str | None = None
+
+
+@dataclass(slots=True)
+class ToolGroup:
+    """One live grouped tool burst rendered as a single transcript block."""
+
+    index: int
+    order: list[str]
+    entries: dict[str, ToolEntry]
 
 
 class StatusBar(Static):
@@ -107,7 +118,7 @@ class TranscriptLog(RichLog):
         self._live_part_index: int | None = None
         self._live_dirty = False
         self._live_flush_timer: Timer | None = None
-        self._tool_rows: dict[str, ToolRow] = {}
+        self._tool_group: ToolGroup | None = None
 
     can_focus = False
 
@@ -132,12 +143,14 @@ class TranscriptLog(RichLog):
         self.write(f"{line}\n")
 
     def write_renderable(self, renderable: object, plain_text: str) -> Self:
+        self.end_tool_group()
         self.flush_live_text()
         self._parts.append(TranscriptPart(renderable, plain_text))
         return super().write(renderable, scroll_end=True)
 
     def append_live_text(self, text: str) -> None:
         """Append streaming assistant text into one wrapped transcript block."""
+        self.end_tool_group()
         if self._live_part_index is None:
             self._parts.append(
                 TranscriptPart(
@@ -165,8 +178,13 @@ class TranscriptLog(RichLog):
         self.flush_live_text()
         self._live_part_index = None
 
+    def end_tool_group(self) -> None:
+        """Close the current live tool burst so the next tool opens a new block."""
+        self._tool_group = None
+
     def render_completed_assistant_markdown(self, markdown_text: str) -> None:
         """Replace the current assistant text block with a Markdown renderable."""
+        self.end_tool_group()
         self.flush_live_text()
         if not markdown_text:
             self._live_part_index = None
@@ -200,32 +218,24 @@ class TranscriptLog(RichLog):
         tool_name: str,
         preview: str | None = None,
     ) -> None:
-        """Append one compact tool-activity row to the transcript."""
+        """Append one tool entry inside a grouped live tool burst."""
         self.end_live_text()
         preview = preview.strip() if preview else None
-        if self._parts and not self.plain_text.endswith("\n"):
-            self._parts.append(TranscriptPart("\n", "\n"))
-        line = self._format_tool_activity_line(
-            tool_name=tool_name,
-            preview=preview,
-            outcome=None,
-        )
-        self._parts.append(
-            TranscriptPart(
-                self._render_tool_activity_line(
-                    tool_name=tool_name,
-                    preview=preview,
-                    outcome=None,
-                ),
-                line,
+        if self._tool_group is None:
+            if self._parts and not self.plain_text.endswith("\n"):
+                self._parts.append(TranscriptPart("\n", "\n"))
+            self._parts.append(TranscriptPart(Text(""), ""))
+            self._tool_group = ToolGroup(
+                index=len(self._parts) - 1,
+                order=[],
+                entries={},
             )
-        )
-        self._tool_rows[tool_call_id] = ToolRow(
-            index=len(self._parts) - 1,
+        self._tool_group.order.append(tool_call_id)
+        self._tool_group.entries[tool_call_id] = ToolEntry(
             tool_name=tool_name,
             preview=preview,
         )
-        self._rerender()
+        self._rewrite_tool_group()
 
     def finish_tool_activity(
         self,
@@ -233,28 +243,14 @@ class TranscriptLog(RichLog):
         summary: str | None = None,
         duration: str | None = None,
     ) -> None:
-        """Mark one tool row as completed successfully."""
-        tool_row = self._tool_rows.pop(tool_call_id, None)
-        if tool_row is None:
+        """Mark one tool entry as completed successfully."""
+        tool_entry = self._resolve_or_create_tool_entry(tool_call_id)
+        if tool_entry is None:
             return
-        line = self._format_tool_activity_line(
-            tool_name=tool_row.tool_name,
-            preview=tool_row.preview,
-            outcome="ok",
-            message=summary if tool_row.preview is None else None,
-            duration=duration,
-        )
-        self._parts[tool_row.index] = TranscriptPart(
-            self._render_tool_activity_line(
-                tool_name=tool_row.tool_name,
-                preview=tool_row.preview,
-                outcome="ok",
-                message=summary if tool_row.preview is None else None,
-                duration=duration,
-            ),
-            line,
-        )
-        self._rerender()
+        tool_entry.outcome = "ok"
+        tool_entry.message = summary if tool_entry.preview is None else None
+        tool_entry.duration = duration
+        self._rewrite_tool_group()
 
     def fail_tool_activity(
         self,
@@ -263,44 +259,18 @@ class TranscriptLog(RichLog):
         message: str,
         duration: str | None = None,
     ) -> None:
-        """Mark one tool row as failed, preserving any start-row preview."""
+        """Mark one tool entry as failed, preserving any start-row preview."""
         self.flush_live_text()
-        tool_row = self._tool_rows.pop(tool_call_id, None)
-        preview = tool_row.preview if tool_row is not None else None
-        line = self._format_tool_activity_line(
-            tool_name=tool_row.tool_name if tool_row is not None else tool_name,
-            preview=preview,
-            outcome="error",
-            message=message,
-            duration=duration,
+        tool_entry = self._resolve_or_create_tool_entry(
+            tool_call_id,
+            tool_name=tool_name,
         )
-        if tool_row is None:
-            if self._parts and not self.plain_text.endswith("\n"):
-                self._parts.append(TranscriptPart("\n", "\n"))
-            self._parts.append(
-                TranscriptPart(
-                    self._render_tool_activity_line(
-                        tool_name=tool_name,
-                        preview=preview,
-                        outcome="error",
-                        message=message,
-                        duration=duration,
-                    ),
-                    line,
-                )
-            )
-        else:
-            self._parts[tool_row.index] = TranscriptPart(
-                self._render_tool_activity_line(
-                    tool_name=tool_row.tool_name,
-                    preview=preview,
-                    outcome="error",
-                    message=message,
-                    duration=duration,
-                ),
-                line,
-            )
-        self._rerender()
+        if tool_entry is None:
+            return
+        tool_entry.outcome = "error"
+        tool_entry.message = message
+        tool_entry.duration = duration
+        self._rewrite_tool_group()
 
     def clear(self) -> TranscriptLog:
         if self._live_flush_timer is not None:
@@ -309,7 +279,7 @@ class TranscriptLog(RichLog):
         self._parts.clear()
         self._live_part_index = None
         self._live_dirty = False
-        self._tool_rows.clear()
+        self._tool_group = None
         return super().clear()
 
     def write(
@@ -321,6 +291,7 @@ class TranscriptLog(RichLog):
         scroll_end: bool | None = None,
         animate: bool = False,
     ) -> Self:
+        self.end_tool_group()
         self.flush_live_text()
         if isinstance(content, str):
             self._parts.append(TranscriptPart(content, content))
@@ -347,6 +318,67 @@ class TranscriptLog(RichLog):
         super().clear()
         for part in self._parts:
             super().write(part.renderable, scroll_end=True)
+
+    def _resolve_or_create_tool_entry(
+        self,
+        tool_call_id: str,
+        *,
+        tool_name: str | None = None,
+    ) -> ToolEntry | None:
+        if self._tool_group is None:
+            if tool_name is None:
+                return None
+            if self._parts and not self.plain_text.endswith("\n"):
+                self._parts.append(TranscriptPart("\n", "\n"))
+            self._parts.append(TranscriptPart(Text(""), ""))
+            self._tool_group = ToolGroup(
+                index=len(self._parts) - 1,
+                order=[tool_call_id],
+                entries={
+                    tool_call_id: ToolEntry(tool_name=tool_name, preview=None),
+                },
+            )
+            return self._tool_group.entries[tool_call_id]
+
+        tool_entry = self._tool_group.entries.get(tool_call_id)
+        if tool_entry is not None:
+            return tool_entry
+        if tool_name is None:
+            return None
+        self._tool_group.order.append(tool_call_id)
+        self._tool_group.entries[tool_call_id] = ToolEntry(
+            tool_name=tool_name,
+            preview=None,
+        )
+        return self._tool_group.entries[tool_call_id]
+
+    def _rewrite_tool_group(self) -> None:
+        if self._tool_group is None:
+            return
+        renderable = Text()
+        plain_parts: list[str] = []
+        for tool_call_id in self._tool_group.order:
+            tool_entry = self._tool_group.entries[tool_call_id]
+            line = self._format_tool_activity_line(
+                tool_name=tool_entry.tool_name,
+                preview=tool_entry.preview,
+                outcome=tool_entry.outcome,
+                message=tool_entry.message,
+                duration=tool_entry.duration,
+            )
+            renderable.append_text(
+                self._render_tool_activity_line(
+                    tool_name=tool_entry.tool_name,
+                    preview=tool_entry.preview,
+                    outcome=tool_entry.outcome,
+                    message=tool_entry.message,
+                    duration=tool_entry.duration,
+                )
+            )
+            plain_parts.append(line)
+        plain_text = "".join(plain_parts)
+        self._parts[self._tool_group.index] = TranscriptPart(renderable, plain_text)
+        self._rerender()
 
     @staticmethod
     def _format_tool_activity_line(

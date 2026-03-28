@@ -610,6 +610,101 @@ async def test_tool_rows_preserve_interleaved_assistant_sequence(
 
 
 @pytest.mark.asyncio
+async def test_consecutive_tool_calls_share_one_live_group_block(
+    tmp_path: Path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    sessions_root.mkdir()
+
+    app = CodingAgentApp(
+        model="ollama:test",
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+        thinking=None,
+    )
+
+    async with app.run_test() as _pilot:
+        transcript = app.query_one("#output", TranscriptLog)
+        transcript.clear()
+
+        write_stream_event(
+            transcript,
+            SimpleNamespace(
+                type="tool_call_started",
+                tool_name="bash",
+                tool_call_id="call-1",
+                args={"command": "git log --oneline -5"},
+                args_valid=True,
+                activity=SimpleNamespace(
+                    title="bash git log --oneline -5",
+                    summary=None,
+                    duration_ms=None,
+                ),
+            ),
+        )
+        write_stream_event(
+            transcript,
+            SimpleNamespace(
+                type="tool_call_succeeded",
+                tool_name="bash",
+                tool_call_id="call-1",
+                result={"ok": True},
+                activity=SimpleNamespace(
+                    title="bash git log --oneline -5",
+                    summary="command exited 0",
+                    duration_ms=19,
+                ),
+            ),
+        )
+        write_stream_event(
+            transcript,
+            SimpleNamespace(
+                type="tool_call_started",
+                tool_name="bash",
+                tool_call_id="call-2",
+                args={"command": "git show --stat HEAD"},
+                args_valid=True,
+                activity=SimpleNamespace(
+                    title="bash git show --stat HEAD",
+                    summary=None,
+                    duration_ms=None,
+                ),
+            ),
+        )
+        write_stream_event(
+            transcript,
+            SimpleNamespace(
+                type="tool_call_succeeded",
+                tool_name="bash",
+                tool_call_id="call-2",
+                result={"ok": True},
+                activity=SimpleNamespace(
+                    title="bash git show --stat HEAD",
+                    summary="command exited 0",
+                    duration_ms=28,
+                ),
+            ),
+        )
+
+        assert len(transcript._parts) == 1
+        assert "bash  git log --oneline -5  ok 19ms" in transcript.plain_text
+        assert "bash  git show --stat HEAD  ok 28ms" in transcript.plain_text
+
+        write_stream_event(
+            transcript,
+            SimpleNamespace(
+                type="assistant_text_delta",
+                delta="Done reviewing commits.",
+            ),
+        )
+
+        assert len(transcript._parts) == 2
+        assert transcript.plain_text.endswith("Done reviewing commits.")
+
+
+@pytest.mark.asyncio
 async def test_prompt_history_recall_and_draft_restore(tmp_path: Path) -> None:
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()

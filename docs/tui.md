@@ -64,6 +64,7 @@ agenda.
 - Tool rows should treat backend `activity.title` and `activity.summary` as the authoritative label/summary when those fields are present.
 - Finished tool rows may show backend `activity.duration_ms` when it adds timing context without crowding the transcript.
 - Tool rows should read left-to-right as action first, then status/timing in the tail.
+- Consecutive tool calls should group into one live activity block and update in place until assistant synthesis resumes.
 - Completed assistant turns should settle into readable prose/Markdown instead of remaining raw streamed text.
 - The prompt is the single input surface for chat and slash commands.
 - Composer ergonomics should favor shell-like recall over editor-like complexity.
