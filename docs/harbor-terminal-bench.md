@@ -214,6 +214,63 @@ Submission guidance:
   explicitly decide to package them separately after validating they satisfy the
   official submission rules
 
+## Sliced Submission Run
+
+If you want to submit in batches, use the slice launcher:
+
+```bash
+TASK_FILE=tasks/slice-a.txt SUBMISSION_ID=glm5-high \
+scripts/run_tb2_submission_glm5_slice.sh
+```
+
+The task file must be newline-delimited:
+
+```text
+fix-git
+regex-log
+log-summary-date-ranges
+```
+
+What the slice launcher does:
+
+- treats one slice as a fixed task list
+- runs one Harbor pass per invocation by default, with `--n-attempts 1`
+- records only completed pass jobs for that slice
+- resumes from the last completed pass when rerun with the same
+  `SUBMISSION_ID` and `TASK_FILE`
+- stores slice bundle state under
+  `jobs/submission-bundles/<submission-id>/slices/<slice-name>/`
+
+Recommended batching pattern:
+
+- split the dataset into fixed slices once, for example `a.txt`, `b.txt`, `c.txt`
+- keep slice membership stable for the whole submission campaign
+- run pass 1 for each slice, then pass 2 for each slice, and so on until pass 5
+
+Useful commands:
+
+```bash
+# Show status for one slice.
+ACTION=status TASK_FILE=tasks/slice-a.txt SUBMISSION_ID=glm5-high \
+scripts/run_tb2_submission_glm5_slice.sh
+
+# Run two slice passes back-to-back.
+PASSES_PER_RUN=2 TASK_FILE=tasks/slice-a.txt SUBMISSION_ID=glm5-high \
+scripts/run_tb2_submission_glm5_slice.sh
+
+# Override the derived slice name if needed.
+SLICE_NAME=first-50 TASK_FILE=tasks/slice-a.txt SUBMISSION_ID=glm5-high \
+scripts/run_tb2_submission_glm5_slice.sh
+```
+
+Submission guidance for slices:
+
+- only submit the intact Harbor job directories recorded in each slice manifest
+- do not splice trials from different Harbor jobs into one job directory
+- to reach the leaderboard minimum, each task still needs `5` trials overall
+- the official submission repo accepts a job or folder of jobs, so separate
+  intact slice jobs are valid as long as you keep them intact
+
 Expected prerequisites before you launch it:
 
 - `OLLAMA_API_KEY` is exported or present in `.env`
