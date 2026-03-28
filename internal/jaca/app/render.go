@@ -184,18 +184,17 @@ func buildPromptFooterText(phase Phase, thinking string, override string) string
 	if override != "" {
 		return override
 	}
-	effort := buildThinkingFooterText(thinking)
 	switch phase {
 	case PhaseStreaming:
-		return joinFooterParts("esc to interrupt", effort)
+		return joinFooterParts("esc to interrupt", buildThinkingFooterText(thinking))
 	case PhaseCompacting:
-		return joinFooterParts("compacting session", effort)
+		return "compacting session"
 	case PhaseCompleted:
-		return joinFooterParts("ready", effort)
+		return "ready"
 	case PhaseError:
-		return joinFooterParts("last run failed", "edit prompt or retry", effort)
+		return "last run failed  edit prompt or retry"
 	default:
-		return joinFooterParts("ready", "/help", "up/down recall", "esc clear", effort)
+		return "ready"
 	}
 }
 
