@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Self
 
-from rich.markdown import Markdown
 from rich.padding import Padding
 from rich.style import Style
 from rich.text import Text
@@ -94,6 +94,10 @@ class TranscriptLog(RichLog):
 
     LIVE_FLUSH_DELAY = 0.05
     ASSISTANT_LEFT_PAD = 2
+    _HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)$")
+    _UNORDERED_ITEM_RE = re.compile(r"^[-*+]\s+(.*)$")
+    _ORDERED_ITEM_RE = re.compile(r"^(\d+)\.\s+(.*)$")
+    _INLINE_TOKEN_RE = re.compile(r"(`[^`]+`|\*\*[^*]+\*\*)")
 
     def __init__(
         self,
@@ -191,16 +195,7 @@ class TranscriptLog(RichLog):
             return
 
         markdown_part = TranscriptPart(
-            Padding.indent(
-                Markdown(
-                    markdown_text,
-                    code_theme="bw",
-                    inline_code_theme="bw",
-                    hyperlinks=False,
-                    style=Style(color=DEFAULT_THEME.text_soft, dim=True),
-                ),
-                self.ASSISTANT_LEFT_PAD,
-            ),
+            self._render_completed_assistant(markdown_text),
             markdown_text,
         )
         if self._live_part_index is not None:
@@ -455,6 +450,100 @@ class TranscriptLog(RichLog):
             Text(text, style=Style(color=DEFAULT_THEME.text_soft, dim=True)),
             self.ASSISTANT_LEFT_PAD,
         )
+
+    def _render_completed_assistant(self, markdown_text: str) -> Padding:
+        text = Text()
+        in_code_block = False
+
+        for raw_line in markdown_text.splitlines():
+            line = raw_line.rstrip()
+
+            if line.startswith("```"):
+                in_code_block = not in_code_block
+                if text and not text.plain.endswith("\n\n"):
+                    text.append("\n")
+                continue
+
+            if in_code_block:
+                text.append("    ", style=Style(color=DEFAULT_THEME.text_muted))
+                text.append(line, style=Style(color=DEFAULT_THEME.text))
+                text.append("\n")
+                continue
+
+            if not line:
+                text.append("\n")
+                continue
+
+            heading_match = self._HEADING_RE.match(line)
+            if heading_match is not None:
+                if text and not text.plain.endswith("\n\n"):
+                    text.append("\n")
+                text.append(
+                    heading_match.group(2),
+                    style=Style(color=DEFAULT_THEME.text_soft, bold=True),
+                )
+                text.append("\n")
+                continue
+
+            unordered_match = self._UNORDERED_ITEM_RE.match(line)
+            if unordered_match is not None:
+                text.append("    ", style=Style(color=DEFAULT_THEME.text_muted))
+                self._append_inline_segments(
+                    text,
+                    unordered_match.group(1),
+                    base_style=Style(color=DEFAULT_THEME.text_soft, dim=True),
+                )
+                text.append("\n")
+                continue
+
+            ordered_match = self._ORDERED_ITEM_RE.match(line)
+            if ordered_match is not None:
+                text.append(
+                    f"{ordered_match.group(1)}. ",
+                    style=Style(color=DEFAULT_THEME.text_muted),
+                )
+                self._append_inline_segments(
+                    text,
+                    ordered_match.group(2),
+                    base_style=Style(color=DEFAULT_THEME.text_soft, dim=True),
+                )
+                text.append("\n")
+                continue
+
+            self._append_inline_segments(
+                text,
+                line,
+                base_style=Style(color=DEFAULT_THEME.text_soft, dim=True),
+            )
+            text.append("\n")
+
+        return Padding.indent(text, self.ASSISTANT_LEFT_PAD)
+
+    def _append_inline_segments(
+        self,
+        text: Text,
+        content: str,
+        *,
+        base_style: Style,
+    ) -> None:
+        cursor = 0
+        for match in self._INLINE_TOKEN_RE.finditer(content):
+            if match.start() > cursor:
+                text.append(content[cursor : match.start()], style=base_style)
+            token = match.group(0)
+            if token.startswith("`"):
+                text.append(
+                    token[1:-1],
+                    style=Style(color=DEFAULT_THEME.text, bold=True),
+                )
+            elif token.startswith("**"):
+                text.append(
+                    token[2:-2],
+                    style=Style(color=DEFAULT_THEME.text_soft, bold=True),
+                )
+            cursor = match.end()
+        if cursor < len(content):
+            text.append(content[cursor:], style=base_style)
 
 
 __all__ = ["APP_CSS", "ComposerInput", "StatusBar", "TranscriptLog", "TranscriptPart"]

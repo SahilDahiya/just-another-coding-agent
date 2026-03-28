@@ -100,6 +100,16 @@ StatusBar.phase-error {{
     border-top: solid {theme.border};
 }}
 
+#prompt-input-row {{
+    height: 1;
+}}
+
+#prompt-footer {{
+    height: 1;
+    padding: 0 0 0 3;
+    color: {theme.text_muted};
+}}
+
 #prompt-row.phase-streaming {{
     border-top: solid {theme.accent};
 }}
@@ -118,6 +128,26 @@ StatusBar.phase-error {{
 
 #prompt-row.phase-error {{
     border-top: solid {theme.error};
+}}
+
+#prompt-footer.phase-streaming {{
+    color: {theme.accent_soft};
+}}
+
+#prompt-footer.phase-compacting {{
+    color: {theme.accent};
+}}
+
+#prompt-footer.phase-completed {{
+    color: {theme.success_soft};
+}}
+
+#prompt-footer.phase-interrupted {{
+    color: {theme.accent_soft};
+}}
+
+#prompt-footer.phase-error {{
+    color: {theme.error};
 }}
 
 #prompt-marker {{

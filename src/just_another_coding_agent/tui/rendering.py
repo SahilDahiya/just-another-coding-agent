@@ -40,6 +40,21 @@ def build_prompt_marker_text(phase: UiPhase, motion_tick: int = 0) -> str:
     return "> "
 
 
+def build_prompt_footer_text(phase: UiPhase) -> str:
+    """Render one low-salience footer line for the prompt zone."""
+    if phase == UiPhase.STREAMING:
+        return "working  ctrl+c interrupt"
+    if phase == UiPhase.COMPACTING:
+        return "compacting session"
+    if phase == UiPhase.COMPLETED:
+        return "ready"
+    if phase == UiPhase.INTERRUPTED:
+        return "interrupted  enter next prompt"
+    if phase == UiPhase.ERROR:
+        return "last run failed  edit prompt or retry"
+    return "ready  /help  up/down recall  ctrl+u clear"
+
+
 def display_path(path: Path) -> str:
     """Render a path relative to the home directory when possible."""
     resolved = path.resolve()
@@ -151,7 +166,7 @@ def write_user_turn(output: TranscriptLog, prompt: str) -> None:
     user_line = Text()
     user_line.append(">", style=Style(color=DEFAULT_THEME.accent))
     user_line.append(" ")
-    user_line.append(prompt, style=Style(color=DEFAULT_THEME.text_soft))
+    user_line.append(prompt, style=Style(color=DEFAULT_THEME.text, bold=True))
     user_line.append("\n")
     output.write_renderable(user_line, f"> {prompt}\n")
 
@@ -296,6 +311,7 @@ def write_stream_event(output: TranscriptLog, event: Any) -> None:
 __all__ = [
     "display_path",
     "build_phase_label",
+    "build_prompt_footer_text",
     "build_prompt_marker_text",
     "build_status_text",
     "build_tool_duration",

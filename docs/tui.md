@@ -67,9 +67,12 @@ agenda.
 - Consecutive tool calls should group into one live activity block and update in place until assistant synthesis resumes.
 - Completed assistant turns should settle into readable prose/Markdown instead of remaining raw streamed text.
 - The prompt is the single input surface for chat and slash commands.
+- The prompt zone should behave like a compact two-line shell composer: one input line, one low-salience footer line for state and recall hints.
+- Historical user turns should still read like prompt echoes in the transcript, not like assistant prose.
 - Composer ergonomics should favor shell-like recall over editor-like complexity.
 - Persistent helper chrome should be minimal; slash-command discoverability must not dominate the idle shell.
 - Prompt history and draft recovery belong in the prompt zone; command palettes and secondary controls do not.
+- Completed assistant lists should read as indented terminal notes, not decorative article bullets.
 
 ## North Star
 

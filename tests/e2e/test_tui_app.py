@@ -3,9 +3,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from rich.markdown import Markdown
 from rich.padding import Padding
-from textual.containers import Horizontal
+from textual.containers import Horizontal, Vertical
 from textual.widgets import Input, Static
 
 from just_another_coding_agent.tui.app import CodingAgentApp
@@ -32,7 +31,9 @@ async def test_tui_app_starts_and_focuses_prompt(tmp_path: Path) -> None:
         prompt_input = app.query_one("#prompt-input", Input)
         transcript = app.query_one("#output", TranscriptLog)
         status_bar = app.query_one("#status-bar", StatusBar)
-        prompt_row = app.query_one("#prompt-row", Horizontal)
+        prompt_row = app.query_one("#prompt-row", Vertical)
+        prompt_input_row = app.query_one("#prompt-input-row", Horizontal)
+        prompt_footer = app.query_one("#prompt-footer", Static)
 
         await asyncio.sleep(
             app.STARTUP_REVEAL_DURATION + (app.STARTUP_REVEAL_STAGGER * 3)
@@ -48,12 +49,16 @@ async def test_tui_app_starts_and_focuses_prompt(tmp_path: Path) -> None:
         assert status_bar.styles.opacity == 1
         assert transcript.styles.opacity == 1
         assert prompt_row.styles.opacity == 1
+        assert prompt_input_row.styles.opacity == 1
         assert transcript.plain_text.startswith("jaca  ")
         assert "system" not in transcript.plain_text
         assert "idle" in str(status_bar.renderable)
         assert "ollama:test" in str(status_bar.renderable)
         assert transcript.plain_text.count("jaca  ") == 1
         assert transcript.plain_text.count("ollama http://localhost:11434/v1") == 1
+        assert "ready" in str(prompt_footer.renderable)
+        assert "/help" in str(prompt_footer.renderable)
+        assert "recall" in str(prompt_footer.renderable)
 
 
 @pytest.mark.asyncio
@@ -288,14 +293,13 @@ async def test_completed_assistant_turn_is_rendered_as_markdown(
     async with app.run_test() as pilot:
         await pilot.press("r", "e", "v", "i", "e", "w", "enter")
         transcript = app.query_one("#output", TranscriptLog)
-        markdown_parts = [
+        assistant_blocks = [
             part.renderable
             for part in transcript._parts
             if isinstance(part.renderable, Padding)
-            and isinstance(part.renderable.renderable, Markdown)
         ]
 
-        assert markdown_parts
+        assert assistant_blocks
         assert "## Review" in transcript.plain_text
         assert "- first point" in transcript.plain_text
 

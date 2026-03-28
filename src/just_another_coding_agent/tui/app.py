@@ -22,6 +22,7 @@ from .drivers import (
     running_in_vscode_terminal,
 )
 from .rendering import (
+    build_prompt_footer_text,
     build_prompt_marker_text,
     display_path,
     resolve_thinking_setting,
@@ -80,13 +81,15 @@ class CodingAgentApp(App[None]):
         yield StatusBar(id="status-bar")
         with Vertical(id="main"):
             yield TranscriptLog(id="output")
-            with Horizontal(id="prompt-row"):
-                yield Static("> ", id="prompt-marker")
-                yield ComposerInput(
-                    placeholder="",
-                    id="prompt-input",
-                    classes="-textual-compact",
-                )
+            with Vertical(id="prompt-row"):
+                with Horizontal(id="prompt-input-row"):
+                    yield Static("> ", id="prompt-marker")
+                    yield ComposerInput(
+                        placeholder="",
+                        id="prompt-input",
+                        classes="-textual-compact",
+                    )
+                yield Static("", id="prompt-footer")
 
     def get_driver_class(self) -> type[Driver]:
         """Select a Textual driver, with a VS Code terminal workaround."""
@@ -133,11 +136,11 @@ class CodingAgentApp(App[None]):
                 easing="out_cubic",
             )
 
-    def _shell_widgets(self) -> tuple[Static | Horizontal | TranscriptLog, ...]:
+    def _shell_widgets(self) -> tuple[Static | Vertical | TranscriptLog, ...]:
         return (
             self.query_one("#status-bar", StatusBar),
             self.query_one("#output", TranscriptLog),
-            self.query_one("#prompt-row", Horizontal),
+            self.query_one("#prompt-row", Vertical),
         )
 
     def _update_status_bar(self) -> None:
@@ -154,17 +157,20 @@ class CodingAgentApp(App[None]):
         try:
             prompt_marker = self.query_one("#prompt-marker", Static)
             status_bar = self.query_one("#status-bar", StatusBar)
-            prompt_row = self.query_one("#prompt-row", Horizontal)
+            prompt_row = self.query_one("#prompt-row", Vertical)
+            prompt_footer = self.query_one("#prompt-footer", Static)
         except NoMatches:
             return
         prompt_marker.update(
             build_prompt_marker_text(self._state.phase, self._motion_tick)
         )
+        prompt_footer.update(build_prompt_footer_text(self._state.phase))
         phase_class = f"phase-{self._state.phase}"
         for widget in (
             status_bar,
             prompt_row,
             prompt_marker,
+            prompt_footer,
         ):
             widget.remove_class(*self.PHASE_CLASSES)
             widget.add_class(phase_class)
