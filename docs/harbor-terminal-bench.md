@@ -164,6 +164,53 @@ Notes:
 - export `JUST_ANOTHER_CODING_AGENT_THINKING=high` when you want submission-style `thinking=high` runs through the checked-in Harbor adapter
 - use downloaded session artifacts when you need to inspect a failed run
 
+## Simple Harness
+
+For day-to-day use, prefer the short harness:
+
+```bash
+scripts/tb2_glm5.sh
+```
+
+It wraps the longer launchers and gives you two commands:
+
+```bash
+# Full-dataset run/status.
+scripts/tb2_glm5.sh run <submission-id>
+scripts/tb2_glm5.sh status <submission-id>
+
+# One or more slices from task files.
+scripts/tb2_glm5.sh run <submission-id> tasks/a.txt
+scripts/tb2_glm5.sh status <submission-id> tasks/a.txt
+scripts/tb2_glm5.sh run <submission-id> tasks/a.txt tasks/b.txt tasks/c.txt
+
+# Optional number of passes to run in one invocation.
+scripts/tb2_glm5.sh run <submission-id> --passes 2 tasks/a.txt
+```
+
+What it does:
+
+- with no task files, it delegates to the full-dataset launcher
+- with one or more task files, it delegates to the slice launcher for each file
+- `status` never starts Harbor
+- `run` starts Harbor and records only completed jobs
+
+Examples:
+
+```bash
+# Run the next full pass.
+scripts/tb2_glm5.sh run glm5-high
+
+# Check full-bundle status.
+scripts/tb2_glm5.sh status glm5-high
+
+# Run one pass for three fixed slices.
+scripts/tb2_glm5.sh run glm5-high tasks/a.txt tasks/b.txt tasks/c.txt
+
+# Check one slice.
+scripts/tb2_glm5.sh status glm5-high tasks/a.txt
+```
+
 ## Full Submission Run
 
 For the full Terminal Bench 2.0 submission-style GLM-5 run, use the checked-in
