@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+import re
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -13,7 +15,17 @@ from just_another_coding_agent.contracts.thinking import ThinkingSetting
 
 from .state import UiPhase, UiState
 from .theme import DEFAULT_THEME
-from .widgets import StatusBar, TranscriptLog
+from .widgets import StatusBar, ToolDetailLine, TranscriptLog
+
+_EDIT_HUNK_RE = re.compile(r"^@@ -(?P<old>\d+)(?:,\d+)? \+(?P<new>\d+)(?:,\d+)? @@")
+_EDIT_DETAIL_MAX_LINES = 12
+
+
+@dataclass(frozen=True, slots=True)
+class _ParsedEditDiffLine:
+    line_no: int | None
+    marker: str
+    content: str
 
 
 def build_phase_label(phase: UiPhase, motion_tick: int = 0) -> str:
@@ -232,6 +244,223 @@ def build_tool_duration(activity: Any | None) -> str | None:
     return f"{duration_ms / 1000:.1f}s"
 
 
+def extract_tool_result_text(result: Any) -> str | None:
+    """Extract displayable text from a tool call result."""
+    if result is None:
+        return None
+    if isinstance(result, str):
+        stripped = result.strip()
+        return stripped if stripped else None
+    if isinstance(result, dict):
+        if result.get("ok") is False:
+            return None
+        output = result.get("output")
+        if isinstance(output, str) and output.strip():
+            return output.strip()
+        return None
+    return None
+
+
+def build_tool_detail_lines(activity: Any | None) -> list[ToolDetailLine] | None:
+    """Build structured tool detail lines for activity kinds with richer views."""
+    details = getattr(activity, "details", None)
+    if getattr(details, "kind", None) != "edit":
+        return None
+
+    path = getattr(details, "path", None)
+    if not isinstance(path, str) or not path:
+        return None
+
+    detail_lines = [
+        _detail_line(
+            plain_text=f"  Update({path})\n",
+            content=f"Update({path})",
+            content_style=Style(color=DEFAULT_THEME.text_soft, bold=True),
+        )
+    ]
+
+    line_summary = _format_edit_line_summary(
+        added_lines=getattr(details, "added_lines", None),
+        removed_lines=getattr(details, "removed_lines", None),
+    )
+    if line_summary is not None:
+        detail_lines.append(
+            _detail_line(
+                plain_text=f"  │ {line_summary}\n",
+                content=line_summary,
+                content_style=Style(color=DEFAULT_THEME.text_muted),
+                prefix="  │ ",
+            )
+        )
+
+    diff = getattr(details, "diff", None)
+    if isinstance(diff, str) and diff.strip():
+        detail_lines.extend(_render_edit_diff_lines(diff))
+
+    return detail_lines
+
+
+def _format_edit_line_summary(
+    *, added_lines: Any, removed_lines: Any
+) -> str | None:
+    if not isinstance(added_lines, int) and not isinstance(removed_lines, int):
+        return None
+
+    parts: list[str] = []
+    if isinstance(added_lines, int):
+        noun = "line" if added_lines == 1 else "lines"
+        parts.append(f"Added {added_lines} {noun}")
+    if isinstance(removed_lines, int):
+        noun = "line" if removed_lines == 1 else "lines"
+        parts.append(f"removed {removed_lines} {noun}")
+    if not parts:
+        return None
+    return ", ".join(parts)
+
+
+def _render_edit_diff_lines(diff_text: str) -> list[ToolDetailLine]:
+    rows = _parse_edit_diff_rows(diff_text)
+    if not rows:
+        return []
+
+    truncated = len(rows) > _EDIT_DETAIL_MAX_LINES
+    rows = rows[:_EDIT_DETAIL_MAX_LINES]
+    width = max(
+        (len(str(row.line_no)) for row in rows if row.line_no is not None),
+        default=1,
+    )
+    rendered = [_render_edit_diff_line(row, width=width) for row in rows]
+    if truncated:
+        rendered.append(
+            _detail_line(
+                plain_text="  │ ...\n",
+                content="...",
+                content_style=Style(color=DEFAULT_THEME.text_muted, dim=True),
+                prefix="  │ ",
+            )
+        )
+    return rendered
+
+
+def _parse_edit_diff_rows(diff_text: str) -> list[_ParsedEditDiffLine]:
+    rows: list[_ParsedEditDiffLine] = []
+    old_line = 0
+    new_line = 0
+
+    for raw_line in diff_text.splitlines():
+        if raw_line.startswith(("--- ", "+++ ", "\\ No newline")):
+            continue
+        hunk_match = _EDIT_HUNK_RE.match(raw_line)
+        if hunk_match is not None:
+            old_line = int(hunk_match.group("old"))
+            new_line = int(hunk_match.group("new"))
+            rows.append(
+                _ParsedEditDiffLine(
+                    line_no=None,
+                    marker="@@",
+                    content=raw_line,
+                )
+            )
+            continue
+        if raw_line.startswith(" "):
+            rows.append(
+                _ParsedEditDiffLine(
+                    line_no=new_line,
+                    marker=" ",
+                    content=raw_line[1:],
+                )
+            )
+            old_line += 1
+            new_line += 1
+            continue
+        if raw_line.startswith("-"):
+            rows.append(
+                _ParsedEditDiffLine(
+                    line_no=old_line,
+                    marker="-",
+                    content=raw_line[1:],
+                )
+            )
+            old_line += 1
+            continue
+        if raw_line.startswith("+"):
+            rows.append(
+                _ParsedEditDiffLine(
+                    line_no=new_line,
+                    marker="+",
+                    content=raw_line[1:],
+                )
+            )
+            new_line += 1
+            continue
+
+    return rows
+
+
+def _render_edit_diff_line(
+    row: _ParsedEditDiffLine, *, width: int
+) -> ToolDetailLine:
+    prefix = Text("  │ ", style=Style(color=DEFAULT_THEME.text_muted, dim=True))
+    plain_text = "  │ "
+
+    if row.marker == "@@":
+        content_style = Style(color=DEFAULT_THEME.accent_soft, dim=True)
+        content = Text(row.content, style=content_style)
+        plain_text += row.content
+    else:
+        number_text = (
+            f"{row.line_no:>{width}}" if row.line_no is not None else " " * width
+        )
+        number = Text(
+            number_text,
+            style=Style(color=DEFAULT_THEME.text_muted, dim=True),
+        )
+        content = Text()
+        content.append_text(number)
+        content.append(" ", style=Style(color=DEFAULT_THEME.text_muted, dim=True))
+        plain_text += f"{number_text} "
+
+        marker_style = Style(color=DEFAULT_THEME.text_muted, dim=True)
+        line_style = Style(color=DEFAULT_THEME.text_muted, dim=True)
+        if row.marker == "-":
+            marker_style = Style(color=DEFAULT_THEME.error)
+            line_style = Style(color=DEFAULT_THEME.error)
+        elif row.marker == "+":
+            marker_style = Style(color=DEFAULT_THEME.success_soft)
+            line_style = Style(color=DEFAULT_THEME.success_soft)
+
+        if row.marker in {"-", "+"}:
+            content.append(row.marker, style=marker_style)
+            content.append(" ", style=Style(color=DEFAULT_THEME.text_muted, dim=True))
+            plain_text += f"{row.marker} "
+        else:
+            content.append("  ", style=Style(color=DEFAULT_THEME.text_muted, dim=True))
+            plain_text += "  "
+
+        content.append(row.content, style=line_style)
+        plain_text += row.content
+
+    renderable = Text()
+    renderable.append_text(prefix)
+    renderable.append_text(content)
+    renderable.append("\n")
+    return ToolDetailLine(renderable=renderable, plain_text=plain_text + "\n")
+
+
+def _detail_line(
+    *,
+    plain_text: str,
+    content: str,
+    content_style: Style,
+    prefix: str = "  ",
+) -> ToolDetailLine:
+    renderable = Text()
+    renderable.append(prefix, style=Style(color=DEFAULT_THEME.text_muted, dim=True))
+    renderable.append(content, style=content_style)
+    renderable.append("\n")
+    return ToolDetailLine(renderable=renderable, plain_text=plain_text)
+
+
 def _truncate_inline(text: str, *, limit: int = 56) -> str:
     """Collapse whitespace and truncate for compact transcript rows."""
     normalized = " ".join(text.split())
@@ -270,6 +499,10 @@ def write_stream_event(output: TranscriptLog, event: Any) -> None:
     elif event.type == "tool_call_succeeded":
         activity = getattr(event, "activity", None)
         result = event.result  # type: ignore[union-attr]
+        detail_lines = build_tool_detail_lines(activity)
+        result_text = (
+            None if detail_lines is not None else extract_tool_result_text(result)
+        )
         if isinstance(result, dict) and result.get("ok") is False:
             output.fail_tool_activity(
                 event.tool_call_id,  # type: ignore[union-attr]
@@ -286,6 +519,8 @@ def write_stream_event(output: TranscriptLog, event: Any) -> None:
                 event.tool_call_id,  # type: ignore[union-attr]
                 build_tool_summary(activity),
                 build_tool_duration(activity),
+                detail_lines=detail_lines,
+                result_text=result_text,
             )
     elif event.type == "tool_call_failed":
         activity = getattr(event, "activity", None)
@@ -317,6 +552,7 @@ __all__ = [
     "build_tool_duration",
     "build_tool_preview",
     "build_tool_summary",
+    "extract_tool_result_text",
     "resolve_thinking_setting",
     "update_status_bar",
     "write_startup_banner",

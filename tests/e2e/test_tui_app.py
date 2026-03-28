@@ -3,7 +3,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from rich.padding import Padding
+from rich.text import Text
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Input, Static
 
@@ -85,7 +85,7 @@ async def test_startup_banner_is_idempotent(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_startup_banner_respects_existing_transcript_banner(
+async def test_startup_banner_flag_prevents_double_rendering(
     tmp_path: Path,
 ) -> None:
     workspace_root = tmp_path / "workspace"
@@ -102,11 +102,10 @@ async def test_startup_banner_respects_existing_transcript_banner(
 
     async with app.run_test() as _pilot:
         transcript = app.query_one("#output", TranscriptLog)
-        app._startup_banner_rendered = False
+        assert app._startup_banner_rendered is True
         app._ensure_startup_banner(transcript)
 
         assert transcript.plain_text.count("jaca  ") == 1
-        assert transcript.plain_text.count("ollama http://localhost:11434/v1") == 1
 
 
 @pytest.mark.asyncio
@@ -258,7 +257,14 @@ class DemoInterruptedApp(CodingAgentApp):
 class DemoMarkdownApp(CodingAgentApp):
     async def _run_prompt(self, prompt: str) -> None:
         transcript = self.query_one("#output", TranscriptLog)
-        output_text = "## Review\n\n- first point\n- second point\n\n`inline code`"
+        output_text = (
+            "## Review\n\n"
+            "- first point\n"
+            "- second point\n\n"
+            "1. step one\n"
+            "2. step two\n\n"
+            "`inline code`"
+        )
         write_stream_event(
             transcript,
             SimpleNamespace(type="assistant_text_delta", delta=output_text),
@@ -318,18 +324,18 @@ async def test_completed_assistant_turn_is_rendered_as_markdown(
     async with app.run_test() as pilot:
         await pilot.press("r", "e", "v", "i", "e", "w", "enter")
         transcript = app.query_one("#output", TranscriptLog)
+        assert "## Review" in transcript.plain_text
+        assert "- first point" in transcript.plain_text
+        assert "1. step one" in transcript.plain_text
         assistant_blocks = [
             part.renderable
             for part in transcript._parts
-            if isinstance(part.renderable, Padding)
+            if isinstance(part.renderable, Text) and "Review" in part.plain_text
         ]
-
         assert assistant_blocks
-        assert "## Review" in transcript.plain_text
-        assert "- first point" in transcript.plain_text
-        rendered_assistant = assistant_blocks[-1].renderable
-        assert "  - " not in rendered_assistant.plain
-        assert "1. " not in rendered_assistant.plain
+        rendered_text = assistant_blocks[-1].plain
+        assert "  - " not in rendered_text
+        assert "1. " in rendered_text
 
 
 @pytest.mark.asyncio
@@ -457,6 +463,104 @@ async def test_file_tool_rows_use_path_preview_and_success_state(
 
         assert "write  notes/plan.md  ok 35ms" in transcript.plain_text
         assert "wrong/path.md" not in transcript.plain_text
+
+
+@pytest.mark.asyncio
+async def test_edit_tool_rows_render_structured_diff_blocks(
+    tmp_path: Path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    sessions_root.mkdir()
+
+    app = CodingAgentApp(
+        model="ollama:test",
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+        thinking=None,
+    )
+
+    async with app.run_test() as _pilot:
+        transcript = app.query_one("#output", TranscriptLog)
+        write_stream_event(
+            transcript,
+            SimpleNamespace(
+                type="tool_call_started",
+                tool_name="edit",
+                tool_call_id="call-edit",
+                args={
+                    "path": "src/just_another_coding_agent/tui/widgets.py",
+                    "old_text": "old",
+                    "new_text": "new",
+                },
+                args_valid=True,
+                activity=SimpleNamespace(
+                    title="edit src/just_another_coding_agent/tui/widgets.py",
+                    summary=None,
+                    duration_ms=None,
+                    details=SimpleNamespace(
+                        kind="edit",
+                        path="src/just_another_coding_agent/tui/widgets.py",
+                        diff=None,
+                        added_lines=None,
+                        removed_lines=None,
+                    ),
+                ),
+            ),
+        )
+        write_stream_event(
+            transcript,
+            SimpleNamespace(
+                type="tool_call_succeeded",
+                tool_name="edit",
+                tool_call_id="call-edit",
+                result=(
+                    "Edited /tmp/workspace/src/just_another_coding_agent/tui/"
+                    "widgets.py"
+                ),
+                activity=SimpleNamespace(
+                    title="edit src/just_another_coding_agent/tui/widgets.py",
+                    summary="edit applied",
+                    duration_ms=83,
+                    details=SimpleNamespace(
+                        kind="edit",
+                        path="src/just_another_coding_agent/tui/widgets.py",
+                        diff=(
+                            "--- src/just_another_coding_agent/tui/widgets.py\n"
+                            "+++ src/just_another_coding_agent/tui/widgets.py\n"
+                            "@@ -100,2 +100,4 @@\n"
+                            " LIVE_FLUSH_DELAY = 0.05\n"
+                            " ASSISTANT_LEFT_PAD = 2\n"
+                            "-TOOL_OUTPUT_INDENT_STR = \" \"  # aligns with "
+                            "marker width\n"
+                            "+TOOL_OUTPUT_PREFIX = \"  | \"\n"
+                            "+TOOL_OUTPUT_CONT = \"  | \"\n"
+                            "+TOOL_OUTPUT_LAST = \"  └ \"\n"
+                        ),
+                        added_lines=3,
+                        removed_lines=1,
+                    ),
+                ),
+            ),
+        )
+
+        assert (
+            "edit  src/just_another_coding_agent/tui/widgets.py"
+            in transcript.plain_text
+        )
+        assert (
+            "Update(src/just_another_coding_agent/tui/widgets.py)"
+            in transcript.plain_text
+        )
+        assert "Added 3 lines, removed 1 line" in transcript.plain_text
+        assert "100   LIVE_FLUSH_DELAY = 0.05" in transcript.plain_text
+        assert (
+            '102 - TOOL_OUTPUT_INDENT_STR = " "  # aligns with marker width'
+            in transcript.plain_text
+        )
+        assert '102 + TOOL_OUTPUT_PREFIX = "  | "' in transcript.plain_text
+        assert '104 + TOOL_OUTPUT_LAST = "  └ "' in transcript.plain_text
 
 
 @pytest.mark.asyncio

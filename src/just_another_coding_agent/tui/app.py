@@ -89,6 +89,7 @@ class CodingAgentApp(App[None]):
                         id="prompt-input",
                         classes="-textual-compact",
                     )
+                yield Static("", id="prompt-status")
                 yield Static("", id="prompt-footer")
 
     def get_driver_class(self) -> type[Driver]:
@@ -112,8 +113,7 @@ class CodingAgentApp(App[None]):
         self._start_startup_reveal()
 
     def _ensure_startup_banner(self, output: TranscriptLog) -> None:
-        if self._startup_banner_rendered or output.plain_text.startswith("jaca  "):
-            self._startup_banner_rendered = True
+        if self._startup_banner_rendered:
             return
         write_startup_banner(
             output,

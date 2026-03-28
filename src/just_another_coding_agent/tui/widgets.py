@@ -6,7 +6,6 @@ import re
 from dataclasses import dataclass
 from typing import Self
 
-from rich.padding import Padding
 from rich.style import Style
 from rich.text import Text
 from textual import events
@@ -27,6 +26,9 @@ class TranscriptPart:
     plain_text: str
 
 
+TOOL_OUTPUT_MAX_LINES = 6
+
+
 @dataclass(slots=True)
 class ToolEntry:
     """One tool row within a grouped live tool burst."""
@@ -36,6 +38,9 @@ class ToolEntry:
     outcome: str | None = None
     message: str | None = None
     duration: str | None = None
+    detail_lines: list["ToolDetailLine"] | None = None
+    output_lines: list[str] | None = None
+    output_truncated: bool = False
 
 
 @dataclass(slots=True)
@@ -47,12 +52,22 @@ class ToolGroup:
     entries: dict[str, ToolEntry]
 
 
+@dataclass(slots=True)
+class ToolDetailLine:
+    """One structured detail line rendered under a tool activity row."""
+
+    renderable: Text
+    plain_text: str
+
+
 class StatusBar(Static):
     """Top status bar showing current session state."""
 
 
 class ComposerInput(Input):
     """Single-line prompt input with shell-style history bindings."""
+
+    _cursor_blink_default = False
 
     BINDINGS = [
         *Input.BINDINGS,
@@ -94,6 +109,11 @@ class TranscriptLog(RichLog):
 
     LIVE_FLUSH_DELAY = 0.05
     ASSISTANT_LEFT_PAD = 2
+    ASSISTANT_MARKER = "◦ "
+    TOOL_MARKER = "● "
+    TOOL_OUTPUT_PREFIX = "  └ "
+    TOOL_OUTPUT_CONT = "    "
+    TOOL_OUTPUT_LAST = "    "
     _HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)$")
     _UNORDERED_ITEM_RE = re.compile(r"^[-*+]\s+(.*)$")
     _ORDERED_ITEM_RE = re.compile(r"^(\d+)\.\s+(.*)$")
@@ -237,6 +257,8 @@ class TranscriptLog(RichLog):
         tool_call_id: str,
         summary: str | None = None,
         duration: str | None = None,
+        detail_lines: list[ToolDetailLine] | None = None,
+        result_text: str | None = None,
     ) -> None:
         """Mark one tool entry as completed successfully."""
         tool_entry = self._resolve_or_create_tool_entry(tool_call_id)
@@ -245,6 +267,15 @@ class TranscriptLog(RichLog):
         tool_entry.outcome = "ok"
         tool_entry.message = summary if tool_entry.preview is None else None
         tool_entry.duration = duration
+        tool_entry.detail_lines = detail_lines
+        if result_text:
+            lines = result_text.splitlines()
+            if len(lines) > TOOL_OUTPUT_MAX_LINES:
+                tool_entry.output_lines = lines[:TOOL_OUTPUT_MAX_LINES]
+                tool_entry.output_truncated = True
+            else:
+                tool_entry.output_lines = lines
+                tool_entry.output_truncated = False
         self._rewrite_tool_group()
 
     def fail_tool_activity(
@@ -253,6 +284,7 @@ class TranscriptLog(RichLog):
         tool_name: str,
         message: str,
         duration: str | None = None,
+        result_text: str | None = None,
     ) -> None:
         """Mark one tool entry as failed, preserving any start-row preview."""
         self.flush_live_text()
@@ -265,6 +297,14 @@ class TranscriptLog(RichLog):
         tool_entry.outcome = "error"
         tool_entry.message = message
         tool_entry.duration = duration
+        if result_text:
+            lines = result_text.splitlines()
+            if len(lines) > TOOL_OUTPUT_MAX_LINES:
+                tool_entry.output_lines = lines[:TOOL_OUTPUT_MAX_LINES]
+                tool_entry.output_truncated = True
+            else:
+                tool_entry.output_lines = lines
+                tool_entry.output_truncated = False
         self._rewrite_tool_group()
 
     def clear(self) -> TranscriptLog:
@@ -371,12 +411,42 @@ class TranscriptLog(RichLog):
                 )
             )
             plain_parts.append(line)
+            if tool_entry.detail_lines:
+                for detail_line in tool_entry.detail_lines:
+                    renderable.append_text(detail_line.renderable)
+                    plain_parts.append(detail_line.plain_text)
+            if tool_entry.output_lines:
+                total = len(tool_entry.output_lines)
+                for line_idx, output_line in enumerate(tool_entry.output_lines):
+                    is_last = (
+                        line_idx == total - 1 and not tool_entry.output_truncated
+                    )
+                    if is_last:
+                        prefix = self.TOOL_OUTPUT_LAST
+                    elif line_idx == 0:
+                        prefix = self.TOOL_OUTPUT_PREFIX
+                    else:
+                        prefix = self.TOOL_OUTPUT_CONT
+                    indented = f"{prefix}{output_line}\n"
+                    renderable.append(
+                        indented,
+                        style=Style(color=DEFAULT_THEME.text_muted, dim=True),
+                    )
+                    plain_parts.append(indented)
+                if tool_entry.output_truncated:
+                    more_line = f"{self.TOOL_OUTPUT_LAST}...\n"
+                    renderable.append(
+                        more_line,
+                        style=Style(color=DEFAULT_THEME.text_muted, dim=True),
+                    )
+                    plain_parts.append(more_line)
         plain_text = "".join(plain_parts)
         self._parts[self._tool_group.index] = TranscriptPart(renderable, plain_text)
         self._rerender()
 
-    @staticmethod
+    @classmethod
     def _format_tool_activity_line(
+        cls,
         *,
         tool_name: str,
         preview: str | None,
@@ -384,7 +454,12 @@ class TranscriptLog(RichLog):
         message: str | None = None,
         duration: str | None = None,
     ) -> str:
-        head = tool_name if not preview else f"{tool_name}  {preview}"
+        marker = cls.TOOL_MARKER
+        head = (
+            f"{marker}{tool_name}"
+            if not preview
+            else f"{marker}{tool_name}  {preview}"
+        )
         if outcome and duration and not message:
             return f"{head}  {outcome} {duration}\n"
         if outcome and message and duration:
@@ -397,8 +472,9 @@ class TranscriptLog(RichLog):
             return f"{head}  {duration}\n"
         return f"{head}\n"
 
-    @staticmethod
+    @classmethod
     def _render_tool_activity_line(
+        cls,
         *,
         tool_name: str,
         preview: str | None,
@@ -407,6 +483,10 @@ class TranscriptLog(RichLog):
         duration: str | None = None,
     ) -> Text:
         text = Text()
+        marker_color = DEFAULT_THEME.success_soft if outcome == "ok" else (
+            DEFAULT_THEME.error if outcome == "error" else DEFAULT_THEME.accent
+        )
+        text.append(cls.TOOL_MARKER, style=Style(color=marker_color))
         text.append(tool_name, style=Style(color=DEFAULT_THEME.text_muted))
         if preview:
             text.append("  ")
@@ -445,13 +525,16 @@ class TranscriptLog(RichLog):
         text.append("\n")
         return text
 
-    def _render_assistant_text(self, text: str) -> Padding:
-        return Padding.indent(
-            Text(text, style=Style(color=DEFAULT_THEME.text_soft, dim=True)),
-            self.ASSISTANT_LEFT_PAD,
+    def _render_assistant_text(self, text: str) -> Text:
+        rendered = Text()
+        rendered.append(
+            self.ASSISTANT_MARKER,
+            style=Style(color=DEFAULT_THEME.text_muted),
         )
+        rendered.append(text, style=Style(color=DEFAULT_THEME.text_soft))
+        return rendered
 
-    def _render_completed_assistant(self, markdown_text: str) -> Padding:
+    def _render_completed_assistant(self, markdown_text: str) -> Text:
         text = Text()
         in_code_block = False
 
@@ -491,18 +574,22 @@ class TranscriptLog(RichLog):
                 self._append_inline_segments(
                     text,
                     unordered_match.group(1),
-                    base_style=Style(color=DEFAULT_THEME.text_soft, dim=True),
+                    base_style=Style(color=DEFAULT_THEME.text_soft),
                 )
                 text.append("\n")
                 continue
 
             ordered_match = self._ORDERED_ITEM_RE.match(line)
             if ordered_match is not None:
-                text.append("    ", style=Style(color=DEFAULT_THEME.text_muted))
+                number = ordered_match.group(1)
+                text.append(
+                    f"  {number}. ",
+                    style=Style(color=DEFAULT_THEME.text_muted),
+                )
                 self._append_inline_segments(
                     text,
                     ordered_match.group(2),
-                    base_style=Style(color=DEFAULT_THEME.text_soft, dim=True),
+                    base_style=Style(color=DEFAULT_THEME.text_soft),
                 )
                 text.append("\n")
                 continue
@@ -510,11 +597,11 @@ class TranscriptLog(RichLog):
             self._append_inline_segments(
                 text,
                 line,
-                base_style=Style(color=DEFAULT_THEME.text_soft, dim=True),
+                base_style=Style(color=DEFAULT_THEME.text_soft),
             )
             text.append("\n")
 
-        return Padding.indent(text, self.ASSISTANT_LEFT_PAD)
+        return text
 
     def _append_inline_segments(
         self,
@@ -543,4 +630,11 @@ class TranscriptLog(RichLog):
             text.append(content[cursor:], style=base_style)
 
 
-__all__ = ["APP_CSS", "ComposerInput", "StatusBar", "TranscriptLog", "TranscriptPart"]
+__all__ = [
+    "APP_CSS",
+    "ComposerInput",
+    "StatusBar",
+    "ToolDetailLine",
+    "TranscriptLog",
+    "TranscriptPart",
+]
