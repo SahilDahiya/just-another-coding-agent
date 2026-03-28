@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import json
 import logging
 from collections.abc import AsyncIterator, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from time import monotonic
 from typing import Any
 from uuid import uuid4
@@ -35,12 +37,14 @@ from just_another_coding_agent.contracts.run_events import (
     ToolCallFailedEvent,
     ToolCallStartedEvent,
     ToolCallSucceededEvent,
+    ToolCallUpdatedEvent,
 )
 from just_another_coding_agent.contracts.thinking import ThinkingSetting
 from just_another_coding_agent.runtime.activity import (
     build_failed_tool_activity,
     build_started_tool_activity,
     build_succeeded_tool_activity,
+    build_updated_tool_activity,
 )
 from just_another_coding_agent.runtime.models import build_canonical_model_settings
 from just_another_coding_agent.runtime.recovery import should_retry_run_error
@@ -56,6 +60,23 @@ class _PendingToolCall:
     args: JsonValue | None
     args_valid: bool | None
     started_at: float
+
+
+@dataclass(frozen=True)
+class _QueuedToolUpdate:
+    tool_call_id: str
+    tool_name: str
+    partial_result: JsonValue | None
+
+
+@dataclass(frozen=True)
+class _QueuedRunError:
+    error: Exception
+
+
+@dataclass(frozen=True)
+class _QueuedRunFinished:
+    pass
 
 
 def _build_unbounded_usage_limits() -> UsageLimits:
@@ -92,19 +113,85 @@ async def stream_run_events(
         pending_tool_calls: dict[str, _PendingToolCall] = {}
         saw_streamed_event = False
         terminal_emitted = False
+        queue: asyncio.Queue[object] = asyncio.Queue()
+
+        async def _queue_tool_update(
+            tool_call_id: str,
+            tool_name: str,
+            partial_result: JsonValue | None,
+        ) -> None:
+            await queue.put(
+                _QueuedToolUpdate(
+                    tool_call_id=tool_call_id,
+                    tool_name=tool_name,
+                    partial_result=partial_result,
+                )
+            )
+
+        queued_deps = deps
+        if isinstance(deps, WorkspaceDeps):
+            queued_deps = replace(
+                deps,
+                tool_update_sink=_queue_tool_update,
+            )
+
+        async def _pump_agent_events() -> None:
+            try:
+                async for event in agent.run_stream_events(
+                    prompt,
+                    message_history=message_history,
+                    deps=queued_deps,
+                    model_settings=build_canonical_model_settings(
+                        model=getattr(agent, "model", None),
+                        thinking=thinking,
+                        enable_server_history=enable_server_history,
+                    ),
+                    usage_limits=_build_unbounded_usage_limits(),
+                ):
+                    await queue.put(event)
+            except Exception as error:
+                await queue.put(_QueuedRunError(error))
+            else:
+                await queue.put(_QueuedRunFinished())
+
+        pump_task = asyncio.create_task(_pump_agent_events())
 
         try:
-            async for event in agent.run_stream_events(
-                prompt,
-                message_history=message_history,
-                deps=deps,
-                model_settings=build_canonical_model_settings(
-                    model=getattr(agent, "model", None),
-                    thinking=thinking,
-                    enable_server_history=enable_server_history,
-                ),
-                usage_limits=_build_unbounded_usage_limits(),
-            ):
+            while True:
+                event = await queue.get()
+                if isinstance(event, _QueuedRunFinished):
+                    if not terminal_emitted:
+                        raise RuntimeError(
+                            "PydanticAI stream ended without a terminal result"
+                        )
+                    return
+
+                if isinstance(event, _QueuedRunError):
+                    raise event.error
+
+                if isinstance(event, _QueuedToolUpdate):
+                    pending_tool_call = _peek_pending_tool_call(
+                        pending_tool_calls=pending_tool_calls,
+                        tool_call_id=event.tool_call_id,
+                        tool_name=event.tool_name,
+                    )
+                    yield ToolCallUpdatedEvent(
+                        run_id=run_id,
+                        tool_call_id=event.tool_call_id,
+                        tool_name=pending_tool_call.tool_name,
+                        partial_result=event.partial_result,
+                        activity=build_updated_tool_activity(
+                            tool_name=pending_tool_call.tool_name,
+                            args=pending_tool_call.args,
+                            args_valid=pending_tool_call.args_valid,
+                            partial_result=event.partial_result,
+                            duration_ms=_duration_ms_since(
+                                pending_tool_call.started_at
+                            ),
+                        ),
+                    )
+                    continue
+
                 saw_streamed_event = True
                 if isinstance(event, FunctionToolCallEvent):
                     args = _normalize_tool_args(event.part.args)
@@ -195,10 +282,6 @@ async def stream_run_events(
 
                     terminal_emitted = True
                     yield RunSucceededEvent(run_id=run_id, output_text=output)
-
-            if not terminal_emitted:
-                raise RuntimeError("PydanticAI stream ended without a terminal result")
-            return
         except Exception as error:
             if terminal_emitted:
                 raise RuntimeError(
@@ -248,6 +331,11 @@ async def stream_run_events(
                 message=str(error),
             )
             return
+        finally:
+            if not pump_task.done():
+                pump_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await pump_task
 
 
 def _extract_text_delta(event: object) -> str | None:
@@ -283,6 +371,28 @@ def _resolve_pending_tool_call(
         )
 
     pending_tool_calls.pop(tool_call_id)
+    return pending_tool_call
+
+
+def _peek_pending_tool_call(
+    *,
+    pending_tool_calls: dict[str, _PendingToolCall],
+    tool_call_id: str,
+    tool_name: str,
+) -> _PendingToolCall:
+    pending_tool_call = pending_tool_calls.get(tool_call_id)
+    if pending_tool_call is None:
+        raise RuntimeError(
+            f"Tool update must match a pending tool_call_started: {tool_call_id}"
+        )
+
+    if tool_name != pending_tool_call.tool_name:
+        raise RuntimeError(
+            "Tool update tool_name mismatch for tool_call_id "
+            f"{tool_call_id!r}: expected {pending_tool_call.tool_name!r}, got "
+            f"{tool_name!r}"
+        )
+
     return pending_tool_call
 
 

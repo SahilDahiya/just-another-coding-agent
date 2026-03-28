@@ -53,6 +53,30 @@ def build_succeeded_tool_activity(
     )
 
 
+def build_updated_tool_activity(
+    *,
+    tool_name: str,
+    args: Any,
+    args_valid: bool | None,
+    partial_result: Any,
+    duration_ms: int,
+) -> ToolActivity:
+    return ToolActivity(
+        title=_build_tool_title(tool_name=tool_name, args=args, args_valid=args_valid),
+        summary=_build_update_summary(
+            tool_name=tool_name,
+            partial_result=partial_result,
+        ),
+        duration_ms=duration_ms,
+        details=_build_tool_details(
+            tool_name=tool_name,
+            args=args,
+            args_valid=args_valid,
+            result=partial_result,
+        ),
+    )
+
+
 def build_failed_tool_activity(
     *,
     tool_name: str,
@@ -122,6 +146,18 @@ def _build_success_summary(*, tool_name: str, result: Any) -> str | None:
         "find": "find completed",
     }
     return summaries.get(tool_name)
+
+
+def _build_update_summary(*, tool_name: str, partial_result: Any) -> str | None:
+    if tool_name == "bash":
+        return "command still running"
+
+    if isinstance(partial_result, dict) and partial_result.get("ok") is False:
+        message = partial_result.get("message")
+        if isinstance(message, str) and message:
+            return message
+
+    return None
 
 
 def _build_tool_details(
@@ -235,4 +271,5 @@ __all__ = [
     "build_failed_tool_activity",
     "build_started_tool_activity",
     "build_succeeded_tool_activity",
+    "build_updated_tool_activity",
 ]

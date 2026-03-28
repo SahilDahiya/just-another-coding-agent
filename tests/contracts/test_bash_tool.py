@@ -9,14 +9,14 @@ from just_another_coding_agent.tools.bash import execute_bash
 from just_another_coding_agent.tools.errors import ToolCommandError, ToolEncodingError
 
 
-def test_bash_tool_runs_in_explicit_workspace_root(tmp_path, monkeypatch) -> None:
+async def test_bash_tool_runs_in_explicit_workspace_root(tmp_path, monkeypatch) -> None:
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
     other_dir = tmp_path / "other"
     other_dir.mkdir()
     monkeypatch.chdir(other_dir)
 
-    result = execute_bash(
+    result = await execute_bash(
         tool_input=BashToolInput(command="pwd"),
         workspace_root=workspace_root,
     )
@@ -25,7 +25,7 @@ def test_bash_tool_runs_in_explicit_workspace_root(tmp_path, monkeypatch) -> Non
     assert result["output"].strip() == str(workspace_root)
 
 
-def test_bash_tool_fails_on_non_zero_exit_and_includes_output(
+async def test_bash_tool_fails_on_non_zero_exit_and_includes_output(
     monkeypatch,
     tmp_path,
 ) -> None:
@@ -34,13 +34,13 @@ def test_bash_tool_fails_on_non_zero_exit_and_includes_output(
     monkeypatch.chdir(tmp_path)
 
     with pytest.raises(ToolCommandError, match="boom\n\nCommand exited with code 7"):
-        execute_bash(
+        await execute_bash(
             tool_input=BashToolInput(command="printf 'boom' >&2; exit 7"),
             workspace_root=workspace_root,
         )
 
 
-def test_bash_tool_returns_empty_output_when_command_prints_nothing(
+async def test_bash_tool_returns_empty_output_when_command_prints_nothing(
     monkeypatch,
     tmp_path,
 ) -> None:
@@ -48,7 +48,7 @@ def test_bash_tool_returns_empty_output_when_command_prints_nothing(
     workspace_root.mkdir()
     monkeypatch.chdir(tmp_path)
 
-    result = execute_bash(
+    result = await execute_bash(
         tool_input=BashToolInput(command=":"),
         workspace_root=workspace_root,
     )
@@ -71,7 +71,7 @@ def test_bash_tool_rejects_non_positive_timeout() -> None:
         BashToolInput(command="pwd", timeout=0)
 
 
-def test_bash_tool_fails_on_timeout(monkeypatch, tmp_path) -> None:
+async def test_bash_tool_fails_on_timeout(monkeypatch, tmp_path) -> None:
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
     monkeypatch.chdir(tmp_path)
@@ -80,7 +80,7 @@ def test_bash_tool_fails_on_timeout(monkeypatch, tmp_path) -> None:
         ToolCommandError,
         match="partial output\n\nCommand timed out after 1 seconds",
     ):
-        execute_bash(
+        await execute_bash(
             tool_input=BashToolInput(
                 command="printf 'partial output'; sleep 2",
                 timeout=1,
@@ -89,7 +89,7 @@ def test_bash_tool_fails_on_timeout(monkeypatch, tmp_path) -> None:
         )
 
 
-def test_bash_tool_truncates_large_output_and_saves_full_output(
+async def test_bash_tool_truncates_large_output_and_saves_full_output(
     monkeypatch,
     tmp_path,
 ) -> None:
@@ -97,7 +97,7 @@ def test_bash_tool_truncates_large_output_and_saves_full_output(
     workspace_root.mkdir()
     monkeypatch.chdir(tmp_path)
 
-    result = execute_bash(
+    result = await execute_bash(
         tool_input=BashToolInput(
             command=(
                 "python - <<'PY'\n"
@@ -124,13 +124,13 @@ def test_bash_tool_truncates_large_output_and_saves_full_output(
     assert "line 1\n" in Path(full_output_path).read_text(encoding="utf-8")
 
 
-def test_bash_tool_fails_for_invalid_utf8_output(monkeypatch, tmp_path) -> None:
+async def test_bash_tool_fails_for_invalid_utf8_output(monkeypatch, tmp_path) -> None:
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
     monkeypatch.chdir(tmp_path)
 
     with pytest.raises(ToolEncodingError):
-        execute_bash(
+        await execute_bash(
             tool_input=BashToolInput(
                 command="python -c \"import sys; sys.stdout.buffer.write(b'\\xff')\""
             ),

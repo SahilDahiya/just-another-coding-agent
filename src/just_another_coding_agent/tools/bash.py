@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-import subprocess
+import asyncio
+import os
+import signal
 import tempfile
 from pathlib import Path
 
@@ -76,56 +78,154 @@ def _truncate_bash_output(output: str) -> str:
     return append_tool_note(window.text, note)
 
 
-def execute_bash(
+def _truncate_partial_bash_output(output: str) -> str:
+    if not output:
+        return ""
+
+    window = truncate_tail_text(
+        output,
+        max_lines=BASH_MAX_LINES,
+        max_bytes=BASH_MAX_BYTES,
+    )
+    if window.truncated_by is None:
+        return output
+
+    if window.last_line_partial:
+        note = (
+            f"[Showing last {BASH_MAX_BYTES} bytes of line {window.end_line} "
+            "(line exceeds limit) while command is still running]"
+        )
+    elif window.truncated_by == "lines":
+        note = (
+            f"[Showing lines {window.start_line}-{window.end_line} of "
+            f"{window.total_lines} while command is still running]"
+        )
+    else:
+        note = (
+            f"[Showing lines {window.start_line}-{window.end_line} of "
+            f"{window.total_lines} while command is still running "
+            f"({BASH_MAX_BYTES} byte limit)]"
+        )
+
+    return append_tool_note(window.text, note)
+
+
+async def _terminate_process(process: asyncio.subprocess.Process) -> None:
+    if process.returncode is not None:
+        return
+
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+
+    await process.wait()
+
+
+async def _publish_bash_update(
     *,
+    ctx: RunContext[WorkspaceDeps] | None,
+    output: str,
+) -> None:
+    if ctx is None or ctx.deps.tool_update_sink is None:
+        return
+    if ctx.tool_call_id is None or ctx.tool_name is None:
+        return
+
+    await ctx.deps.tool_update_sink(
+        ctx.tool_call_id,
+        ctx.tool_name,
+        {"output": _truncate_partial_bash_output(output)},
+    )
+
+
+async def execute_bash(
+    *,
+    ctx: RunContext[WorkspaceDeps] | None = None,
     tool_input: BashToolInput,
     workspace_root: Path | str,
 ) -> dict[str, int | str]:
-    try:
-        completed = subprocess.run(
-            ["bash", "-lc", tool_input.command],
-            check=False,
-            cwd=workspace_root,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            timeout=tool_input.timeout,
-        )
-    except subprocess.TimeoutExpired as error:
-        output_bytes = error.output or b""
-        try:
-            output = _truncate_bash_output(output_bytes.decode("utf-8"))
-        except UnicodeError as decode_error:
-            raise ToolEncodingError(
-                "Command output is not valid UTF-8 text"
-            ) from decode_error
-        raise ToolCommandError(
-            _format_bash_failure(
-                output,
-                f"Command timed out after {tool_input.timeout} seconds",
+    process = await asyncio.create_subprocess_exec(
+        "bash",
+        "-lc",
+        tool_input.command,
+        cwd=str(workspace_root),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+        start_new_session=True,
+    )
+    if process.stdout is None:
+        raise RuntimeError("bash subprocess must expose stdout")
+
+    output_chunks: list[str] = []
+
+    async def _read_output() -> None:
+        while True:
+            chunk = await process.stdout.read(4096)
+            if not chunk:
+                return
+            try:
+                text = chunk.decode("utf-8")
+            except UnicodeError as error:
+                raise ToolEncodingError(
+                    "Command output is not valid UTF-8 text"
+                ) from error
+            output_chunks.append(text)
+            await _publish_bash_update(
+                ctx=ctx,
+                output="".join(output_chunks),
             )
-        ) from error
 
-    output_bytes = completed.stdout or b""
+    reader_task = asyncio.create_task(_read_output())
+
     try:
-        output = _truncate_bash_output(output_bytes.decode("utf-8"))
-    except UnicodeError as error:
-        raise ToolEncodingError("Command output is not valid UTF-8 text") from error
+        if tool_input.timeout is None:
+            await asyncio.gather(process.wait(), reader_task)
+        else:
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(process.wait(), reader_task),
+                    timeout=tool_input.timeout,
+                )
+            except TimeoutError as error:
+                await _terminate_process(process)
+                if not reader_task.done():
+                    reader_task.cancel()
+                try:
+                    await reader_task
+                except (asyncio.CancelledError, ToolEncodingError):
+                    pass
+                output = _truncate_bash_output("".join(output_chunks))
+                raise ToolCommandError(
+                    _format_bash_failure(
+                        output,
+                        f"Command timed out after {tool_input.timeout} seconds",
+                    )
+                ) from error
+    except ToolEncodingError:
+        await _terminate_process(process)
+        raise
+    finally:
+        if process.returncode is None:
+            await _terminate_process(process)
 
-    if completed.returncode != 0:
+    output = _truncate_bash_output("".join(output_chunks))
+
+    if process.returncode != 0:
         raise ToolCommandError(
             _format_bash_failure(
                 output,
-                f"Command exited with code {completed.returncode}",
+                f"Command exited with code {process.returncode}",
             )
         )
 
     return {
-        "exit_code": completed.returncode,
+        "exit_code": process.returncode,
         "output": output,
     }
 
 
-def bash(
+async def bash(
     ctx: RunContext[WorkspaceDeps],
     command: str,
     timeout: int | None = None,
@@ -137,7 +237,8 @@ def bash(
         timeout: Optional timeout in seconds before the command is stopped.
     """
 
-    return execute_bash(
+    return await execute_bash(
+        ctx=ctx,
         tool_input=BashToolInput(command=command, timeout=timeout),
         workspace_root=ctx.deps.workspace_root,
     )
