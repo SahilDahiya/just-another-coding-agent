@@ -280,6 +280,8 @@ Initial tool lifecycle slice:
 
 - `tool_call_started`
   - fields: `type`, `run_id`, `tool_call_id`, `tool_name`, `args`, `args_valid`, `activity`
+- `tool_call_updated`
+  - fields: `type`, `run_id`, `tool_call_id`, `tool_name`, `partial_result`, `activity`
 - `tool_call_succeeded`
   - fields: `type`, `run_id`, `tool_call_id`, `tool_name`, `result`, `activity`
 - `tool_call_failed`
@@ -297,7 +299,7 @@ Initial tool lifecycle slice:
   - `details`
 - `title` is a terse backend-owned label for the tool action
 - `summary` is optional and should stay trustworthy rather than aspirational
-- `duration_ms` belongs on finished tool events and may be omitted on `tool_call_started`
+- `duration_ms` belongs on finished tool events and may also appear on `tool_call_updated`
 - `details` is optional and must use typed per-tool metadata rather than an untyped bag
 
 Initial typed `details` slice:
@@ -338,7 +340,7 @@ Canonical tool concurrency policy:
 
 Ordering rules for the tool slice:
 
-- Each `tool_call_started` must be followed by exactly one matching `tool_call_succeeded` or `tool_call_failed`
+- Each `tool_call_started` may be followed by zero or more matching `tool_call_updated` events and then exactly one matching `tool_call_succeeded` or `tool_call_failed`
 - Expected tool-domain failures should normally be represented as `tool_call_succeeded` with an explicit error result object
 - `RetryPromptPart` tool validation failures must be represented as `tool_call_succeeded` with an explicit error result object; they are not terminal by themselves
 - `tool_call_failed` is reserved for uncaught tool failures or invalid runtime state and is terminal for the current run

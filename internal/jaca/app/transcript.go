@@ -229,6 +229,8 @@ func (t *Transcript) ApplyRunEvent(event rpc.RunEvent) {
 		t.appendAssistantDelta(event.Delta)
 	case "tool_call_started":
 		t.startTool(event)
+	case "tool_call_updated":
+		t.updateTool(event)
 	case "tool_call_succeeded":
 		t.finishTool(event)
 	case "tool_call_failed":
@@ -307,8 +309,13 @@ func (t *Transcript) finishTool(event rpc.RunEvent) {
 		return
 	}
 	entry.outcome = "ok"
+	entry.resultLines = nil
+	entry.resultTruncated = false
+	entry.detailLines = nil
 	if entry.preview == "" {
 		entry.message = buildToolSummary(event.Activity, "")
+	} else {
+		entry.message = ""
 	}
 	entry.duration = buildToolDuration(event.Activity)
 	entry.detailLines = buildToolDetailLines(event.Activity)
@@ -324,6 +331,22 @@ func (t *Transcript) finishTool(event rpc.RunEvent) {
 	t.rewriteToolGroup()
 }
 
+func (t *Transcript) updateTool(event rpc.RunEvent) {
+	if t.toolGroup == nil {
+		return
+	}
+	entry := t.toolGroup.entries[event.ToolCallID]
+	if entry == nil {
+		return
+	}
+	entry.outcome = "running"
+	entry.message = buildToolSummary(event.Activity, "")
+	entry.duration = buildToolDuration(event.Activity)
+	entry.detailLines = nil
+	entry.resultLines, entry.resultTruncated = extractToolResultLines(event.Partial)
+	t.rewriteToolGroup()
+}
+
 func (t *Transcript) failTool(event rpc.RunEvent) {
 	if t.toolGroup == nil {
 		return
@@ -335,6 +358,9 @@ func (t *Transcript) failTool(event rpc.RunEvent) {
 	entry.outcome = "error"
 	entry.message = buildToolSummary(event.Activity, event.Message)
 	entry.duration = buildToolDuration(event.Activity)
+	entry.detailLines = nil
+	entry.resultLines = nil
+	entry.resultTruncated = false
 	t.rewriteToolGroup()
 }
 
@@ -410,10 +436,7 @@ func renderToolActivityLine(entry *toolEntry) string {
 	}
 	if entry.outcome != "" {
 		b.WriteString("  ")
-		color := defaultTheme.successSoft
-		if entry.outcome == "error" {
-			color = defaultTheme.err
-		}
+		color := toolOutcomeColor(entry.outcome)
 		b.WriteString(lipgloss.NewStyle().Foreground(color).Render(entry.outcome))
 	}
 	if entry.message != "" {
@@ -421,6 +444,8 @@ func renderToolActivityLine(entry *toolEntry) string {
 		color := defaultTheme.textMuted
 		if entry.outcome == "error" {
 			color = defaultTheme.err
+		} else if entry.outcome == "running" {
+			color = defaultTheme.accentSoft
 		}
 		b.WriteString(lipgloss.NewStyle().Foreground(color).Render(entry.message))
 	}
@@ -430,6 +455,19 @@ func renderToolActivityLine(entry *toolEntry) string {
 	}
 	b.WriteByte('\n')
 	return b.String()
+}
+
+func toolOutcomeColor(outcome string) lipgloss.Color {
+	switch outcome {
+	case "ok":
+		return defaultTheme.successSoft
+	case "error":
+		return defaultTheme.err
+	case "running":
+		return defaultTheme.accentSoft
+	default:
+		return defaultTheme.textMuted
+	}
 }
 
 func styleToolDetailLine(line string) string {

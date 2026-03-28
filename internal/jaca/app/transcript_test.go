@@ -153,6 +153,65 @@ func TestEditToolRowsRenderStructuredDiffPreview(t *testing.T) {
 	}
 }
 
+func TestToolUpdateRendersLivePartialOutputAndFinalResult(t *testing.T) {
+	transcript := NewTranscript()
+	transcript.ApplyRunEvent(rpc.RunEvent{
+		Type:       "tool_call_started",
+		ToolName:   "bash",
+		ToolCallID: "call-bash",
+		Args:       map[string]any{"command": "python - <<'PY'"},
+	})
+	updateDuration := 250
+	transcript.ApplyRunEvent(rpc.RunEvent{
+		Type:       "tool_call_updated",
+		ToolName:   "bash",
+		ToolCallID: "call-bash",
+		Partial:    map[string]any{"output": "one\ntwo\n"},
+		Activity: &rpc.ToolActivity{
+			Title:      "bash python - <<'PY'",
+			Summary:    strPtr("command still running"),
+			DurationMS: &updateDuration,
+		},
+	})
+
+	plain := transcript.blocks[len(transcript.blocks)-1].plain
+	for _, want := range []string{
+		"● bash  python - <<'PY'  running  command still running  250ms",
+		"  └ one",
+		"    two",
+	} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("live tool update missing %q in %q", want, plain)
+		}
+	}
+
+	finalDuration := 500
+	transcript.ApplyRunEvent(rpc.RunEvent{
+		Type:       "tool_call_succeeded",
+		ToolName:   "bash",
+		ToolCallID: "call-bash",
+		Result:     map[string]any{"exit_code": 0, "output": "done"},
+		Activity: &rpc.ToolActivity{
+			Title:      "bash python - <<'PY'",
+			Summary:    strPtr("command exited 0"),
+			DurationMS: &finalDuration,
+		},
+	})
+
+	plain = transcript.blocks[len(transcript.blocks)-1].plain
+	if strings.Contains(plain, "command still running") || strings.Contains(plain, "  └ one") {
+		t.Fatalf("final tool row kept live partial output: %q", plain)
+	}
+	for _, want := range []string{
+		"● bash  python - <<'PY'  ok 500ms",
+		"  └ done",
+	} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("final tool result missing %q in %q", want, plain)
+		}
+	}
+}
+
 func TestRenderOnlyInvalidatesFromFirstDirtyRow(t *testing.T) {
 	transcript := NewTranscript()
 	transcript.WriteLine("first")

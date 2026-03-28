@@ -69,6 +69,12 @@ func TestModelRunsAgainstRealRPCBackendProcess(t *testing.T) {
 	if !strings.Contains(rendered, "● read  README.md") || !strings.Contains(rendered, "12ms") {
 		t.Fatalf("transcript missing tool activity: %q", rendered)
 	}
+	if !strings.Contains(rendered, "● bash  python - <<'PY'  ok  500ms") {
+		t.Fatalf("transcript missing completed tool row after live update: %q", rendered)
+	}
+	if strings.Contains(rendered, "command still running") || strings.Contains(rendered, "streaming output line") {
+		t.Fatalf("transcript kept live tool update state after completion: %q", rendered)
+	}
 	if !strings.Contains(rendered, "final answer") {
 		t.Fatalf("transcript missing completed assistant output: %q", rendered)
 	}
@@ -128,6 +134,8 @@ func TestGoTUIRPCBackendHelperProcess(t *testing.T) {
 				os.Exit(1)
 			}
 			duration := 12
+			updateDuration := 250
+			finalDuration := 500
 			events := []map[string]any{
 				{
 					"type": "rpc_event",
@@ -163,6 +171,56 @@ func TestGoTUIRPCBackendHelperProcess(t *testing.T) {
 						"activity": map[string]any{
 							"title":       "read README.md",
 							"duration_ms": duration,
+						},
+					},
+				},
+				{
+					"type": "rpc_event",
+					"id":   request.ID,
+					"event": map[string]any{
+						"type":         "tool_call_started",
+						"run_id":       "run-helper",
+						"tool_call_id": "tool-2",
+						"tool_name":    "bash",
+						"args": map[string]any{
+							"command": "python - <<'PY'",
+						},
+					},
+				},
+				{
+					"type": "rpc_event",
+					"id":   request.ID,
+					"event": map[string]any{
+						"type":         "tool_call_updated",
+						"run_id":       "run-helper",
+						"tool_call_id": "tool-2",
+						"tool_name":    "bash",
+						"partial_result": map[string]any{
+							"output": "streaming output line\n",
+						},
+						"activity": map[string]any{
+							"title":       "bash python - <<'PY'",
+							"summary":     "command still running",
+							"duration_ms": updateDuration,
+						},
+					},
+				},
+				{
+					"type": "rpc_event",
+					"id":   request.ID,
+					"event": map[string]any{
+						"type":         "tool_call_succeeded",
+						"run_id":       "run-helper",
+						"tool_call_id": "tool-2",
+						"tool_name":    "bash",
+						"result": map[string]any{
+							"exit_code": 0,
+							"output":    "bash complete\n",
+						},
+						"activity": map[string]any{
+							"title":       "bash python - <<'PY'",
+							"summary":     "command exited 0",
+							"duration_ms": finalDuration,
 						},
 					},
 				},

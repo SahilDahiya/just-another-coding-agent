@@ -70,6 +70,7 @@ The core architectural risk is semantic drift between the Go shell and the Pytho
 - Tool rows should read left-to-right as action first, then status/timing in the tail.
 - Successful `edit` activity should expand into structured `Update(path)` blocks with typed diff previews rather than dumping raw unified diff text.
 - Consecutive tool calls should group into one live activity block and update in place until assistant synthesis resumes.
+- When the backend emits `tool_call_updated`, the grouped live tool block should show that partial progress in place instead of waiting for final success or failure.
 - The transcript should use stable row units and reuse unchanged prefix content when only later rows change; do not rebuild the whole visible transcript from the top for every live update.
 - Exploratory misses that are clearly resolved later in the same turn should be muted or downgraded instead of rendered with the same red emphasis as unresolved failures.
 - Completed assistant turns should settle into readable prose/Markdown instead of remaining raw streamed text.
