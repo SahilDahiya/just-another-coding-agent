@@ -423,6 +423,72 @@ async def test_tool_failures_render_as_preview_aware_error_rows(
 
 
 @pytest.mark.asyncio
+async def test_tool_rows_preserve_interleaved_assistant_sequence(
+    tmp_path: Path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    sessions_root.mkdir()
+
+    app = CodingAgentApp(
+        model="ollama:test",
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+        thinking=None,
+    )
+
+    async with app.run_test() as _pilot:
+        transcript = app.query_one("#output", TranscriptLog)
+        write_stream_event(
+            transcript,
+            SimpleNamespace(
+                type="assistant_text_delta",
+                delta="Checking the repo...\n",
+            ),
+        )
+        write_stream_event(
+            transcript,
+            SimpleNamespace(
+                type="tool_call_started",
+                tool_name="bash",
+                tool_call_id="call-1",
+                args={"command": "git status --short"},
+                args_valid=True,
+            ),
+        )
+        write_stream_event(
+            transcript,
+            SimpleNamespace(
+                type="tool_call_succeeded",
+                tool_name="bash",
+                tool_call_id="call-1",
+                result={"ok": True},
+            ),
+        )
+        write_stream_event(
+            transcript,
+            SimpleNamespace(
+                type="assistant_text_delta",
+                delta="Working tree is clean.",
+            ),
+        )
+        write_stream_event(
+            transcript,
+            SimpleNamespace(
+                type="run_succeeded",
+                output_text="Working tree is clean.",
+            ),
+        )
+
+        first = transcript.plain_text.index("Checking the repo...")
+        tool = transcript.plain_text.index("bash ok  git status --short")
+        second = transcript.plain_text.index("Working tree is clean.")
+
+        assert first < tool < second
+
+
+@pytest.mark.asyncio
 async def test_prompt_history_recall_and_draft_restore(tmp_path: Path) -> None:
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()

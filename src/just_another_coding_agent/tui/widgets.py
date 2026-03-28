@@ -172,7 +172,7 @@ class TranscriptLog(RichLog):
         preview: str | None = None,
     ) -> None:
         """Append one compact tool-activity row to the transcript."""
-        self.flush_live_text()
+        self.end_live_text()
         preview = preview.strip() if preview else None
         if self._parts and not self.plain_text.endswith("\n"):
             self._parts.append(TranscriptPart("\n", "\n"))
