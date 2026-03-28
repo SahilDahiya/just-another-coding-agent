@@ -4,7 +4,10 @@ import subprocess
 from pathlib import Path
 
 SCRIPT_PATH = (
-    Path(__file__).resolve().parents[2] / "scripts" / "run_tb2_submission_glm5_slice.sh"
+    Path(__file__).resolve().parents[2]
+    / "evaluations"
+    / "scripts"
+    / "run_tb2_submission_glm5_slice.sh"
 )
 
 
@@ -15,7 +18,7 @@ def _write_executable(path: Path, content: str) -> None:
 
 def _copy_launcher(tmp_path: Path) -> Path:
     repo_root = tmp_path / "repo"
-    scripts_dir = repo_root / "scripts"
+    scripts_dir = repo_root / "evaluations" / "scripts"
     scripts_dir.mkdir(parents=True)
     launcher_path = scripts_dir / SCRIPT_PATH.name
     shutil.copy2(SCRIPT_PATH, launcher_path)

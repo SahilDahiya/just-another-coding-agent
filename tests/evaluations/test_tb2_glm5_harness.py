@@ -2,7 +2,12 @@ import os
 import subprocess
 from pathlib import Path
 
-SCRIPT_PATH = Path(__file__).resolve().parents[2] / "scripts" / "tb2_glm5.sh"
+SCRIPT_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "evaluations"
+    / "scripts"
+    / "tb2_glm5.sh"
+)
 
 
 def _write_executable(path: Path, content: str) -> None:
@@ -12,7 +17,7 @@ def _write_executable(path: Path, content: str) -> None:
 
 def _copy_harness(tmp_path: Path) -> Path:
     repo_root = tmp_path / "repo"
-    scripts_dir = repo_root / "scripts"
+    scripts_dir = repo_root / "evaluations" / "scripts"
     scripts_dir.mkdir(parents=True)
     harness_path = scripts_dir / SCRIPT_PATH.name
     harness_path.write_text(SCRIPT_PATH.read_text())
