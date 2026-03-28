@@ -201,6 +201,17 @@ Useful artifacts for this adapter path:
   - combined one-shot wrapper output from inside the container
 - `/tmp/just-another-coding-agent-sessions`
   - backend session JSONL files for the run
+  - `exec-prompt-phases.json` with wrapper-side phase timestamps
+  - `exec-prompt-rpc-transcript.jsonl` with the raw stdio RPC exchange
+
+Important diagnostic note:
+
+- session JSONL is append-only after terminal completion
+- a timed-out run can therefore leave only the `session_header` line in the
+  session file even if the backend already emitted `run_started`,
+  `assistant_text_delta`, and `tool_call_*` events
+- for timeout investigations, check `exec-prompt-phases.json` and
+  `exec-prompt-rpc-transcript.jsonl` before assuming the backend never started
 
 If you do not request `/tmp/just-another-coding-agent-sessions` as a Harbor artifact, those session files remain container-local and are discarded with the environment.
 
@@ -214,3 +225,7 @@ If you do not request `/tmp/just-another-coding-agent-sessions` as a Harbor arti
   - export `OPENAI_API_KEY` in the Harbor host process before `harbor run`
 - missing session artifacts after a run
   - add `--artifact /tmp/just-another-coding-agent-sessions`
+- timed out run shows only a session header
+  - inspect `exec-prompt-phases.json` and `exec-prompt-rpc-transcript.jsonl`
+    first; the run may have progressed into a long blocking tool call before
+    Harbor timed it out

@@ -5,8 +5,11 @@ import json
 import subprocess
 import sys
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from pathlib import Path
+from queue import Empty, Queue
 from tempfile import TemporaryDirectory
+from threading import Thread
 from typing import Any, TextIO
 
 from just_another_coding_agent.contracts.thinking import ThinkingSetting
@@ -14,6 +17,10 @@ from just_another_coding_agent.contracts.thinking import ThinkingSetting
 
 class ExecPromptError(RuntimeError):
     """Raised when the one-shot wrapper cannot complete a canonical run."""
+
+
+class NoRunEventsTimeout(ExecPromptError):
+    """Raised when run.start produces no first observable RPC event."""
 
 
 BENCHMARK_WORKFLOW_PROMPT = "\n".join(
@@ -39,6 +46,10 @@ BENCHMARK_WORKFLOW_PROMPT = "\n".join(
         ),
     ]
 )
+
+_PHASES_FILENAME = "exec-prompt-phases.json"
+_RPC_TRANSCRIPT_FILENAME = "exec-prompt-rpc-transcript.jsonl"
+_DEFAULT_FIRST_RPC_EVENT_TIMEOUT_SEC = 10.0
 
 
 def build_server_command(
@@ -85,6 +96,7 @@ def run_exec_prompt(
     workspace_root: Path | str,
     thinking: ThinkingSetting | None = None,
     sessions_root: Path | str | None = None,
+    first_rpc_event_timeout_sec: float = _DEFAULT_FIRST_RPC_EVENT_TIMEOUT_SEC,
     popen_factory: Any = subprocess.Popen,
 ) -> str:
     resolved_workspace_root = Path(workspace_root).expanduser().resolve()
@@ -101,6 +113,7 @@ def run_exec_prompt(
                 workspace_root=resolved_workspace_root,
                 thinking=thinking,
                 sessions_root=Path(temporary_root),
+                first_rpc_event_timeout_sec=first_rpc_event_timeout_sec,
                 popen_factory=popen_factory,
             )
 
@@ -110,6 +123,7 @@ def run_exec_prompt(
         workspace_root=resolved_workspace_root,
         thinking=thinking,
         sessions_root=Path(sessions_root).expanduser().resolve(),
+        first_rpc_event_timeout_sec=first_rpc_event_timeout_sec,
         popen_factory=popen_factory,
     )
 
@@ -121,8 +135,10 @@ def _run_exec_prompt(
     workspace_root: Path,
     thinking: ThinkingSetting | None,
     sessions_root: Path,
+    first_rpc_event_timeout_sec: float,
     popen_factory: Any,
 ) -> str:
+    diagnostics = _ExecPromptDiagnostics(root=sessions_root)
     command = build_server_command(
         model=model,
         workspace_root=workspace_root,
@@ -136,6 +152,7 @@ def _run_exec_prompt(
         text=True,
         bufsize=1,
     )
+    diagnostics.record_phase("subprocess_started_at")
 
     if process.stdin is None or process.stdout is None:
         raise ExecPromptError(
@@ -146,12 +163,17 @@ def _run_exec_prompt(
         _write_json_line(
             process.stdin,
             {"id": "req-create", "command": "session.create", "payload": {}},
+            diagnostics=diagnostics,
         )
+        diagnostics.record_phase("session_create_sent_at")
         session_create_response = _read_json_line(
             process.stdout,
             expected="session.create response",
+            diagnostics=diagnostics,
         )
+        diagnostics.record_phase("session_create_received_at")
         session_id = _extract_session_id(session_create_response)
+        diagnostics.set_session_id(session_id)
 
         _write_json_line(
             process.stdin,
@@ -164,10 +186,33 @@ def _run_exec_prompt(
                     "thinking": thinking,
                 },
             },
+            diagnostics=diagnostics,
+        )
+        diagnostics.record_phase("run_start_sent_at")
+        diagnostics.record_phase(
+            "first_rpc_event_timeout_sec",
+            value=first_rpc_event_timeout_sec,
         )
 
+        saw_first_rpc_event = False
         while True:
-            response = _read_json_line(process.stdout, expected="run.start response")
+            try:
+                response = _read_json_line(
+                    process.stdout,
+                    expected="run.start response",
+                    diagnostics=diagnostics,
+                    timeout_sec=(
+                        first_rpc_event_timeout_sec
+                        if not saw_first_rpc_event
+                        else None
+                    ),
+                )
+            except NoRunEventsTimeout:
+                diagnostics.record_phase("no_first_rpc_event_timeout_at")
+                raise
+            if not saw_first_rpc_event:
+                saw_first_rpc_event = True
+                diagnostics.record_phase("first_rpc_event_received_at")
             response_type = response.get("type")
 
             if response_type == "rpc_error":
@@ -185,7 +230,13 @@ def _run_exec_prompt(
                 raise ExecPromptError("rpc_event must include an event object")
 
             event_type = event.get("type")
+            if event_type == "assistant_text_delta":
+                diagnostics.record_phase_once("first_assistant_text_delta_at")
+            if isinstance(event_type, str) and event_type.startswith("tool_call_"):
+                diagnostics.record_phase_once("first_tool_event_at")
             if event_type == "run_succeeded":
+                diagnostics.record_phase("terminal_event_at")
+                diagnostics.record_phase("terminal_event_type", value="run_succeeded")
                 output_text = event.get("output_text")
                 if not isinstance(output_text, str):
                     raise ExecPromptError(
@@ -194,6 +245,8 @@ def _run_exec_prompt(
                 return output_text
 
             if event_type == "run_failed":
+                diagnostics.record_phase("terminal_event_at")
+                diagnostics.record_phase("terminal_event_type", value="run_failed")
                 raise ExecPromptError(
                     f"{event.get('error_type')}: {event.get('message')}"
                 )
@@ -202,14 +255,34 @@ def _run_exec_prompt(
         _wait_for_process(process)
 
 
-def _write_json_line(stream: TextIO, payload: dict[str, object]) -> None:
+def _write_json_line(
+    stream: TextIO,
+    payload: dict[str, object],
+    *,
+    diagnostics: "_ExecPromptDiagnostics" | None = None,
+) -> None:
+    if diagnostics is not None:
+        diagnostics.append_transcript(direction="send", payload=payload)
     stream.write(json.dumps(payload))
     stream.write("\n")
     stream.flush()
 
 
-def _read_json_line(stream: TextIO, *, expected: str) -> dict[str, object]:
-    line = stream.readline()
+def _read_json_line(
+    stream: TextIO,
+    *,
+    expected: str,
+    diagnostics: "_ExecPromptDiagnostics" | None = None,
+    timeout_sec: float | None = None,
+) -> dict[str, object]:
+    if timeout_sec is None:
+        line = stream.readline()
+    else:
+        line = _readline_with_timeout(
+            stream,
+            expected=expected,
+            timeout_sec=timeout_sec,
+        )
     if line == "":
         raise ExecPromptError(f"EOF while waiting for {expected}")
 
@@ -220,6 +293,8 @@ def _read_json_line(stream: TextIO, *, expected: str) -> dict[str, object]:
 
     if not isinstance(payload, dict):
         raise ExecPromptError(f"{expected} must be a JSON object")
+    if diagnostics is not None:
+        diagnostics.append_transcript(direction="recv", payload=payload)
     return payload
 
 
@@ -254,6 +329,84 @@ def _wait_for_process(process: Any) -> None:
         except subprocess.TimeoutExpired:
             process.kill()
             process.wait()
+
+
+def _readline_with_timeout(
+    stream: TextIO,
+    *,
+    expected: str,
+    timeout_sec: float,
+) -> str:
+    queue: Queue[tuple[bool, str | BaseException]] = Queue(maxsize=1)
+
+    def _target() -> None:
+        try:
+            queue.put((True, stream.readline()))
+        except BaseException as error:
+            queue.put((False, error))
+
+    thread = Thread(target=_target, daemon=True)
+    thread.start()
+    try:
+        ok, value = queue.get(timeout=timeout_sec)
+    except Empty as error:
+        raise NoRunEventsTimeout(
+            f"No RPC event received within {timeout_sec} seconds after run.start"
+        ) from error
+
+    if ok:
+        assert isinstance(value, str)
+        return value
+
+    assert isinstance(value, BaseException)
+    raise value
+
+
+class _ExecPromptDiagnostics:
+    def __init__(self, *, root: Path) -> None:
+        self._root = root
+        self._root.mkdir(parents=True, exist_ok=True)
+        self._phases_path = self._root / _PHASES_FILENAME
+        self._transcript_path = self._root / _RPC_TRANSCRIPT_FILENAME
+        self._payload: dict[str, object] = {}
+
+    def set_session_id(self, session_id: str) -> None:
+        self._payload["session_id"] = session_id
+        self._write_phases()
+
+    def record_phase(self, name: str, *, value: object | None = None) -> None:
+        self._payload[name] = _timestamp() if value is None else value
+        self._write_phases()
+
+    def record_phase_once(self, name: str) -> None:
+        if name in self._payload:
+            return
+        self.record_phase(name)
+
+    def append_transcript(
+        self, *, direction: str, payload: dict[str, object]
+    ) -> None:
+        with self._transcript_path.open("a", encoding="utf-8") as handle:
+            handle.write(
+                json.dumps(
+                    {
+                        "timestamp": _timestamp(),
+                        "direction": direction,
+                        "payload": payload,
+                    }
+                )
+            )
+            handle.write("\n")
+
+    def _write_phases(self) -> None:
+        self._phases_path.write_text(
+            json.dumps(self._payload, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+
+
+def _timestamp() -> str:
+    return datetime.now(tz=UTC).isoformat()
 
 
 def main(
