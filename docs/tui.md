@@ -66,6 +66,7 @@ agenda.
 - Tool rows should read left-to-right as action first, then status/timing in the tail.
 - Successful `edit` activity should expand into structured `Update(path)` blocks with typed diff previews rather than dumping raw unified diff text.
 - Consecutive tool calls should group into one live activity block and update in place until assistant synthesis resumes.
+- Exploratory misses that are clearly resolved later in the same turn should be muted or downgraded instead of rendered with the same red emphasis as unresolved failures.
 - Completed assistant turns should settle into readable prose/Markdown instead of remaining raw streamed text.
 - The prompt is the single input surface for chat and slash commands.
 - The prompt zone should behave like a compact two-line shell composer: one input line, one low-salience footer line for state and recall hints.

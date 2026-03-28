@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from pathlib import PurePosixPath
 from typing import Self
 
 from rich.style import Style
@@ -24,6 +25,7 @@ class TranscriptPart:
 
     renderable: object
     plain_text: str
+    tool_group: "ToolGroup | None" = None
 
 
 TOOL_OUTPUT_MAX_LINES = 6
@@ -138,6 +140,7 @@ class TranscriptLog(RichLog):
         )
         self.styles.scrollbar_size_vertical = 0
         self.styles.scrollbar_size_horizontal = 0
+        self.styles.overflow_x = "hidden"
         self._parts: list[TranscriptPart] = []
         self._live_part_index: int | None = None
         self._live_dirty = False
@@ -239,11 +242,13 @@ class TranscriptLog(RichLog):
         if self._tool_group is None:
             if self._parts and not self.plain_text.endswith("\n"):
                 self._parts.append(TranscriptPart("\n", "\n"))
-            self._parts.append(TranscriptPart(Text(""), ""))
             self._tool_group = ToolGroup(
-                index=len(self._parts) - 1,
+                index=len(self._parts),
                 order=[],
                 entries={},
+            )
+            self._parts.append(
+                TranscriptPart(Text(""), "", tool_group=self._tool_group)
             )
         self._tool_group.order.append(tool_call_id)
         self._tool_group.entries[tool_call_id] = ToolEntry(
@@ -276,7 +281,13 @@ class TranscriptLog(RichLog):
             else:
                 tool_entry.output_lines = lines
                 tool_entry.output_truncated = False
-        self._rewrite_tool_group()
+        changed_groups = self._downgrade_resolved_exploratory_misses(
+            tool_call_id=tool_call_id,
+            success_entry=tool_entry,
+        )
+        for group in changed_groups:
+            self._rewrite_tool_group(group, rerender=False)
+        self._rewrite_tool_group(rerender=True)
 
     def fail_tool_activity(
         self,
@@ -365,13 +376,15 @@ class TranscriptLog(RichLog):
                 return None
             if self._parts and not self.plain_text.endswith("\n"):
                 self._parts.append(TranscriptPart("\n", "\n"))
-            self._parts.append(TranscriptPart(Text(""), ""))
             self._tool_group = ToolGroup(
-                index=len(self._parts) - 1,
+                index=len(self._parts),
                 order=[tool_call_id],
                 entries={
                     tool_call_id: ToolEntry(tool_name=tool_name, preview=None),
                 },
+            )
+            self._parts.append(
+                TranscriptPart(Text(""), "", tool_group=self._tool_group)
             )
             return self._tool_group.entries[tool_call_id]
 
@@ -387,13 +400,19 @@ class TranscriptLog(RichLog):
         )
         return self._tool_group.entries[tool_call_id]
 
-    def _rewrite_tool_group(self) -> None:
-        if self._tool_group is None:
+    def _rewrite_tool_group(
+        self,
+        tool_group: ToolGroup | None = None,
+        *,
+        rerender: bool = True,
+    ) -> None:
+        group = tool_group or self._tool_group
+        if group is None:
             return
         renderable = Text()
         plain_parts: list[str] = []
-        for tool_call_id in self._tool_group.order:
-            tool_entry = self._tool_group.entries[tool_call_id]
+        for tool_call_id in group.order:
+            tool_entry = group.entries[tool_call_id]
             line = self._format_tool_activity_line(
                 tool_name=tool_entry.tool_name,
                 preview=tool_entry.preview,
@@ -441,8 +460,88 @@ class TranscriptLog(RichLog):
                     )
                     plain_parts.append(more_line)
         plain_text = "".join(plain_parts)
-        self._parts[self._tool_group.index] = TranscriptPart(renderable, plain_text)
-        self._rerender()
+        self._parts[group.index] = TranscriptPart(
+            renderable,
+            plain_text,
+            tool_group=group,
+        )
+        if rerender:
+            self._rerender()
+
+    def _downgrade_resolved_exploratory_misses(
+        self,
+        *,
+        tool_call_id: str,
+        success_entry: ToolEntry,
+    ) -> list[ToolGroup]:
+        success_key = self._resolution_key(
+            tool_name=success_entry.tool_name,
+            preview=success_entry.preview,
+        )
+        if success_key is None:
+            return []
+
+        changed_groups: dict[int, ToolGroup] = {}
+        for part in reversed(self._parts):
+            if part.plain_text.startswith("> "):
+                break
+            group = part.tool_group
+            if group is None:
+                continue
+            for existing_tool_call_id in group.order:
+                if group is self._tool_group and existing_tool_call_id == tool_call_id:
+                    break
+                entry = group.entries[existing_tool_call_id]
+                if not self._is_resolved_exploratory_miss(
+                    entry=entry,
+                    success_tool_name=success_entry.tool_name,
+                    success_key=success_key,
+                ):
+                    continue
+                entry.outcome = "miss"
+                entry.message = "not found"
+                changed_groups[group.index] = group
+        return list(changed_groups.values())
+
+    @staticmethod
+    def _resolution_key(*, tool_name: str, preview: str | None) -> str | None:
+        if tool_name != "read" or not preview:
+            return None
+        normalized = preview.strip().replace("\\", "/").removeprefix("./")
+        return normalized.casefold()
+
+    @staticmethod
+    def _resolution_leaf(key: str | None) -> str | None:
+        if key is None:
+            return None
+        return PurePosixPath(key).name.casefold()
+
+    def _is_resolved_exploratory_miss(
+        self,
+        *,
+        entry: ToolEntry,
+        success_tool_name: str,
+        success_key: str,
+    ) -> bool:
+        if entry.outcome != "error":
+            return False
+        if entry.tool_name != success_tool_name:
+            return False
+        preview_key = self._resolution_key(
+            tool_name=entry.tool_name,
+            preview=entry.preview,
+        )
+        if preview_key != success_key and self._resolution_leaf(
+            preview_key
+        ) != self._resolution_leaf(success_key):
+            return False
+        if not entry.message:
+            return False
+        normalized_message = entry.message.casefold()
+        return (
+            "no such file or directory" in normalized_message
+            or normalized_message.strip() == "not found"
+        )
 
     @classmethod
     def _format_tool_activity_line(
@@ -462,6 +561,10 @@ class TranscriptLog(RichLog):
         )
         if outcome and duration and not message:
             return f"{head}  {outcome} {duration}\n"
+        if outcome == "miss" and message and duration:
+            return f"{head}  {message}  {duration}\n"
+        if outcome == "miss" and message:
+            return f"{head}  {message}\n"
         if outcome and message and duration:
             return f"{head}  {outcome}  {message}  {duration}\n"
         if outcome and message:
@@ -484,7 +587,11 @@ class TranscriptLog(RichLog):
     ) -> Text:
         text = Text()
         marker_color = DEFAULT_THEME.success_soft if outcome == "ok" else (
-            DEFAULT_THEME.error if outcome == "error" else DEFAULT_THEME.accent
+            DEFAULT_THEME.error
+            if outcome == "error"
+            else DEFAULT_THEME.text_muted
+            if outcome == "miss"
+            else DEFAULT_THEME.accent
         )
         text.append(cls.TOOL_MARKER, style=Style(color=marker_color))
         text.append(tool_name, style=Style(color=DEFAULT_THEME.text_muted))
@@ -504,6 +611,21 @@ class TranscriptLog(RichLog):
         elif outcome == "error":
             text.append("  ")
             text.append("error", style=Style(color=DEFAULT_THEME.error))
+        elif outcome == "miss":
+            if message:
+                text.append("  ")
+                text.append(
+                    message,
+                    style=Style(color=DEFAULT_THEME.text_muted, dim=True),
+                )
+                message = None
+            if duration:
+                text.append("  ")
+                text.append(
+                    duration,
+                    style=Style(color=DEFAULT_THEME.text_muted, dim=True),
+                )
+                duration = None
         if message:
             text.append("  ")
             text.append(

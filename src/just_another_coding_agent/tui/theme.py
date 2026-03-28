@@ -40,8 +40,14 @@ DEFAULT_THEME = ThemeTokens(
 def build_app_css(theme: ThemeTokens = DEFAULT_THEME) -> str:
     """Build the application stylesheet from theme tokens."""
     return f"""
+* {{
+    padding: 0;
+    margin: 0;
+    scrollbar-size: 0 0;
+}}
+
 Screen {{
-    background: transparent;
+    background: {theme.background};
 }}
 
 StatusBar {{
@@ -81,13 +87,15 @@ StatusBar.phase-error {{
 #main {{
     height: 1fr;
     background: transparent;
+    padding: 0;
+    margin: 0;
 }}
 
 #output {{
     height: 1fr;
-    padding: 0;
     color: {theme.text};
     background: transparent;
+    border-top: solid {theme.border_strong};
     border-bottom: solid {theme.border};
 }}
 

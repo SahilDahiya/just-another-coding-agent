@@ -8,7 +8,7 @@ from textual.containers import Horizontal, Vertical
 from textual.widgets import Input, Static
 
 from just_another_coding_agent.tui.app import CodingAgentApp
-from just_another_coding_agent.tui.rendering import write_stream_event
+from just_another_coding_agent.tui.rendering import write_stream_event, write_user_turn
 from just_another_coding_agent.tui.state import UiPhase
 from just_another_coding_agent.tui.widgets import StatusBar, TranscriptLog
 
@@ -617,6 +617,195 @@ async def test_tool_failures_render_as_preview_aware_error_rows(
             in transcript.plain_text
         )
         assert "raw runtime message" not in transcript.plain_text
+
+
+@pytest.mark.asyncio
+async def test_resolved_read_misses_are_downgraded_to_muted_not_found_rows(
+    tmp_path: Path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    sessions_root.mkdir()
+
+    app = CodingAgentApp(
+        model="ollama:test",
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+        thinking=None,
+    )
+
+    async with app.run_test() as _pilot:
+        transcript = app.query_one("#output", TranscriptLog)
+        write_user_turn(transcript, "remove testing section from agents.md")
+
+        write_stream_event(
+            transcript,
+            SimpleNamespace(
+                type="tool_call_started",
+                tool_name="read",
+                tool_call_id="call-read-1",
+                args={"path": "agents.md"},
+                args_valid=True,
+                activity=SimpleNamespace(
+                    title="read agents.md",
+                    summary=None,
+                    duration_ms=None,
+                ),
+            ),
+        )
+        write_stream_event(
+            transcript,
+            SimpleNamespace(
+                type="tool_call_succeeded",
+                tool_name="read",
+                tool_call_id="call-read-1",
+                result={
+                    "ok": False,
+                    "error_type": "ToolPathError",
+                    "message": (
+                        "[Errno 2] No such file or directory: "
+                        f"'{workspace_root / 'agents.md'}'"
+                    ),
+                },
+                activity=SimpleNamespace(
+                    title="read agents.md",
+                    summary=(
+                        "[Errno 2] No such file or directory: "
+                        f"'{workspace_root / 'agents.md'}'"
+                    ),
+                    duration_ms=15,
+                ),
+            ),
+        )
+        write_stream_event(
+            transcript,
+            SimpleNamespace(
+                type="assistant_text_delta",
+                delta="Let me check the workspace.\n",
+            ),
+        )
+        write_stream_event(
+            transcript,
+            SimpleNamespace(
+                type="tool_call_started",
+                tool_name="read",
+                tool_call_id="call-read-2",
+                args={"path": "AGENTS.md"},
+                args_valid=True,
+                activity=SimpleNamespace(
+                    title="read AGENTS.md",
+                    summary=None,
+                    duration_ms=None,
+                ),
+            ),
+        )
+        write_stream_event(
+            transcript,
+            SimpleNamespace(
+                type="tool_call_succeeded",
+                tool_name="read",
+                tool_call_id="call-read-2",
+                result="# Repository Guidelines\n",
+                activity=SimpleNamespace(
+                    title="read AGENTS.md",
+                    summary="read 1 line",
+                    duration_ms=21,
+                ),
+            ),
+        )
+
+        assert "read  AGENTS.md  ok 21ms" in transcript.plain_text
+        assert "read  agents.md  not found  15ms" in transcript.plain_text
+        assert "read  agents.md  error" not in transcript.plain_text
+        assert "No such file or directory" not in transcript.plain_text
+
+
+@pytest.mark.asyncio
+async def test_resolved_read_misses_downgrade_across_path_variants(
+    tmp_path: Path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    sessions_root.mkdir()
+
+    app = CodingAgentApp(
+        model="ollama:test",
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+        thinking=None,
+    )
+
+    async with app.run_test() as _pilot:
+        transcript = app.query_one("#output", TranscriptLog)
+        write_user_turn(transcript, "find agents instructions")
+
+        write_stream_event(
+            transcript,
+            SimpleNamespace(
+                type="tool_call_started",
+                tool_name="read",
+                tool_call_id="call-read-1",
+                args={"path": "agents.md"},
+                args_valid=True,
+                activity=SimpleNamespace(
+                    title="read agents.md",
+                    summary=None,
+                    duration_ms=None,
+                ),
+            ),
+        )
+        write_stream_event(
+            transcript,
+            SimpleNamespace(
+                type="tool_call_succeeded",
+                tool_name="read",
+                tool_call_id="call-read-1",
+                result={
+                    "ok": False,
+                    "error_type": "ToolPathError",
+                    "message": "No such file or directory",
+                },
+                activity=SimpleNamespace(
+                    title="read agents.md",
+                    summary="No such file or directory",
+                    duration_ms=11,
+                ),
+            ),
+        )
+        write_stream_event(
+            transcript,
+            SimpleNamespace(
+                type="tool_call_started",
+                tool_name="read",
+                tool_call_id="call-read-2",
+                args={"path": "./docs/AGENTS.md"},
+                args_valid=True,
+                activity=SimpleNamespace(
+                    title="read ./docs/AGENTS.md",
+                    summary=None,
+                    duration_ms=None,
+                ),
+            ),
+        )
+        write_stream_event(
+            transcript,
+            SimpleNamespace(
+                type="tool_call_succeeded",
+                tool_name="read",
+                tool_call_id="call-read-2",
+                result="found it",
+                activity=SimpleNamespace(
+                    title="read ./docs/AGENTS.md",
+                    summary="read 1 line",
+                    duration_ms=18,
+                ),
+            ),
+        )
+
+        assert "read  agents.md  not found  11ms" in transcript.plain_text
+        assert "read  agents.md  error" not in transcript.plain_text
 
 
 @pytest.mark.asyncio
