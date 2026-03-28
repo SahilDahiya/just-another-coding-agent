@@ -327,7 +327,7 @@ Canonical tool concurrency policy:
 - `read`, `grep`, `find`, and `ls` are parallel-eligible
 - `write`, `edit`, and `bash` are sequential only
 - the runtime must set tool execution mode explicitly instead of relying on framework defaults
-- provider-side `parallel_tool_calls` must only be enabled for canonical model/provider combinations the backend explicitly supports
+- provider-side `parallel_tool_calls` is enabled by default for canonical model/provider paths; carve-outs should be explicit when a specific model path is known not to support it correctly
 
 Ordering rules for the tool slice:
 

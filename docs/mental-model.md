@@ -143,7 +143,7 @@ The registry (`tools/registry.py`) is thin: it validates canonical tool names, s
 
 Canonical tool success activity is now tool-owned. Each canonical tool can use PydanticAI's `ToolReturn` split internally so the model sees the same concise success value while the app gets backend-owned activity metadata in `ToolReturn.metadata`. That metadata is only an internal carrier. It becomes part of the product surface only after the runtime validates and maps it into typed `ToolActivity` fields such as `title`, `summary`, and `details`.
 
-Canonical tool concurrency is explicit too. `read`, `grep`, `find`, and `ls` are parallel-eligible; `write`, `edit`, and `bash` are serialized. The runtime also enters an explicit parallel execution mode for tool calls, and the model seam only enables provider-side `parallel_tool_calls` for supported providers instead of assuming every model can do it safely.
+Canonical tool concurrency is explicit too. `read`, `grep`, `find`, and `ls` are parallel-eligible; `write`, `edit`, and `bash` are serialized. The runtime also enters an explicit parallel execution mode for tool calls, and the model seam enables provider-side `parallel_tool_calls` by default for canonical provider paths, with explicit carve-outs reserved for specific model paths that prove incompatible.
 
 ### Canonical Agent
 

@@ -117,14 +117,16 @@ def test_build_canonical_model_settings_enable_parallel_tool_calls_for_supported
     }
 
 
-def test_build_canonical_model_settings_do_not_enable_parallel_tool_calls_for_ollama(
+def test_build_canonical_model_settings_enable_parallel_tool_calls_for_ollama(
 ) -> None:
     model = OpenAIChatModel(
         "glm-5:cloud",
         provider=OllamaProvider(base_url="https://example.test/v1", api_key="test-key"),
     )
 
-    assert build_canonical_model_settings(model=model) is None
+    assert build_canonical_model_settings(model=model) == {
+        "parallel_tool_calls": True
+    }
 
 
 def test_resolve_canonical_model_uses_retrying_openai_http_transport(

@@ -192,7 +192,7 @@ def _supports_parallel_tool_calls(model: Model) -> bool:
     if isinstance(model, OpenAIResponsesModel):
         return isinstance(model._provider, OpenAIProvider)
     if isinstance(model, OpenAIChatModel):
-        return isinstance(model._provider, OpenAIProvider)
+        return isinstance(model._provider, (OpenAIProvider, OllamaProvider))
     return isinstance(model, AnthropicModel)
 
 
