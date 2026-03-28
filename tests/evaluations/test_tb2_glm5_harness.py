@@ -2,7 +2,6 @@ import os
 import subprocess
 from pathlib import Path
 
-
 SCRIPT_PATH = Path(__file__).resolve().parents[2] / "scripts" / "tb2_glm5.sh"
 
 
@@ -19,6 +18,21 @@ def _copy_harness(tmp_path: Path) -> Path:
     harness_path.write_text(SCRIPT_PATH.read_text())
     harness_path.chmod(0o755)
     return harness_path
+
+
+def _expected_log_line(
+    script_path: Path,
+    *,
+    action: str,
+    submission_id: str,
+    task_file: str,
+    passes: str,
+    label: str,
+) -> str:
+    return (
+        f"{script_path}|action={action}|submission={submission_id}|"
+        f"task={task_file}|passes={passes}|label={label}"
+    )
 
 
 def _write_stub_launcher(path: Path, label: str) -> None:
@@ -57,11 +71,20 @@ def test_harness_run_full_delegates_to_full_launcher(tmp_path: Path) -> None:
 
     assert result.returncode == 0
     assert log_path.read_text().splitlines() == [
-        f"{scripts_dir / 'run_tb2_submission_glm5.sh'}|action=run|submission=glm5-high|task=|passes=1|label=full"
+        _expected_log_line(
+            scripts_dir / "run_tb2_submission_glm5.sh",
+            action="run",
+            submission_id="glm5-high",
+            task_file="",
+            passes="1",
+            label="full",
+        )
     ]
 
 
-def test_harness_run_multiple_slices_delegates_to_slice_launcher(tmp_path: Path) -> None:
+def test_harness_run_multiple_slices_delegates_to_slice_launcher(
+    tmp_path: Path,
+) -> None:
     harness_path = _copy_harness(tmp_path)
     scripts_dir = harness_path.parent
     _write_stub_launcher(scripts_dir / "run_tb2_submission_glm5.sh", "full")
@@ -94,8 +117,22 @@ def test_harness_run_multiple_slices_delegates_to_slice_launcher(tmp_path: Path)
 
     assert result.returncode == 0
     assert log_path.read_text().splitlines() == [
-        f"{scripts_dir / 'run_tb2_submission_glm5_slice.sh'}|action=run|submission=glm5-high|task={task_a}|passes=2|label=slice",
-        f"{scripts_dir / 'run_tb2_submission_glm5_slice.sh'}|action=run|submission=glm5-high|task={task_b}|passes=2|label=slice",
+        _expected_log_line(
+            scripts_dir / "run_tb2_submission_glm5_slice.sh",
+            action="run",
+            submission_id="glm5-high",
+            task_file=str(task_a),
+            passes="2",
+            label="slice",
+        ),
+        _expected_log_line(
+            scripts_dir / "run_tb2_submission_glm5_slice.sh",
+            action="run",
+            submission_id="glm5-high",
+            task_file=str(task_b),
+            passes="2",
+            label="slice",
+        ),
     ]
 
 
@@ -122,5 +159,12 @@ def test_harness_status_slice_delegates_with_action_status(tmp_path: Path) -> No
 
     assert result.returncode == 0
     assert log_path.read_text().splitlines() == [
-        f"{scripts_dir / 'run_tb2_submission_glm5_slice.sh'}|action=status|submission=glm5-high|task={task_a}|passes=|label=slice"
+        _expected_log_line(
+            scripts_dir / "run_tb2_submission_glm5_slice.sh",
+            action="status",
+            submission_id="glm5-high",
+            task_file=str(task_a),
+            passes="",
+            label="slice",
+        )
     ]

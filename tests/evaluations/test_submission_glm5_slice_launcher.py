@@ -3,7 +3,6 @@ import shutil
 import subprocess
 from pathlib import Path
 
-
 SCRIPT_PATH = (
     Path(__file__).resolve().parents[2] / "scripts" / "run_tb2_submission_glm5_slice.sh"
 )
@@ -106,8 +105,11 @@ def test_slice_launcher_records_completed_first_pass_and_task_names(
     )
     assert invocations[0][invocations[0].index("--n-attempts") + 1] == "1"
     assert invocations[0].count("--task-name") == 3
-    assert invocations[0][invocations[0].index("--task-name") + 1] == "fix-git"
-    assert invocations[0][invocations[0].index("--task-name", invocations[0].index("--task-name") + 1) + 1] == "regex-log"
+    task_name_indexes = [
+        index for index, token in enumerate(invocations[0]) if token == "--task-name"
+    ]
+    assert invocations[0][task_name_indexes[0] + 1] == "fix-git"
+    assert invocations[0][task_name_indexes[1] + 1] == "regex-log"
 
 
 def test_slice_launcher_resumes_from_last_completed_pass(tmp_path: Path) -> None:

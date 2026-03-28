@@ -1,4 +1,4 @@
-from just_another_coding_agent_adapters.harbor.commands import (
+from evaluations.harbor.commands import (
     build_harbor_exec_command,
     build_provider_env,
 )
@@ -31,7 +31,7 @@ def test_build_harbor_exec_command_preserves_exact_model_string() -> None:
         model="openai-responses:gpt-5.3-codex",
     )
 
-    assert "just_another_coding_agent_adapters.bench.exec_prompt" in command
+    assert "evaluations.bench.exec_prompt" in command
     assert "openai-responses:gpt-5.3-codex" in command
     assert "printf %s " in command
     assert " base64 -d | " in command

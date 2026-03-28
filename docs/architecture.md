@@ -136,9 +136,9 @@ The important boundary is:
   - presentation, input handling, and shell-specific state
 - `src/just_another_coding_agent/contracts/`
   - contract types, constants, and schema helpers
-- `src/just_another_coding_agent_adapters/`
-  - external harness and benchmark adapters such as Harbor or Terminal Bench
-  - depends on `just_another_coding_agent`; core backend packages must not depend on adapters
+- `evaluations/`
+  - non-product evaluation harness code such as Harbor and Terminal Bench glue
+  - depends on `just_another_coding_agent`; product packages must not depend on evaluation code
 
 ## Boundaries
 
@@ -151,7 +151,7 @@ The important boundary is:
 - Keep the TUI constrained to exactly three zones: status bar, transcript, and prompt.
 - TUI capabilities must live in those zones or behind slash commands; no side panels, drawers, or split-pane growth.
 - Keep Harbor, Terminal Bench, and similar external harness bindings out of `just_another_coding_agent` core packages.
-- External adapters may wrap the canonical stdio/session/runtime path, but they must not create a second execution contract.
+- Evaluation harnesses may wrap the canonical stdio/session/runtime path, but they must not create a second execution contract.
 
 ## Data Flow
 

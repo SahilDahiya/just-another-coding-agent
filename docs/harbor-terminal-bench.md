@@ -8,7 +8,7 @@ This document describes the supported Harbor adapter workflow for `just_another_
 
 The adapter path is intentionally thin:
 
-- Harbor imports a custom installed agent from `just_another_coding_agent_adapters`
+- Harbor imports a custom installed agent from the root `evaluations` package
 - that agent uploads the local repo source into the task container
 - the container installs the backend package
 - the adapter runs the one-shot wrapper `just-another-coding-agent-exec-prompt`
@@ -29,7 +29,7 @@ to the user prompt before `run.start`, so Terminal Bench behavior stays adapter-
 - a Harbor-supported environment is available
   - local default is Docker
 - the local source tree is importable by Harbor
-  - easiest path: `PYTHONPATH=$PWD/src`
+  - easiest path: `PYTHONPATH=$PWD/src:$PWD`
 
 For OpenAI-hosted runs:
 
@@ -98,9 +98,9 @@ Important implications:
 Use this to run against one local Harbor task or task directory:
 
 ```bash
-PYTHONPATH=$PWD/src harbor run \
+PYTHONPATH=$PWD/src:$PWD harbor run \
   --path /abs/path/to/task \
-  --agent-import-path just_another_coding_agent_adapters.harbor.agent:JustAnotherCodingAgentHarborAgent \
+  --agent-import-path evaluations.harbor.agent:JustAnotherCodingAgentHarborAgent \
   --model openai-responses:gpt-5.3-codex \
   --n-concurrent 1 \
   --job-name just-another-coding-agent-local-smoke \
@@ -111,7 +111,7 @@ PYTHONPATH=$PWD/src harbor run \
 What this does:
 
 1. Harbor imports the custom installed agent from this repo.
-2. The agent uploads `pyproject.toml`, `README.md`, and `src/` into the task container.
+2. The agent uploads `pyproject.toml`, `README.md`, `src/`, and `evaluations/` into the task container.
 3. The install script installs the backend package in the container.
 4. The run command launches `just-another-coding-agent-exec-prompt`.
 5. The wrapper creates a backend session, runs one prompt, prints terminal output, and exits non-zero on canonical run failure.
@@ -119,7 +119,7 @@ What this does:
 If you need to set thinking explicitly when using the one-shot wrapper directly, use:
 
 ```bash
-python -m just_another_coding_agent_adapters.bench.exec_prompt \
+python -m evaluations.bench.exec_prompt \
   --model openai-responses:gpt-5.3-codex \
   --thinking high \
   -C /abs/path/to/workspace \
@@ -131,10 +131,10 @@ python -m just_another_coding_agent_adapters.bench.exec_prompt \
 Use this to run against one selected Terminal Bench task:
 
 ```bash
-PYTHONPATH=$PWD/src harbor run \
+PYTHONPATH=$PWD/src:$PWD harbor run \
   --dataset terminal-bench@2.0 \
   --task-name <task-name> \
-  --agent-import-path just_another_coding_agent_adapters.harbor.agent:JustAnotherCodingAgentHarborAgent \
+  --agent-import-path evaluations.harbor.agent:JustAnotherCodingAgentHarborAgent \
   --model openai-responses:gpt-5.3-codex \
   --n-concurrent 1 \
   --job-name just-another-coding-agent-<task-name> \
@@ -145,10 +145,10 @@ PYTHONPATH=$PWD/src harbor run \
 For Ollama Cloud, swap the model string and ensure `OLLAMA_BASE_URL` plus `OLLAMA_API_KEY` are exported in the Harbor host process:
 
 ```bash
-PYTHONPATH=$PWD/src harbor run \
+PYTHONPATH=$PWD/src:$PWD harbor run \
   --dataset terminal-bench@2.0 \
   --task-name <task-name> \
-  --agent-import-path just_another_coding_agent_adapters.harbor.agent:JustAnotherCodingAgentHarborAgent \
+  --agent-import-path evaluations.harbor.agent:JustAnotherCodingAgentHarborAgent \
   --model 'ollama:kimi-k2:1t-cloud' \
   --n-concurrent 1 \
   --job-name just-another-coding-agent-<task-name> \
@@ -361,8 +361,8 @@ If you do not request `/tmp/just-another-coding-agent-sessions` as a Harbor arti
 
 ## Troubleshooting
 
-- `ModuleNotFoundError` for `just_another_coding_agent_adapters`
-  - run Harbor with `PYTHONPATH=$PWD/src`, or install the repo into the same Python environment Harbor uses
+- `ModuleNotFoundError` for `evaluations`
+  - run Harbor with `PYTHONPATH=$PWD/src:$PWD`, or install the repo into the same Python environment Harbor uses
 - backend model fails with OpenAI chat-completions errors
   - use `openai-responses:gpt-5.3-codex`, not `openai:gpt-5.3-codex`
 - provider auth missing in the container

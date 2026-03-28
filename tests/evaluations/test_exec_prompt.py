@@ -5,7 +5,7 @@ import time
 
 import pytest
 
-from just_another_coding_agent_adapters.bench.exec_prompt import (
+from evaluations.bench.exec_prompt import (
     BENCHMARK_WORKFLOW_PROMPT,
     ExecPromptError,
     NoRunEventsTimeout,
@@ -392,7 +392,7 @@ def test_main_prints_output_and_returns_zero(tmp_path, monkeypatch) -> None:
         return "done"
 
     monkeypatch.setattr(
-        "just_another_coding_agent_adapters.bench.exec_prompt.run_exec_prompt",
+        "evaluations.bench.exec_prompt.run_exec_prompt",
         fake_run_exec_prompt,
     )
 
@@ -421,7 +421,7 @@ def test_main_prints_error_and_returns_one(tmp_path, monkeypatch) -> None:
         raise ExecPromptError("RuntimeError: boom")
 
     monkeypatch.setattr(
-        "just_another_coding_agent_adapters.bench.exec_prompt.run_exec_prompt",
+        "evaluations.bench.exec_prompt.run_exec_prompt",
         fake_run_exec_prompt,
     )
 
@@ -452,7 +452,7 @@ def test_main_parses_thinking_flag(tmp_path, monkeypatch) -> None:
         return "done"
 
     monkeypatch.setattr(
-        "just_another_coding_agent_adapters.bench.exec_prompt.run_exec_prompt",
+        "evaluations.bench.exec_prompt.run_exec_prompt",
         fake_run_exec_prompt,
     )
 

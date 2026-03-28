@@ -207,9 +207,9 @@ Benchmark harness / CLI / TUI / UI (any language)
 
 The consumer sends RPC requests. The RPC server delegates to the session coordinator, which loads (or creates) a session, builds the canonical agent, streams events through the runtime, persists `session_run` plus `session_event` entries as they happen, and appends `session_messages` only after completion. The session coordinator is the single path -- both RPC and direct Python calls use it.
 
-## Adapters
+## Evaluation Harnesses
 
-The `just_another_coding_agent_adapters` package contains external harness bindings that wrap the canonical backend. Adapters depend on `just_another_coding_agent` but core packages must not depend on adapters.
+The root `evaluations/` package contains non-product harness bindings that wrap the canonical backend. Evaluation code depends on `just_another_coding_agent` but product packages must not depend on evaluation code.
 
 ### exec-prompt
 

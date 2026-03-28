@@ -39,7 +39,7 @@ def build_harbor_exec_command(
     return (
         f"printf %s {shlex.quote(prompt_b64)} | base64 -d | "
         f"{shlex.quote(python_executable)} -m "
-        "just_another_coding_agent_adapters.bench.exec_prompt "
+        "evaluations.bench.exec_prompt "
         f"--model {shlex.quote(model)} "
         f"{thinking_arg}"
         f"--sessions-root {shlex.quote(sessions_root)} "

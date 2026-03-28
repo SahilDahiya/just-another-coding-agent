@@ -6,7 +6,7 @@ def test_install_script_uses_virtualenv_for_local_package_install() -> None:
         Path(__file__)
         .resolve()
         .parents[2]
-        .joinpath("src/just_another_coding_agent_adapters/harbor/install-just-another-coding-agent.sh.j2")
+        .joinpath("evaluations/harbor/install-just-another-coding-agent.sh.j2")
         .read_text()
     )
 
@@ -24,7 +24,7 @@ def test_install_script_retries_venv_creation_after_installing_python3_venv() ->
         Path(__file__)
         .resolve()
         .parents[2]
-        .joinpath("src/just_another_coding_agent_adapters/harbor/install-just-another-coding-agent.sh.j2")
+        .joinpath("evaluations/harbor/install-just-another-coding-agent.sh.j2")
         .read_text()
     )
 
@@ -39,7 +39,7 @@ def test_install_script_bootstraps_python_312_with_uv_when_system_python_is_too_
         Path(__file__)
         .resolve()
         .parents[2]
-        .joinpath("src/just_another_coding_agent_adapters/harbor/install-just-another-coding-agent.sh.j2")
+        .joinpath("evaluations/harbor/install-just-another-coding-agent.sh.j2")
         .read_text()
     )
 

@@ -141,7 +141,7 @@ run_pass() {
 
   harbor_args=(
     --dataset "$DATASET"
-    --agent-import-path just_another_coding_agent_adapters.harbor.agent:JustAnotherCodingAgentHarborAgent
+    --agent-import-path evaluations.harbor.agent:JustAnotherCodingAgentHarborAgent
     --model "$MODEL"
     --jobs-dir "$JOBS_DIR"
     --job-name "$job_name"
@@ -155,7 +155,7 @@ run_pass() {
   done
 
   set +e
-  PYTHONPATH="$REPO_ROOT/src${PYTHONPATH:+:$PYTHONPATH}" \
+  PYTHONPATH="$REPO_ROOT/src:$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}" \
   harbor run "${harbor_args[@]}"
   status=$?
   set -e

@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from just_another_coding_agent_adapters.harbor.commands import (
+from evaluations.harbor.commands import (
     build_harbor_exec_command,
     build_provider_env,
 )
@@ -32,7 +32,7 @@ else:
             return Path(__file__).with_name("install-just-another-coding-agent.sh.j2")
 
         async def setup(self, environment) -> None:
-            repo_root = Path(__file__).resolve().parents[3]
+            repo_root = Path(__file__).resolve().parents[2]
             target_root = "/installed-agent/just-another-coding-agent"
 
             await environment.exec(command=f"mkdir -p {target_root}")
@@ -47,6 +47,10 @@ else:
             await environment.upload_dir(
                 source_dir=repo_root / "src",
                 target_dir=f"{target_root}/src",
+            )
+            await environment.upload_dir(
+                source_dir=repo_root / "evaluations",
+                target_dir=f"{target_root}/evaluations",
             )
             await super().setup(environment)
 

@@ -3,7 +3,6 @@ import shutil
 import subprocess
 from pathlib import Path
 
-
 SCRIPT_PATH = (
     Path(__file__).resolve().parents[2] / "scripts" / "run_tb2_submission_glm5.sh"
 )
