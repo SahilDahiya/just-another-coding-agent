@@ -85,6 +85,31 @@ async def test_startup_banner_is_idempotent(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_startup_banner_respects_existing_transcript_banner(
+    tmp_path: Path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    sessions_root.mkdir()
+
+    app = CodingAgentApp(
+        model="ollama:test",
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+        thinking=None,
+    )
+
+    async with app.run_test() as _pilot:
+        transcript = app.query_one("#output", TranscriptLog)
+        app._startup_banner_rendered = False
+        app._ensure_startup_banner(transcript)
+
+        assert transcript.plain_text.count("jaca  ") == 1
+        assert transcript.plain_text.count("ollama http://localhost:11434/v1") == 1
+
+
+@pytest.mark.asyncio
 async def test_streamed_assistant_deltas_append_as_text(tmp_path: Path) -> None:
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()

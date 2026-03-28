@@ -112,7 +112,8 @@ class CodingAgentApp(App[None]):
         self._start_startup_reveal()
 
     def _ensure_startup_banner(self, output: TranscriptLog) -> None:
-        if self._startup_banner_rendered:
+        if self._startup_banner_rendered or output.plain_text.startswith("jaca  "):
+            self._startup_banner_rendered = True
             return
         write_startup_banner(
             output,
