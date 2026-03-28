@@ -19,6 +19,7 @@ from just_another_coding_agent.contracts.run_events import (
     ToolActivity,
     ToolCallStartedEvent,
     ToolCallSucceededEvent,
+    ToolCallUpdatedEvent,
 )
 from just_another_coding_agent.contracts.session import SessionCompactionSummary
 from just_another_coding_agent.runtime.run import stream_run_events
@@ -200,6 +201,80 @@ def test_append_and_load_session_preserves_tool_activity_metadata(tmp_path) -> N
     assert loaded.runs[0].events == run_events
 
 
+def test_append_and_load_session_preserves_tool_call_updates(tmp_path) -> None:
+    path = tmp_path / "session.jsonl"
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    run_events = [
+        RunStartedEvent(run_id="run-1"),
+        ToolCallStartedEvent(
+            run_id="run-1",
+            tool_call_id="call-bash",
+            tool_name="bash",
+            args={"command": "sleep 1"},
+            args_valid=True,
+            activity=ToolActivity(
+                title="bash sleep 1",
+                details={
+                    "kind": "bash",
+                    "command_preview": "sleep 1",
+                    "timeout": None,
+                    "exit_code": None,
+                },
+            ),
+        ),
+        ToolCallUpdatedEvent(
+            run_id="run-1",
+            tool_call_id="call-bash",
+            tool_name="bash",
+            partial_result={"output": "still running"},
+            activity=ToolActivity(
+                title="bash sleep 1",
+                summary="command still running",
+                duration_ms=250,
+                details={
+                    "kind": "bash",
+                    "command_preview": "sleep 1",
+                    "timeout": None,
+                    "exit_code": None,
+                },
+            ),
+        ),
+        ToolCallSucceededEvent(
+            run_id="run-1",
+            tool_call_id="call-bash",
+            tool_name="bash",
+            result={"exit_code": 0, "output": "done"},
+            activity=ToolActivity(
+                title="bash sleep 1",
+                summary="command exited 0",
+                duration_ms=500,
+                details={
+                    "kind": "bash",
+                    "command_preview": "sleep 1",
+                    "timeout": None,
+                    "exit_code": 0,
+                },
+            ),
+        ),
+        RunSucceededEvent(run_id="run-1", output_text="done"),
+    ]
+
+    append_run_to_session(
+        path=path,
+        workspace_root=workspace_root,
+        prompt="go",
+        thinking=None,
+        events=run_events,
+        messages=[ModelRequest(parts=[UserPromptPart(content="go")])],
+    )
+
+    loaded = load_session(path=path, workspace_root=workspace_root)
+
+    assert loaded.runs[0].events == run_events
+
+
 def test_load_session_fails_without_header(tmp_path) -> None:
     path = tmp_path / "session.jsonl"
     workspace_root = tmp_path / "workspace"
@@ -217,6 +292,71 @@ def test_load_session_fails_without_header(tmp_path) -> None:
     )
 
     with pytest.raises(SessionFormatError, match="Session header must be first"):
+        load_session(path=path, workspace_root=workspace_root)
+
+
+def test_load_session_fails_when_tool_update_has_no_started_call(tmp_path) -> None:
+    path = tmp_path / "session.jsonl"
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    lines = [
+        {
+            "type": "session_header",
+            "version": 4,
+            "workspace_root": str(workspace_root.resolve()),
+        },
+        {"type": "session_run", "run_id": "run-1", "prompt": "go"},
+        {
+            "type": "session_messages",
+            "run_id": "run-1",
+            "messages": [
+                {
+                    "kind": "request",
+                    "parts": [{"part_kind": "user-prompt", "content": "go"}],
+                    "timestamp": None,
+                    "run_id": None,
+                    "metadata": None,
+                    "instructions": None,
+                }
+            ],
+        },
+        {
+            "type": "session_event",
+            "run_id": "run-1",
+            "event": {"type": "run_started", "run_id": "run-1"},
+        },
+        {
+            "type": "session_event",
+            "run_id": "run-1",
+            "event": {
+                "type": "tool_call_updated",
+                "run_id": "run-1",
+                "tool_call_id": "call-bash",
+                "tool_name": "bash",
+                "partial_result": {"output": "still running"},
+                "activity": None,
+            },
+        },
+        {
+            "type": "session_event",
+            "run_id": "run-1",
+            "event": {
+                "type": "run_failed",
+                "run_id": "run-1",
+                "error_type": "RuntimeError",
+                "message": "boom",
+            },
+        },
+    ]
+    path.write_text(
+        "".join(json.dumps(line) + "\n" for line in lines),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        SessionFormatError,
+        match="Tool update must follow tool_call_started",
+    ):
         load_session(path=path, workspace_root=workspace_root)
 
 

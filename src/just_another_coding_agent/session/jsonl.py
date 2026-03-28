@@ -17,6 +17,7 @@ from just_another_coding_agent.contracts.run_events import (
     ToolCallFailedEvent,
     ToolCallStartedEvent,
     ToolCallSucceededEvent,
+    ToolCallUpdatedEvent,
 )
 from just_another_coding_agent.contracts.session import (
     SESSION_FORMAT_VERSION,
@@ -322,6 +323,16 @@ def _validate_run_record(run: SessionRunRecord) -> str:
             if event.tool_call_id in pending_tool_calls:
                 raise SessionFormatError("Tool call IDs must be unique until resolved")
             pending_tool_calls[event.tool_call_id] = event.tool_name
+            continue
+
+        if isinstance(event, ToolCallUpdatedEvent):
+            expected_name = pending_tool_calls.get(event.tool_call_id)
+            if expected_name is None:
+                raise SessionFormatError("Tool update must follow tool_call_started")
+            if expected_name != event.tool_name:
+                raise SessionFormatError(
+                    "Tool update tool_name must match the started tool call"
+                )
             continue
 
         if isinstance(event, ToolCallSucceededEvent | ToolCallFailedEvent):

@@ -116,6 +116,14 @@ class ToolCallSucceededEvent(_RunEventBase):
     activity: ToolActivity | None = None
 
 
+class ToolCallUpdatedEvent(_RunEventBase):
+    type: Literal["tool_call_updated"] = "tool_call_updated"
+    tool_call_id: str
+    tool_name: str
+    partial_result: JsonValue | None
+    activity: ToolActivity | None = None
+
+
 class ToolCallFailedEvent(_RunEventBase):
     type: Literal["tool_call_failed"] = "tool_call_failed"
     tool_call_id: str
@@ -140,6 +148,7 @@ RunEvent = Annotated[
     RunStartedEvent
     | AssistantTextDeltaEvent
     | ToolCallStartedEvent
+    | ToolCallUpdatedEvent
     | ToolCallSucceededEvent
     | ToolCallFailedEvent
     | RunSucceededEvent
@@ -164,6 +173,7 @@ __all__ = [
     "ToolActivityDetails",
     "ToolCallFailedEvent",
     "ToolCallStartedEvent",
+    "ToolCallUpdatedEvent",
     "ToolCallSucceededEvent",
     "WriteActivityDetails",
 ]
