@@ -6,6 +6,8 @@ read_when: you need the big picture or need to know where code belongs
 
 The architecture is intentionally thin. PydanticAI is the engine. This repo owns the coding-agent product surface that is specific to the backend, plus a thin first-party TUI shell over that same runtime.
 
+The main architectural risk in the current shape is split-brain product logic between Python and Go. The mitigation is explicit: Python owns backend semantics and public contracts; Go owns terminal presentation, input handling, and RPC client behavior. If the shell needs richer semantics, the backend contract should grow rather than teaching Go to infer or reinvent backend meaning locally.
+
 ## Implementation Stance
 
 Prefer direct use of PydanticAI primitives before creating local abstractions:
@@ -152,6 +154,7 @@ The important boundary is:
 - Do not import pi-mono's package layout, UI model, or extension architecture into this repo.
 - Keep the TUI constrained to exactly three zones: status bar, transcript, and prompt.
 - TUI capabilities must live in those zones or behind slash commands; no side panels, drawers, or split-pane growth.
+- Keep backend semantics in Python. Go may format, group, and present streamed state, but it must not become an independent source of truth for tool semantics, event semantics, session semantics, or recovery policy.
 - Keep Harbor, Terminal Bench, and similar external harness bindings out of `just_another_coding_agent` core packages.
 - Evaluation harnesses may wrap the canonical stdio/session/runtime path, but they must not create a second execution contract.
 

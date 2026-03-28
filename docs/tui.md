@@ -15,6 +15,8 @@ The TUI is a first-party shell over the same backend runtime, tools, sessions,
 and RPC-facing contract. It is not a second product with a separate feature
 agenda.
 
+The core architectural risk is semantic drift between the Go shell and the Python backend. The TUI must remain a presentation layer over the canonical backend contract. If the shell wants to show richer tool, session, or recovery meaning, that meaning should come from explicit backend fields rather than frontend invention.
+
 ## Hard Constraints
 
 - The TUI has exactly three interaction zones: status bar, transcript, and prompt.
@@ -25,6 +27,7 @@ agenda.
 - Build structure with borders, spacing, typography, and color hierarchy, not stacked background fills.
 - Hide in-app scrollbar chrome when it adds noise, but do not remove transcript scrolling itself.
 - The terminal emulator's own scroll affordances remain valid; JACA should not fight them.
+- Go owns shell craft, layout, and interaction polish. Python owns agent semantics, tool semantics, event semantics, session semantics, and public contract meaning.
 
 ## Product Bar
 
@@ -43,6 +46,7 @@ agenda.
 - Decorative animation without state meaning
 - Terminal-specific hacks without tests and explicit deletion criteria
 - Feature growth that weakens the canonical interaction model
+- Frontend-only reinvention of backend meaning because the current stream shape feels inconvenient
 
 ## Motion Budget
 
@@ -75,6 +79,7 @@ agenda.
 - Persistent helper chrome should be minimal; slash-command discoverability must not dominate the idle shell.
 - Prompt history and draft recovery belong in the prompt zone; command palettes and secondary controls do not.
 - Completed assistant lists should read as indented terminal notes, not decorative article bullets.
+- When transcript rows need richer semantics, prefer explicit backend `activity` or event fields over heuristic frontend interpretation.
 
 ## North Star
 

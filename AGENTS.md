@@ -30,6 +30,8 @@ read_when: you are starting work in this repo or need repo-specific coding rules
 - Fail hard on failure conditions.
 - No backward compatibility guarantees.
 - Forward-only development: do not carry legacy baggage.
+- The Go TUI is presentation only. Backend semantics, tool meaning, event meaning, session meaning, and public contract ownership stay in Python.
+- Do not duplicate backend decision logic in the Go TUI. If the shell needs richer meaning, add it to the backend contract first.
 
 ## Hard-Cut Product Policy
 - Optimize for one canonical current-state implementation.
@@ -53,3 +55,4 @@ read_when: you are starting work in this repo or need repo-specific coding rules
 - Fix root cause, not symptoms.
 - If unsure, read code and docs before asking.
 - Protect the public coding-agent contract, not internal implementation details.
+- When working on the TUI, prefer presentation changes over semantic inference. Go should render the contract, not reinterpret it.

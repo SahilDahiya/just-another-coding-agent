@@ -8,6 +8,8 @@ Build a Python-native coding-agent backend around PydanticAI, with a thin first-
 
 The product is a coding agent backend first. The TUI is a first-party shell over that backend, not a second product and not an invitation to build a terminal IDE.
 
+The move from a Python TUI to a Go TUI is justified only by product quality and shell craft. It does not change contract ownership. Python remains the single source of truth for backend semantics, tool behavior, streamed event meaning, session meaning, and recovery policy. The Go TUI may present that contract well, but it must not become a second agent runtime or a second place where product semantics are invented.
+
 ## Inspiration Boundary
 
 The behavioral inspiration is pi's coding-agent product surface:
@@ -54,3 +56,4 @@ Use PydanticAI primitives wherever they already solve the problem. Local code sh
 4. Prefer deleting old-state support over carrying compatibility baggage.
 5. Protect public contracts first: tools, events, sessions, RPC, failure semantics.
 6. Default to TDD for maintained code.
+7. Treat the Go TUI as a shell over the backend, not a second implementation of backend logic.
