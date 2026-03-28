@@ -294,7 +294,9 @@ async def test_slash_help_renders_as_system_block(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_tool_activity_is_compacted_into_summary_rows(tmp_path: Path) -> None:
+async def test_tool_activity_rows_show_preview_and_success_state(
+    tmp_path: Path,
+) -> None:
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
     sessions_root = tmp_path / "sessions"
@@ -328,32 +330,16 @@ async def test_tool_activity_is_compacted_into_summary_rows(tmp_path: Path) -> N
                 result={"ok": True},
             ),
         )
-        write_stream_event(
-            transcript,
-            SimpleNamespace(
-                type="tool_call_started",
-                tool_name="bash",
-                tool_call_id="call-2",
-                args={"command": "git diff --stat"},
-                args_valid=True,
-            ),
-        )
-        write_stream_event(
-            transcript,
-            SimpleNamespace(
-                type="tool_call_succeeded",
-                tool_name="bash",
-                tool_call_id="call-2",
-                result={"ok": True},
-            ),
-        )
 
-        assert "bash x2" in transcript.plain_text
+        assert "bash ok  git show HEAD --stat" in transcript.plain_text
+        assert "bash x2" not in transcript.plain_text
         assert "tool bash" not in transcript.plain_text
 
 
 @pytest.mark.asyncio
-async def test_tool_failures_render_as_compact_error_rows(tmp_path: Path) -> None:
+async def test_file_tool_rows_use_path_preview_and_success_state(
+    tmp_path: Path,
+) -> None:
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
     sessions_root = tmp_path / "sessions"
@@ -371,6 +357,57 @@ async def test_tool_failures_render_as_compact_error_rows(tmp_path: Path) -> Non
         write_stream_event(
             transcript,
             SimpleNamespace(
+                type="tool_call_started",
+                tool_name="write",
+                tool_call_id="call-write",
+                args={"path": "notes/plan.md", "content": "hello"},
+                args_valid=True,
+            ),
+        )
+        write_stream_event(
+            transcript,
+            SimpleNamespace(
+                type="tool_call_succeeded",
+                tool_name="write",
+                tool_call_id="call-write",
+                result="Wrote /tmp/workspace/notes/plan.md",
+            ),
+        )
+
+        assert "write ok  notes/plan.md" in transcript.plain_text
+
+
+@pytest.mark.asyncio
+async def test_tool_failures_render_as_preview_aware_error_rows(
+    tmp_path: Path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    sessions_root.mkdir()
+
+    app = CodingAgentApp(
+        model="ollama:test",
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+        thinking=None,
+    )
+
+    async with app.run_test() as _pilot:
+        transcript = app.query_one("#output", TranscriptLog)
+        write_stream_event(
+            transcript,
+            SimpleNamespace(
+                type="tool_call_started",
+                tool_name="bash",
+                tool_call_id="call-1",
+                args={"command": "pytest -q"},
+                args_valid=True,
+            ),
+        )
+        write_stream_event(
+            transcript,
+            SimpleNamespace(
                 type="tool_call_failed",
                 tool_name="bash",
                 tool_call_id="call-1",
@@ -379,7 +416,10 @@ async def test_tool_failures_render_as_compact_error_rows(tmp_path: Path) -> Non
             ),
         )
 
-        assert "bash error  Command timed out after 60 seconds" in transcript.plain_text
+        assert (
+            "bash error  pytest -q  |  Command timed out after 60 seconds"
+            in transcript.plain_text
+        )
 
 
 @pytest.mark.asyncio

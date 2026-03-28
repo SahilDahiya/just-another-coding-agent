@@ -24,6 +24,15 @@ class TranscriptPart:
     plain_text: str
 
 
+@dataclass(slots=True)
+class ToolRow:
+    """Track one visible tool-activity row by tool call id."""
+
+    index: int
+    tool_name: str
+    preview: str | None
+
+
 class StatusBar(Static):
     """Top status bar showing current session state."""
 
@@ -94,9 +103,7 @@ class TranscriptLog(RichLog):
         self._live_part_index: int | None = None
         self._live_dirty = False
         self._live_flush_timer: Timer | None = None
-        self._tool_batch_index: int | None = None
-        self._tool_batch_name: str | None = None
-        self._tool_batch_count = 0
+        self._tool_rows: dict[str, ToolRow] = {}
 
     can_focus = False
 
@@ -144,7 +151,6 @@ class TranscriptLog(RichLog):
     def render_completed_assistant_markdown(self, markdown_text: str) -> None:
         """Replace the current assistant text block with a Markdown renderable."""
         self.flush_live_text()
-        self.end_tool_activity()
         if not markdown_text:
             self._live_part_index = None
             return
@@ -159,43 +165,65 @@ class TranscriptLog(RichLog):
         self._parts.append(markdown_part)
         self._rerender()
 
-    def start_tool_activity(self, tool_name: str, preview: str | None = None) -> None:
-        """Append or update a compact tool-activity summary line."""
+    def start_tool_activity(
+        self,
+        tool_call_id: str,
+        tool_name: str,
+        preview: str | None = None,
+    ) -> None:
+        """Append one compact tool-activity row to the transcript."""
         self.flush_live_text()
         preview = preview.strip() if preview else None
-        if self._tool_batch_index is not None and self._tool_batch_name == tool_name:
-            self._tool_batch_count += 1
-            line = self._format_tool_activity_line(
-                tool_name, self._tool_batch_count, preview
-            )
-            self._parts[self._tool_batch_index] = TranscriptPart(line, line)
-            self._rerender()
-            return
-
-        self.end_tool_activity()
         if self._parts and not self.plain_text.endswith("\n"):
             self._parts.append(TranscriptPart("\n", "\n"))
-        self._tool_batch_name = tool_name
-        self._tool_batch_count = 1
-        line = self._format_tool_activity_line(tool_name, 1, preview)
+        line = self._format_tool_activity_line(
+            tool_name=tool_name,
+            preview=preview,
+            outcome=None,
+        )
         self._parts.append(TranscriptPart(line, line))
-        self._tool_batch_index = len(self._parts) - 1
+        self._tool_rows[tool_call_id] = ToolRow(
+            index=len(self._parts) - 1,
+            tool_name=tool_name,
+            preview=preview,
+        )
         self._rerender()
 
-    def end_tool_activity(self) -> None:
-        """Stop compacting subsequent tool calls into the current summary line."""
-        self._tool_batch_index = None
-        self._tool_batch_name = None
-        self._tool_batch_count = 0
+    def finish_tool_activity(self, tool_call_id: str) -> None:
+        """Mark one tool row as completed successfully."""
+        tool_row = self._tool_rows.pop(tool_call_id, None)
+        if tool_row is None:
+            return
+        line = self._format_tool_activity_line(
+            tool_name=tool_row.tool_name,
+            preview=tool_row.preview,
+            outcome="ok",
+        )
+        self._parts[tool_row.index] = TranscriptPart(line, line)
+        self._rerender()
 
-    def write_tool_error(self, tool_name: str, message: str) -> None:
-        """Write a compact tool-error line into the transcript."""
+    def fail_tool_activity(
+        self,
+        tool_call_id: str,
+        tool_name: str,
+        message: str,
+    ) -> None:
+        """Mark one tool row as failed, preserving any start-row preview."""
         self.flush_live_text()
-        self.end_tool_activity()
-        if self._parts and not self.plain_text.endswith("\n"):
-            self._parts.append(TranscriptPart("\n", "\n"))
-        line = f"{tool_name} error  {message}\n"
-        self._parts.append(TranscriptPart(line, line))
+        tool_row = self._tool_rows.pop(tool_call_id, None)
+        preview = tool_row.preview if tool_row is not None else None
+        line = self._format_tool_activity_line(
+            tool_name=tool_row.tool_name if tool_row is not None else tool_name,
+            preview=preview,
+            outcome="error",
+            message=message,
+        )
+        if tool_row is None:
+            if self._parts and not self.plain_text.endswith("\n"):
+                self._parts.append(TranscriptPart("\n", "\n"))
+            self._parts.append(TranscriptPart(line, line))
+        else:
+            self._parts[tool_row.index] = TranscriptPart(line, line)
         self._rerender()
 
     def clear(self) -> TranscriptLog:
@@ -205,7 +233,7 @@ class TranscriptLog(RichLog):
         self._parts.clear()
         self._live_part_index = None
         self._live_dirty = False
-        self.end_tool_activity()
+        self._tool_rows.clear()
         return super().clear()
 
     def write(
@@ -218,7 +246,6 @@ class TranscriptLog(RichLog):
         animate: bool = False,
     ) -> Self:
         self.flush_live_text()
-        self.end_tool_activity()
         if isinstance(content, str):
             self._parts.append(TranscriptPart(content, content))
         else:
@@ -247,15 +274,23 @@ class TranscriptLog(RichLog):
 
     @staticmethod
     def _format_tool_activity_line(
+        *,
         tool_name: str,
-        count: int,
         preview: str | None,
+        outcome: str | None,
+        message: str | None = None,
     ) -> str:
-        if count > 1:
-            return f"{tool_name} x{count}\n"
+        parts = [tool_name]
+        if outcome is not None:
+            parts.append(outcome)
+        head = " ".join(parts)
+        if preview and message:
+            return f"{head}  {preview}  |  {message}\n"
         if preview:
-            return f"{tool_name}  {preview}\n"
-        return f"{tool_name}\n"
+            return f"{head}  {preview}\n"
+        if message:
+            return f"{head}  {message}\n"
+        return f"{head}\n"
 
 
 __all__ = ["APP_CSS", "ComposerInput", "StatusBar", "TranscriptLog", "TranscriptPart"]

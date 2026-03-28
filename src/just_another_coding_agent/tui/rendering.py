@@ -163,10 +163,10 @@ def resolve_thinking_setting(thinking: str | None) -> ThinkingSetting | None:
 def write_stream_event(output: TranscriptLog, event: Any) -> None:
     """Render one streamed runtime event into the transcript."""
     if event.type == "assistant_text_delta":
-        output.end_tool_activity()
         output.append_live_text(event.delta)  # type: ignore[union-attr]
     elif event.type == "tool_call_started":
         output.start_tool_activity(
+            event.tool_call_id,  # type: ignore[union-attr]
             event.tool_name,  # type: ignore[union-attr]
             build_tool_preview(
                 event.tool_name,  # type: ignore[union-attr]
@@ -177,18 +177,21 @@ def write_stream_event(output: TranscriptLog, event: Any) -> None:
     elif event.type == "tool_call_succeeded":
         result = event.result  # type: ignore[union-attr]
         if isinstance(result, dict) and result.get("ok") is False:
-            output.write_tool_error(
+            output.fail_tool_activity(
+                event.tool_call_id,  # type: ignore[union-attr]
                 event.tool_name,  # type: ignore[union-attr]
                 str(result.get("message", "")),
             )
+        else:
+            output.finish_tool_activity(event.tool_call_id)  # type: ignore[union-attr]
     elif event.type == "tool_call_failed":
-        output.write_tool_error(
+        output.fail_tool_activity(
+            event.tool_call_id,  # type: ignore[union-attr]
             event.tool_name,  # type: ignore[union-attr]
             event.message,  # type: ignore[union-attr]
         )
     elif event.type == "run_failed":
         output.end_live_text()
-        output.end_tool_activity()
         output.write_line(f"error  {event.message}")  # type: ignore[union-attr]
     elif event.type == "run_succeeded":
         output.render_completed_assistant_markdown(  # type: ignore[union-attr]
