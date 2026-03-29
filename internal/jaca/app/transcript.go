@@ -149,43 +149,51 @@ func (t *Transcript) WriteStartupBanner(model string, workspaceRoot string, thin
 	valueStyle := lipgloss.NewStyle().Foreground(defaultTheme.textSoft)
 	hintStyle := lipgloss.NewStyle().Foreground(defaultTheme.textMuted)
 
-	var plainLines []string
-	var renderedLines []string
+	var innerLines []string
+	var innerRendered []string
 
-	plainLines = append(plainLines, ">_ jaca (v0.1.0)", "")
-	renderedLines = append(renderedLines, titleStyle.Render(">_ jaca (v0.1.0)"), "")
+	innerLines = append(innerLines, ">_ jaca (v0.1.0)", "")
+	innerRendered = append(innerRendered, titleStyle.Render(">_ jaca (v0.1.0)"), "")
 
-	modelLine := fmt.Sprintf("model:     %s    /model to change", model)
-	dirLine := fmt.Sprintf("directory: %s", displayPath(workspaceRoot))
-	plainLines = append(plainLines, modelLine, dirLine)
-	renderedLines = append(renderedLines,
+	innerLines = append(innerLines,
+		fmt.Sprintf("model:     %s    /model to change", model),
+		fmt.Sprintf("directory: %s", displayPath(workspaceRoot)),
+	)
+	innerRendered = append(innerRendered,
 		labelStyle.Render("model:     ")+valueStyle.Render(model)+"    "+hintStyle.Render("/model to change"),
 		labelStyle.Render("directory: ")+valueStyle.Render(displayPath(workspaceRoot)),
 	)
 	if thinking != "" {
-		plainLines = append(plainLines, fmt.Sprintf("thinking:  %s", thinking))
-		renderedLines = append(renderedLines,
+		innerLines = append(innerLines, fmt.Sprintf("thinking:  %s", thinking))
+		innerRendered = append(innerRendered,
 			labelStyle.Render("thinking:  ")+valueStyle.Render(thinking),
 		)
 	}
 
+	boxStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(defaultTheme.border).
+		Padding(0, 1)
+
+	plainBox := boxStyle.Render(strings.Join(innerLines, "\n"))
+	renderedBox := boxStyle.Render(strings.Join(innerRendered, "\n"))
+
+	var extraPlain, extraRendered string
 	if strings.HasPrefix(model, "openai") && os.Getenv("OPENAI_API_KEY") == "" {
-		plainLines = append(plainLines, "", "no OPENAI_API_KEY", "use /provider openai")
-		renderedLines = append(renderedLines, "",
-			lipgloss.NewStyle().Foreground(defaultTheme.err).Render("no OPENAI_API_KEY"),
-			hintStyle.Render("use /provider openai"),
-		)
+		extraPlain = "\nno OPENAI_API_KEY\nuse /provider openai"
+		extraRendered = "\n" +
+			lipgloss.NewStyle().Foreground(defaultTheme.err).Render("no OPENAI_API_KEY") + "\n" +
+			hintStyle.Render("use /provider openai")
 	} else if strings.HasPrefix(model, "anthropic") && os.Getenv("ANTHROPIC_API_KEY") == "" {
-		plainLines = append(plainLines, "", "no ANTHROPIC_API_KEY", "use /provider anthropic")
-		renderedLines = append(renderedLines, "",
-			lipgloss.NewStyle().Foreground(defaultTheme.err).Render("no ANTHROPIC_API_KEY"),
-			hintStyle.Render("use /provider anthropic"),
-		)
+		extraPlain = "\nno ANTHROPIC_API_KEY\nuse /provider anthropic"
+		extraRendered = "\n" +
+			lipgloss.NewStyle().Foreground(defaultTheme.err).Render("no ANTHROPIC_API_KEY") + "\n" +
+			hintStyle.Render("use /provider anthropic")
 	}
 
 	t.appendBlock(transcriptBlock{
-		plain:    strings.Join(plainLines, "\n") + "\n\n",
-		rendered: strings.Join(renderedLines, "\n") + "\n\n",
+		plain:    plainBox + extraPlain + "\n\n",
+		rendered: renderedBox + extraRendered + "\n\n",
 	})
 }
 
