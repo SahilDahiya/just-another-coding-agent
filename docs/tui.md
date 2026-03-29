@@ -39,6 +39,13 @@ The core architectural risk is semantic drift between the Go shell and the Pytho
 - Motion only where it clarifies state transitions
 - Deliberate visual hierarchy instead of terminal clutter
 
+## Refactor Goals
+
+- TUI refactors should optimize for clearer module boundaries, easier testing, and stronger presentation discipline before they optimize for lower line count.
+- Treat total LOC as a guardrail, not as a success metric; do not compress code at the expense of clarity or churn the same subsystem twice just to hit a number.
+- Sequence transcript refactors deliberately: extract focused modules first, then introduce new interfaces only if the extracted shapes still clearly want them.
+- Backend-dependent UI ideas such as exploration grouping or token/context accounting should start as backend contract issues, then land in Go as rendering work.
+
 ## Anti-Goals
 
 - Rebuilding an IDE in the terminal

@@ -8,6 +8,8 @@ The architecture is intentionally thin. PydanticAI is the engine. This repo owns
 
 The main architectural risk in the current shape is split-brain product logic between Python and Go. The mitigation is explicit: Python owns backend semantics and public contracts; Go owns terminal presentation, input handling, and RPC client behavior. If the shell needs richer semantics, the backend contract should grow rather than teaching Go to infer or reinvent backend meaning locally.
 
+For Go TUI refactors, optimize first for module boundaries, testability, and reduced semantic drift. Treat LOC reduction as a guardrail rather than a target, and sequence extractions before new interface layers so the same transcript subsystem is not refactored twice without learning anything.
+
 ## Implementation Stance
 
 Prefer direct use of PydanticAI primitives before creating local abstractions:
