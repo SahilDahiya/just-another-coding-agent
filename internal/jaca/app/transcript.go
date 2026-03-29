@@ -31,6 +31,7 @@ type Transcript struct {
 	renderedCache    string
 	renderOffsets    []int
 	dirtyFrom        int
+	Width            int
 }
 
 type toolEntry struct {
@@ -241,11 +242,20 @@ func (t *Transcript) WriteUserTurn(prompt string) {
 	t.endToolGroup()
 	t.endLiveAssistant()
 	t.ensureBlockGap()
-	line := lipgloss.NewStyle().Foreground(defaultTheme.accent).Render(">") + " " +
-		lipgloss.NewStyle().Foreground(defaultTheme.text).Bold(true).Render(prompt)
+	plainLine := "> " + prompt
+	width := t.Width
+	if width <= 0 {
+		width = 80
+	}
+	rendered := lipgloss.NewStyle().
+		Foreground(defaultTheme.text).
+		Bold(true).
+		Background(defaultTheme.border).
+		Width(width).
+		Render(plainLine)
 	t.appendBlock(transcriptBlock{
-		plain:    "> " + prompt + "\n",
-		rendered: line + "\n",
+		plain:    plainLine + "\n",
+		rendered: rendered + "\n",
 	})
 }
 
