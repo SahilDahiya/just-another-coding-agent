@@ -327,10 +327,11 @@ func (t *Transcript) appendAssistantDelta(delta string) {
 
 func (t *Transcript) completeAssistant(markdown string) {
 	t.endToolGroup()
-	rendered := renderCompletedAssistantMarkdown(markdown)
+	assistantMarker := lipgloss.NewStyle().Foreground(defaultTheme.accentSoft).Render("● ")
+	rendered := assistantMarker + renderCompletedAssistantMarkdown(markdown)
 	if t.liveAssistantIdx != -1 {
 		t.replaceBlock(t.liveAssistantIdx, transcriptBlock{
-			plain:    markdown + "\n",
+			plain:    "● " + markdown + "\n",
 			rendered: rendered + "\n",
 			kind:     transcriptBlockAssistantMarkdown,
 		})
@@ -338,7 +339,7 @@ func (t *Transcript) completeAssistant(markdown string) {
 		return
 	}
 	t.appendBlock(transcriptBlock{
-		plain:    markdown + "\n",
+		plain:    "● " + markdown + "\n",
 		rendered: rendered + "\n",
 		kind:     transcriptBlockAssistantMarkdown,
 	})
@@ -353,8 +354,11 @@ func (t *Transcript) rebuildLiveAssistantRendered() {
 		return
 	}
 	block := &t.blocks[t.liveAssistantIdx]
-	marker := brailleSpinner[t.MotionTick%len(brailleSpinner)]
-	block.rendered = lipgloss.NewStyle().Foreground(defaultTheme.accent).Render(marker+" ") +
+	markerColor := defaultTheme.accentSoft
+	if t.MotionTick%2 == 0 {
+		markerColor = defaultTheme.accent
+	}
+	block.rendered = lipgloss.NewStyle().Foreground(markerColor).Render("● ") +
 		lipgloss.NewStyle().Foreground(defaultTheme.textSoft).Render(block.plain)
 	t.markDirty(t.liveAssistantIdx)
 }
