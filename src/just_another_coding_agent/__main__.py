@@ -3,9 +3,11 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import subprocess
 import sys
 from collections.abc import Sequence
+from contextlib import contextmanager
 from pathlib import Path
 from typing import TextIO
 
@@ -33,58 +35,57 @@ def main(
     output_stream: TextIO | None = None,
 ) -> int:
     config = load_config()
-    apply_config_to_env(config)
-    apply_trace_mode_to_env(config)
-    default_model = resolve_default_model(config)
+    with _scoped_config_env(config):
+        default_model = resolve_default_model(config)
 
-    parser = argparse.ArgumentParser(
-        prog="jaca",
-        description="Interactive coding agent with optional headless RPC mode.",
-    )
-    parser.add_argument(
-        "--model",
-        default=default_model,
-        help=f"Model to use (default: {default_model}, or set JACA_MODEL env var)",
-    )
-    parser.add_argument(
-        "--workspace-root",
-        default=".",
-        help="Workspace root directory (default: current directory)",
-    )
-    parser.add_argument(
-        "--sessions-root",
-        default=None,
-        help="Sessions storage directory (default: ~/.jaca/sessions)",
-    )
-    parser.add_argument(
-        "--thinking",
-        choices=["true", "false", "minimal", "low", "medium", "high", "xhigh"],
-        default=None,
-    )
-    parser.add_argument(
-        "--headless",
-        action="store_true",
-        help="Run as a headless JSON-over-stdio RPC server",
-    )
-    args = parser.parse_args(list(argv) if argv is not None else None)
-    workspace_root = normalize_workspace_root(args.workspace_root)
-    sessions_root = _resolve_sessions_root(args.sessions_root)
+        parser = argparse.ArgumentParser(
+            prog="jaca",
+            description="Interactive coding agent with optional headless RPC mode.",
+        )
+        parser.add_argument(
+            "--model",
+            default=default_model,
+            help=f"Model to use (default: {default_model}, or set JACA_MODEL env var)",
+        )
+        parser.add_argument(
+            "--workspace-root",
+            default=".",
+            help="Workspace root directory (default: current directory)",
+        )
+        parser.add_argument(
+            "--sessions-root",
+            default=None,
+            help="Sessions storage directory (default: ~/.jaca/sessions)",
+        )
+        parser.add_argument(
+            "--thinking",
+            choices=["true", "false", "minimal", "low", "medium", "high", "xhigh"],
+            default=None,
+        )
+        parser.add_argument(
+            "--headless",
+            action="store_true",
+            help="Run as a headless JSON-over-stdio RPC server",
+        )
+        args = parser.parse_args(list(argv) if argv is not None else None)
+        workspace_root = normalize_workspace_root(args.workspace_root)
+        sessions_root = _resolve_sessions_root(args.sessions_root)
 
-    if args.headless:
-        return _run_headless(
+        if args.headless:
+            return _run_headless(
+                model=args.model,
+                workspace_root=workspace_root,
+                sessions_root=sessions_root,
+                input_stream=input_stream,
+                output_stream=output_stream,
+            )
+
+        return _run_tui(
             model=args.model,
             workspace_root=workspace_root,
             sessions_root=sessions_root,
-            input_stream=input_stream,
-            output_stream=output_stream,
+            thinking=args.thinking,
         )
-
-    return _run_tui(
-        model=args.model,
-        workspace_root=workspace_root,
-        sessions_root=sessions_root,
-        thinking=args.thinking,
-    )
 
 
 def _run_headless(
@@ -154,6 +155,29 @@ def _resolve_sessions_root(raw_sessions_root: str | None) -> Path:
 
     sessions_root.mkdir(parents=True, exist_ok=True)
     return sessions_root
+
+
+@contextmanager
+def _scoped_config_env(config: dict[str, str]):
+    managed_keys = {
+        "OPENAI_API_KEY",
+        "OPENAI_BASE_URL",
+        "ANTHROPIC_API_KEY",
+        "OLLAMA_API_KEY",
+        "OLLAMA_BASE_URL",
+        "JACA_TRACE_MODE",
+    }
+    original_env = {key: os.environ.get(key) for key in managed_keys}
+    apply_config_to_env(config)
+    apply_trace_mode_to_env(config)
+    try:
+        yield
+    finally:
+        for key, value in original_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
 
 
 if __name__ == "__main__":

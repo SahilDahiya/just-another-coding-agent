@@ -141,6 +141,65 @@ def test_main_uses_saved_default_model_and_trace_mode(
     }
 
 
+def test_main_restores_config_applied_environment_after_return(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    go_binary = tmp_path / ("jaca-go.exe" if os.name == "nt" else "jaca-go")
+    captured: dict[str, object] = {}
+
+    monkeypatch.delenv("JACA_TRACE_MODE", raising=False)
+    monkeypatch.delenv("OLLAMA_BASE_URL", raising=False)
+    monkeypatch.setattr(
+        entry,
+        "load_config",
+        lambda: {
+            "default_model": "ollama:glm-5:cloud",
+            "trace_mode": "local",
+            "OLLAMA_BASE_URL": "https://example.test/v1",
+        },
+    )
+    monkeypatch.setattr(
+        entry,
+        "resolve_go_tui_launch",
+        lambda: ([str(go_binary)], None),
+    )
+    monkeypatch.setattr(
+        entry,
+        "default_backend_command",
+        lambda: ["/tmp/fake-python", "-m", "just_another_coding_agent"],
+    )
+
+    def fake_run(command, *, check, cwd=None):
+        captured["command"] = command
+        captured["trace_mode"] = os.environ.get("JACA_TRACE_MODE")
+        captured["ollama_base_url"] = os.environ.get("OLLAMA_BASE_URL")
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(
+        "just_another_coding_agent.__main__.subprocess.run",
+        fake_run,
+    )
+
+    exit_code = main(
+        [
+            "--workspace-root",
+            str(workspace_root),
+            "--sessions-root",
+            str(sessions_root),
+        ]
+    )
+
+    assert exit_code == 0
+    assert captured["trace_mode"] == "local"
+    assert captured["ollama_base_url"] == "https://example.test/v1"
+    assert os.environ.get("JACA_TRACE_MODE") is None
+    assert os.environ.get("OLLAMA_BASE_URL") is None
+
+
 def test_main_fails_fast_when_go_binary_is_missing(
     tmp_path,
     monkeypatch,
