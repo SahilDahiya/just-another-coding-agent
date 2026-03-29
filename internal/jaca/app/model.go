@@ -126,14 +126,14 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		m.textInput.Width = max(0, msg.Width-4)
 		m.viewport.Width = msg.Width
-		m.viewport.Height = max(1, msg.Height-4)
+		m.viewport.Height = max(1, msg.Height-3)
 		m.transcript.Width = msg.Width
 		m.refreshViewport()
 		return m, nil
 	case startupTickMsg:
-		if m.visibleZones < 3 {
+		if m.visibleZones < 2 {
 			m.visibleZones++
-			if m.visibleZones < 3 {
+			if m.visibleZones < 2 {
 				return m, waitForStartupTick()
 			}
 		}

@@ -21,14 +21,20 @@ func TestWriteStartupBannerIncludesOllamaHintsInPlainText(t *testing.T) {
 	transcript.WriteStartupBanner("ollama:test", "/workspace", "medium")
 
 	plain := transcript.blocks[0].plain
-	if !strings.Contains(plain, "jaca  /workspace  |  model ollama:test  |  thinking medium") {
-		t.Fatalf("plain banner missing headline: %q", plain)
+	if !strings.Contains(plain, ">_ jaca") {
+		t.Fatalf("plain banner missing title: %q", plain)
+	}
+	if !strings.Contains(plain, "model:     ollama:test") {
+		t.Fatalf("plain banner missing model: %q", plain)
+	}
+	if !strings.Contains(plain, "directory: /workspace") {
+		t.Fatalf("plain banner missing directory: %q", plain)
+	}
+	if !strings.Contains(plain, "thinking:  medium") {
+		t.Fatalf("plain banner missing thinking: %q", plain)
 	}
 	if !strings.Contains(plain, "ollama http://localhost:11434/v1") {
-		t.Fatalf("plain banner missing ollama line: %q", plain)
-	}
-	if !strings.Contains(plain, "local ollama, no key needed") {
-		t.Fatalf("plain banner missing local hint: %q", plain)
+		t.Fatalf("plain banner missing provider: %q", plain)
 	}
 }
 

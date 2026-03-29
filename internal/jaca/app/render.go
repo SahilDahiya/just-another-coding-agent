@@ -72,19 +72,15 @@ type viewModel struct {
 }
 
 func renderView(vm viewModel) string {
-	status := ""
 	transcript := ""
 	prompt := ""
 	if vm.VisibleZones >= 1 {
-		status = renderStatus(vm)
-	}
-	if vm.VisibleZones >= 2 {
 		transcript = renderTranscript(vm)
 	}
-	if vm.VisibleZones >= 3 {
+	if vm.VisibleZones >= 2 {
 		prompt = renderPrompt(vm)
 	}
-	return lipgloss.JoinVertical(lipgloss.Left, status, transcript, prompt)
+	return lipgloss.JoinVertical(lipgloss.Left, transcript, prompt)
 }
 
 func renderStatus(vm viewModel) string {

@@ -144,62 +144,63 @@ func (t *Transcript) markDirty(index int) {
 }
 
 func (t *Transcript) WriteStartupBanner(model string, workspaceRoot string, thinking string) {
-	headline := fmt.Sprintf("jaca  %s  |  model %s", displayPath(workspaceRoot), model)
+	titleStyle := lipgloss.NewStyle().Foreground(defaultTheme.text).Bold(true)
+	labelStyle := lipgloss.NewStyle().Foreground(defaultTheme.textMuted)
+	valueStyle := lipgloss.NewStyle().Foreground(defaultTheme.textSoft)
+	hintStyle := lipgloss.NewStyle().Foreground(defaultTheme.textMuted)
+
+	var plainLines []string
+	var renderedLines []string
+
+	plainLines = append(plainLines, ">_ jaca")
+	renderedLines = append(renderedLines, titleStyle.Render(">_ jaca"))
+	plainLines = append(plainLines, "")
+	renderedLines = append(renderedLines, "")
+
+	modelLine := fmt.Sprintf("model:     %s", model)
+	dirLine := fmt.Sprintf("directory: %s", displayPath(workspaceRoot))
+	plainLines = append(plainLines, modelLine, dirLine)
+	renderedLines = append(renderedLines,
+		labelStyle.Render("model:     ")+valueStyle.Render(model),
+		labelStyle.Render("directory: ")+valueStyle.Render(displayPath(workspaceRoot)),
+	)
 	if thinking != "" {
-		headline += fmt.Sprintf("  |  thinking %s", thinking)
+		thinkLine := fmt.Sprintf("thinking:  %s", thinking)
+		plainLines = append(plainLines, thinkLine)
+		renderedLines = append(renderedLines,
+			labelStyle.Render("thinking:  ")+valueStyle.Render(thinking),
+		)
 	}
-	plainLines := []string{headline}
-	renderedLines := []string{
-		lipgloss.NewStyle().Foreground(defaultTheme.textSoft).Bold(true).Render(headline),
-	}
+
 	if strings.HasPrefix(model, "ollama") {
 		baseURL := os.Getenv("OLLAMA_BASE_URL")
 		if baseURL == "" {
 			baseURL = "http://localhost:11434/v1"
 		}
-		providerLine := fmt.Sprintf("ollama %s", baseURL)
+		providerLine := fmt.Sprintf("provider:  ollama %s", baseURL)
 		plainLines = append(plainLines, providerLine)
-		renderedLines = append(
-			renderedLines,
-			lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render(providerLine),
-		)
-		if strings.Contains(baseURL, "localhost") || strings.Contains(baseURL, "127.0.0.1") {
-			hint := "local ollama, no key needed"
-			plainLines = append(plainLines, hint)
-			renderedLines = append(
-				renderedLines,
-				lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render(hint),
-			)
-		}
-	} else if strings.HasPrefix(model, "openai") && os.Getenv("OPENAI_API_KEY") == "" {
-		plainLines = append(
-			plainLines,
-			"",
-			"no OPENAI_API_KEY",
-			"use /provider openai",
-			"auth starts automatically when needed",
-		)
 		renderedLines = append(renderedLines,
-			"",
+			labelStyle.Render("provider:  ")+valueStyle.Render("ollama "+baseURL),
+		)
+	} else if strings.HasPrefix(model, "openai") && os.Getenv("OPENAI_API_KEY") == "" {
+		plainLines = append(plainLines, "", "no OPENAI_API_KEY", "use /provider openai")
+		renderedLines = append(renderedLines, "",
 			lipgloss.NewStyle().Foreground(defaultTheme.err).Render("no OPENAI_API_KEY"),
-			lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render("use /provider openai"),
-			lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render("auth starts automatically when needed"),
+			hintStyle.Render("use /provider openai"),
 		)
 	} else if strings.HasPrefix(model, "anthropic") && os.Getenv("ANTHROPIC_API_KEY") == "" {
-		plainLines = append(
-			plainLines,
-			"",
-			"no ANTHROPIC_API_KEY",
-			"use /provider anthropic",
-			"auth starts automatically when needed",
-		)
-		renderedLines = append(renderedLines,
-			"",
+		plainLines = append(plainLines, "", "no ANTHROPIC_API_KEY", "use /provider anthropic")
+		renderedLines = append(renderedLines, "",
 			lipgloss.NewStyle().Foreground(defaultTheme.err).Render("no ANTHROPIC_API_KEY"),
-			lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render("use /provider anthropic"),
-			lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render("auth starts automatically when needed"),
+			hintStyle.Render("use /provider anthropic"),
 		)
 	}
+
+	plainLines = append(plainLines, "", "/help for commands")
+	renderedLines = append(renderedLines, "",
+		hintStyle.Render("/help for commands"),
+	)
+
 	t.appendBlock(transcriptBlock{
 		plain:    strings.Join(plainLines, "\n") + "\n\n",
 		rendered: strings.Join(renderedLines, "\n") + "\n\n",
