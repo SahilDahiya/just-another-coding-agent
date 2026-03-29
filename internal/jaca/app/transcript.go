@@ -24,6 +24,8 @@ const (
 	transcriptBlockAssistantMarkdown
 )
 
+var brailleSpinner = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+
 type Transcript struct {
 	blocks           []transcriptBlock
 	liveAssistantIdx int
@@ -32,6 +34,7 @@ type Transcript struct {
 	renderOffsets    []int
 	dirtyFrom        int
 	Width            int
+	MotionTick       int
 }
 
 type toolEntry struct {
@@ -310,16 +313,16 @@ func (t *Transcript) appendAssistantDelta(delta string) {
 	if t.liveAssistantIdx == -1 {
 		t.ensureBlockGap()
 		t.liveAssistantIdx = t.appendBlock(transcriptBlock{
-			plain:    delta,
-			rendered: lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render("◦ ") + lipgloss.NewStyle().Foreground(defaultTheme.textSoft).Render(delta),
+			plain: delta,
 		})
+		t.rebuildLiveAssistantRendered()
 		return
 	}
 	block := &t.blocks[t.liveAssistantIdx]
 	block.plain += delta
-	block.rendered = lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render("◦ ") +
-		lipgloss.NewStyle().Foreground(defaultTheme.textSoft).Render(block.plain)
-	t.markDirty(t.liveAssistantIdx)
+	t.rebuildLiveAssistantRendered()
+
+
 }
 
 func (t *Transcript) completeAssistant(markdown string) {
@@ -343,6 +346,24 @@ func (t *Transcript) completeAssistant(markdown string) {
 
 func (t *Transcript) endLiveAssistant() {
 	t.liveAssistantIdx = -1
+}
+
+func (t *Transcript) rebuildLiveAssistantRendered() {
+	if t.liveAssistantIdx < 0 {
+		return
+	}
+	block := &t.blocks[t.liveAssistantIdx]
+	marker := brailleSpinner[t.MotionTick%len(brailleSpinner)]
+	block.rendered = lipgloss.NewStyle().Foreground(defaultTheme.accent).Render(marker+" ") +
+		lipgloss.NewStyle().Foreground(defaultTheme.textSoft).Render(block.plain)
+	t.markDirty(t.liveAssistantIdx)
+}
+
+func (t *Transcript) RefreshLiveMarker() {
+	if t.liveAssistantIdx < 0 {
+		return
+	}
+	t.rebuildLiveAssistantRendered()
 }
 
 func (t *Transcript) ensureBlockGap() {

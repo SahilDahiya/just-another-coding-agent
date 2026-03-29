@@ -140,9 +140,12 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case motionTickMsg:
 		m.motionTick++
+		m.transcript.MotionTick = m.motionTick
 		if m.linePulse > 0 {
 			m.linePulse--
 		}
+		m.transcript.RefreshLiveMarker()
+		m.refreshViewport()
 		return m, waitForMotionTick()
 	case liveFlushMsg:
 		m.liveFlushScheduled = false
