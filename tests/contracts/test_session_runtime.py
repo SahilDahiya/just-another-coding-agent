@@ -9,6 +9,7 @@ from pydantic_ai.messages import (
     ModelResponse,
     SystemPromptPart,
     TextPart,
+    ToolCallPart,
     ToolReturnPart,
     UserPromptPart,
 )
@@ -311,6 +312,70 @@ def make_live_compaction_probe_stream(observed: dict[str, object]):
         yield "done"
 
     return live_compaction_probe_stream
+
+
+def make_resumed_live_compaction_probe_stream():
+    call_count = 0
+
+    async def resumed_live_compaction_probe_stream(
+        messages: list[ModelMessage],
+        _agent_info: object,
+    ) -> AsyncIterator[dict[int, DeltaToolCall] | str]:
+        nonlocal call_count
+        call_count += 1
+
+        prompts = [
+            part.content
+            for part in _all_parts(messages)
+            if isinstance(part, UserPromptPart)
+        ]
+        system_prompts = _system_prompt_contents(messages)
+        read_returns = [
+            part
+            for part in _all_parts(messages)
+            if isinstance(part, ToolReturnPart) and part.tool_name == "read"
+        ]
+
+        assert "summarized-first" not in prompts
+        assert "retained-second" in prompts
+        assert "inspect current big file" in prompts
+        assert any(
+            prompt.startswith("Session compaction summary:")
+            for prompt in system_prompts
+        )
+
+        if call_count == 1:
+            assert len(read_returns) == 1
+            retained_read = read_returns[0].content
+            assert isinstance(retained_read, str)
+            assert retained_read.startswith(
+                "retained-0000 abcdefghijklmnopqrstuvwxyz"
+            )
+            yield {
+                0: DeltaToolCall(
+                    name="read",
+                    json_args='{"path": "current-big.txt"}',
+                    tool_call_id="call-current-read",
+                )
+            }
+            return
+
+        assert len(read_returns) == 2
+        compacted_retained_read = read_returns[0].content
+        compacted_current_read = read_returns[1].content
+        assert isinstance(compacted_retained_read, str)
+        assert isinstance(compacted_current_read, str)
+        assert compacted_retained_read.startswith(
+            "Compacted historical read result for retained-big.txt"
+        )
+        assert "80 lines" in compacted_retained_read
+        assert compacted_current_read.startswith(
+            "Compacted historical read result for current-big.txt"
+        )
+        assert "80 lines" in compacted_current_read
+        yield "done"
+
+    return resumed_live_compaction_probe_stream
 
 
 async def test_stream_session_run_events_persists_authoritative_session(
@@ -1088,6 +1153,107 @@ async def test_live_compaction_preserves_raw_persisted_messages(
     assert isinstance(persisted_tool_return, str)
     assert persisted_tool_return.startswith("line-0000 abcdefghijklmnopqrstuvwxyz")
     assert "Compacted historical read result" not in persisted_tool_return
+
+
+async def test_resumed_compacted_session_still_applies_live_in_run_compaction(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    session_path = tmp_path / "session.jsonl"
+    retained_lines = [
+        f"retained-{index:04d} abcdefghijklmnopqrstuvwxyz" for index in range(80)
+    ]
+    retained_content = "\n".join(retained_lines) + "\n"
+    current_lines = [
+        f"current-{index:04d} abcdefghijklmnopqrstuvwxyz" for index in range(80)
+    ]
+    current_content = "\n".join(current_lines) + "\n"
+    (workspace_root / "current-big.txt").write_text(current_content, encoding="utf-8")
+
+    append_run_to_session(
+        path=session_path,
+        workspace_root=workspace_root,
+        prompt="summarized-first",
+        thinking=None,
+        messages=[ModelRequest(parts=[UserPromptPart(content="summarized-first")])],
+        events=[
+            RunStartedEvent(run_id="run-1"),
+            RunSucceededEvent(run_id="run-1", output_text="done"),
+        ],
+    )
+    append_run_to_session(
+        path=session_path,
+        workspace_root=workspace_root,
+        prompt="retained-second",
+        thinking=None,
+        messages=[
+            ModelRequest(parts=[UserPromptPart(content="retained-second")]),
+            ModelResponse(
+                parts=[
+                    ToolCallPart(
+                        tool_name="read",
+                        args={"path": "retained-big.txt"},
+                        tool_call_id="call-retained-read",
+                    )
+                ]
+            ),
+            ModelRequest(
+                parts=[
+                    ToolReturnPart(
+                        tool_name="read",
+                        content=retained_content,
+                        tool_call_id="call-retained-read",
+                    )
+                ]
+            ),
+        ],
+        events=[
+            RunStartedEvent(run_id="run-2"),
+            RunSucceededEvent(run_id="run-2", output_text="done"),
+        ],
+    )
+    session_path.write_text(
+        session_path.read_text(encoding="utf-8")
+        + json.dumps(
+            {
+                "type": "session_compaction",
+                "compaction_id": "compact-1",
+                "summarized_through_run_id": "run-1",
+                "first_kept_run_id": "run-2",
+                "summary": {
+                    "current_objective": "continue from the retained run",
+                    "established_facts": ["run-1 is summarized"],
+                    "user_preferences": [],
+                    "important_paths": ["retained-big.txt", "current-big.txt"],
+                    "open_questions": [],
+                    "unresolved_work": ["inspect the current big file"],
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    events = [
+        event
+        async for event in stream_session_run_events(
+            model=FunctionModel(
+                stream_function=make_resumed_live_compaction_probe_stream()
+            ),
+            workspace_root=workspace_root,
+            session_path=session_path,
+            prompt="inspect current big file",
+        )
+    ]
+
+    assert [event.type for event in events] == [
+        "run_started",
+        "tool_call_started",
+        "tool_call_succeeded",
+        "assistant_text_delta",
+        "run_succeeded",
+    ]
 
 
 async def test_stream_session_run_events_persists_incomplete_partial_consumption(

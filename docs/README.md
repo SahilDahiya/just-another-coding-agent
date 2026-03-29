@@ -13,6 +13,7 @@ read_when: start here, onboarding, or you need to find the right doc quickly
 - Canonical public contract: [contracts.md](contracts.md)
 - PydanticAI grounding sources: [grounding.md](grounding.md)
 - Development workflow and commands: [development.md](development.md)
+- Compaction architecture and invariants: [compaction.md](compaction.md)
 - Stateful orchestration boundary and plan: [stateful-orchestration.md](stateful-orchestration.md)
 - Harbor and Terminal Bench workflow: [harbor-terminal-bench.md](harbor-terminal-bench.md)
 - Terminal Bench run journal: [terminal-bench-journal.md](terminal-bench-journal.md)
@@ -30,6 +31,7 @@ read_when: start here, onboarding, or you need to find the right doc quickly
 - [contracts.md](contracts.md) - canonical coding-agent contract
 - [grounding.md](grounding.md) - official PydanticAI grounding sources
 - [development.md](development.md) - environment, commands, CI, and test workflow
+- [compaction.md](compaction.md) - split between session-summary, resume, and in-run compaction
 - [stateful-orchestration.md](stateful-orchestration.md) - boundary between PydanticAI seams and our own session/orchestration contract
 - [harbor-terminal-bench.md](harbor-terminal-bench.md) - Harbor adapter usage and Terminal Bench workflow
 - [terminal-bench-journal.md](terminal-bench-journal.md) - running record of benchmark outcomes and task-picking learnings
