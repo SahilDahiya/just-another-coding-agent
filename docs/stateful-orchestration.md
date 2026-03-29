@@ -18,7 +18,7 @@ PydanticAI helps with run-local seams:
 
 - `message_history` is the canonical substrate for resuming a conversation
 - `history_processors` can trim, summarize, or otherwise reshape history before
-  each model request
+  each model request inside one live run
 - Hooks can intercept runs, model requests, tool validation/execution, and
   event streams
 - `model_settings` can carry explicit run settings such as `thinking`
@@ -78,12 +78,11 @@ Current product decision:
 
 ## History Processors
 
-`history_processors` are the strongest PydanticAI seam for compaction.
+`history_processors` are the strongest PydanticAI seam for live-run compaction.
 
 Use them to:
 
 - trim old history before the next model request
-- replace old history with a structured summary plus retained recent messages
 - adjust history based on current context size or run conditions
 
 Important caveats from the PydanticAI docs:
@@ -95,15 +94,17 @@ Important caveats from the PydanticAI docs:
 So the right split is:
 
 - durable compaction state is stored in our session file
-- runtime compaction application is done via `history_processors`
+- durable cross-run replay is materialized from session state before the next run
+- runtime `history_processors` are reserved for live-run history shaping
 
 Today that means:
 
 - the session file keeps full-fidelity native messages plus explicit
   `session_compaction` entries
 - the runtime generates each compaction summary through a separate model call
-- resumed runs inject a synthetic compaction-summary message at runtime and keep
-  only native messages after the latest compaction boundary
+- resumed runs build explicit resume history from the latest compaction entry:
+  one synthetic compaction-summary message plus retained native messages after
+  the compaction boundary
 - live runs may also compact historical tool-return content at runtime through a
   history processor when context pressure grows
 - if a live-run processor rewrites current-run tool-return content for the
@@ -141,7 +142,7 @@ inner attempts.
    This is now the chosen public command for durable manual compaction.
 3. Rebuild resumed `message_history` from the latest compaction entry plus
    retained native messages.
-4. Use `history_processors` to apply the compacted history view at runtime.
+4. Keep `history_processors` only for live-run history shaping.
 5. Define explicit continue semantics as `run.start` on an existing session.
 6. Add deterministic pre-run auto-compaction triggers.
 7. Keep bounded live-run retry at the canonical streamed-run boundary unless a

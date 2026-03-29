@@ -68,6 +68,7 @@ class SessionCompactSummary(_RpcModel):
 class SessionCompactResponse(_RpcModel):
     compaction_id: str
     summarized_through_run_id: str
+    first_kept_run_id: str | None
     summary: SessionCompactSummary
 
 

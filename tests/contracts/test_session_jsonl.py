@@ -826,6 +826,7 @@ def test_append_compaction_to_session_appends_provided_summary(tmp_path) -> None
     loaded = load_session(path=path, workspace_root=workspace_root)
 
     assert compaction.summarized_through_run_id == "run-1"
+    assert compaction.first_kept_run_id is None
     assert compaction.summary == summary
     assert loaded.compactions == [compaction]
 
@@ -882,6 +883,7 @@ def test_load_session_tracks_compaction_entries_without_changing_message_history
                     "type": "session_compaction",
                     "compaction_id": "compact-1",
                     "summarized_through_run_id": "run-2",
+                    "first_kept_run_id": None,
                     "summary": {
                         "current_objective": "Continue the task",
                         "established_facts": ["first and second completed"],
@@ -913,6 +915,7 @@ def test_load_session_tracks_compaction_entries_without_changing_message_history
     assert len(loaded.compactions) == 1
     assert loaded.compactions[0].compaction_id == "compact-1"
     assert loaded.compactions[0].summarized_through_run_id == "run-2"
+    assert loaded.compactions[0].first_kept_run_id is None
     assert loaded.latest_compaction == loaded.compactions[0]
     assert [message.parts[0].content for message in loaded.message_history] == [
         "first",
@@ -940,6 +943,7 @@ def test_load_session_fails_when_compaction_precedes_any_run(tmp_path) -> None:
                         "type": "session_compaction",
                         "compaction_id": "compact-1",
                         "summarized_through_run_id": "run-1",
+                        "first_kept_run_id": None,
                         "summary": {
                             "current_objective": None,
                             "established_facts": [],
@@ -985,6 +989,7 @@ def test_load_session_fails_when_compaction_references_unknown_run_id(tmp_path) 
                     "type": "session_compaction",
                     "compaction_id": "compact-1",
                     "summarized_through_run_id": "run-999",
+                    "first_kept_run_id": None,
                     "summary": {
                         "current_objective": "go",
                         "established_facts": [],
@@ -1001,5 +1006,61 @@ def test_load_session_fails_when_compaction_references_unknown_run_id(tmp_path) 
     with pytest.raises(
         SessionFormatError,
         match="Session compaction entry must reference an existing run_id",
+    ):
+        load_session(path=path, workspace_root=workspace_root)
+
+
+def test_load_session_fails_when_compaction_kept_boundary_is_not_after_summary_boundary(
+    tmp_path,
+) -> None:
+    path = tmp_path / "session.jsonl"
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    append_run_to_session(
+        path=path,
+        workspace_root=workspace_root,
+        prompt="first",
+        thinking=None,
+        events=[
+            RunStartedEvent(run_id="run-1"),
+            RunSucceededEvent(run_id="run-1", output_text="done"),
+        ],
+        messages=[ModelRequest(parts=[UserPromptPart(content="first")])],
+    )
+    append_run_to_session(
+        path=path,
+        workspace_root=workspace_root,
+        prompt="second",
+        thinking=None,
+        events=[
+            RunStartedEvent(run_id="run-2"),
+            RunSucceededEvent(run_id="run-2", output_text="done"),
+        ],
+        messages=[ModelRequest(parts=[UserPromptPart(content="second")])],
+    )
+    with path.open("a", encoding="utf-8") as file_handle:
+        file_handle.write(
+            json.dumps(
+                {
+                    "type": "session_compaction",
+                    "compaction_id": "compact-1",
+                    "summarized_through_run_id": "run-2",
+                    "first_kept_run_id": "run-1",
+                    "summary": {
+                        "current_objective": "go",
+                        "established_facts": [],
+                        "user_preferences": [],
+                        "important_paths": [],
+                        "open_questions": [],
+                        "unresolved_work": [],
+                    },
+                }
+            )
+            + "\n"
+        )
+
+    with pytest.raises(
+        SessionFormatError,
+        match="Session compaction kept boundary must be after the summary boundary",
     ):
         load_session(path=path, workspace_root=workspace_root)

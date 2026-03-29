@@ -115,6 +115,7 @@ async def handle_rpc_json_line(
             response=SessionCompactResponse(
                 compaction_id=compaction.compaction_id,
                 summarized_through_run_id=compaction.summarized_through_run_id,
+                first_kept_run_id=compaction.first_kept_run_id,
                 summary=SessionCompactSummary(
                     current_objective=compaction.summary.current_objective,
                     established_facts=compaction.summary.established_facts,

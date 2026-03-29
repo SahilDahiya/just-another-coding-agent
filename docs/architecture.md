@@ -51,7 +51,8 @@ thin stateful orchestration, not a second agent framework.
 Use PydanticAI where it already has the right seam:
 
 - use `message_history` as the canonical resume substrate
-- use `history_processors` to shape what history the model sees at runtime
+- use `history_processors` only for live-run history shaping, not durable
+  cross-run session replay
 - use Hooks for observability, classification, and other run-local interception
 - use `model_settings` for explicit run settings such as `thinking`
 - use provider-native model and provider classes when the backend needs retries, instrumentation, or OpenAI Responses history behavior that plain model strings cannot express cleanly
@@ -118,8 +119,9 @@ The important boundary is:
 - deferred tools are the separate seam for long shell/build/test work that
   should leave the current model step and resume with explicit results
 - the runtime uses a separate model call to generate the durable compaction summary
-- durable compaction state lives in our session file, while PydanticAI
-  `history_processors` are the runtime seam that applies the compacted view
+- durable compaction state lives in our session file, and resumed runs
+  materialize explicit compacted `message_history` from that state before the
+  next run starts
 - if run-local history compaction rewrites current-run tool-return content for
   the model, the persistence layer must restore the original raw tool-return
   content before `session_messages` are written

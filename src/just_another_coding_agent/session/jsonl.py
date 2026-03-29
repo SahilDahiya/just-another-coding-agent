@@ -184,6 +184,7 @@ def append_compaction_to_session(
     entry = SessionCompactionEntry(
         compaction_id=uuid4().hex,
         summarized_through_run_id=loaded.runs[-1].run_id,
+        first_kept_run_id=None,
         summary=summary,
     )
 
@@ -284,6 +285,21 @@ def load_session(
                 raise SessionFormatError(
                     "Session compaction entry must reference an existing run_id"
                 ) from error
+
+            if entry.first_kept_run_id is not None:
+                try:
+                    first_kept_run_index = run_order.index(entry.first_kept_run_id)
+                except ValueError as error:
+                    raise SessionFormatError(
+                        "Session compaction kept boundary must reference "
+                        "an existing run_id"
+                    ) from error
+
+                if first_kept_run_index <= compaction_run_index:
+                    raise SessionFormatError(
+                        "Session compaction kept boundary must be after "
+                        "the summary boundary"
+                    )
 
             if compaction_run_index < latest_compaction_run_index:
                 raise SessionFormatError(

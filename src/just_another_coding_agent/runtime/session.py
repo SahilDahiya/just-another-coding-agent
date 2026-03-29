@@ -12,7 +12,6 @@ from just_another_coding_agent.contracts.platform import detect_default_shell_fa
 from just_another_coding_agent.contracts.run_events import (
     RunEvent,
     RunFailedEvent,
-    RunStartedEvent,
     RunSucceededEvent,
     ToolCallFailedEvent,
     ToolCallStartedEvent,
@@ -23,7 +22,7 @@ from just_another_coding_agent.contracts.tools import CANONICAL_TOOL_NAMES
 from just_another_coding_agent.runtime.activity import build_failed_tool_activity
 from just_another_coding_agent.runtime.agent import build_canonical_agent
 from just_another_coding_agent.runtime.compaction import (
-    build_session_history_processor,
+    build_resume_message_history,
     restore_in_run_compaction_from_messages,
     should_auto_compact_session,
     strip_compaction_summary_from_messages,
@@ -82,13 +81,8 @@ async def stream_session_run_events(
         if thinking is not None
         else (loaded_session.thinking if loaded_session is not None else None)
     )
-    history_processor = (
-        build_session_history_processor(loaded_session)
-        if loaded_session is not None
-        else None
-    )
     enable_server_history = (
-        loaded_session is not None and history_processor is None
+        loaded_session is not None and loaded_session.latest_compaction is None
     )
 
     agent = build_canonical_agent(
@@ -96,9 +90,6 @@ async def stream_session_run_events(
         workspace_root=normalized_workspace_root,
         shell_family=shell_family,
         tool_names=tool_names,
-        history_processors=(
-            [history_processor] if history_processor is not None else None
-        ),
     )
     run_appender = None
     authoritative_messages: list[ModelMessage] | None = None
@@ -116,7 +107,7 @@ async def stream_session_run_events(
                 agent=agent,
                 prompt=prompt,
                 message_history=(
-                    loaded_session.message_history
+                    build_resume_message_history(loaded_session)
                     if loaded_session is not None
                     else None
                 ),

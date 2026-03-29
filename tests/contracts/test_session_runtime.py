@@ -18,13 +18,14 @@ from just_another_coding_agent.contracts.run_events import (
     RunFailedEvent,
     RunStartedEvent,
     RunSucceededEvent,
-    ToolCallStartedEvent,
     ToolCallFailedEvent,
+    ToolCallStartedEvent,
     ToolCallSucceededEvent,
 )
 from just_another_coding_agent.contracts.session import SessionCompactionSummary
 from just_another_coding_agent.runtime import stream_session_run_events
 from just_another_coding_agent.runtime.compaction import (
+    build_resume_message_history,
     summarize_session_for_compaction,
 )
 from just_another_coding_agent.session import (
@@ -807,6 +808,85 @@ async def test_stream_session_run_events_replays_compacted_history_after_real_ru
     ]
 
 
+def test_build_resume_message_history_uses_summary_plus_retained_runs(tmp_path) -> None:
+    session_path = tmp_path / "session.jsonl"
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    append_run_to_session(
+        path=session_path,
+        workspace_root=workspace_root,
+        prompt="first",
+        thinking=None,
+        messages=[ModelRequest(parts=[UserPromptPart(content="first")])],
+        events=[
+            RunStartedEvent(run_id="run-1"),
+            RunSucceededEvent(run_id="run-1", output_text="done"),
+        ],
+    )
+    append_run_to_session(
+        path=session_path,
+        workspace_root=workspace_root,
+        prompt="second",
+        thinking=None,
+        messages=[ModelRequest(parts=[UserPromptPart(content="second")])],
+        events=[
+            RunStartedEvent(run_id="run-2"),
+            RunSucceededEvent(run_id="run-2", output_text="done"),
+        ],
+    )
+    append_run_to_session(
+        path=session_path,
+        workspace_root=workspace_root,
+        prompt="third",
+        thinking=None,
+        messages=[ModelRequest(parts=[UserPromptPart(content="third")])],
+        events=[
+            RunStartedEvent(run_id="run-3"),
+            RunSucceededEvent(run_id="run-3", output_text="done"),
+        ],
+    )
+
+    session_path.write_text(
+        session_path.read_text(encoding="utf-8")
+        + json.dumps(
+            {
+                "type": "session_compaction",
+                "compaction_id": "compact-1",
+                "summarized_through_run_id": "run-1",
+                "first_kept_run_id": "run-2",
+                "summary": {
+                    "current_objective": "continue from the retained runs",
+                    "established_facts": ["first is summarized"],
+                    "user_preferences": [],
+                    "important_paths": [],
+                    "open_questions": [],
+                    "unresolved_work": ["finish the task"],
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    loaded = load_session(path=session_path, workspace_root=workspace_root)
+    resume_history = build_resume_message_history(loaded)
+
+    assert _system_prompt_contents(resume_history) == [
+        "Session compaction summary:\n"
+        "Current objective: continue from the retained runs\n"
+        "Established facts:\n"
+        "- first is summarized\n"
+        "Unresolved work:\n"
+        "- finish the task"
+    ]
+    assert [
+        part.content
+        for part in _all_parts(resume_history)
+        if isinstance(part, UserPromptPart)
+    ] == ["second", "third"]
+
+
 async def test_summarize_session_for_compaction_uses_model_output_and_prior_summary(
     tmp_path,
 ) -> None:
@@ -945,6 +1025,7 @@ async def test_stream_session_run_events_auto_compacts_stale_session_before_resu
     assert len(loaded.compactions) == 1
     assert loaded.latest_compaction is not None
     assert loaded.latest_compaction.summarized_through_run_id == "run-5"
+    assert loaded.latest_compaction.first_kept_run_id is None
     assert (
         loaded.latest_compaction.summary.current_objective
         == "continue after auto compaction"

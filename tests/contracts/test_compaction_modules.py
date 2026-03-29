@@ -1,7 +1,7 @@
 from just_another_coding_agent.runtime.compaction import (
     build_compaction_summary_message,
     build_in_run_history_processor,
-    build_session_history_processor,
+    build_resume_message_history,
     in_run,
     restore_in_run_compaction_from_messages,
     resume,
@@ -23,10 +23,7 @@ def test_compaction_public_api_is_split_across_submodules() -> None:
         is restore_in_run_compaction_from_messages
     )
 
-    assert (
-        resume.build_session_history_processor
-        is build_session_history_processor
-    )
+    assert resume.build_resume_message_history is build_resume_message_history
     assert (
         resume.build_compaction_summary_message
         is build_compaction_summary_message

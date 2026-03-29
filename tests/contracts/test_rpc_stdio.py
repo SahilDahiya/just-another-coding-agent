@@ -292,6 +292,7 @@ async def test_handle_rpc_json_line_compacts_session_and_returns_metadata(
             "response": {
                 "compaction_id": messages[0]["response"]["compaction_id"],
                 "summarized_through_run_id": created_run_id,
+                "first_kept_run_id": None,
                 "summary": {
                     "current_objective": "finish note handling",
                     "established_facts": ["note.txt was created"],
@@ -311,6 +312,7 @@ async def test_handle_rpc_json_line_compacts_session_and_returns_metadata(
         loaded.latest_compaction.compaction_id
         == messages[0]["response"]["compaction_id"]
     )
+    assert loaded.latest_compaction.first_kept_run_id is None
 
 
 async def test_handle_rpc_json_line_returns_invalid_session_for_empty_compaction(

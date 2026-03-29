@@ -252,6 +252,7 @@ async def test_serve_rpc_stdio_supports_session_compact(
     assert compact_response["type"] == "rpc_response"
     assert compact_response["id"] == "req-compact"
     assert len(compact_response["response"]["compaction_id"]) == 32
+    assert compact_response["response"]["first_kept_run_id"] is None
     assert (
         compact_response["response"]["summary"]["current_objective"]
         == "finish note handling"

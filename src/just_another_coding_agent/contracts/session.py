@@ -9,7 +9,7 @@ from .platform import ShellFamily
 from .run_events import RunEvent
 from .thinking import ThinkingSetting
 
-SESSION_FORMAT_VERSION = 6
+SESSION_FORMAT_VERSION = 7
 
 
 class _SessionEntryBase(BaseModel):
@@ -55,6 +55,7 @@ class SessionCompactionEntry(_SessionEntryBase):
     type: Literal["session_compaction"] = "session_compaction"
     compaction_id: str
     summarized_through_run_id: str
+    first_kept_run_id: str | None = None
     summary: SessionCompactionSummary
 
 

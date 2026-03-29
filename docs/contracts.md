@@ -387,8 +387,10 @@ Initial executable session slice:
   - fields: `type`, `run_id`, `event`
   - `event` must be one canonical streamed run event payload
 - `session_compaction`
-  - fields: `type`, `compaction_id`, `summarized_through_run_id`, `summary`
+  - fields: `type`, `compaction_id`, `summarized_through_run_id`, `first_kept_run_id`, `summary`
   - `summarized_through_run_id` must reference an existing persisted `run_id`
+  - `first_kept_run_id`, when present, must reference an existing persisted
+    `run_id` strictly after `summarized_through_run_id`
   - `summary` is model-generated structured compaction state, not arbitrary untyped metadata
 
 Ordering rules for the session slice:
@@ -399,8 +401,8 @@ Ordering rules for the session slice:
 - `session_compaction` may appear only at a completed run boundary, never in the middle of a run
 - `session_compaction` entries are append-only and must not move the summary boundary backward
 - Authoritative session loads must provide the expected workspace root and it must match the persisted `session_header.workspace_root` exactly
-- Session resume semantics must reconstruct effective conversation context from the latest compaction summary plus retained `session_messages` after that summary boundary when a compaction entry exists; otherwise they replay all persisted `session_messages` in chronological order
-- Runtime compaction must be applied through PydanticAI `history_processors` while keeping the durable session file in full-fidelity append-only form
+- Session resume semantics must reconstruct effective conversation context from the latest compaction summary plus retained `session_messages` when a compaction entry exists; retained messages start at `first_kept_run_id` when present, otherwise they start strictly after `summarized_through_run_id`
+- Durable cross-run compaction must be materialized into resume `message_history` before the next run starts; only run-local compaction uses PydanticAI `history_processors`
 - Run-local history processors may compact current-run tool-return content for
   the model when context pressure grows, but the persistence layer must restore
   the original raw tool-return content before writing `session_messages`
@@ -443,7 +445,7 @@ Initial executable RPC slice:
   - fields: `type`, `id`, `response`
   - initial response payloads:
     - `{"session_id": <opaque-lowercase-hex-string>}`
-    - `{"compaction_id": <opaque-lowercase-hex-string>, "summarized_through_run_id": <run_id>, "summary": <structured-compaction-summary>}`
+    - `{"compaction_id": <opaque-lowercase-hex-string>, "summarized_through_run_id": <run_id>, "first_kept_run_id": <optional-run_id>, "summary": <structured-compaction-summary>}`
 - `rpc_event`
   - fields: `type`, `id`, `event`
   - `event` must be one canonical streamed run event payload

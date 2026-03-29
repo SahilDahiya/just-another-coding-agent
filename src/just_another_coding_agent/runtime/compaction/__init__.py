@@ -6,7 +6,7 @@ from .in_run import (
 from .resume import (
     COMPACTION_SUMMARY_DYNAMIC_REF,
     build_compaction_summary_message,
-    build_session_history_processor,
+    build_resume_message_history,
     strip_compaction_summary_from_messages,
 )
 from .session_summary import (
@@ -24,7 +24,7 @@ __all__ = [
     "IN_RUN_COMPACTION_SOFT_CHAR_LIMIT",
     "build_compaction_summary_message",
     "build_in_run_history_processor",
-    "build_session_history_processor",
+    "build_resume_message_history",
     "restore_in_run_compaction_from_messages",
     "should_auto_compact_session",
     "strip_compaction_summary_from_messages",
