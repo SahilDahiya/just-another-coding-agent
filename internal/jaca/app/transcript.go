@@ -148,9 +148,10 @@ func (t *Transcript) WriteStartupBanner(model string, workspaceRoot string, thin
 	hintStyle := lipgloss.NewStyle().Foreground(defaultTheme.textMuted)
 
 	logo := []string{
-		"     ╷╭─╮╭─╮╭─╮",
-		"     │├─┤│  ├─┤",
-		"  ╶──╯╵ ╵╰─╯╵ ╵",
+		`   _ ___ ___ ___`,
+		`  | |_  ) __| _ |`,
+		`_ | |/ /| _||   |`,
+		`\___//___|___|_|_|`,
 	}
 
 	var renderedLines []string
