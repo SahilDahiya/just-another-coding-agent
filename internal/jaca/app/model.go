@@ -126,7 +126,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		m.textInput.Width = max(0, msg.Width-4)
 		m.viewport.Width = msg.Width
-		m.viewport.Height = max(1, msg.Height-5)
+		m.viewport.Height = max(1, msg.Height-7)
 		m.transcript.Width = msg.Width
 		m.refreshViewport()
 		return m, nil

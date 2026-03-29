@@ -150,9 +150,8 @@ func renderPrompt(vm viewModel) string {
 	ruleStyle := lipgloss.NewStyle().Foreground(rowBorder).Bold(true)
 	rule := ruleStyle.Render(strings.Repeat("━", width))
 
-	promptParts := make([]string, 0, 7)
-	promptParts = append(promptParts, "")
-	promptParts = append(promptParts, rule)
+	promptParts := make([]string, 0, 9)
+	promptParts = append(promptParts, "", rule, "")
 	if vm.SlashMenu.Mode != slashMenuHidden && len(vm.SlashMenu.Rows) > 0 {
 		promptParts = append(promptParts, renderSlashMenu(vm.SlashMenu))
 	}
@@ -162,6 +161,7 @@ func renderPrompt(vm viewModel) string {
 			lipgloss.NewStyle().Foreground(markerColor).Bold(true).Render(buildPromptMarkerText(vm.Phase, vm.MotionTick)),
 			vm.PromptValue,
 		),
+		"",
 		rule,
 		lipgloss.NewStyle().Foreground(footerColor).Render(
 			buildPromptFooterText(vm),
@@ -250,7 +250,7 @@ func buildPromptMarkerText(phase Phase, _ int) string {
 	case PhaseError:
 		return "x "
 	default:
-		return "> "
+		return "❯ "
 	}
 }
 
