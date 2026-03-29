@@ -76,6 +76,10 @@ uv run jaca
 The interactive launcher executes the installed Go TUI binary, which talks to
 the Python backend over stdio RPC.
 
+When `uv run jaca` is launched from a live repo checkout, the Python wrapper
+can also start the Go TUI through `go run ./cmd/jaca` automatically if the
+installed `jaca-go` binary is absent and `go` is available.
+
 If `uv run jaca` says the Go TUI binary is missing, rebuild the environment with:
 
 ```bash
