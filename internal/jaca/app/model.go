@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/cursor"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -94,6 +95,7 @@ func New(options Options) tea.Model {
 	input.Focus()
 	input.CharLimit = 0
 	input.Width = 80
+	input.Cursor.SetMode(cursor.CursorStatic)
 
 	transcript := NewTranscript()
 	transcript.WriteStartupBanner(options.Model, options.WorkspaceRoot, options.Thinking)

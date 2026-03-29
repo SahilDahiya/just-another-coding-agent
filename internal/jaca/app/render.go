@@ -10,7 +10,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-var brailleSpinner = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
 
 type theme struct {
@@ -237,12 +236,8 @@ func buildPhaseLabel(phase Phase, motionTick int) string {
 	return string(phase)
 }
 
-func buildPromptMarkerText(phase Phase, motionTick int) string {
+func buildPromptMarkerText(phase Phase, _ int) string {
 	switch phase {
-	case PhaseStreaming:
-		return brailleSpinner[motionTick%len(brailleSpinner)] + " "
-	case PhaseCompacting:
-		return brailleSpinner[motionTick%len(brailleSpinner)] + " "
 	case PhaseCompleted:
 		return "※ "
 	case PhaseError:
