@@ -327,7 +327,7 @@ func (t *Transcript) appendAssistantDelta(delta string) {
 
 func (t *Transcript) completeAssistant(markdown string) {
 	t.endToolGroup()
-	assistantMarker := lipgloss.NewStyle().Foreground(defaultTheme.accentSoft).Render("● ")
+	assistantMarker := lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render("● ")
 	rendered := assistantMarker + renderCompletedAssistantMarkdown(markdown)
 	if t.liveAssistantIdx != -1 {
 		t.replaceBlock(t.liveAssistantIdx, transcriptBlock{
