@@ -34,14 +34,15 @@ type Transcript struct {
 }
 
 type toolEntry struct {
-	toolName        string
-	preview         string
-	outcome         string
-	message         string
-	duration        string
-	detailLines     []string
-	resultLines     []string
-	resultTruncated bool
+	toolName         string
+	preview          string
+	outcome          string
+	message          string
+	duration         string
+	detailLines      []string
+	resultLines      []string
+	resultTruncated  bool
+	operationalMiss  bool
 }
 
 type toolGroup struct {
@@ -352,7 +353,13 @@ func (t *Transcript) finishTool(event rpc.RunEvent) {
 	if entry == nil {
 		return
 	}
-	entry.outcome = "ok"
+	miss := isOperationalMiss(event.Result)
+	entry.operationalMiss = miss
+	if miss {
+		entry.outcome = ""
+	} else {
+		entry.outcome = "ok"
+	}
 	entry.resultLines = nil
 	entry.resultTruncated = false
 	entry.detailLines = nil
@@ -423,17 +430,21 @@ func (t *Transcript) rewriteToolGroup() {
 			plain.WriteString(line + "\n")
 			rendered.WriteString(styleToolDetailLine(line) + "\n")
 		}
+		resultColor := defaultTheme.textMuted
+		if entry.operationalMiss {
+			resultColor = defaultTheme.errSoft
+		}
 		for idx, line := range entry.resultLines {
 			prefix := "    "
 			if idx == 0 {
 				prefix = "  └ "
 			}
 			plain.WriteString(prefix + line + "\n")
-			rendered.WriteString(lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render(prefix+line) + "\n")
+			rendered.WriteString(lipgloss.NewStyle().Foreground(resultColor).Render(prefix+line) + "\n")
 		}
 		if entry.resultTruncated {
 			plain.WriteString("    ...\n")
-			rendered.WriteString(lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render("    ...") + "\n")
+			rendered.WriteString(lipgloss.NewStyle().Foreground(resultColor).Render("    ...") + "\n")
 		}
 	}
 	t.replaceBlock(t.toolGroup.index, transcriptBlock{
@@ -456,6 +467,12 @@ func formatToolActivityLine(entry *toolEntry) string {
 		return fmt.Sprintf("%s  %s  %s\n", head, entry.outcome, entry.message)
 	case entry.outcome != "":
 		return fmt.Sprintf("%s  %s\n", head, entry.outcome)
+	case entry.duration != "" && entry.message != "":
+		return fmt.Sprintf("%s  %s  %s\n", head, entry.message, entry.duration)
+	case entry.duration != "":
+		return fmt.Sprintf("%s  %s\n", head, entry.duration)
+	case entry.message != "":
+		return fmt.Sprintf("%s  %s\n", head, entry.message)
 	default:
 		return head + "\n"
 	}
@@ -561,6 +578,15 @@ func buildToolDuration(activity *rpc.ToolActivity) string {
 		return fmt.Sprintf("%dms", *activity.DurationMS)
 	}
 	return fmt.Sprintf("%.1fs", float64(*activity.DurationMS)/1000.0)
+}
+
+func isOperationalMiss(result any) bool {
+	m, ok := result.(map[string]any)
+	if !ok {
+		return false
+	}
+	flag, ok := m["ok"].(bool)
+	return ok && !flag
 }
 
 func extractToolResultLines(result any) ([]string, bool) {

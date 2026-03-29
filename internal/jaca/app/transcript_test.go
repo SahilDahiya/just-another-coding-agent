@@ -129,8 +129,11 @@ func TestOperationalToolResultRendersAsNeutralOutput(t *testing.T) {
 	if strings.Contains(plain, "error") {
 		t.Fatalf("operational tool result rendered as error: %q", plain)
 	}
+	if strings.Contains(plain, " ok ") {
+		t.Fatalf("operational miss rendered as ok: %q", plain)
+	}
 	for _, want := range []string{
-		"● read  agents.md  ok 15ms",
+		"● read  agents.md  15ms",
 		"  └ No such file or directory: '/workspace/agents.md'",
 	} {
 		if !strings.Contains(plain, want) {

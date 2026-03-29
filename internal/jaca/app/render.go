@@ -21,6 +21,7 @@ type theme struct {
 	success      lipgloss.TerminalColor
 	successSoft  lipgloss.TerminalColor
 	err          lipgloss.TerminalColor
+	errSoft      lipgloss.TerminalColor
 }
 
 var defaultTheme = theme{
@@ -35,6 +36,7 @@ var defaultTheme = theme{
 	success:      themeColor("#7bb07c", "107", "10"),
 	successSoft:  themeColor("#a7d6a5", "151", "10"),
 	err:          themeColor("#d46a5e", "167", "9"),
+	errSoft:      themeColor("#bf5f5f", "131", "1"),
 }
 
 func themeColor(trueColor string, ansi256 string, ansi string) lipgloss.TerminalColor {
