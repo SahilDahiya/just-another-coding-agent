@@ -653,15 +653,7 @@ async def test_stream_run_events_recovers_from_missing_read_within_one_run(
         "run_succeeded",
     ]
     assert isinstance(events[1], ToolCallStartedEvent)
-    assert events[1].activity == ToolActivity(
-        title="read missing.txt",
-        details={
-            "kind": "read",
-            "path": "missing.txt",
-            "offset": None,
-            "limit": None,
-        },
-    )
+    assert events[1].activity == ToolActivity(title="read missing.txt")
     assert isinstance(events[2], ToolCallSucceededEvent)
     assert events[2].result == {
         "ok": False,
@@ -678,23 +670,9 @@ async def test_stream_run_events_recovers_from_missing_read_within_one_run(
     )
     assert events[2].activity.duration_ms is not None
     assert events[2].activity.duration_ms >= 0
-    assert events[2].activity.details is not None
-    assert events[2].activity.details.model_dump() == {
-        "kind": "read",
-        "path": "missing.txt",
-        "offset": None,
-        "limit": None,
-    }
+    assert events[2].activity.details is None
     assert isinstance(events[3], ToolCallStartedEvent)
-    assert events[3].activity == ToolActivity(
-        title="read note.txt",
-        details={
-            "kind": "read",
-            "path": "note.txt",
-            "offset": None,
-            "limit": None,
-        },
-    )
+    assert events[3].activity == ToolActivity(title="read note.txt")
     assert isinstance(events[4], ToolCallSucceededEvent)
     assert events[4].result == "hello\nworld\n"
     assert events[4].activity is not None
@@ -782,16 +760,7 @@ async def test_stream_run_events_recovers_from_bash_timeout_within_one_run(
     assert events[-2].type == "assistant_text_delta"
     assert events[-1].type == "run_succeeded"
     assert isinstance(events[1], ToolCallStartedEvent)
-    assert events[1].activity == ToolActivity(
-        title="bash sleep 2",
-        details={
-            "kind": "bash",
-            "command_preview": "sleep 2",
-            "timeout": 1,
-            "deferred": False,
-            "exit_code": None,
-        },
-    )
+    assert events[1].activity == ToolActivity(title="bash sleep 2")
     first_result_index = next(
         index
         for index, event in enumerate(events)
@@ -811,14 +780,7 @@ async def test_stream_run_events_recovers_from_bash_timeout_within_one_run(
     )
     assert events[first_result_index].activity.duration_ms is not None
     assert events[first_result_index].activity.duration_ms >= 0
-    assert events[first_result_index].activity.details is not None
-    assert events[first_result_index].activity.details.model_dump() == {
-        "kind": "bash",
-        "command_preview": "sleep 2",
-        "timeout": 1,
-        "deferred": False,
-        "exit_code": None,
-    }
+    assert events[first_result_index].activity.details is None
     second_started_index = next(
         index
         for index, event in enumerate(events)
@@ -826,14 +788,7 @@ async def test_stream_run_events_recovers_from_bash_timeout_within_one_run(
     )
     assert isinstance(events[second_started_index], ToolCallStartedEvent)
     assert events[second_started_index].activity == ToolActivity(
-        title="bash printf ok",
-        details={
-            "kind": "bash",
-            "command_preview": "printf ok",
-            "timeout": None,
-            "deferred": False,
-            "exit_code": None,
-        },
+        title="bash printf ok"
     )
     second_result_index = next(
         index
@@ -943,6 +898,7 @@ async def test_stream_run_events_emits_bash_tool_updates(tmp_path) -> None:
     assert update_events[0].activity.summary == "command still running"
     assert update_events[0].activity.duration_ms is not None
     assert update_events[0].activity.duration_ms >= 0
+    assert update_events[0].activity.details is None
 
     final_tool_event = next(
         event

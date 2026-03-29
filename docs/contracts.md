@@ -305,9 +305,9 @@ Initial tool lifecycle slice:
 - `title` is a terse backend-owned label for the tool action
 - `summary` is optional and should stay trustworthy rather than aspirational
 - `duration_ms` belongs on finished tool events and may also appear on `tool_call_updated`
-- `details` is optional and must use typed per-tool metadata rather than an untyped bag
+- `details` is optional and, when present, must use typed per-tool metadata rather than an untyped bag
 
-Initial typed `details` slice:
+Initial typed `details` slice for tool success activity:
 
 - `bash`
   - `kind`, `command_preview`, `timeout`, `deferred`, `exit_code`
@@ -329,11 +329,12 @@ Rules for the initial activity slice:
 - v1 remains within the existing event families; no group or timeline events are added
 - `activity` must be derived from canonical tool semantics in the backend, not guessed in the frontend
 - canonical tool success activity should be owned by the tools themselves and passed through an internal carrier such as `ToolReturn.metadata`; the runtime validates and normalizes that metadata before emitting public events
-- v1 must only expose metadata that is derivable from current structured args/results
+- started, updated, and failed/error-result activity should stay minimal: backend-owned `title`, optional `summary`, and `duration_ms` when applicable
+- the runtime should not re-parse typed tool args into structured `details` for started, updated, or failed/error-result activity
 - no untyped `artifacts` bag
 - no absolute timestamps in the persisted public event contract
 - existing consumers that ignore `activity` must continue to work unchanged
-- framework-native carriers such as `ToolReturn.metadata` are allowed internally, but they are not themselves part of the public contract; the public contract begins only after the runtime validates and maps that data into typed `activity.details`
+- framework-native carriers such as `ToolReturn.metadata` are allowed internally, but they are not themselves part of the public contract; the public contract begins only after the runtime validates and maps success-path metadata into typed `activity.details`
 - internal deferred-tool restarts must not leak duplicate `tool_call_started` events into the public contract
 
 Canonical tool concurrency policy:

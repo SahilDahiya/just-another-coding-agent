@@ -8,14 +8,16 @@ from just_another_coding_agent.contracts.run_events import (
     ToolActivity,
     ToolActivityDetails,
 )
-from just_another_coding_agent.runtime.activity_args import (
-    build_args_tool_details,
-    build_args_tool_title,
-    build_fallback_success_summary,
-    build_update_summary,
-)
+from just_another_coding_agent.tools._activity import truncate_activity_label
 
 _TOOL_ACTIVITY_DETAILS_ADAPTER = TypeAdapter(ToolActivityDetails)
+_TITLE_KEY_BY_TOOL = {
+    "read": "path",
+    "write": "path",
+    "edit": "path",
+    "grep": "pattern",
+    "find": "pattern",
+}
 
 
 def build_started_tool_activity(
@@ -25,16 +27,10 @@ def build_started_tool_activity(
     args_valid: bool | None,
 ) -> ToolActivity:
     return ToolActivity(
-        title=build_args_tool_title(
+        title=_build_tool_title(
             tool_name=tool_name,
             args=args,
             args_valid=args_valid,
-        ),
-        details=build_args_tool_details(
-            tool_name=tool_name,
-            args=args,
-            args_valid=args_valid,
-            result=None,
         ),
     )
 
@@ -55,19 +51,13 @@ def build_succeeded_tool_activity(
         )
 
     return ToolActivity(
-        title=build_args_tool_title(
+        title=_build_tool_title(
             tool_name=tool_name,
             args=args,
             args_valid=args_valid,
         ),
-        summary=build_fallback_success_summary(tool_name=tool_name, result=result),
+        summary=_build_fallback_success_summary(tool_name=tool_name, result=result),
         duration_ms=duration_ms,
-        details=build_args_tool_details(
-            tool_name=tool_name,
-            args=args,
-            args_valid=args_valid,
-            result=result,
-        ),
     )
 
 
@@ -80,22 +70,13 @@ def build_updated_tool_activity(
     duration_ms: int,
 ) -> ToolActivity:
     return ToolActivity(
-        title=build_args_tool_title(
+        title=_build_tool_title(
             tool_name=tool_name,
             args=args,
             args_valid=args_valid,
         ),
-        summary=build_update_summary(
-            tool_name=tool_name,
-            partial_result=partial_result,
-        ),
+        summary="command still running" if tool_name == "bash" else None,
         duration_ms=duration_ms,
-        details=build_args_tool_details(
-            tool_name=tool_name,
-            args=args,
-            args_valid=args_valid,
-            result=partial_result,
-        ),
     )
 
 
@@ -108,20 +89,60 @@ def build_failed_tool_activity(
     duration_ms: int,
 ) -> ToolActivity:
     return ToolActivity(
-        title=build_args_tool_title(
+        title=_build_tool_title(
             tool_name=tool_name,
             args=args,
             args_valid=args_valid,
         ),
         summary=message,
         duration_ms=duration_ms,
-        details=build_args_tool_details(
-            tool_name=tool_name,
-            args=args,
-            args_valid=args_valid,
-            result=None,
-        ),
     )
+
+
+def _build_tool_title(*, tool_name: str, args: Any, args_valid: bool | None) -> str:
+    if args_valid is False or not isinstance(args, dict):
+        return tool_name
+
+    if tool_name == "bash":
+        command = args.get("command")
+        if isinstance(command, str) and command.strip():
+            return f"bash {truncate_activity_label(command)}"
+        return "bash"
+
+    if tool_name == "ls":
+        path = args.get("path")
+        if isinstance(path, str) and path.strip():
+            return f"ls {truncate_activity_label(path)}"
+        return "ls ."
+
+    key = _TITLE_KEY_BY_TOOL.get(tool_name)
+    value = args.get(key) if key is not None else None
+    if isinstance(value, str) and value.strip():
+        return f"{tool_name} {truncate_activity_label(value)}"
+    return tool_name
+
+
+def _build_fallback_success_summary(*, tool_name: str, result: Any) -> str | None:
+    if isinstance(result, dict) and result.get("ok") is False:
+        message = result.get("message")
+        if isinstance(message, str) and message:
+            return message
+        return "tool error"
+
+    if tool_name == "bash" and isinstance(result, dict):
+        exit_code = result.get("exit_code")
+        if isinstance(exit_code, int):
+            return f"command exited {exit_code}"
+
+    summaries = {
+        "read": "read completed",
+        "write": "wrote file",
+        "edit": "edit applied",
+        "grep": "search completed",
+        "ls": "listing completed",
+        "find": "find completed",
+    }
+    return summaries.get(tool_name)
 
 
 def _build_tool_activity_from_metadata(

@@ -23,7 +23,7 @@ Prefer direct use of PydanticAI primitives before creating local abstractions:
 
 Local code should translate those primitives into the canonical backend contract for tools, events, sessions, RPC, and failure semantics.
 `runtime/models.py` is the sanctioned local seam for explicit model construction and provider-native policy.
-PydanticAI-native carrier features such as `ToolReturn.metadata` may be used internally, but they must be normalized immediately into typed backend contract fields before crossing the public stream/session boundary. For canonical tools, success activity ownership lives with the tools themselves; the runtime only validates and maps that metadata into the public event/session contract.
+PydanticAI-native carrier features such as `ToolReturn.metadata` may be used internally, but they must be normalized immediately into typed backend contract fields before crossing the public stream/session boundary. For canonical tools, success activity ownership lives with the tools themselves; the runtime only validates and maps that metadata into the public event/session contract. Non-success tool activity stays intentionally small: backend-owned titles, optional summaries, and durations, without re-parsing typed args into structured details.
 If a tool needs extra validation for a non-agent runtime seam such as deferred
 re-entry, that validator should stay private to the tool or runtime seam rather
 than becoming a second public source of truth in `contracts/`.

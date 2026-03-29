@@ -22,9 +22,19 @@ _SAMPLE_ARGS_BY_TOOL: dict[str, dict[str, object]] = {
     "find": {"pattern": "*.py", "path": "src", "limit": 20},
 }
 
+_EXPECTED_STARTED_TITLE_BY_TOOL = {
+    "read": "read note.txt",
+    "write": "write note.txt",
+    "edit": "edit note.txt",
+    "bash": "bash printf ok",
+    "grep": "grep TODO",
+    "ls": "ls src",
+    "find": "find *.py",
+}
 
-def test_activity_metadata_covers_every_canonical_tool() -> None:
+def test_started_activity_uses_backend_owned_titles_only() -> None:
     assert set(_SAMPLE_ARGS_BY_TOOL) == set(CANONICAL_TOOL_NAMES)
+    assert set(_EXPECTED_STARTED_TITLE_BY_TOOL) == set(CANONICAL_TOOL_NAMES)
 
     for tool_name in CANONICAL_TOOL_NAMES:
         activity = build_started_tool_activity(
@@ -33,8 +43,9 @@ def test_activity_metadata_covers_every_canonical_tool() -> None:
             args_valid=True,
         )
 
-        assert activity.details is not None
-        assert activity.details.kind == tool_name
+        assert activity == ToolActivity(
+            title=_EXPECTED_STARTED_TITLE_BY_TOOL[tool_name]
+        )
 
 
 def test_succeeded_activity_prefers_tool_owned_metadata() -> None:

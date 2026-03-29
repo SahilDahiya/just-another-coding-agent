@@ -191,15 +191,7 @@ def test_append_and_load_session_preserves_tool_activity_metadata(tmp_path) -> N
             tool_name="read",
             args={"path": "note.txt"},
             args_valid=True,
-            activity=ToolActivity(
-                title="read note.txt",
-                details={
-                    "kind": "read",
-                    "path": "note.txt",
-                    "offset": None,
-                    "limit": None,
-                },
-            ),
+            activity=ToolActivity(title="read note.txt"),
         ),
         ToolCallSucceededEvent(
             run_id="run-1",
@@ -254,16 +246,7 @@ def test_append_and_load_session_preserves_edit_diff_activity_metadata(
                 "new_text": "agent",
             },
             args_valid=True,
-            activity=ToolActivity(
-                title="edit note.txt",
-                details={
-                    "kind": "edit",
-                    "path": "note.txt",
-                    "diff": None,
-                    "added_lines": None,
-                    "removed_lines": None,
-                },
-            ),
+            activity=ToolActivity(title="edit note.txt"),
         ),
         ToolCallSucceededEvent(
             run_id="run-1",
@@ -319,15 +302,7 @@ def test_append_and_load_session_preserves_tool_call_updates(tmp_path) -> None:
             tool_name="bash",
             args={"command": "sleep 1"},
             args_valid=True,
-            activity=ToolActivity(
-                title="bash sleep 1",
-                details={
-                    "kind": "bash",
-                    "command_preview": "sleep 1",
-                    "timeout": None,
-                    "exit_code": None,
-                },
-            ),
+            activity=ToolActivity(title="bash sleep 1"),
         ),
         ToolCallUpdatedEvent(
             run_id="run-1",
@@ -338,12 +313,6 @@ def test_append_and_load_session_preserves_tool_call_updates(tmp_path) -> None:
                 title="bash sleep 1",
                 summary="command still running",
                 duration_ms=250,
-                details={
-                    "kind": "bash",
-                    "command_preview": "sleep 1",
-                    "timeout": None,
-                    "exit_code": None,
-                },
             ),
         ),
         ToolCallSucceededEvent(
@@ -395,15 +364,7 @@ def test_append_and_load_session_preserves_interleaved_parallel_tool_calls(
             tool_name="read",
             args={"path": "a.txt"},
             args_valid=True,
-            activity=ToolActivity(
-                title="read a.txt",
-                details={
-                    "kind": "read",
-                    "path": "a.txt",
-                    "offset": None,
-                    "limit": None,
-                },
-            ),
+            activity=ToolActivity(title="read a.txt"),
         ),
         ToolCallStartedEvent(
             run_id="run-1",
@@ -411,15 +372,7 @@ def test_append_and_load_session_preserves_interleaved_parallel_tool_calls(
             tool_name="read",
             args={"path": "b.txt"},
             args_valid=True,
-            activity=ToolActivity(
-                title="read b.txt",
-                details={
-                    "kind": "read",
-                    "path": "b.txt",
-                    "offset": None,
-                    "limit": None,
-                },
-            ),
+            activity=ToolActivity(title="read b.txt"),
         ),
         ToolCallSucceededEvent(
             run_id="run-1",
