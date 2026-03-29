@@ -130,6 +130,10 @@ The important boundary is:
 
 - `src/just_another_coding_agent/runtime/`
   - agent construction
+  - `compaction/`
+    - `session_summary.py` for durable cross-run summary generation
+    - `resume.py` for compacted session replay helpers
+    - `in_run.py` for live-run tool-return compaction
   - orchestration entrypoints
   - event translation from PydanticAI into the public contract
 - `src/just_another_coding_agent/tools/`
