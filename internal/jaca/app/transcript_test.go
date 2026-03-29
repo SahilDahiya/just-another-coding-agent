@@ -354,6 +354,192 @@ func TestToolResultLinesTruncateVeryLongDisplayLines(t *testing.T) {
 	}
 }
 
+func TestCodeBlockLanguageLabelRendered(t *testing.T) {
+	markdown := "Here is code:\n\n```python\nprint('hello')\n```\n"
+
+	transcript := NewTranscript()
+	transcript.ApplyRunEvent(rpc.RunEvent{Type: "assistant_text_delta", Delta: markdown})
+	transcript.ApplyRunEvent(rpc.RunEvent{Type: "run_succeeded", OutputText: markdown})
+
+	rendered := transcript.blocks[len(transcript.blocks)-1].rendered
+	plain := stripANSI(rendered)
+	if !strings.Contains(plain, "python") {
+		t.Fatalf("rendered code block missing language label: %q", plain)
+	}
+	if !strings.Contains(plain, "print('hello')") {
+		t.Fatalf("rendered code block missing code content: %q", plain)
+	}
+}
+
+func TestBlockquoteRendered(t *testing.T) {
+	markdown := "> This is a quote\n>> Nested quote\n"
+
+	transcript := NewTranscript()
+	transcript.ApplyRunEvent(rpc.RunEvent{Type: "assistant_text_delta", Delta: markdown})
+	transcript.ApplyRunEvent(rpc.RunEvent{Type: "run_succeeded", OutputText: markdown})
+
+	rendered := transcript.blocks[len(transcript.blocks)-1].rendered
+	plain := stripANSI(rendered)
+	if !strings.Contains(plain, "│") {
+		t.Fatalf("rendered blockquote missing bar prefix: %q", plain)
+	}
+	if !strings.Contains(plain, "This is a quote") {
+		t.Fatalf("rendered blockquote missing content: %q", plain)
+	}
+	if !strings.Contains(plain, "Nested quote") {
+		t.Fatalf("rendered nested blockquote missing content: %q", plain)
+	}
+	// Nested should have two bars
+	nestedIdx := strings.Index(plain, "Nested quote")
+	beforeNested := plain[:nestedIdx]
+	lastNewline := strings.LastIndex(beforeNested, "\n")
+	if lastNewline < 0 {
+		lastNewline = 0
+	}
+	linePrefix := beforeNested[lastNewline:]
+	barCount := strings.Count(linePrefix, "│")
+	if barCount < 2 {
+		t.Fatalf("nested blockquote expected 2 bars, got %d in prefix %q", barCount, linePrefix)
+	}
+}
+
+func TestStrikethroughRendered(t *testing.T) {
+	markdown := "This has ~~deleted text~~ in it.\n"
+
+	transcript := NewTranscript()
+	transcript.ApplyRunEvent(rpc.RunEvent{Type: "assistant_text_delta", Delta: markdown})
+	transcript.ApplyRunEvent(rpc.RunEvent{Type: "run_succeeded", OutputText: markdown})
+
+	rendered := transcript.blocks[len(transcript.blocks)-1].rendered
+	plain := stripANSI(rendered)
+	if !strings.Contains(plain, "deleted text") {
+		t.Fatalf("rendered strikethrough missing content: %q", plain)
+	}
+	// The ~~ markers should be stripped
+	if strings.Contains(plain, "~~") {
+		t.Fatalf("rendered strikethrough still has ~~ markers: %q", plain)
+	}
+}
+
+func TestHorizontalRuleRendered(t *testing.T) {
+	markdown := "Above\n\n---\n\nBelow\n"
+
+	transcript := NewTranscript()
+	transcript.ApplyRunEvent(rpc.RunEvent{Type: "assistant_text_delta", Delta: markdown})
+	transcript.ApplyRunEvent(rpc.RunEvent{Type: "run_succeeded", OutputText: markdown})
+
+	rendered := transcript.blocks[len(transcript.blocks)-1].rendered
+	plain := stripANSI(rendered)
+	if !strings.Contains(plain, "─") {
+		t.Fatalf("rendered horizontal rule missing rule character: %q", plain)
+	}
+	if !strings.Contains(plain, "Above") || !strings.Contains(plain, "Below") {
+		t.Fatalf("rendered horizontal rule missing surrounding text: %q", plain)
+	}
+}
+
+func TestCodeBlockWithoutLanguageHasNoLabel(t *testing.T) {
+	markdown := "```\nplain code\n```\n"
+
+	transcript := NewTranscript()
+	transcript.ApplyRunEvent(rpc.RunEvent{Type: "assistant_text_delta", Delta: markdown})
+	transcript.ApplyRunEvent(rpc.RunEvent{Type: "run_succeeded", OutputText: markdown})
+
+	rendered := transcript.blocks[len(transcript.blocks)-1].rendered
+	plain := stripANSI(rendered)
+	if !strings.Contains(plain, "plain code") {
+		t.Fatalf("rendered code block missing content: %q", plain)
+	}
+}
+
+func TestWrapLinesPlainText(t *testing.T) {
+	input := "the quick brown fox jumps over the lazy dog"
+	got := wrapLines(input, 20)
+	lines := strings.Split(got, "\n")
+	for i, line := range lines {
+		if visibleLen(line) > 20 {
+			t.Fatalf("line %d exceeds width 20: %q (visible=%d)", i, line, visibleLen(line))
+		}
+	}
+	// Rejoin wrapped lines and normalize spaces to verify no content lost.
+	rejoined := strings.Join(strings.Fields(strings.ReplaceAll(got, "\n", " ")), " ")
+	if rejoined != "the quick brown fox jumps over the lazy dog" {
+		t.Fatalf("wrapLines lost content: %q", got)
+	}
+}
+
+func TestWrapLinesRespectsIndentation(t *testing.T) {
+	input := "    indented line that is much longer than the wrap width limit"
+	got := wrapLines(input, 30)
+	for i, line := range strings.Split(got, "\n") {
+		if visibleLen(line) > 30 {
+			t.Fatalf("line %d exceeds width 30: %q", i, line)
+		}
+		if i > 0 && !strings.HasPrefix(line, "    ") {
+			t.Fatalf("continuation line %d lost indent: %q", i, line)
+		}
+	}
+}
+
+func TestWrapLinesPreservesANSI(t *testing.T) {
+	input := "\x1b[31mred word\x1b[0m and \x1b[32mgreen word\x1b[0m plus extra padding text here"
+	got := wrapLines(input, 25)
+	// All ANSI escapes should survive.
+	if !strings.Contains(got, "\x1b[31m") || !strings.Contains(got, "\x1b[32m") {
+		t.Fatalf("wrapLines stripped ANSI escapes: %q", got)
+	}
+	for i, line := range strings.Split(got, "\n") {
+		if visibleLen(line) > 25 {
+			t.Fatalf("line %d exceeds width 25: %q (visible=%d)", i, line, visibleLen(line))
+		}
+	}
+}
+
+func TestWrapLinesNoOpWhenWidthZero(t *testing.T) {
+	input := "should not be wrapped at all even though it is very long"
+	got := wrapLines(input, 0)
+	if got != input {
+		t.Fatalf("wrapLines modified text when width=0: %q", got)
+	}
+}
+
+func TestWrapLinesShortLineUnchanged(t *testing.T) {
+	input := "short"
+	got := wrapLines(input, 80)
+	if got != input {
+		t.Fatalf("wrapLines modified short line: %q", got)
+	}
+}
+
+func TestRenderAppliesWrapWhenWidthSet(t *testing.T) {
+	transcript := NewTranscript()
+	transcript.Width = 30
+	long := strings.Repeat("word ", 20)
+	transcript.WriteLine(long)
+	rendered := transcript.Render()
+	for i, line := range strings.Split(rendered, "\n") {
+		if visibleLen(line) > 30 {
+			t.Fatalf("Render() line %d exceeds width 30: %q (visible=%d)", i, line, visibleLen(line))
+		}
+	}
+	// Content should still be present.
+	plain := strings.ReplaceAll(rendered, "\n", " ")
+	if !strings.Contains(plain, "word") {
+		t.Fatalf("Render() lost content after wrapping: %q", rendered)
+	}
+}
+
+func TestRenderNoWrapWhenWidthZero(t *testing.T) {
+	transcript := NewTranscript()
+	// Width defaults to 0
+	long := strings.Repeat("word ", 20)
+	transcript.WriteLine(long)
+	rendered := transcript.Render()
+	if strings.Count(rendered, "\n") > 1 {
+		t.Fatalf("Render() wrapped when Width=0: %q", rendered)
+	}
+}
+
 func strPtr(value string) *string {
 	return &value
 }

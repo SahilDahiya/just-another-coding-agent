@@ -44,8 +44,9 @@ type toolEntry struct {
 	duration        string
 	detailLines     []string
 	resultLines     []string
-	resultTruncated bool
-	operationalMiss bool
+	resultTruncated    bool
+	resultOmittedLines int
+	operationalMiss    bool
 }
 
 type toolGroup struct {
@@ -94,6 +95,9 @@ func (t *Transcript) Render() string {
 			blockRendered = renderTranscriptBlock(t.blocks[i])
 			t.blocks[i].rendered = blockRendered
 		}
+		if t.Width > 0 {
+			blockRendered = wrapLines(blockRendered, t.Width)
+		}
 		rendered.WriteString(blockRendered)
 		currentOffset += len(blockRendered)
 	}
@@ -104,6 +108,116 @@ func (t *Transcript) Render() string {
 	t.dirtyFrom = -1
 	t.discardImmutableRenderedBlocks()
 	return t.renderedCache
+}
+
+// ansiEscapeRe matches ANSI escape sequences so they can be skipped when measuring visible line width.
+var ansiEscapeRe = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+
+func visibleLen(text string) int {
+	return len([]rune(ansiEscapeRe.ReplaceAllString(text, "")))
+}
+
+func wrapLines(text string, width int) string {
+	if width <= 0 {
+		return text
+	}
+	lines := strings.Split(text, "\n")
+	var out strings.Builder
+	out.Grow(len(text) + len(text)/4)
+	for i, line := range lines {
+		if i > 0 {
+			out.WriteByte('\n')
+		}
+		if visibleLen(line) <= width {
+			out.WriteString(line)
+			continue
+		}
+		wrapSingleLine(&out, line, width)
+	}
+	return out.String()
+}
+
+func leadingSpaces(line string) string {
+	stripped := ansiEscapeRe.ReplaceAllString(line, "")
+	trimmed := strings.TrimLeft(stripped, " ")
+	n := len(stripped) - len(trimmed)
+	if n == 0 {
+		return ""
+	}
+	return strings.Repeat(" ", n)
+}
+
+type visibleToken struct {
+	text    string
+	visible int
+}
+
+func wrapSingleLine(out *strings.Builder, line string, width int) {
+	indent := leadingSpaces(line)
+	indentWidth := len([]rune(indent))
+	var tokens []visibleToken
+	cursor := 0
+	for _, loc := range ansiEscapeRe.FindAllStringIndex(line, -1) {
+		if loc[0] > cursor {
+			tokens = append(tokens, splitVisibleTokens(line[cursor:loc[0]])...)
+		}
+		tokens = append(tokens, visibleToken{text: line[loc[0]:loc[1]], visible: 0})
+		cursor = loc[1]
+	}
+	if cursor < len(line) {
+		tokens = append(tokens, splitVisibleTokens(line[cursor:])...)
+	}
+	col := 0
+	firstLine := true
+	for _, tok := range tokens {
+		if tok.visible == 0 {
+			out.WriteString(tok.text)
+			continue
+		}
+		if col > 0 && col+tok.visible > width {
+			out.WriteByte('\n')
+			out.WriteString(indent)
+			col = indentWidth
+			firstLine = false
+			trimmed := strings.TrimLeft(tok.text, " ")
+			trimmedVisible := len([]rune(trimmed))
+			if trimmedVisible == 0 {
+				continue
+			}
+			out.WriteString(trimmed)
+			col += trimmedVisible
+			continue
+		}
+		if !firstLine && col == indentWidth && strings.TrimSpace(tok.text) == "" {
+			continue
+		}
+		out.WriteString(tok.text)
+		col += tok.visible
+	}
+}
+
+func splitVisibleTokens(text string) []visibleToken {
+	var tokens []visibleToken
+	runes := []rune(text)
+	i := 0
+	for i < len(runes) {
+		if runes[i] == ' ' {
+			j := i
+			for j < len(runes) && runes[j] == ' ' {
+				j++
+			}
+			tokens = append(tokens, visibleToken{text: string(runes[i:j]), visible: j - i})
+			i = j
+		} else {
+			j := i
+			for j < len(runes) && runes[j] != ' ' {
+				j++
+			}
+			tokens = append(tokens, visibleToken{text: string(runes[i:j]), visible: j - i})
+			i = j
+		}
+	}
+	return tokens
 }
 
 func (t *Transcript) discardImmutableRenderedBlocks() {
@@ -448,7 +562,7 @@ func (t *Transcript) finishTool(event rpc.RunEvent) {
 	entry.duration = buildToolDuration(event.Activity)
 	entry.detailLines = buildToolDetailLines(event.Activity)
 	if len(entry.detailLines) == 0 {
-		entry.resultLines, entry.resultTruncated = extractToolResultLines(event.Result)
+		entry.resultLines, entry.resultTruncated, entry.resultOmittedLines = extractToolResultLines(event.Result)
 	}
 	if len(entry.detailLines) == 0 && len(entry.resultLines) == 0 && entry.message == "" {
 		entry.message = buildToolSummary(event.Activity, "")
@@ -468,7 +582,7 @@ func (t *Transcript) updateTool(event rpc.RunEvent) {
 	entry.message = buildToolSummary(event.Activity, "")
 	entry.duration = buildToolDuration(event.Activity)
 	entry.detailLines = nil
-	entry.resultLines, entry.resultTruncated = extractToolResultLines(event.Partial)
+	entry.resultLines, entry.resultTruncated, entry.resultOmittedLines = extractToolResultLines(event.Partial)
 	t.rewriteToolGroup()
 }
 
@@ -499,8 +613,13 @@ func (t *Transcript) rewriteToolGroup() {
 	}
 	var plain strings.Builder
 	var rendered strings.Builder
+	prevHadDetail := false
 	for _, toolCallID := range t.toolGroup.order {
 		entry := t.toolGroup.entries[toolCallID]
+		if prevHadDetail {
+			plain.WriteByte('\n')
+			rendered.WriteByte('\n')
+		}
 		plain.WriteString(formatToolActivityLine(entry))
 		rendered.WriteString(renderToolActivityLine(entry))
 		for _, line := range entry.detailLines {
@@ -520,9 +639,14 @@ func (t *Transcript) rewriteToolGroup() {
 			rendered.WriteString(lipgloss.NewStyle().Foreground(resultColor).Render(prefix+line) + "\n")
 		}
 		if entry.resultTruncated {
-			plain.WriteString("    ...\n")
-			rendered.WriteString(lipgloss.NewStyle().Foreground(resultColor).Render("    ...") + "\n")
+			truncMsg := "    ..."
+			if entry.resultOmittedLines > 0 {
+				truncMsg = fmt.Sprintf("    ... +%d more lines", entry.resultOmittedLines)
+			}
+			plain.WriteString(truncMsg + "\n")
+			rendered.WriteString(lipgloss.NewStyle().Foreground(resultColor).Render(truncMsg) + "\n")
 		}
+		prevHadDetail = len(entry.detailLines) > 0 || len(entry.resultLines) > 0 || entry.resultTruncated
 	}
 	t.replaceBlock(t.toolGroup.index, transcriptBlock{
 		plain:    plain.String(),
@@ -683,7 +807,7 @@ func isOperationalMiss(result any) bool {
 	return ok && !flag
 }
 
-func extractToolResultLines(result any) ([]string, bool) {
+func extractToolResultLines(result any) ([]string, bool, int) {
 	switch value := result.(type) {
 	case string:
 		lines := strings.Split(strings.TrimSpace(value), "\n")
@@ -696,10 +820,10 @@ func extractToolResultLines(result any) ([]string, bool) {
 			return truncateLines(strings.Split(strings.TrimSpace(message), "\n"), maxToolResultLines)
 		}
 	}
-	return nil, false
+	return nil, false, 0
 }
 
-func truncateLines(lines []string, limit int) ([]string, bool) {
+func truncateLines(lines []string, limit int) ([]string, bool, int) {
 	filtered := make([]string, 0, len(lines))
 	for _, line := range lines {
 		if strings.TrimSpace(line) == "" {
@@ -708,9 +832,9 @@ func truncateLines(lines []string, limit int) ([]string, bool) {
 		filtered = append(filtered, truncateDisplayLine(line, maxToolResultLineChars))
 	}
 	if len(filtered) > limit {
-		return filtered[:limit], true
+		return filtered[:limit], true, len(filtered) - limit
 	}
-	return filtered, false
+	return filtered, false, 0
 }
 
 func buildToolDetailLines(activity *rpc.ToolActivity) []string {
@@ -770,14 +894,26 @@ var (
 	assistantHeadingRe        = regexp.MustCompile(`^(#{1,6})\s+(.*)$`)
 	assistantUnorderedItemRe  = regexp.MustCompile(`^[-*+]\s+(.*)$`)
 	assistantOrderedItemRe    = regexp.MustCompile(`^(\d+)\.\s+(.*)$`)
-	assistantInlineTokenRe    = regexp.MustCompile("(`[^`]+`|\\*\\*[^*]+\\*\\*)")
+	assistantInlineTokenRe    = regexp.MustCompile("(`[^`]+`|\\*\\*[^*]+\\*\\*|~~[^~]+~~)")
+	assistantBlockquoteRe     = regexp.MustCompile(`^(>{1,})\s?(.*)$`)
+	assistantHorizontalRuleRe = regexp.MustCompile(`^(\s*[-*_]\s*){3,}$`)
+	assistantCodeFenceLangRe  = regexp.MustCompile("^```(\\w+)")
 	assistantParagraphStyle   = lipgloss.NewStyle().Foreground(defaultTheme.textSoft)
 	assistantCodeStyle        = lipgloss.NewStyle().Foreground(defaultTheme.accentSoft)
 	assistantCodeBlockStyle   = lipgloss.NewStyle().Foreground(defaultTheme.text)
 	assistantMutedPrefixStyle = lipgloss.NewStyle().Foreground(defaultTheme.textMuted)
+	assistantStrikeStyle      = lipgloss.NewStyle().Foreground(defaultTheme.textSoft).Strikethrough(true)
+	assistantBlockquoteBar    = lipgloss.NewStyle().Foreground(defaultTheme.textMuted)
+	assistantBlockquoteText   = lipgloss.NewStyle().Foreground(defaultTheme.textSoft)
 )
 
 func renderCompletedAssistantMarkdown(markdown string) string {
+	if strings.TrimSpace(markdown) == "" {
+		marker := lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render("● ")
+		empty := lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render("[empty response]")
+		return marker + empty + "\n"
+	}
+
 	var b strings.Builder
 	marker := lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render("● ")
 	firstContent := true
@@ -789,6 +925,12 @@ func renderCompletedAssistantMarkdown(markdown string) string {
 			inCodeBlock = !inCodeBlock
 			if b.Len() > 0 && !strings.HasSuffix(b.String(), "\n\n") {
 				b.WriteByte('\n')
+			}
+			if inCodeBlock {
+				if m := assistantCodeFenceLangRe.FindStringSubmatch(line); m != nil {
+					b.WriteString(assistantMutedPrefixStyle.Render("    " + m[1]))
+					b.WriteByte('\n')
+				}
 			}
 			continue
 		}
@@ -839,6 +981,23 @@ func renderCompletedAssistantMarkdown(markdown string) string {
 			continue
 		}
 
+		if assistantHorizontalRuleRe.MatchString(line) {
+			b.WriteString(prefix)
+			b.WriteString(assistantMutedPrefixStyle.Render(strings.Repeat("─", 40)))
+			b.WriteByte('\n')
+			continue
+		}
+
+		if match := assistantBlockquoteRe.FindStringSubmatch(line); match != nil {
+			depth := len(match[1])
+			bar := strings.Repeat(assistantBlockquoteBar.Render("│ "), depth)
+			b.WriteString(prefix)
+			b.WriteString(bar)
+			b.WriteString(renderAssistantInline(match[2], assistantBlockquoteText))
+			b.WriteByte('\n')
+			continue
+		}
+
 		b.WriteString(prefix)
 		b.WriteString(renderAssistantInline(line, assistantParagraphStyle))
 		b.WriteByte('\n')
@@ -863,6 +1022,8 @@ func renderAssistantInline(content string, baseStyle lipgloss.Style) string {
 			b.WriteString(assistantCodeStyle.Render(token[1 : len(token)-1]))
 		case strings.HasPrefix(token, "**") && strings.HasSuffix(token, "**") && len(token) >= 4:
 			b.WriteString(baseStyle.Bold(true).Render(token[2 : len(token)-2]))
+		case strings.HasPrefix(token, "~~") && strings.HasSuffix(token, "~~") && len(token) >= 4:
+			b.WriteString(assistantStrikeStyle.Render(token[2 : len(token)-2]))
 		default:
 			b.WriteString(baseStyle.Render(token))
 		}
