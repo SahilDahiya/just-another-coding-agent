@@ -13,10 +13,22 @@ import (
 var brailleSpinner = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
 var streamingVerbs = []string{
-	"Thinking", "Brewing", "Wandering", "Frolicking",
-	"Beboppin'", "Noodling", "Percolating", "Simmering",
-	"Riffing", "Mulling", "Tinkering", "Hatching",
-	"Meandering", "Daydreaming", "Conjuring", "Pondering",
+	"Cogitans",    // thinking
+	"Scrutans",    // examining
+	"Meditans",    // meditating
+	"Quaerens",    // seeking
+	"Ponderans",   // weighing
+	"Explorans",   // exploring
+	"Contemplans", // contemplating
+	"Elaborans",   // working out
+	"Indagans",    // investigating
+	"Fabricans",   // crafting
+	"Navigans",    // navigating
+	"Perscrutans", // searching deeply
+	"Chintan",     // चिन्तन reflecting
+	"Manan",       // मनन pondering
+	"Vichar",      // विचार deliberating
+	"Anveshan",    // अन्वेषण discovering
 }
 
 type theme struct {
