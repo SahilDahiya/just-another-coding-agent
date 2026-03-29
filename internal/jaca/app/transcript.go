@@ -144,45 +144,24 @@ func (t *Transcript) markDirty(index int) {
 }
 
 func (t *Transcript) WriteStartupBanner(model string, workspaceRoot string, thinking string) {
-	titleStyle := lipgloss.NewStyle().Foreground(defaultTheme.text).Bold(true)
-	labelStyle := lipgloss.NewStyle().Foreground(defaultTheme.textMuted)
-	valueStyle := lipgloss.NewStyle().Foreground(defaultTheme.textSoft)
+	accentStyle := lipgloss.NewStyle().Foreground(defaultTheme.accent).Bold(true)
 	hintStyle := lipgloss.NewStyle().Foreground(defaultTheme.textMuted)
 
-	var plainLines []string
-	var renderedLines []string
-
-	plainLines = append(plainLines, ">_ jaca")
-	renderedLines = append(renderedLines, titleStyle.Render(">_ jaca"))
-	plainLines = append(plainLines, "")
-	renderedLines = append(renderedLines, "")
-
-	modelLine := fmt.Sprintf("model:     %s", model)
-	dirLine := fmt.Sprintf("directory: %s", displayPath(workspaceRoot))
-	plainLines = append(plainLines, modelLine, dirLine)
-	renderedLines = append(renderedLines,
-		labelStyle.Render("model:     ")+valueStyle.Render(model),
-		labelStyle.Render("directory: ")+valueStyle.Render(displayPath(workspaceRoot)),
-	)
-	if thinking != "" {
-		thinkLine := fmt.Sprintf("thinking:  %s", thinking)
-		plainLines = append(plainLines, thinkLine)
-		renderedLines = append(renderedLines,
-			labelStyle.Render("thinking:  ")+valueStyle.Render(thinking),
-		)
+	logo := []string{
+		"     ╷╭─╮╭─╮╭─╮",
+		"     │├─┤│  ├─┤",
+		"  ╶──╯╵ ╵╰─╯╵ ╵",
 	}
 
-	if strings.HasPrefix(model, "ollama") {
-		baseURL := os.Getenv("OLLAMA_BASE_URL")
-		if baseURL == "" {
-			baseURL = "http://localhost:11434/v1"
-		}
-		providerLine := fmt.Sprintf("provider:  ollama %s", baseURL)
-		plainLines = append(plainLines, providerLine)
-		renderedLines = append(renderedLines,
-			labelStyle.Render("provider:  ")+valueStyle.Render("ollama "+baseURL),
-		)
-	} else if strings.HasPrefix(model, "openai") && os.Getenv("OPENAI_API_KEY") == "" {
+	var renderedLines []string
+	for _, line := range logo {
+		renderedLines = append(renderedLines, accentStyle.Render(line))
+	}
+
+	var plainLines []string
+	plainLines = append(plainLines, logo...)
+
+	if strings.HasPrefix(model, "openai") && os.Getenv("OPENAI_API_KEY") == "" {
 		plainLines = append(plainLines, "", "no OPENAI_API_KEY", "use /provider openai")
 		renderedLines = append(renderedLines, "",
 			lipgloss.NewStyle().Foreground(defaultTheme.err).Render("no OPENAI_API_KEY"),
@@ -195,11 +174,6 @@ func (t *Transcript) WriteStartupBanner(model string, workspaceRoot string, thin
 			hintStyle.Render("use /provider anthropic"),
 		)
 	}
-
-	plainLines = append(plainLines, "", "/help for commands")
-	renderedLines = append(renderedLines, "",
-		hintStyle.Render("/help for commands"),
-	)
 
 	t.appendBlock(transcriptBlock{
 		plain:    strings.Join(plainLines, "\n") + "\n\n",
