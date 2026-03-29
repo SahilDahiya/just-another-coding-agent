@@ -24,11 +24,10 @@ const (
 	transcriptBlockAssistantMarkdown
 )
 
-var brailleSpinner = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
-
 type Transcript struct {
 	blocks           []transcriptBlock
 	liveAssistantIdx int
+	liveDeltaBuf     strings.Builder
 	toolGroup        *toolGroup
 	renderedCache    string
 	renderOffsets    []int
@@ -108,15 +107,11 @@ func (t *Transcript) Render() string {
 }
 
 func (t *Transcript) discardImmutableRenderedBlocks() {
-	mutable := map[int]struct{}{}
-	if t.liveAssistantIdx >= 0 {
-		mutable[t.liveAssistantIdx] = struct{}{}
-	}
-	if t.toolGroup != nil {
-		mutable[t.toolGroup.index] = struct{}{}
-	}
 	for i := range t.blocks {
-		if _, ok := mutable[i]; ok {
+		if i == t.liveAssistantIdx {
+			continue
+		}
+		if t.toolGroup != nil && i == t.toolGroup.index {
 			continue
 		}
 		if t.blocks[i].kind == transcriptBlockAssistantMarkdown {
@@ -312,14 +307,16 @@ func (t *Transcript) appendAssistantDelta(delta string) {
 	t.endToolGroup()
 	if t.liveAssistantIdx == -1 {
 		t.ensureBlockGap()
+		t.liveDeltaBuf.Reset()
+		t.liveDeltaBuf.WriteString(delta)
 		t.liveAssistantIdx = t.appendBlock(transcriptBlock{
 			plain: delta,
 		})
 		t.rebuildLiveAssistantRendered()
 		return
 	}
-	block := &t.blocks[t.liveAssistantIdx]
-	block.plain += delta
+	t.liveDeltaBuf.WriteString(delta)
+	t.blocks[t.liveAssistantIdx].plain = t.liveDeltaBuf.String()
 	t.rebuildLiveAssistantRendered()
 }
 
@@ -354,6 +351,7 @@ func (t *Transcript) endLiveAssistant() {
 		})
 	}
 	t.liveAssistantIdx = -1
+	t.liveDeltaBuf.Reset()
 }
 
 // Smooth breathing cycle for the live ● marker.

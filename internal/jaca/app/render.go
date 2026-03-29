@@ -13,7 +13,6 @@ import (
 type theme struct {
 	background   lipgloss.TerminalColor
 	border       lipgloss.TerminalColor
-	borderStrong lipgloss.TerminalColor
 	text         lipgloss.TerminalColor
 	textSoft     lipgloss.TerminalColor
 	textMuted    lipgloss.TerminalColor
@@ -28,7 +27,6 @@ type theme struct {
 var defaultTheme = theme{
 	background:   themeColor("#0f1115", "233", "0"),
 	border:       themeColor("#2a313c", "238", "8"),
-	borderStrong: themeColor("#4a596d", "244", "7"),
 	text:         themeColor("#f1ede4", "255", "15"),
 	textSoft:     themeColor("#ddd7cb", "252", "7"),
 	textMuted:    themeColor("#a7a39a", "246", "8"),
@@ -147,7 +145,7 @@ func renderPrompt(vm viewModel) string {
 	}
 	var rule string
 	if vm.Phase == PhaseStreaming || vm.Phase == PhaseCompacting {
-		rule = renderAnimatedRule(width, vm.MotionTick, rowBorder)
+		rule = renderAnimatedRule(width, vm.MotionTick)
 	} else {
 		ruleColor := defaultTheme.text
 		if rowBorder != defaultTheme.border {
@@ -211,23 +209,12 @@ var rulePulseColors = []lipgloss.TerminalColor{
 	themeColor("#2e6a5a", "36", "6"),
 }
 
-func renderAnimatedRule(width int, tick int, _ lipgloss.TerminalColor) string {
+func renderAnimatedRule(width int, tick int) string {
 	if width <= 0 {
 		return ""
 	}
 	color := rulePulseColors[tick%len(rulePulseColors)]
 	return lipgloss.NewStyle().Foreground(color).Render(strings.Repeat("─", width))
-}
-
-func renderStreamRule(
-	width int,
-	_ Phase,
-	_ int,
-	_ time.Duration,
-	_ int,
-	baseColor lipgloss.TerminalColor,
-) string {
-	return lipgloss.NewStyle().Foreground(defaultTheme.text).Render(strings.Repeat("─", width))
 }
 
 func renderSlashMenu(state slashMenuState) string {

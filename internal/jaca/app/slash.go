@@ -52,6 +52,10 @@ func (m *model) syncSlashMenu() {
 			}
 		}
 	}
+	if len(state.Rows) == 0 {
+		m.clearSlashMenu()
+		return
+	}
 	if state.Selected >= len(state.Rows) {
 		state.Selected = len(state.Rows) - 1
 	}
@@ -258,21 +262,3 @@ func filterSuggestions(rows []slashSuggestion, query string) []slashSuggestion {
 	return filtered
 }
 
-func (m *model) visibleSlashSuggestions() []slashSuggestion {
-	if !m.slashMenuVisible() {
-		return nil
-	}
-	if len(m.slashMenu.Rows) <= maxSlashMenuRows {
-		return m.slashMenu.Rows
-	}
-	start := m.slashMenu.Selected - (maxSlashMenuRows / 2)
-	if start < 0 {
-		start = 0
-	}
-	end := start + maxSlashMenuRows
-	if end > len(m.slashMenu.Rows) {
-		end = len(m.slashMenu.Rows)
-		start = end - maxSlashMenuRows
-	}
-	return m.slashMenu.Rows[start:end]
-}
