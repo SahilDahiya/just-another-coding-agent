@@ -167,7 +167,7 @@ func renderPrompt(vm viewModel) string {
 		),
 		ruleInner,
 		lipgloss.NewStyle().Foreground(footerColor).Render(
-			buildPromptFooterText(vm.Phase, vm.Thinking, vm.PromptFooter, vm.RunElapsed),
+			buildPromptFooterText(vm),
 		),
 	)
 
@@ -257,26 +257,42 @@ func buildPromptMarkerText(phase Phase, _ int) string {
 	}
 }
 
-func buildPromptFooterText(phase Phase, thinking string, override string, elapsed time.Duration) string {
-	if override != "" {
-		return override
+func buildPromptFooterText(vm viewModel) string {
+	if vm.PromptFooter != "" {
+		return vm.PromptFooter
 	}
-	switch phase {
+	switch vm.Phase {
 	case PhaseStreaming:
 		return joinFooterParts(
-			formatElapsed(elapsed),
+			formatElapsed(vm.RunElapsed),
 			"esc to interrupt",
-			buildThinkingFooterText(thinking),
+			buildThinkingFooterText(vm.Thinking),
 		)
 	case PhaseCompacting:
 		return "compacting session"
-	case PhaseCompleted:
-		return "ready"
 	case PhaseError:
 		return "last run failed  edit prompt or retry"
 	default:
-		return "ready"
+		return buildIdleFooterText(vm)
 	}
+}
+
+func buildIdleFooterText(vm viewModel) string {
+	parts := []string{
+		vm.Model,
+		displayPath(vm.WorkspaceRoot),
+	}
+	if vm.Thinking != "" {
+		parts = append(parts, fmt.Sprintf("thinking=%s", vm.Thinking))
+	}
+	if vm.SessionID != "" {
+		session := vm.SessionID
+		if len(session) > 8 {
+			session = session[:8]
+		}
+		parts = append(parts, fmt.Sprintf("session=%s", session))
+	}
+	return strings.Join(parts, "  ")
 }
 
 func formatElapsed(d time.Duration) string {

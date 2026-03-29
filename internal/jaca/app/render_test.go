@@ -41,7 +41,11 @@ func TestBuildStatusTextIncludesTruncatedSessionAndThinking(t *testing.T) {
 }
 
 func TestBuildPromptFooterTextShowsElapsedAndEffort(t *testing.T) {
-	got := buildPromptFooterText(PhaseStreaming, "medium", "", 42*time.Second)
+	got := buildPromptFooterText(viewModel{
+		Phase:      PhaseStreaming,
+		Thinking:   "medium",
+		RunElapsed: 42 * time.Second,
+	})
 
 	if !strings.Contains(got, "42s") {
 		t.Fatalf("buildPromptFooterText() missing elapsed: %q", got)
@@ -54,8 +58,28 @@ func TestBuildPromptFooterTextShowsElapsedAndEffort(t *testing.T) {
 	}
 }
 
+func TestBuildPromptFooterTextShowsModelAndWorkspaceWhenIdle(t *testing.T) {
+	got := buildPromptFooterText(viewModel{
+		Phase:         PhaseIdle,
+		Model:         "ollama:kimi-k2:1t-cloud",
+		WorkspaceRoot: "/workspace",
+	})
+
+	if !strings.Contains(got, "ollama:kimi-k2:1t-cloud") {
+		t.Fatalf("idle footer missing model: %q", got)
+	}
+	if !strings.Contains(got, "/workspace") {
+		t.Fatalf("idle footer missing workspace: %q", got)
+	}
+}
+
 func TestBuildPromptFooterTextPreservesOverride(t *testing.T) {
-	got := buildPromptFooterText(PhaseStreaming, "medium", "Conversation interrupted. Esc again to edit previous message.", 10*time.Second)
+	got := buildPromptFooterText(viewModel{
+		Phase:        PhaseStreaming,
+		Thinking:     "medium",
+		PromptFooter: "Conversation interrupted. Esc again to edit previous message.",
+		RunElapsed:   10 * time.Second,
+	})
 
 	want := "Conversation interrupted. Esc again to edit previous message."
 	if got != want {
