@@ -252,6 +252,61 @@ func TestRenderOnlyInvalidatesFromFirstDirtyRow(t *testing.T) {
 	}
 }
 
+func TestRenderEvictsRenderedCacheForImmutableCompletedAssistantBlocks(t *testing.T) {
+	transcript := NewTranscript()
+	markdown := "## Review\n\nThis is a long completed assistant message."
+	transcript.ApplyRunEvent(rpc.RunEvent{Type: "assistant_text_delta", Delta: markdown})
+	transcript.ApplyRunEvent(rpc.RunEvent{Type: "run_succeeded", OutputText: markdown})
+
+	if transcript.blocks[0].rendered == "" {
+		t.Fatal("completed assistant block rendered cache unexpectedly empty before render")
+	}
+
+	rendered := transcript.Render()
+	if !strings.Contains(stripANSI(rendered), "This is a long completed assistant message.") {
+		t.Fatalf("Render() missing completed assistant text: %q", rendered)
+	}
+	if transcript.blocks[0].rendered != "" {
+		t.Fatalf("completed assistant block kept rendered cache after render: %q", transcript.blocks[0].rendered)
+	}
+
+	transcript.WriteLine("tail")
+	rendered = transcript.Render()
+	plainRendered := stripANSI(rendered)
+	if !strings.Contains(plainRendered, "This is a long completed assistant message.") || !strings.Contains(plainRendered, "tail") {
+		t.Fatalf("Render() after append lost cached transcript prefix: %q", plainRendered)
+	}
+	if transcript.blocks[0].rendered != "" {
+		t.Fatalf("completed assistant block rendered cache should stay evicted after append: %q", transcript.blocks[0].rendered)
+	}
+}
+
+func TestToolResultLinesTruncateVeryLongDisplayLines(t *testing.T) {
+	transcript := NewTranscript()
+	longLine := strings.Repeat("x", 240)
+
+	transcript.ApplyRunEvent(rpc.RunEvent{
+		Type:       "tool_call_started",
+		ToolName:   "bash",
+		ToolCallID: "call-bash",
+		Args:       map[string]any{"command": "printf"},
+	})
+	transcript.ApplyRunEvent(rpc.RunEvent{
+		Type:       "tool_call_succeeded",
+		ToolName:   "bash",
+		ToolCallID: "call-bash",
+		Result:     map[string]any{"output": longLine},
+	})
+
+	plain := transcript.blocks[len(transcript.blocks)-1].plain
+	if strings.Contains(plain, longLine) {
+		t.Fatalf("tool row kept unbounded long output line: %q", plain)
+	}
+	if !strings.Contains(plain, strings.Repeat("x", 32)+"...") {
+		t.Fatalf("tool row missing truncated preview marker: %q", plain)
+	}
+}
+
 func strPtr(value string) *string {
 	return &value
 }

@@ -14,7 +14,15 @@ import (
 type transcriptBlock struct {
 	plain    string
 	rendered string
+	kind     transcriptBlockKind
 }
+
+type transcriptBlockKind uint8
+
+const (
+	transcriptBlockRaw transcriptBlockKind = iota
+	transcriptBlockAssistantMarkdown
+)
 
 type Transcript struct {
 	blocks           []transcriptBlock
@@ -41,6 +49,13 @@ type toolGroup struct {
 	order   []string
 	entries map[string]*toolEntry
 }
+
+const (
+	maxToolResultLines     = 6
+	maxToolResultLineChars = 160
+	maxEditDiffLines       = 12
+	maxEditDiffLineChars   = 160
+)
 
 func NewTranscript() *Transcript {
 	return &Transcript{
@@ -70,15 +85,39 @@ func (t *Transcript) Render() string {
 	currentOffset := len(prefix)
 	for i := startIndex; i < len(t.blocks); i++ {
 		offsets[i] = currentOffset
-		rendered.WriteString(t.blocks[i].rendered)
-		currentOffset += len(t.blocks[i].rendered)
+		blockRendered := t.blocks[i].rendered
+		if blockRendered == "" {
+			blockRendered = renderTranscriptBlock(t.blocks[i])
+			t.blocks[i].rendered = blockRendered
+		}
+		rendered.WriteString(blockRendered)
+		currentOffset += len(blockRendered)
 	}
 	offsets[len(t.blocks)] = currentOffset
 
 	t.renderedCache = rendered.String()
 	t.renderOffsets = offsets
 	t.dirtyFrom = -1
+	t.discardImmutableRenderedBlocks()
 	return t.renderedCache
+}
+
+func (t *Transcript) discardImmutableRenderedBlocks() {
+	mutable := map[int]struct{}{}
+	if t.liveAssistantIdx >= 0 {
+		mutable[t.liveAssistantIdx] = struct{}{}
+	}
+	if t.toolGroup != nil {
+		mutable[t.toolGroup.index] = struct{}{}
+	}
+	for i := range t.blocks {
+		if _, ok := mutable[i]; ok {
+			continue
+		}
+		if t.blocks[i].kind == transcriptBlockAssistantMarkdown {
+			t.blocks[i].rendered = ""
+		}
+	}
 }
 
 func (t *Transcript) appendBlock(block transcriptBlock) int {
@@ -269,11 +308,16 @@ func (t *Transcript) completeAssistant(markdown string) {
 		t.replaceBlock(t.liveAssistantIdx, transcriptBlock{
 			plain:    markdown,
 			rendered: rendered,
+			kind:     transcriptBlockAssistantMarkdown,
 		})
 		t.liveAssistantIdx = -1
 		return
 	}
-	t.appendBlock(transcriptBlock{plain: markdown + "\n", rendered: rendered})
+	t.appendBlock(transcriptBlock{
+		plain:    markdown + "\n",
+		rendered: rendered,
+		kind:     transcriptBlockAssistantMarkdown,
+	})
 }
 
 func (t *Transcript) endLiveAssistant() {
@@ -526,10 +570,10 @@ func extractToolResultLines(result any) ([]string, bool) {
 	switch value := result.(type) {
 	case string:
 		lines := strings.Split(strings.TrimSpace(value), "\n")
-		return truncateLines(lines, 6)
+		return truncateLines(lines, maxToolResultLines)
 	case map[string]any:
 		if output, ok := value["output"].(string); ok {
-			return truncateLines(strings.Split(strings.TrimSpace(output), "\n"), 6)
+			return truncateLines(strings.Split(strings.TrimSpace(output), "\n"), maxToolResultLines)
 		}
 	}
 	return nil, false
@@ -541,7 +585,7 @@ func truncateLines(lines []string, limit int) ([]string, bool) {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
-		filtered = append(filtered, line)
+		filtered = append(filtered, truncateDisplayLine(line, maxToolResultLineChars))
 	}
 	if len(filtered) > limit {
 		return filtered[:limit], true
@@ -716,8 +760,11 @@ func renderAssistantInline(content string, baseStyle lipgloss.Style) string {
 
 func renderEditDiffLines(diff string) []string {
 	rows := parseEditDiffRows(diff)
-	if len(rows) > 12 {
-		rows = append(rows[:12], "  │ ...")
+	if len(rows) > maxEditDiffLines {
+		rows = append(rows[:maxEditDiffLines], "  │ ...")
+	}
+	for i := range rows {
+		rows[i] = truncateDisplayLine(rows[i], maxEditDiffLineChars)
 	}
 	return rows
 }
@@ -764,4 +811,27 @@ func truncateInline(text string, limit int) string {
 		return normalized
 	}
 	return strings.TrimSpace(normalized[:limit-3]) + "..."
+}
+
+func truncateDisplayLine(text string, limit int) string {
+	if limit <= 0 {
+		return ""
+	}
+	runes := []rune(text)
+	if len(runes) <= limit {
+		return text
+	}
+	if limit <= 3 {
+		return string(runes[:limit])
+	}
+	return string(runes[:limit-3]) + "..."
+}
+
+func renderTranscriptBlock(block transcriptBlock) string {
+	switch block.kind {
+	case transcriptBlockAssistantMarkdown:
+		return renderCompletedAssistantMarkdown(strings.TrimSuffix(block.plain, "\n"))
+	default:
+		return block.plain
+	}
 }
