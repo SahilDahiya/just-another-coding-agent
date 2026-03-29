@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"jaca/internal/jaca/config"
 )
 
 func TestParseBackendCommandJSON(t *testing.T) {
@@ -45,7 +47,10 @@ func TestRunFailsFastOnCorruptConfigJSON(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
-	configPath := filepath.Join(home, ".jaca", "config.json")
+	configPath, err := config.ConfigPath()
+	if err != nil {
+		t.Fatalf("ConfigPath() error = %v", err)
+	}
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
@@ -53,7 +58,7 @@ func TestRunFailsFastOnCorruptConfigJSON(t *testing.T) {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
-	err := run()
+	err = run()
 	if err == nil {
 		t.Fatal("run() unexpectedly succeeded")
 	}

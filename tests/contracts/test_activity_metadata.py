@@ -9,7 +9,7 @@ _SAMPLE_ARGS_BY_TOOL: dict[str, dict[str, object]] = {
     "read": {"path": "note.txt", "offset": 1, "limit": 10},
     "write": {"path": "note.txt", "content": "hello"},
     "edit": {"path": "note.txt", "old_text": "hello", "new_text": "world"},
-    "bash": {"command": "printf ok", "timeout": 5},
+    "shell": {"command": "printf ok", "timeout": 5},
     "grep": {
         "pattern": "TODO",
         "path": "src",
@@ -26,7 +26,7 @@ _EXPECTED_STARTED_TITLE_BY_TOOL = {
     "read": "read note.txt",
     "write": "write note.txt",
     "edit": "edit note.txt",
-    "bash": "bash printf ok",
+    "shell": "shell printf ok",
     "grep": "grep TODO",
     "ls": "ls src",
     "find": "find *.py",

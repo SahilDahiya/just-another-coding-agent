@@ -4,6 +4,7 @@ from typing import Any
 
 from pydantic import TypeAdapter
 
+from just_another_coding_agent.contracts.platform import ShellFamily
 from just_another_coding_agent.contracts.run_events import (
     ToolActivity,
     ToolActivityDetails,
@@ -25,7 +26,9 @@ def build_started_tool_activity(
     tool_name: str,
     args: Any,
     args_valid: bool | None,
+    shell_family: ShellFamily | None = None,
 ) -> ToolActivity:
+    del shell_family
     return ToolActivity(
         title=_build_tool_title(
             tool_name=tool_name,
@@ -43,7 +46,9 @@ def build_succeeded_tool_activity(
     result: Any,
     result_metadata: Any = None,
     duration_ms: int,
+    shell_family: ShellFamily | None = None,
 ) -> ToolActivity:
+    del shell_family
     if result_metadata is not None:
         return _build_tool_activity_from_metadata(
             result_metadata=result_metadata,
@@ -68,14 +73,16 @@ def build_updated_tool_activity(
     args_valid: bool | None,
     partial_result: Any,
     duration_ms: int,
+    shell_family: ShellFamily | None = None,
 ) -> ToolActivity:
+    del partial_result, shell_family
     return ToolActivity(
         title=_build_tool_title(
             tool_name=tool_name,
             args=args,
             args_valid=args_valid,
         ),
-        summary="command still running" if tool_name == "bash" else None,
+        summary="command still running" if tool_name == "shell" else None,
         duration_ms=duration_ms,
     )
 
@@ -87,7 +94,9 @@ def build_failed_tool_activity(
     args_valid: bool | None,
     message: str,
     duration_ms: int,
+    shell_family: ShellFamily | None = None,
 ) -> ToolActivity:
+    del shell_family
     return ToolActivity(
         title=_build_tool_title(
             tool_name=tool_name,
@@ -103,11 +112,11 @@ def _build_tool_title(*, tool_name: str, args: Any, args_valid: bool | None) -> 
     if args_valid is False or not isinstance(args, dict):
         return tool_name
 
-    if tool_name == "bash":
+    if tool_name == "shell":
         command = args.get("command")
         if isinstance(command, str) and command.strip():
-            return f"bash {truncate_activity_label(command)}"
-        return "bash"
+            return f"shell {truncate_activity_label(command)}"
+        return "shell"
 
     if tool_name == "ls":
         path = args.get("path")
@@ -129,7 +138,7 @@ def _build_fallback_success_summary(*, tool_name: str, result: Any) -> str | Non
             return message
         return "tool error"
 
-    if tool_name == "bash" and isinstance(result, dict):
+    if tool_name == "shell" and isinstance(result, dict):
         exit_code = result.get("exit_code")
         if isinstance(exit_code, int):
             return f"command exited {exit_code}"

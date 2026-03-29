@@ -7,7 +7,7 @@ from pydantic_evals.otel.span_tree import SpanNode, SpanTree
 
 from evaluations.watchdog.evaluators import (
     GEN_AI_TOOL_NAME_ATTRIBUTE,
-    BashHeavyWithoutEditsEvaluator,
+    ShellHeavyWithoutEditsEvaluator,
     has_long_tool_span,
 )
 
@@ -52,47 +52,47 @@ def _span_tree(*children: SpanNode) -> SpanTree:
     return SpanTree(roots=[root], nodes_by_id=nodes)
 
 
-def test_has_long_tool_span_matches_long_bash_tool_span() -> None:
+def test_has_long_tool_span_matches_long_shell_tool_span() -> None:
     tree = _span_tree(
         _node(
             name="running tool",
             span_id=2,
             parent_span_id=1,
             duration_seconds=12,
-            attributes={GEN_AI_TOOL_NAME_ATTRIBUTE: "bash"},
+            attributes={GEN_AI_TOOL_NAME_ATTRIBUTE: "shell"},
         )
     )
 
-    evaluator = has_long_tool_span(tool_name="bash", min_duration_seconds=10)
+    evaluator = has_long_tool_span(tool_name="shell", min_duration_seconds=10)
 
     assert evaluator.evaluate(_FakeEvaluatorContext(span_tree=tree)) is True
 
 
-def test_bash_heavy_without_edits_evaluator_detects_probe_loop() -> None:
+def test_shell_heavy_without_edits_evaluator_detects_probe_loop() -> None:
     tree = _span_tree(
         _node(
             name="running tool",
             span_id=2,
             parent_span_id=1,
             duration_seconds=1,
-            attributes={GEN_AI_TOOL_NAME_ATTRIBUTE: "bash"},
+            attributes={GEN_AI_TOOL_NAME_ATTRIBUTE: "shell"},
         ),
         _node(
             name="running tool",
             span_id=3,
             parent_span_id=1,
             duration_seconds=1,
-            attributes={GEN_AI_TOOL_NAME_ATTRIBUTE: "bash"},
+            attributes={GEN_AI_TOOL_NAME_ATTRIBUTE: "shell"},
         ),
         _node(
             name="running tool",
             span_id=4,
             parent_span_id=1,
             duration_seconds=1,
-            attributes={GEN_AI_TOOL_NAME_ATTRIBUTE: "bash"},
+            attributes={GEN_AI_TOOL_NAME_ATTRIBUTE: "shell"},
         ),
     )
 
-    evaluator = BashHeavyWithoutEditsEvaluator(min_bash_spans=3)
+    evaluator = ShellHeavyWithoutEditsEvaluator(min_shell_spans=3)
 
     assert evaluator.evaluate(_FakeEvaluatorContext(span_tree=tree)) is True

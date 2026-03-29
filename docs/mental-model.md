@@ -125,36 +125,36 @@ The RPC layer maps opaque session IDs to session files via `rpc/session_store.py
 
 ### Tools
 
-Seven canonical tool names: `read`, `write`, `edit`, `bash`, `grep`, `ls`, `find`. These are the coding agent's hands.
+Seven canonical tool names: `read`, `write`, `edit`, `shell`, `grep`, `ls`, `find`. These are the coding agent's hands.
 
 Each canonical tool entrypoint is a plain PydanticAI tool function that takes `RunContext[WorkspaceDeps]`. Those function signatures, including parameter constraints, are the public tool schema seen by the model. The runtime passes one normalized `WorkspaceDeps(workspace_root=...)` per run, so relative paths resolve from the configured workspace root without per-tool closure factories. Internal tool executors may still depend on a narrower structural context when they only need a subset of `RunContext`, but that narrower contract must be explicit in the implementation. The tools still run in YOLO mode: there is no filesystem sandbox.
 
 - `read` -- reads a UTF-8 file, returns contents
 - `write` -- writes a UTF-8 file, creates parent dirs, returns confirmation
 - `edit` -- replaces exactly one occurrence of `old_text` with `new_text`, trying exact matching first and then a normalized fallback for minor formatting differences while preserving surrounding unmatched content; fails on zero/multiple matches or no-op
-- `bash` -- runs `bash -lc <command>` with `cwd` set to workspace root, returns `{"exit_code": 0, "output": str}` on success and explicit tool error results for non-zero exits or timeouts; `defer=true` is the explicit contract for genuinely long shell/build/test work
+- `shell` -- runs one command with the active shell family (`posix`, executed with Bash semantics, or `powershell`) with `cwd` set to workspace root, returns `{"exit_code": 0, "output": str}` on success and explicit tool error results for non-zero exits or timeouts; `defer=true` is the explicit contract for genuinely long shell/build/test work
 - `grep` -- searches UTF-8 text files with ripgrep and returns matching lines with relative paths and line numbers
 - `ls` -- lists directory contents in a bounded alphabetical view with `/` suffixes for directories
 - `find` -- finds files by glob pattern and returns paths relative to the searched directory
 
-`bash` sets `cwd` to the workspace root but has no path sandboxing -- commands can access anything on the system.
+`shell` sets `cwd` to the workspace root but has no path sandboxing -- commands can access anything on the system.
 
 The registry (`tools/registry.py`) is thin: it validates canonical tool names, selects the requested tool functions, and returns one wrapped PydanticAI `FunctionToolset`. Expected operational failures are raised as explicit `ToolOperationalError` subclasses and converted to model-visible `{ok: false, ...}` results by a single toolset wrapper. Unexpected exceptions still fail hard.
 Shared public tool contract helpers such as canonical names and the `{ok: false, ...}` error result shape live in `contracts/tools.py`, but per-tool input carriers do not.
 
 Canonical tool success activity is now tool-owned. Each canonical tool can use PydanticAI's `ToolReturn` split internally so the model sees the same concise success value while the app gets backend-owned activity metadata in `ToolReturn.metadata`. That metadata is only an internal carrier. It becomes part of the product surface only after the runtime validates and maps it into typed `ToolActivity` fields such as `title`, `summary`, and success-path `details`. Non-success tool activity stays deliberately smaller: backend-owned titles, optional summaries, and durations without re-parsing typed args into structured details.
 
-Canonical tool concurrency is explicit too. `read`, `grep`, `find`, and `ls` are parallel-eligible; `write`, `edit`, and `bash` are serialized. The runtime also enters an explicit parallel execution mode for tool calls, and the model seam enables provider-side `parallel_tool_calls` by default for canonical provider paths, with explicit carve-outs reserved for specific model paths that prove incompatible.
+Canonical tool concurrency is explicit too. `read`, `grep`, `find`, and `ls` are parallel-eligible; `write`, `edit`, and `shell` are serialized. The runtime also enters an explicit parallel execution mode for tool calls, and the model seam enables provider-side `parallel_tool_calls` by default for canonical provider paths, with explicit carve-outs reserved for specific model paths that prove incompatible.
 
 ### Canonical Agent
 
 `build_canonical_agent()` in `runtime/agent.py` is the single official way to assemble a coding agent. It takes a model and workspace root, builds the canonical toolset, enforces `output_type=str`, and sets a concise system prompt via PydanticAI's `instructions` parameter.
 
-The system prompt tells the model what tools it has, how to approach coding tasks, and that read/write/edit are workspace-scoped while bash is not sandboxed. The runtime also appends dynamic context at build time: the current date and the resolved workspace root.
+The system prompt tells the model what tools it has, how to approach coding tasks, and that read/write/edit are workspace-scoped while shell is not sandboxed. The runtime also appends dynamic context at build time: the current date and the resolved workspace root.
 That prompt layer also carries two behavioral rules that matter for benchmark and real coding tasks alike: do not claim a file was created or changed without tool evidence, and verify code changes or required file outputs before concluding.
 Thinking is not carried in the prompt. The runtime passes it through PydanticAI model settings as an explicit run input.
 Provider-native model behavior is centralized separately in `runtime/models.py`, which resolves model strings, applies OpenAI-compatible retry transport policy, enables OpenAI Responses server history only when appropriate, and can wrap models with opt-in instrumentation via `JACA_TRACE_MODE=local|logfire`.
-When tracing is enabled, backend startup configures one explicit sink: `local` writes JSONL span files under `~/.jaca/traces/`, while `logfire` exports to Logfire and fails hard if credentials are missing. The backend relies on PydanticAI/OpenTelemetry agent and tool spans directly, so evaluation-side watchdog helpers can detect long-tool and bash-heavy probe loops without inspecting session JSONL by hand.
+When tracing is enabled, backend startup configures one explicit sink: `local` writes JSONL span files under `~/.jaca/traces/`, while `logfire` exports to Logfire and fails hard if credentials are missing. The backend relies on PydanticAI/OpenTelemetry agent and tool spans directly, so evaluation-side watchdog helpers can detect long-tool and shell-heavy probe loops without inspecting session JSONL by hand.
 
 ### Runtime
 

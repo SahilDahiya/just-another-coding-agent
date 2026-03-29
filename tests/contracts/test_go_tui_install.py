@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import os
-from pathlib import Path
-
 import pytest
 
 import just_another_coding_agent.go_tui as go_tui
@@ -53,10 +50,16 @@ def test_find_go_tui_repo_root_detects_checkout_layout(tmp_path) -> None:
     repo_root = tmp_path / "repo"
     package_dir = repo_root / "src" / "just_another_coding_agent"
     package_dir.mkdir(parents=True)
-    (repo_root / "pyproject.toml").write_text("[build-system]\nrequires=[]\n", encoding="utf-8")
+    (repo_root / "pyproject.toml").write_text(
+        "[build-system]\nrequires=[]\n",
+        encoding="utf-8",
+    )
     (repo_root / "go.mod").write_text("module jaca\n", encoding="utf-8")
     (repo_root / "cmd" / "jaca").mkdir(parents=True)
-    (repo_root / "cmd" / "jaca" / "main.go").write_text("package main\n", encoding="utf-8")
+    (repo_root / "cmd" / "jaca" / "main.go").write_text(
+        "package main\n",
+        encoding="utf-8",
+    )
 
     assert go_tui.find_go_tui_repo_root(package_dir / "go_tui.py") == repo_root
 
@@ -68,13 +71,23 @@ def test_resolve_go_tui_launch_uses_repo_local_go_run_when_binary_missing(
     repo_root = tmp_path / "repo"
     package_dir = repo_root / "src" / "just_another_coding_agent"
     package_dir.mkdir(parents=True)
-    (repo_root / "pyproject.toml").write_text("[build-system]\nrequires=[]\n", encoding="utf-8")
+    (repo_root / "pyproject.toml").write_text(
+        "[build-system]\nrequires=[]\n",
+        encoding="utf-8",
+    )
     (repo_root / "go.mod").write_text("module jaca\n", encoding="utf-8")
     (repo_root / "cmd" / "jaca").mkdir(parents=True)
-    (repo_root / "cmd" / "jaca" / "main.go").write_text("package main\n", encoding="utf-8")
+    (repo_root / "cmd" / "jaca" / "main.go").write_text(
+        "package main\n",
+        encoding="utf-8",
+    )
 
     monkeypatch.setattr(go_tui, "__file__", str(package_dir / "go_tui.py"))
-    monkeypatch.setattr(go_tui.shutil, "which", lambda name: "/usr/bin/go" if name == "go" else None)
+    monkeypatch.setattr(
+        go_tui.shutil,
+        "which",
+        lambda name: "/usr/bin/go" if name == "go" else None,
+    )
 
     scripts_dir = tmp_path / "bin"
     scripts_dir.mkdir()

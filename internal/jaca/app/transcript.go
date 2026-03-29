@@ -24,6 +24,8 @@ const (
 	transcriptBlockAssistantMarkdown
 )
 
+var brailleSpinner = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+
 type Transcript struct {
 	blocks           []transcriptBlock
 	liveAssistantIdx int
@@ -257,8 +259,16 @@ func (t *Transcript) WriteUserTurn(prompt string) {
 	t.endLiveAssistant()
 	t.ensureBlockGap()
 	plainLine := "> " + prompt
-	rendered := lipgloss.NewStyle().Foreground(defaultTheme.accent).Bold(true).Render("❯") + " " +
-		lipgloss.NewStyle().Foreground(defaultTheme.text).Bold(true).Render(prompt)
+	width := t.Width
+	if width <= 0 {
+		width = 80
+	}
+	rendered := lipgloss.NewStyle().
+		Foreground(defaultTheme.text).
+		Bold(true).
+		Background(defaultTheme.border).
+		Width(width).
+		Render(plainLine)
 	t.appendBlock(transcriptBlock{
 		plain:    plainLine + "\n",
 		rendered: rendered + "\n",
@@ -311,8 +321,6 @@ func (t *Transcript) appendAssistantDelta(delta string) {
 	block := &t.blocks[t.liveAssistantIdx]
 	block.plain += delta
 	t.rebuildLiveAssistantRendered()
-
-
 }
 
 func (t *Transcript) completeAssistant(markdown string) {
@@ -611,7 +619,7 @@ func buildToolPreview(toolName string, args map[string]any, argsValid *bool, act
 		return ""
 	}
 	switch toolName {
-	case "bash":
+	case "shell":
 		if command, ok := args["command"].(string); ok {
 			return truncateInline(command, 56)
 		}
@@ -714,7 +722,7 @@ func buildToolDetailLines(activity *rpc.ToolActivity) []string {
 			}
 			summary = append(summary, fmt.Sprintf("removed %d %s", *removed, noun))
 		}
-		lines = append(lines, "  │ "+strings.Join(summary, ", "))
+		lines = append(lines, "  â”‚ "+strings.Join(summary, ", "))
 	}
 	diff, _ := activity.Details["diff"].(string)
 	if diff != "" {
@@ -852,19 +860,19 @@ func parseEditDiffRows(diff string) []string {
 		if match := editHunkRe.FindStringSubmatch(raw); match != nil {
 			oldLine = atoiSafe(match[1])
 			newLine = atoiSafe(match[2])
-			lines = append(lines, "  │ "+raw)
+			lines = append(lines, "  â”‚ "+raw)
 			continue
 		}
 		switch {
 		case strings.HasPrefix(raw, " "):
-			lines = append(lines, fmt.Sprintf("  │ %d   %s", newLine, raw[1:]))
+			lines = append(lines, fmt.Sprintf("  â”‚ %d   %s", newLine, raw[1:]))
 			oldLine++
 			newLine++
 		case strings.HasPrefix(raw, "-"):
-			lines = append(lines, fmt.Sprintf("  │ %d - %s", oldLine, raw[1:]))
+			lines = append(lines, fmt.Sprintf("  â”‚ %d - %s", oldLine, raw[1:]))
 			oldLine++
 		case strings.HasPrefix(raw, "+"):
-			lines = append(lines, fmt.Sprintf("  │ %d + %s", newLine, raw[1:]))
+			lines = append(lines, fmt.Sprintf("  â”‚ %d + %s", newLine, raw[1:]))
 			newLine++
 		}
 	}

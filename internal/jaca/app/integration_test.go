@@ -66,10 +66,10 @@ func TestModelRunsAgainstRealRPCBackendProcess(t *testing.T) {
 	if !strings.Contains(rendered, "> ship it") {
 		t.Fatalf("transcript missing user prompt: %q", rendered)
 	}
-	if !strings.Contains(rendered, "● read  README.md") || !strings.Contains(rendered, "12ms") {
+	if !strings.Contains(rendered, "read  README.md") || !strings.Contains(rendered, "12ms") {
 		t.Fatalf("transcript missing tool activity: %q", rendered)
 	}
-	if !strings.Contains(rendered, "● bash  python - <<'PY'  ok  500ms") {
+	if !strings.Contains(rendered, "● shell  python - <<'PY'  ok  500ms") {
 		t.Fatalf("transcript missing completed tool row after live update: %q", rendered)
 	}
 	if strings.Contains(rendered, "command still running") || strings.Contains(rendered, "streaming output line") {
@@ -181,7 +181,7 @@ func TestGoTUIRPCBackendHelperProcess(t *testing.T) {
 						"type":         "tool_call_started",
 						"run_id":       "run-helper",
 						"tool_call_id": "tool-2",
-						"tool_name":    "bash",
+						"tool_name":    "shell",
 						"args": map[string]any{
 							"command": "python - <<'PY'",
 						},
@@ -194,12 +194,12 @@ func TestGoTUIRPCBackendHelperProcess(t *testing.T) {
 						"type":         "tool_call_updated",
 						"run_id":       "run-helper",
 						"tool_call_id": "tool-2",
-						"tool_name":    "bash",
+						"tool_name":    "shell",
 						"partial_result": map[string]any{
 							"output": "streaming output line\n",
 						},
 						"activity": map[string]any{
-							"title":       "bash python - <<'PY'",
+							"title":       "shell python - <<'PY'",
 							"summary":     "command still running",
 							"duration_ms": updateDuration,
 						},
@@ -212,13 +212,13 @@ func TestGoTUIRPCBackendHelperProcess(t *testing.T) {
 						"type":         "tool_call_succeeded",
 						"run_id":       "run-helper",
 						"tool_call_id": "tool-2",
-						"tool_name":    "bash",
+						"tool_name":    "shell",
 						"result": map[string]any{
 							"exit_code": 0,
 							"output":    "bash complete\n",
 						},
 						"activity": map[string]any{
-							"title":       "bash python - <<'PY'",
+							"title":       "shell python - <<'PY'",
 							"summary":     "command exited 0",
 							"duration_ms": finalDuration,
 						},

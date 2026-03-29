@@ -10,6 +10,10 @@ from uuid import uuid4
 from pydantic import TypeAdapter, ValidationError
 from pydantic_ai.messages import ModelMessage
 
+from just_another_coding_agent.contracts.platform import (
+    ShellFamily,
+    detect_default_shell_family,
+)
 from just_another_coding_agent.contracts.run_events import (
     RunEvent,
     RunFailedEvent,
@@ -50,12 +54,14 @@ class SessionRunAppender:
         *,
         path: Path,
         workspace_root: Path | str,
+        shell_family: ShellFamily | None = None,
         run_id: str,
         prompt: str,
         thinking: ThinkingSetting | None = None,
     ) -> None:
         self._path = path
         self._workspace_root = normalize_workspace_root(workspace_root)
+        self._shell_family = shell_family or detect_default_shell_family()
         self._run_id = run_id
         self._events: list[RunEvent] = []
         self._finalized = False
@@ -63,6 +69,7 @@ class SessionRunAppender:
         _ensure_session_is_appendable(
             path=self._path,
             workspace_root=self._workspace_root,
+            shell_family=self._shell_family,
         )
         _append_entry_to_path(
             self._path,
@@ -112,8 +119,10 @@ def initialize_session(
     *,
     path: Path,
     workspace_root: Path | str,
+    shell_family: ShellFamily | None = None,
 ) -> None:
     normalized_workspace_root = normalize_workspace_root(workspace_root)
+    normalized_shell_family = shell_family or detect_default_shell_family()
     if path.exists():
         raise FileExistsError(f"Session already exists: {path}")
 
@@ -121,7 +130,10 @@ def initialize_session(
     with path.open("w", encoding="utf-8") as file_handle:
         _write_entry(
             file_handle,
-            SessionHeaderEntry(workspace_root=str(normalized_workspace_root)),
+            SessionHeaderEntry(
+                workspace_root=str(normalized_workspace_root),
+                shell_family=normalized_shell_family,
+            ),
         )
         _flush_file_handle(file_handle)
 
@@ -130,6 +142,7 @@ def append_run_to_session(
     *,
     path: Path,
     workspace_root: Path | str,
+    shell_family: ShellFamily | None = None,
     prompt: str,
     thinking: ThinkingSetting | None = None,
     events: Sequence[RunEvent],
@@ -141,6 +154,7 @@ def append_run_to_session(
     appender = SessionRunAppender(
         path=path,
         workspace_root=workspace_root,
+        shell_family=shell_family,
         run_id=run_id,
         prompt=prompt,
         thinking=thinking,
@@ -154,10 +168,15 @@ def append_compaction_to_session(
     *,
     path: Path,
     workspace_root: Path | str,
+    shell_family: ShellFamily | None = None,
     summary: SessionCompactionSummary,
 ) -> SessionCompactionEntry:
     normalized_workspace_root = normalize_workspace_root(workspace_root)
-    loaded = load_session(path=path, workspace_root=normalized_workspace_root)
+    loaded = load_session(
+        path=path,
+        workspace_root=normalized_workspace_root,
+        shell_family=shell_family,
+    )
 
     if not loaded.runs:
         raise SessionFormatError("Cannot compact a session with no completed runs")
@@ -179,6 +198,7 @@ def load_session(
     *,
     path: Path,
     workspace_root: Path | str,
+    shell_family: ShellFamily | None = None,
 ) -> LoadedSession:
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
@@ -196,7 +216,6 @@ def load_session(
     run_order: list[str] = []
     latest_compaction_run_index = -1
     expected_workspace_root = str(normalize_workspace_root(workspace_root))
-
     for line_number, raw_line in enumerate(lines, start=1):
         entry = _parse_entry(raw_line=raw_line, line_number=line_number)
 
@@ -393,6 +412,7 @@ def start_run_to_session(
     *,
     path: Path,
     workspace_root: Path | str,
+    shell_family: ShellFamily | None = None,
     run_id: str,
     prompt: str,
     thinking: ThinkingSetting | None = None,
@@ -400,6 +420,7 @@ def start_run_to_session(
     return SessionRunAppender(
         path=path,
         workspace_root=workspace_root,
+        shell_family=shell_family,
         run_id=run_id,
         prompt=prompt,
         thinking=thinking,
@@ -463,16 +484,24 @@ def _ensure_session_is_appendable(
     *,
     path: Path,
     workspace_root: Path,
+    shell_family: ShellFamily,
 ) -> None:
     if path.exists():
-        load_session(path=path, workspace_root=workspace_root)
+        load_session(
+            path=path,
+            workspace_root=workspace_root,
+            shell_family=shell_family,
+        )
         return
 
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as file_handle:
         _write_entry(
             file_handle,
-            SessionHeaderEntry(workspace_root=str(workspace_root)),
+            SessionHeaderEntry(
+                workspace_root=str(workspace_root),
+                shell_family=shell_family,
+            ),
         )
         _flush_file_handle(file_handle)
 

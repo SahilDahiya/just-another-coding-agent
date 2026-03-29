@@ -212,6 +212,11 @@ async def stream_run_events(
                             duration_ms=_duration_ms_since(
                                 pending_tool_call.started_at
                             ),
+                            shell_family=(
+                                queued_deps.shell_family
+                                if isinstance(queued_deps, WorkspaceDeps)
+                                else None
+                            ),
                         ),
                     )
                     continue
@@ -247,6 +252,11 @@ async def stream_run_events(
                             tool_name=event.part.tool_name,
                             args=args,
                             args_valid=event.args_valid,
+                            shell_family=(
+                                queued_deps.shell_family
+                                if isinstance(queued_deps, WorkspaceDeps)
+                                else None
+                            ),
                         ),
                     )
                     continue
@@ -276,6 +286,11 @@ async def stream_run_events(
                                 duration_ms=_duration_ms_since(
                                     pending_tool_call.started_at
                                 ),
+                                shell_family=(
+                                    queued_deps.shell_family
+                                    if isinstance(queued_deps, WorkspaceDeps)
+                                    else None
+                                ),
                             ),
                         )
                         continue
@@ -300,6 +315,11 @@ async def stream_run_events(
                             result_metadata=result_metadata,
                             duration_ms=_duration_ms_since(
                                 pending_tool_call.started_at
+                            ),
+                            shell_family=(
+                                queued_deps.shell_family
+                                if isinstance(queued_deps, WorkspaceDeps)
+                                else None
                             ),
                         ),
                     )
@@ -376,6 +396,11 @@ async def stream_run_events(
                         message=str(error),
                         duration_ms=_duration_ms_since(
                             pending_tool_call.started_at
+                        ),
+                        shell_family=(
+                            queued_deps.shell_family
+                            if isinstance(queued_deps, WorkspaceDeps)
+                            else None
                         ),
                     ),
                 )

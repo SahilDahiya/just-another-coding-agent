@@ -1,6 +1,7 @@
 package app
 
 import (
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -16,9 +17,10 @@ func stripANSI(text string) string {
 
 func TestWriteStartupBannerIncludesOllamaHintsInPlainText(t *testing.T) {
 	t.Setenv("OLLAMA_BASE_URL", "")
+	workspaceRoot := filepath.Join("workspace", "repo")
 
 	transcript := NewTranscript()
-	transcript.WriteStartupBanner("ollama:test", "/workspace", "medium")
+	transcript.WriteStartupBanner("ollama:test", workspaceRoot, "medium")
 
 	plain := transcript.blocks[0].plain
 	if !strings.Contains(plain, ">_ jaca") {
@@ -27,7 +29,7 @@ func TestWriteStartupBannerIncludesOllamaHintsInPlainText(t *testing.T) {
 	if !strings.Contains(plain, "model:     ollama:test") {
 		t.Fatalf("plain banner missing model: %q", plain)
 	}
-	if !strings.Contains(plain, "directory: /workspace") {
+	if !strings.Contains(plain, "directory: "+displayPath(workspaceRoot)) {
 		t.Fatalf("plain banner missing directory: %q", plain)
 	}
 }
@@ -81,14 +83,14 @@ func TestToolSuccessDoesNotTreatResultMapWithoutOkAsError(t *testing.T) {
 	transcript := NewTranscript()
 	transcript.ApplyRunEvent(rpc.RunEvent{
 		Type:       "tool_call_started",
-		ToolName:   "bash",
+		ToolName:   "shell",
 		ToolCallID: "call-1",
 		Args:       map[string]any{"command": "git status --short"},
 	})
 	duration := 17
 	transcript.ApplyRunEvent(rpc.RunEvent{
 		Type:       "tool_call_succeeded",
-		ToolName:   "bash",
+		ToolName:   "shell",
 		ToolCallID: "call-1",
 		Result:     map[string]any{"output": "clean"},
 		Activity:   &rpc.ToolActivity{DurationMS: &duration},
@@ -98,7 +100,7 @@ func TestToolSuccessDoesNotTreatResultMapWithoutOkAsError(t *testing.T) {
 	if strings.Contains(plain, "error") {
 		t.Fatalf("tool row incorrectly rendered as error: %q", plain)
 	}
-	if !strings.Contains(plain, "● bash  git status --short  ok 17ms") {
+	if !strings.Contains(plain, "shell  git status --short  ok 17ms") {
 		t.Fatalf("tool row missing success state: %q", plain)
 	}
 }
@@ -183,14 +185,14 @@ func TestEditToolRowsRenderStructuredDiffPreview(t *testing.T) {
 
 	plain := transcript.blocks[len(transcript.blocks)-1].plain
 	for _, want := range []string{
-		"● edit  src/app.go  ok 83ms",
+		"edit  src/app.go  ok 83ms",
 		"  Update(src/app.go)",
-		"  │ Added 3 lines, removed 1 line",
-		"  │ @@ -10,2 +10,4 @@",
-		"  │ 10   line a",
-		"  │ 11 - line b",
-		"  │ 11 + line c",
-		"  │ 12 + line d",
+		"Added 3 lines, removed 1 line",
+		"@@ -10,2 +10,4 @@",
+		"10   line a",
+		"11 - line b",
+		"11 + line c",
+		"12 + line d",
 	} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("plain diff preview missing %q in %q", want, plain)
@@ -202,18 +204,18 @@ func TestToolUpdateRendersLivePartialOutputAndFinalResult(t *testing.T) {
 	transcript := NewTranscript()
 	transcript.ApplyRunEvent(rpc.RunEvent{
 		Type:       "tool_call_started",
-		ToolName:   "bash",
+		ToolName:   "shell",
 		ToolCallID: "call-bash",
 		Args:       map[string]any{"command": "python - <<'PY'"},
 	})
 	updateDuration := 250
 	transcript.ApplyRunEvent(rpc.RunEvent{
 		Type:       "tool_call_updated",
-		ToolName:   "bash",
+		ToolName:   "shell",
 		ToolCallID: "call-bash",
 		Partial:    map[string]any{"output": "one\ntwo\n"},
 		Activity: &rpc.ToolActivity{
-			Title:      "bash python - <<'PY'",
+			Title:      "shell python - <<'PY'",
 			Summary:    strPtr("command still running"),
 			DurationMS: &updateDuration,
 		},
@@ -221,7 +223,7 @@ func TestToolUpdateRendersLivePartialOutputAndFinalResult(t *testing.T) {
 
 	plain := transcript.blocks[len(transcript.blocks)-1].plain
 	for _, want := range []string{
-		"● bash  python - <<'PY'  running  command still running  250ms",
+		"● shell  python - <<'PY'  running  command still running  250ms",
 		"  └ one",
 		"    two",
 	} {
@@ -233,11 +235,11 @@ func TestToolUpdateRendersLivePartialOutputAndFinalResult(t *testing.T) {
 	finalDuration := 500
 	transcript.ApplyRunEvent(rpc.RunEvent{
 		Type:       "tool_call_succeeded",
-		ToolName:   "bash",
+		ToolName:   "shell",
 		ToolCallID: "call-bash",
 		Result:     map[string]any{"exit_code": 0, "output": "done"},
 		Activity: &rpc.ToolActivity{
-			Title:      "bash python - <<'PY'",
+			Title:      "shell python - <<'PY'",
 			Summary:    strPtr("command exited 0"),
 			DurationMS: &finalDuration,
 		},
@@ -248,7 +250,7 @@ func TestToolUpdateRendersLivePartialOutputAndFinalResult(t *testing.T) {
 		t.Fatalf("final tool row kept live partial output: %q", plain)
 	}
 	for _, want := range []string{
-		"● bash  python - <<'PY'  ok 500ms",
+		"● shell  python - <<'PY'  ok 500ms",
 		"  └ done",
 	} {
 		if !strings.Contains(plain, want) {
@@ -332,13 +334,13 @@ func TestToolResultLinesTruncateVeryLongDisplayLines(t *testing.T) {
 
 	transcript.ApplyRunEvent(rpc.RunEvent{
 		Type:       "tool_call_started",
-		ToolName:   "bash",
+		ToolName:   "shell",
 		ToolCallID: "call-bash",
 		Args:       map[string]any{"command": "printf"},
 	})
 	transcript.ApplyRunEvent(rpc.RunEvent{
 		Type:       "tool_call_succeeded",
-		ToolName:   "bash",
+		ToolName:   "shell",
 		ToolCallID: "call-bash",
 		Result:     map[string]any{"output": longLine},
 	})

@@ -4,6 +4,8 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from just_another_coding_agent.contracts.platform import ShellFamily
+
 type JsonValue = (
     None | bool | int | float | str | list[JsonValue] | dict[str, JsonValue]
 )
@@ -21,9 +23,10 @@ class _ToolActivityDetailsBase(BaseModel):
     kind: str
 
 
-class BashActivityDetails(_ToolActivityDetailsBase):
-    kind: Literal["bash"] = "bash"
+class ShellActivityDetails(_ToolActivityDetailsBase):
+    kind: Literal["shell"] = "shell"
     command_preview: str
+    shell_family: ShellFamily
     timeout: int | None = None
     deferred: bool = False
     exit_code: int | None = None
@@ -74,7 +77,7 @@ class FindActivityDetails(_ToolActivityDetailsBase):
 
 
 ToolActivityDetails = Annotated[
-    BashActivityDetails
+    ShellActivityDetails
     | ReadActivityDetails
     | WriteActivityDetails
     | EditActivityDetails
@@ -162,7 +165,6 @@ RunEvent = Annotated[
 
 __all__ = [
     "AssistantTextDeltaEvent",
-    "BashActivityDetails",
     "EditActivityDetails",
     "FindActivityDetails",
     "GrepActivityDetails",
@@ -173,6 +175,7 @@ __all__ = [
     "RunFailedEvent",
     "RunStartedEvent",
     "RunSucceededEvent",
+    "ShellActivityDetails",
     "ToolActivity",
     "ToolActivityDetails",
     "ToolCallFailedEvent",

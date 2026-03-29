@@ -71,7 +71,7 @@ def execute_read(
     if window.first_line_exceeds_limit:
         return (
             f"[Line {start_line} exceeds {READ_MAX_BYTES} byte limit. "
-            "Use bash to read a narrower slice.]"
+            "Use shell to read a narrower slice.]"
         )
 
     if window.truncated:

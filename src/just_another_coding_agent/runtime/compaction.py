@@ -20,6 +20,7 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 
+from just_another_coding_agent.contracts.platform import detect_default_shell_family
 from just_another_coding_agent.contracts.session import (
     LoadedSession,
     SessionCompactionEntry,
@@ -213,7 +214,11 @@ async def summarize_and_append_compaction_to_session(
 ) -> SessionCompactionEntry:
     from just_another_coding_agent.session.jsonl import load_session
 
-    loaded_session = load_session(path=path, workspace_root=workspace_root)
+    loaded_session = load_session(
+        path=path,
+        workspace_root=workspace_root,
+        shell_family=detect_default_shell_family(),
+    )
     if not loaded_session.runs:
         raise SessionFormatError("Cannot compact a session with no completed runs")
 
@@ -404,12 +409,12 @@ def _build_compacted_tool_return_summary(
             + f": {_line_count(part.content)} lines, {len(part.content)} chars."
         )
 
-    if part.tool_name == "bash" and isinstance(part.content, dict):
+    if part.tool_name == "shell" and isinstance(part.content, dict):
         command = _string_arg(args, "command")
         exit_code = part.content.get("exit_code")
         output = part.content.get("output")
         if isinstance(output, str):
-            summary = "Compacted historical bash result"
+            summary = "Compacted historical shell result"
             if command is not None:
                 summary += f" for `{_truncate_shell_label(command)}`"
             summary += (

@@ -152,7 +152,7 @@ def test_local_jsonl_span_exporter_writes_jsonl_records(tmp_path: Path) -> None:
         parent=SimpleNamespace(span_id=0x9999),
         start_time=10,
         end_time=20,
-        attributes={"gen_ai.tool.name": "bash", "retries": 2},
+        attributes={"gen_ai.tool.name": "shell", "retries": 2},
         events=[
             SimpleNamespace(
                 name="event",
@@ -175,6 +175,6 @@ def test_local_jsonl_span_exporter_writes_jsonl_records(tmp_path: Path) -> None:
     assert record["trace_id"] == "00000000000000000000000000001234"
     assert record["span_id"] == "0000000000005678"
     assert record["parent_span_id"] == "0000000000009999"
-    assert record["attributes"]["gen_ai.tool.name"] == "bash"
+    assert record["attributes"]["gen_ai.tool.name"] == "shell"
     assert record["events"][0]["attributes"]["key"] == "value"
     assert record["status"] == {"code": "OK", "description": "done"}

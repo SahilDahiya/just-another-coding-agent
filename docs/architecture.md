@@ -28,7 +28,7 @@ If a tool needs extra validation for a non-agent runtime seam such as deferred
 re-entry, that validator should stay private to the tool or runtime seam rather
 than becoming a second public source of truth in `contracts/`.
 
-The canonical agent assembly must take an explicit workspace root. Tool behavior uses that root as the default base for relative paths and bash cwd rather than relying on process cwd or other implicit global state.
+The canonical agent assembly must take an explicit workspace root. Tool behavior uses that root as the default base for relative paths and shell cwd rather than relying on process cwd or other implicit global state.
 Persisted sessions must also bind to that explicit workspace root and store native PydanticAI message history so later runs can resume through `message_history` instead of reconstructing context from public events.
 Persisted sessions must also record the effective per-run thinking setting so later runs can inherit it when the caller omits `thinking`.
 The canonical runtime is unbounded within a single run and does not impose backend-level request or tool-call ceilings.

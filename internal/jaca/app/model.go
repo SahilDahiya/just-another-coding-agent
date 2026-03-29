@@ -259,8 +259,8 @@ func (m *model) View() string {
 		RunElapsed:     elapsed,
 		LinePulse:      m.linePulse,
 		SinceLastDelta: sinceLastDelta,
-		VisibleZones:  m.visibleZones,
-		SlashMenu:     m.slashMenu,
+		VisibleZones:   m.visibleZones,
+		SlashMenu:      m.slashMenu,
 	})
 }
 

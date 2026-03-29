@@ -2,16 +2,19 @@ import os
 import subprocess
 from pathlib import Path
 
+import pytest
+
 SCRIPT_PATH = (
     Path(__file__).resolve().parents[2]
     / "evaluations"
     / "scripts"
     / "tb2_glm5.sh"
 )
+GIT_BASH_PATH = Path(r"C:\Program Files\Git\bin\bash.exe")
 
 
 def _write_executable(path: Path, content: str) -> None:
-    path.write_text(content)
+    path.write_text(content, encoding="utf-8", newline="\n")
     path.chmod(0o755)
 
 
@@ -20,9 +23,42 @@ def _copy_harness(tmp_path: Path) -> Path:
     scripts_dir = repo_root / "evaluations" / "scripts"
     scripts_dir.mkdir(parents=True)
     harness_path = scripts_dir / SCRIPT_PATH.name
-    harness_path.write_text(SCRIPT_PATH.read_text())
+    harness_path.write_text(
+        SCRIPT_PATH.read_text(encoding="utf-8").replace("\r\n", "\n"),
+        encoding="utf-8",
+        newline="\n",
+    )
     harness_path.chmod(0o755)
     return harness_path
+
+
+def _harness_command(path: Path, *args: str) -> list[str]:
+    if os.name == "nt":
+        return [_bash_executable(), _bash_path(path), *args]
+    return [str(path), *args]
+
+
+def _bash_path(path: Path) -> str:
+    resolved = path.resolve()
+    if os.name != "nt":
+        return str(resolved)
+    drive = resolved.drive.rstrip(":").lower()
+    tail = resolved.as_posix()[2:]
+    return f"/{drive}{tail}"
+
+
+def _bash_executable() -> str:
+    if os.name != "nt":
+        return "bash"
+    if not GIT_BASH_PATH.exists():
+        pytest.skip("Git Bash is required to execute shell launcher tests on Windows")
+    return str(GIT_BASH_PATH)
+
+
+def _logged_script_path(path: Path) -> str:
+    if os.name == "nt":
+        return _bash_path(path)
+    return str(path)
 
 
 def _expected_log_line(
@@ -35,7 +71,7 @@ def _expected_log_line(
     label: str,
 ) -> str:
     return (
-        f"{script_path}|action={action}|submission={submission_id}|"
+        f"{_logged_script_path(script_path)}|action={action}|submission={submission_id}|"
         f"task={task_file}|passes={passes}|label={label}"
     )
 
@@ -67,7 +103,7 @@ def test_harness_run_full_delegates_to_full_launcher(tmp_path: Path) -> None:
     env["HARNESS_LOG"] = str(log_path)
 
     result = subprocess.run(
-        [str(harness_path), "run", "glm5-high"],
+        _harness_command(harness_path, "run", "glm5-high"),
         text=True,
         capture_output=True,
         env=env,
@@ -106,7 +142,7 @@ def test_harness_run_multiple_slices_delegates_to_slice_launcher(
 
     result = subprocess.run(
         [
-            str(harness_path),
+            *_harness_command(harness_path),
             "run",
             "glm5-high",
             "--passes",
@@ -155,7 +191,7 @@ def test_harness_status_slice_delegates_with_action_status(tmp_path: Path) -> No
     env["HARNESS_LOG"] = str(log_path)
 
     result = subprocess.run(
-        [str(harness_path), "status", "glm5-high", str(task_a)],
+        _harness_command(harness_path, "status", "glm5-high", str(task_a)),
         text=True,
         capture_output=True,
         env=env,

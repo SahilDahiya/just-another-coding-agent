@@ -94,7 +94,7 @@ def make_deferred_bash_stream():
         if call_count == 1:
             yield {
                 0: DeltaToolCall(
-                    name="bash",
+                    name="shell",
                     json_args='{"command": "printf ok", "defer": true}',
                     tool_call_id="call-bash",
                 )
@@ -336,7 +336,7 @@ async def test_stream_session_run_events_persists_deferred_bash_tool_return(
             workspace_root=workspace_root,
             session_path=session_path,
             prompt="go",
-            tool_names=("bash",),
+            tool_names=("shell",),
         )
     ]
 
@@ -349,7 +349,7 @@ async def test_stream_session_run_events_persists_deferred_bash_tool_return(
     ]
 
     loaded = load_session(path=session_path, workspace_root=workspace_root)
-    assert _has_tool_return(loaded.message_history, tool_name="bash")
+    assert _has_tool_return(loaded.message_history, tool_name="shell")
 
 
 async def test_stream_session_run_events_rejects_mismatched_existing_workspace(
@@ -386,6 +386,80 @@ async def test_stream_session_run_events_rejects_mismatched_existing_workspace(
         ]
 
     assert session_path.read_text(encoding="utf-8") == before
+
+
+async def test_stream_session_run_events_resumes_session_created_on_other_shell_family(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    session_path = tmp_path / "session.jsonl"
+
+    append_run_to_session(
+        path=session_path,
+        workspace_root=workspace_root,
+        shell_family="posix",
+        prompt="first",
+        thinking=None,
+        messages=[ModelRequest(parts=[UserPromptPart(content="first")])],
+        events=[
+            RunStartedEvent(run_id="run-1"),
+            RunSucceededEvent(run_id="run-1", output_text="done"),
+        ],
+    )
+
+    captured: dict[str, object] = {}
+
+    async def fake_stream_run_events(
+        *,
+        agent,
+        prompt,
+        message_history=None,
+        thinking=None,
+        deps=None,
+        enable_server_history=False,
+        message_history_sink=None,
+    ):
+        del (
+            agent,
+            prompt,
+            message_history,
+            thinking,
+            enable_server_history,
+            message_history_sink,
+        )
+        captured["deps"] = deps
+        yield RunStartedEvent(run_id="run-2")
+        yield RunSucceededEvent(run_id="run-2", output_text="done")
+
+    monkeypatch.setattr(
+        "just_another_coding_agent.runtime.session.detect_default_shell_family",
+        lambda: "powershell",
+    )
+    monkeypatch.setattr(
+        "just_another_coding_agent.runtime.session.stream_run_events",
+        fake_stream_run_events,
+    )
+
+    events = [
+        event
+        async for event in stream_session_run_events(
+            model=FunctionModel(stream_function=text_only_stream),
+            workspace_root=workspace_root,
+            session_path=session_path,
+            prompt="second",
+        )
+    ]
+
+    assert [event.type for event in events] == ["run_started", "run_succeeded"]
+    deps = captured["deps"]
+    assert isinstance(deps, WorkspaceDeps)
+    assert deps.shell_family == "powershell"
+
+    loaded = load_session(path=session_path, workspace_root=workspace_root)
+    assert loaded.header.shell_family == "posix"
+    assert [run.run_id for run in loaded.runs] == ["run-1", "run-2"]
 
 
 async def test_stream_session_run_events_resumes_with_pydanticai_message_history(
@@ -557,7 +631,7 @@ async def test_stream_session_run_events_inherits_last_persisted_thinking_when_o
     assert [event.type for event in events] == ["run_started", "run_succeeded"]
     assert captured["prompt"] == "second"
     assert captured["thinking"] == "high"
-    assert captured["deps"] == WorkspaceDeps(workspace_root=workspace_root)
+    assert captured["deps"] == WorkspaceDeps.from_workspace_root(workspace_root)
     assert captured["enable_server_history"] is True
     loaded = load_session(path=session_path, workspace_root=workspace_root)
     assert [run.thinking for run in loaded.runs] == ["high", "high"]

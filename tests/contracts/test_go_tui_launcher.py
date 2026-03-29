@@ -53,8 +53,8 @@ def test_main_launches_go_tui_for_interactive_mode(
             str(sessions_root),
             "--thinking",
             "high",
-            ]
-        )
+        ]
+    )
 
     assert exit_code == 17
     assert captured == {

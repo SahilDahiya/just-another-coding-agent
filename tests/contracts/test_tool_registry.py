@@ -2,7 +2,6 @@ import pytest
 from pydantic_ai import Agent
 from pydantic_ai.models.test import TestModel
 
-from just_another_coding_agent.tools.bash import BASH_TOOL
 from just_another_coding_agent.tools.deps import WorkspaceDeps
 from just_another_coding_agent.tools.edit import EDIT_TOOL
 from just_another_coding_agent.tools.find import FIND_TOOL
@@ -16,6 +15,7 @@ from just_another_coding_agent.tools.registry import (
     build_canonical_toolset,
     list_canonical_tool_names,
 )
+from just_another_coding_agent.tools.shell import SHELL_TOOL
 from just_another_coding_agent.tools.write import WRITE_TOOL
 
 
@@ -24,7 +24,7 @@ def test_registry_exposes_canonical_tool_names() -> None:
         "read",
         "write",
         "edit",
-        "bash",
+        "shell",
         "grep",
         "ls",
         "find",
@@ -50,7 +50,7 @@ def test_registry_exposes_explicit_parallel_tool_policy() -> None:
     assert LS_TOOL.sequential is False
     assert WRITE_TOOL.sequential is True
     assert EDIT_TOOL.sequential is True
-    assert BASH_TOOL.sequential is True
+    assert SHELL_TOOL.sequential is True
 
 
 def test_build_canonical_toolset_registers_implemented_tools_with_pydanticai(
@@ -61,7 +61,7 @@ def test_build_canonical_toolset_registers_implemented_tools_with_pydanticai(
         model,
         toolsets=[
             build_canonical_toolset(
-                ["read", "write", "edit", "bash", "grep", "ls", "find"]
+                ["read", "write", "edit", "shell", "grep", "ls", "find"]
             )
         ],
         deps_type=WorkspaceDeps,
@@ -71,7 +71,7 @@ def test_build_canonical_toolset_registers_implemented_tools_with_pydanticai(
 
     function_tools = model.last_model_request_parameters.function_tools
     tool_names = [tool.name for tool in function_tools]
-    assert tool_names == ["read", "write", "edit", "bash", "grep", "ls", "find"]
+    assert tool_names == ["read", "write", "edit", "shell", "grep", "ls", "find"]
 
 
 def test_build_canonical_toolset_exposes_rich_model_facing_tool_descriptions(
@@ -82,7 +82,7 @@ def test_build_canonical_toolset_exposes_rich_model_facing_tool_descriptions(
         model,
         toolsets=[
             build_canonical_toolset(
-                ["read", "write", "edit", "bash", "grep", "ls", "find"]
+                ["read", "write", "edit", "shell", "grep", "ls", "find"]
             )
         ],
         deps_type=WorkspaceDeps,
@@ -160,31 +160,33 @@ def test_build_canonical_toolset_exposes_rich_model_facing_tool_descriptions(
         "minLength"
     ] == 1
 
-    assert function_tools["bash"].description == (
-        "Execute a local bash command in the workspace root. Returns "
-        "combined stdout and stderr on success. Non-zero exits and "
-        "timeouts become error results. Large output is truncated to the "
-        "last 2000 lines or 50 KiB, and the full output is saved to a "
-        "temp file. Set defer=true for genuinely long shell, build, or "
-        "test work that should run outside the current model step."
+    assert function_tools["shell"].description == (
+        "Execute a local shell command in the workspace root using the "
+        "configured shell family. posix commands run with bash; "
+        "powershell commands run with PowerShell. Returns combined stdout "
+        "and stderr on success. Non-zero exits and timeouts become error "
+        "results. Large output is truncated to the last 2000 lines or 50 "
+        "KiB, and the full output is saved to a temp file. Set "
+        "defer=true for genuinely long shell, build, or test work that "
+        "should run outside the current model step."
     )
     assert (
-        function_tools["bash"].parameters_json_schema["properties"]["timeout"][
+        function_tools["shell"].parameters_json_schema["properties"]["timeout"][
             "description"
         ]
         == "Optional timeout in seconds before the command is stopped."
     )
-    assert function_tools["bash"].parameters_json_schema["properties"]["command"][
+    assert function_tools["shell"].parameters_json_schema["properties"]["command"][
         "minLength"
     ] == 1
     assert (
-        function_tools["bash"].parameters_json_schema["properties"]["defer"][
+        function_tools["shell"].parameters_json_schema["properties"]["defer"][
             "description"
         ]
         == "When true, request deferred execution so the runtime can run\n"
         "long shell, build, or test work outside the current model step."
     )
-    assert function_tools["bash"].parameters_json_schema["properties"]["timeout"][
+    assert function_tools["shell"].parameters_json_schema["properties"]["timeout"][
         "anyOf"
     ][0]["exclusiveMinimum"] == 0
 

@@ -5,10 +5,11 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic_ai.messages import ModelMessage
 
+from .platform import ShellFamily
 from .run_events import RunEvent
 from .thinking import ThinkingSetting
 
-SESSION_FORMAT_VERSION = 5
+SESSION_FORMAT_VERSION = 6
 
 
 class _SessionEntryBase(BaseModel):
@@ -19,6 +20,7 @@ class SessionHeaderEntry(_SessionEntryBase):
     type: Literal["session_header"] = "session_header"
     version: Literal[SESSION_FORMAT_VERSION] = SESSION_FORMAT_VERSION
     workspace_root: str
+    shell_family: ShellFamily = "posix"
 
 
 class SessionRunEntry(_SessionEntryBase):

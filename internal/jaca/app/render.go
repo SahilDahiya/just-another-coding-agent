@@ -10,8 +10,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-
-
 type theme struct {
 	background   lipgloss.TerminalColor
 	border       lipgloss.TerminalColor
@@ -55,20 +53,20 @@ func themeColor(trueColor string, ansi256 string, ansi string) lipgloss.Terminal
 // per-zone background fills or panel/card chrome.
 
 type viewModel struct {
-	Phase         Phase
-	Model         string
-	WorkspaceRoot string
-	Thinking      string
-	SessionID     string
-	MotionTick    int
-	Transcript    string
+	Phase          Phase
+	Model          string
+	WorkspaceRoot  string
+	Thinking       string
+	SessionID      string
+	MotionTick     int
+	Transcript     string
 	PromptValue    string
 	PromptFooter   string
 	RunElapsed     time.Duration
 	LinePulse      int
 	SinceLastDelta time.Duration
-	VisibleZones  int
-	SlashMenu     slashMenuState
+	VisibleZones   int
+	SlashMenu      slashMenuState
 }
 
 func renderView(vm viewModel) string {
@@ -353,24 +351,24 @@ func buildStatusText(vm viewModel) string {
 func displayPath(path string) string {
 	home, err := osUserHomeDir()
 	if err != nil {
-		return path
+		return filepath.ToSlash(path)
 	}
 	abs, err := filepath.Abs(path)
 	if err != nil {
-		return path
+		return filepath.ToSlash(path)
 	}
 	homeAbs, err := filepath.Abs(home)
 	if err != nil {
-		return abs
+		return filepath.ToSlash(abs)
 	}
 	if abs == homeAbs {
 		return "~"
 	}
 	prefix := homeAbs + string(filepath.Separator)
 	if strings.HasPrefix(abs, prefix) {
-		return "~" + abs[len(homeAbs):]
+		return filepath.ToSlash("~" + abs[len(homeAbs):])
 	}
-	return abs
+	return filepath.ToSlash(abs)
 }
 
 var osUserHomeDir = func() (string, error) {

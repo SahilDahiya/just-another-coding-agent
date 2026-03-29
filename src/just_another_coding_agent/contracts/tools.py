@@ -4,8 +4,9 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
-CANONICAL_TOOL_NAMES = ("read", "write", "edit", "bash", "grep", "ls", "find")
-CanonicalToolName = Literal["read", "write", "edit", "bash", "grep", "ls", "find"]
+CANONICAL_TOOL_NAMES = ("read", "write", "edit", "shell", "grep", "ls", "find")
+CanonicalToolName = Literal["read", "write", "edit", "shell", "grep", "ls", "find"]
+
 
 class ToolErrorResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
