@@ -145,11 +145,16 @@ func renderPrompt(vm viewModel) string {
 	if width <= 0 {
 		width = 80
 	}
-	ruleColor := defaultTheme.text
-	if rowBorder != defaultTheme.border {
-		ruleColor = rowBorder
+	var rule string
+	if vm.Phase == PhaseStreaming || vm.Phase == PhaseCompacting {
+		rule = renderAnimatedRule(width, vm.MotionTick, rowBorder)
+	} else {
+		ruleColor := defaultTheme.text
+		if rowBorder != defaultTheme.border {
+			ruleColor = rowBorder
+		}
+		rule = lipgloss.NewStyle().Foreground(ruleColor).Render(strings.Repeat("─", width))
 	}
-	rule := lipgloss.NewStyle().Foreground(ruleColor).Render(strings.Repeat("─", width))
 
 	promptParts := make([]string, 0, 6)
 	promptParts = append(promptParts, rule)
@@ -169,6 +174,49 @@ func renderPrompt(vm viewModel) string {
 	)
 
 	return lipgloss.JoinVertical(lipgloss.Left, promptParts...)
+}
+
+var rulePulseColors = []lipgloss.TerminalColor{
+	themeColor("#2e5a5a", "30", "6"),  // blue-teal
+	themeColor("#2e5a5a", "30", "6"),
+	themeColor("#2e6a5a", "36", "6"),
+	themeColor("#2e6a5a", "36", "6"),
+	themeColor("#2e7a5a", "36", "6"),  // teal-green
+	themeColor("#2e7a5a", "36", "6"),
+	themeColor("#3a8a50", "71", "10"),
+	themeColor("#3a8a50", "71", "10"),
+	themeColor("#4a9a46", "71", "10"), // green
+	themeColor("#4a9a46", "71", "10"),
+	themeColor("#6a9a3a", "107", "10"),
+	themeColor("#6a9a3a", "107", "10"),
+	themeColor("#8a9a30", "142", "11"), // green-yellow
+	themeColor("#8a9a30", "142", "11"),
+	themeColor("#a09028", "142", "11"),
+	themeColor("#a09028", "142", "11"),
+	themeColor("#b08820", "179", "11"), // yellow
+	themeColor("#b08820", "179", "11"),
+	themeColor("#a09028", "142", "11"),
+	themeColor("#a09028", "142", "11"),
+	themeColor("#8a9a30", "142", "11"),
+	themeColor("#8a9a30", "142", "11"),
+	themeColor("#6a9a3a", "107", "10"),
+	themeColor("#6a9a3a", "107", "10"),
+	themeColor("#4a9a46", "71", "10"),
+	themeColor("#4a9a46", "71", "10"),
+	themeColor("#3a8a50", "71", "10"),
+	themeColor("#3a8a50", "71", "10"),
+	themeColor("#2e7a5a", "36", "6"),
+	themeColor("#2e7a5a", "36", "6"),
+	themeColor("#2e6a5a", "36", "6"),
+	themeColor("#2e6a5a", "36", "6"),
+}
+
+func renderAnimatedRule(width int, tick int, _ lipgloss.TerminalColor) string {
+	if width <= 0 {
+		return ""
+	}
+	color := rulePulseColors[tick%len(rulePulseColors)]
+	return lipgloss.NewStyle().Foreground(color).Render(strings.Repeat("─", width))
 }
 
 func renderStreamRule(

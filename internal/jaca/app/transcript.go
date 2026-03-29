@@ -343,7 +343,34 @@ func (t *Transcript) completeAssistant(markdown string) {
 }
 
 func (t *Transcript) endLiveAssistant() {
+	if t.liveAssistantIdx >= 0 {
+		block := &t.blocks[t.liveAssistantIdx]
+		markdown := strings.TrimRight(block.plain, "\n")
+		rendered := renderCompletedAssistantMarkdown(markdown)
+		t.replaceBlock(t.liveAssistantIdx, transcriptBlock{
+			plain:    markdown + "\n",
+			rendered: rendered + "\n",
+			kind:     transcriptBlockAssistantMarkdown,
+		})
+	}
 	t.liveAssistantIdx = -1
+}
+
+// Smooth breathing cycle for the live ● marker.
+// Ramps from dim to full and back over 12 steps (~1.7s at 140ms tick).
+var livePulseGradient = []lipgloss.TerminalColor{
+	themeColor("#3d3520", "238", "8"),  // near-invisible
+	themeColor("#5a4e2e", "240", "8"),
+	themeColor("#77673c", "242", "11"),
+	themeColor("#94804a", "244", "11"),
+	themeColor("#b19958", "179", "11"),
+	themeColor("#d79a41", "179", "11"), // full accent
+	themeColor("#d79a41", "179", "11"), // hold at peak
+	themeColor("#b19958", "179", "11"),
+	themeColor("#94804a", "244", "11"),
+	themeColor("#77673c", "242", "11"),
+	themeColor("#5a4e2e", "240", "8"),
+	themeColor("#3d3520", "238", "8"),
 }
 
 func (t *Transcript) rebuildLiveAssistantRendered() {
@@ -351,10 +378,8 @@ func (t *Transcript) rebuildLiveAssistantRendered() {
 		return
 	}
 	block := &t.blocks[t.liveAssistantIdx]
-	markerColor := defaultTheme.accentSoft
-	if t.MotionTick%2 == 0 {
-		markerColor = defaultTheme.accent
-	}
+	idx := t.MotionTick % len(livePulseGradient)
+	markerColor := livePulseGradient[idx]
 	block.rendered = lipgloss.NewStyle().Foreground(markerColor).Render("● ") +
 		lipgloss.NewStyle().Foreground(defaultTheme.textSoft).Render(block.plain)
 	t.markDirty(t.liveAssistantIdx)
@@ -385,7 +410,6 @@ func (t *Transcript) ensureBlockGap() {
 func (t *Transcript) startTool(event rpc.RunEvent) {
 	t.endLiveAssistant()
 	if t.toolGroup == nil {
-		t.ensureBlockGap()
 		index := t.appendBlock(transcriptBlock{})
 		t.toolGroup = &toolGroup{
 			index:   index,
@@ -757,6 +781,8 @@ var (
 
 func renderCompletedAssistantMarkdown(markdown string) string {
 	var b strings.Builder
+	marker := lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render("● ")
+	firstContent := true
 	inCodeBlock := false
 
 	for _, rawLine := range strings.Split(markdown, "\n") {
@@ -777,20 +803,30 @@ func renderCompletedAssistantMarkdown(markdown string) string {
 		}
 
 		if line == "" {
-			b.WriteByte('\n')
+			if !firstContent {
+				b.WriteByte('\n')
+			}
 			continue
 		}
 
+		prefix := ""
+		if firstContent {
+			prefix = marker
+			firstContent = false
+		}
+
 		if match := assistantHeadingRe.FindStringSubmatch(line); match != nil {
-			if b.Len() > 0 && !strings.HasSuffix(b.String(), "\n\n") {
+			if prefix == "" && b.Len() > 0 && !strings.HasSuffix(b.String(), "\n\n") {
 				b.WriteByte('\n')
 			}
+			b.WriteString(prefix)
 			b.WriteString(assistantParagraphStyle.Bold(true).Render(match[2]))
 			b.WriteByte('\n')
 			continue
 		}
 
 		if match := assistantUnorderedItemRe.FindStringSubmatch(line); match != nil {
+			b.WriteString(prefix)
 			b.WriteString(assistantMutedPrefixStyle.Render("    "))
 			b.WriteString(renderAssistantInline(match[1], assistantParagraphStyle))
 			b.WriteByte('\n')
@@ -798,12 +834,14 @@ func renderCompletedAssistantMarkdown(markdown string) string {
 		}
 
 		if match := assistantOrderedItemRe.FindStringSubmatch(line); match != nil {
+			b.WriteString(prefix)
 			b.WriteString(assistantMutedPrefixStyle.Render(fmt.Sprintf("  %s. ", match[1])))
 			b.WriteString(renderAssistantInline(match[2], assistantParagraphStyle))
 			b.WriteByte('\n')
 			continue
 		}
 
+		b.WriteString(prefix)
 		b.WriteString(renderAssistantInline(line, assistantParagraphStyle))
 		b.WriteByte('\n')
 	}

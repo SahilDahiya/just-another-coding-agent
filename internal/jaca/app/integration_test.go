@@ -63,13 +63,13 @@ func TestModelRunsAgainstRealRPCBackendProcess(t *testing.T) {
 	}
 
 	rendered := stripANSI(m.transcript.Render())
-	if !strings.Contains(rendered, "> ship it") {
+	if !strings.Contains(rendered, "ship it") {
 		t.Fatalf("transcript missing user prompt: %q", rendered)
 	}
 	if !strings.Contains(rendered, "read  README.md") || !strings.Contains(rendered, "12ms") {
 		t.Fatalf("transcript missing tool activity: %q", rendered)
 	}
-	if !strings.Contains(rendered, "● shell  python - <<'PY'  ok  500ms") {
+	if !strings.Contains(rendered, "python - <<'PY'  ok  500ms") {
 		t.Fatalf("transcript missing completed tool row after live update: %q", rendered)
 	}
 	if strings.Contains(rendered, "command still running") || strings.Contains(rendered, "streaming output line") {

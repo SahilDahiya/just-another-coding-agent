@@ -35,7 +35,7 @@ const (
 const (
 	startupRevealDelay   = 50 * time.Millisecond
 	liveFlushDelay       = 50 * time.Millisecond
-	motionTickDelay      = 240 * time.Millisecond
+	motionTickDelay      = 140 * time.Millisecond
 	completionSettle     = 850 * time.Millisecond
 	doubleInterruptDelay = 2 * time.Second
 )
@@ -88,6 +88,7 @@ type model struct {
 	asyncCh            chan tea.Msg
 	slashMenu          slashMenuState
 	auth               authState
+	configErrLogged    bool
 }
 
 func New(options Options) tea.Model {

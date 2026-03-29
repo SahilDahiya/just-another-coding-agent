@@ -109,6 +109,10 @@ func (m *model) commitSlashSuggestion() {
 func (m *model) currentProvider() string {
 	cfg, err := config.Load()
 	if err != nil {
+		if !m.configErrLogged {
+			m.configErrLogged = true
+			m.transcript.WriteError(fmt.Sprintf("config: %v", err))
+		}
 		return m.providerFromModel()
 	}
 	switch strings.ToLower(cfg["default_provider"]) {
