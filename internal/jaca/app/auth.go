@@ -58,6 +58,13 @@ func (m *model) promptDisplayValue() string {
 	return strings.Repeat(string(m.textInput.EchoCharacter), len([]rune(m.textInput.Value())))
 }
 
+func (m *model) promptView() string {
+	if m.auth.Active {
+		return m.promptDisplayValue()
+	}
+	return m.textInput.View()
+}
+
 func (m *model) handleAuthEnter() (tea.Model, tea.Cmd) {
 	secret := strings.TrimSpace(m.textInput.Value())
 	if secret == "" {

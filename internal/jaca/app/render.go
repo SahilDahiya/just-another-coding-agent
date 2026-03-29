@@ -162,7 +162,7 @@ func renderPrompt(vm viewModel) string {
 			lipgloss.Left,
 			lipgloss.NewStyle().Foreground(markerColor).Bold(true).Render(buildPromptMarkerText(vm.Phase, vm.MotionTick)),
 			" ",
-			lipgloss.NewStyle().Foreground(defaultTheme.textSoft).Render(vm.PromptValue),
+			vm.PromptValue,
 		),
 		ruleInner,
 		lipgloss.NewStyle().Foreground(footerColor).Render(

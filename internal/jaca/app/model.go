@@ -240,7 +240,7 @@ func (m *model) View() string {
 		SessionID:     m.sessionID,
 		MotionTick:    m.motionTick,
 		Transcript:    m.viewport.View(),
-		PromptValue:   m.promptDisplayValue(),
+		PromptValue:   m.promptView(),
 		PromptFooter:  m.promptFooterNotice,
 		RunElapsed:    elapsed,
 		VisibleZones:  m.visibleZones,
