@@ -4,10 +4,7 @@ from dataclasses import dataclass
 
 from pydantic_evals.evaluators import Evaluator, EvaluatorContext, HasMatchingSpan
 
-from just_another_coding_agent.runtime.tracing import (
-    TOOL_NAME_ATTRIBUTE,
-    TOOL_SPAN_NAME,
-)
+GEN_AI_TOOL_NAME_ATTRIBUTE = "gen_ai.tool.name"
 
 
 def has_long_tool_span(
@@ -17,9 +14,8 @@ def has_long_tool_span(
 ) -> HasMatchingSpan:
     return HasMatchingSpan(
         query={
-            "name_equals": TOOL_SPAN_NAME,
             "has_attributes": {
-                TOOL_NAME_ATTRIBUTE: tool_name,
+                GEN_AI_TOOL_NAME_ATTRIBUTE: tool_name,
             },
             "min_duration": min_duration_seconds,
         }
@@ -33,8 +29,7 @@ class BashHeavyWithoutEditsEvaluator(Evaluator[object, object, object]):
     def evaluate(self, ctx: EvaluatorContext[object, object, object]) -> bool:
         bash_spans = ctx.span_tree.find(
             {
-                "name_equals": TOOL_SPAN_NAME,
-                "has_attributes": {TOOL_NAME_ATTRIBUTE: "bash"},
+                "has_attributes": {GEN_AI_TOOL_NAME_ATTRIBUTE: "bash"},
             }
         )
         if len(bash_spans) < self.min_bash_spans:
@@ -43,18 +38,20 @@ class BashHeavyWithoutEditsEvaluator(Evaluator[object, object, object]):
         edit_like_spans = [
             *ctx.span_tree.find(
                 {
-                    "name_equals": TOOL_SPAN_NAME,
-                    "has_attributes": {TOOL_NAME_ATTRIBUTE: "edit"},
+                    "has_attributes": {GEN_AI_TOOL_NAME_ATTRIBUTE: "edit"},
                 }
             ),
             *ctx.span_tree.find(
                 {
-                    "name_equals": TOOL_SPAN_NAME,
-                    "has_attributes": {TOOL_NAME_ATTRIBUTE: "write"},
+                    "has_attributes": {GEN_AI_TOOL_NAME_ATTRIBUTE: "write"},
                 }
             ),
         ]
         return not edit_like_spans
 
 
-__all__ = ["BashHeavyWithoutEditsEvaluator", "has_long_tool_span"]
+__all__ = [
+    "BashHeavyWithoutEditsEvaluator",
+    "GEN_AI_TOOL_NAME_ATTRIBUTE",
+    "has_long_tool_span",
+]

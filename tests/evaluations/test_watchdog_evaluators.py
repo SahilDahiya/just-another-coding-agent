@@ -6,13 +6,9 @@ from datetime import UTC, datetime, timedelta
 from pydantic_evals.otel.span_tree import SpanNode, SpanTree
 
 from evaluations.watchdog.evaluators import (
+    GEN_AI_TOOL_NAME_ATTRIBUTE,
     BashHeavyWithoutEditsEvaluator,
     has_long_tool_span,
-)
-from just_another_coding_agent.runtime.tracing import (
-    RUN_SPAN_NAME,
-    TOOL_NAME_ATTRIBUTE,
-    TOOL_SPAN_NAME,
 )
 
 
@@ -44,7 +40,7 @@ def _node(
 
 def _span_tree(*children: SpanNode) -> SpanTree:
     root = _node(
-        name=RUN_SPAN_NAME,
+        name="agent run",
         span_id=1,
         parent_span_id=None,
         duration_seconds=30,
@@ -59,11 +55,11 @@ def _span_tree(*children: SpanNode) -> SpanTree:
 def test_has_long_tool_span_matches_long_bash_tool_span() -> None:
     tree = _span_tree(
         _node(
-            name=TOOL_SPAN_NAME,
+            name="running tool",
             span_id=2,
             parent_span_id=1,
             duration_seconds=12,
-            attributes={TOOL_NAME_ATTRIBUTE: "bash"},
+            attributes={GEN_AI_TOOL_NAME_ATTRIBUTE: "bash"},
         )
     )
 
@@ -75,25 +71,25 @@ def test_has_long_tool_span_matches_long_bash_tool_span() -> None:
 def test_bash_heavy_without_edits_evaluator_detects_probe_loop() -> None:
     tree = _span_tree(
         _node(
-            name=TOOL_SPAN_NAME,
+            name="running tool",
             span_id=2,
             parent_span_id=1,
             duration_seconds=1,
-            attributes={TOOL_NAME_ATTRIBUTE: "bash"},
+            attributes={GEN_AI_TOOL_NAME_ATTRIBUTE: "bash"},
         ),
         _node(
-            name=TOOL_SPAN_NAME,
+            name="running tool",
             span_id=3,
             parent_span_id=1,
             duration_seconds=1,
-            attributes={TOOL_NAME_ATTRIBUTE: "bash"},
+            attributes={GEN_AI_TOOL_NAME_ATTRIBUTE: "bash"},
         ),
         _node(
-            name=TOOL_SPAN_NAME,
+            name="running tool",
             span_id=4,
             parent_span_id=1,
             duration_seconds=1,
-            attributes={TOOL_NAME_ATTRIBUTE: "bash"},
+            attributes={GEN_AI_TOOL_NAME_ATTRIBUTE: "bash"},
         ),
     )
 

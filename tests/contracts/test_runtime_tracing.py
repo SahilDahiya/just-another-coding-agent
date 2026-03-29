@@ -1,18 +1,17 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from contextlib import nullcontext
 from dataclasses import dataclass
 
 from pydantic_ai.models.function import DeltaToolCall, FunctionModel
+from pydantic_ai.models.instrumented import InstrumentationSettings, InstrumentedModel
 
 from just_another_coding_agent.runtime import stream_session_run_events
-from just_another_coding_agent.runtime.tracing import (
-    RUN_SPAN_NAME,
-    RUN_STATUS_ATTRIBUTE,
-    TOOL_NAME_ATTRIBUTE,
-    TOOL_SPAN_NAME,
-    TOOL_STATUS_ATTRIBUTE,
-)
+
+AGENT_NAME_ATTRIBUTE = "gen_ai.agent.name"
+TOOL_CALL_ID_ATTRIBUTE = "gen_ai.tool.call.id"
+TOOL_NAME_ATTRIBUTE = "gen_ai.tool.name"
 
 
 def make_write_stream():
@@ -49,8 +48,17 @@ class _FakeSpan:
     def set_attribute(self, key: str, value: object) -> None:
         self.attributes[key] = value
 
+    def set_attributes(self, attributes: dict[str, object]) -> None:
+        self.attributes.update(attributes)
+
+    def update_name(self, name: str) -> None:
+        self.name = name
+
     def end(self) -> None:
         self.ended = True
+
+    def is_recording(self) -> bool:
+        return True
 
 
 class _FakeUseSpan:
@@ -61,6 +69,7 @@ class _FakeUseSpan:
         return self.span
 
     def __exit__(self, exc_type, exc, tb) -> None:
+        self.span.end()
         return None
 
 
@@ -80,8 +89,55 @@ class _FakeTracer:
         self.spans.append(span)
         return span
 
+    def start_as_current_span(
+        self,
+        name: str,
+        *,
+        attributes: dict[str, object] | None = None,
+        **kwargs,
+    ) -> _FakeUseSpan:
+        del kwargs
+        return _FakeUseSpan(self.start_span(name, attributes=attributes))
 
-async def test_stream_session_run_events_emits_runtime_run_and_tool_spans(
+
+class _FakeTracerProvider:
+    def __init__(self, tracer: _FakeTracer) -> None:
+        self._tracer = tracer
+
+    def get_tracer(self, _name: str, _version: str | None = None) -> _FakeTracer:
+        return self._tracer
+
+
+class _FakeHistogram:
+    def record(
+        self,
+        _value: object,
+        _attributes: dict[str, object] | None = None,
+    ) -> None:
+        return None
+
+
+class _FakeMeter:
+    def create_histogram(self, *args, **kwargs) -> _FakeHistogram:
+        del args, kwargs
+        return _FakeHistogram()
+
+
+class _FakeMeterProvider:
+    def get_meter(self, _name: str, _version: str | None = None) -> _FakeMeter:
+        return _FakeMeter()
+
+
+class _FakeLogger:
+    pass
+
+
+class _FakeLoggerProvider:
+    def get_logger(self, _name: str, _version: str | None = None) -> _FakeLogger:
+        return _FakeLogger()
+
+
+async def test_stream_session_run_events_emits_pydanticai_agent_and_tool_spans(
     tmp_path,
     monkeypatch,
 ) -> None:
@@ -89,21 +145,25 @@ async def test_stream_session_run_events_emits_runtime_run_and_tool_spans(
     workspace_root.mkdir()
     session_path = tmp_path / "session.jsonl"
     tracer = _FakeTracer()
-
-    monkeypatch.setenv("JACA_TRACE", "1")
-    monkeypatch.setattr(
-        "just_another_coding_agent.runtime.tracing.trace.get_tracer",
-        lambda _name: tracer,
+    instrumentation = InstrumentationSettings(
+        tracer_provider=_FakeTracerProvider(tracer),
+        meter_provider=_FakeMeterProvider(),
+        logger_provider=_FakeLoggerProvider(),
     )
+    model = InstrumentedModel(
+        FunctionModel(stream_function=make_write_stream()),
+        instrumentation,
+    )
+
     monkeypatch.setattr(
-        "just_another_coding_agent.runtime.tracing.trace.use_span",
-        lambda span, **_kwargs: _FakeUseSpan(span),
+        "pydantic_ai.agent.use_span",
+        lambda _span, **_kwargs: nullcontext(),
     )
 
     events = [
         event
         async for event in stream_session_run_events(
-            model=FunctionModel(stream_function=make_write_stream()),
+            model=model,
             workspace_root=workspace_root,
             session_path=session_path,
             prompt="write the note",
@@ -118,17 +178,19 @@ async def test_stream_session_run_events_emits_runtime_run_and_tool_spans(
         "run_succeeded",
     ]
 
-    run_spans = [span for span in tracer.spans if span.name == RUN_SPAN_NAME]
-    tool_spans = [span for span in tracer.spans if span.name == TOOL_SPAN_NAME]
+    agent_spans = [
+        span
+        for span in tracer.spans
+        if span.attributes.get(AGENT_NAME_ATTRIBUTE) == "agent"
+    ]
+    tool_spans = [
+        span
+        for span in tracer.spans
+        if span.attributes.get(TOOL_NAME_ATTRIBUTE) == "write"
+    ]
 
-    assert len(run_spans) == 1
-    assert len(tool_spans) == 1
-
-    run_span = run_spans[0]
-    tool_span = tool_spans[0]
-    assert run_span.ended is True
-    assert tool_span.ended is True
-    assert run_span.attributes[RUN_STATUS_ATTRIBUTE] == "succeeded"
-    assert tool_span.attributes[TOOL_NAME_ATTRIBUTE] == "write"
-    assert tool_span.attributes[TOOL_STATUS_ATTRIBUTE] == "succeeded"
-    assert "jaca.run.id" in run_span.attributes
+    assert agent_spans
+    assert tool_spans
+    assert agent_spans[0].ended is True
+    assert tool_spans[0].ended is True
+    assert tool_spans[0].attributes[TOOL_CALL_ID_ATTRIBUTE] == "call-write"

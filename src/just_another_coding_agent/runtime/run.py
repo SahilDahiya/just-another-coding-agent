@@ -51,7 +51,6 @@ from just_another_coding_agent.runtime.activity import (
 from just_another_coding_agent.runtime.deferred import execute_deferred_tool_requests
 from just_another_coding_agent.runtime.models import build_canonical_model_settings
 from just_another_coding_agent.runtime.recovery import should_retry_run_error
-from just_another_coding_agent.runtime.tracing import RuntimeTraceRecorder
 from just_another_coding_agent.tools.deps import WorkspaceDeps
 
 _JSON_VALUE_ADAPTER = TypeAdapter(JsonValue)
@@ -118,7 +117,6 @@ async def stream_run_events(
     run_id = uuid4().hex
     recovery_attempts = 0
     pending_tool_calls: dict[str, _PendingToolCall] = {}
-    trace_recorder = RuntimeTraceRecorder(run_id=run_id)
     current_prompt: str | None = prompt
     current_message_history = message_history
     current_deferred_tool_results: DeferredToolResults | None = None
@@ -239,10 +237,6 @@ async def stream_run_events(
                         args_valid=event.args_valid,
                         started_at=monotonic(),
                     )
-                    trace_recorder.start_tool(
-                        tool_call_id=event.tool_call_id,
-                        tool_name=event.part.tool_name,
-                    )
                     yield ToolCallStartedEvent(
                         run_id=run_id,
                         tool_call_id=event.tool_call_id,
@@ -269,10 +263,6 @@ async def stream_run_events(
                             error_type="RetryPromptPart",
                             message=retry_message,
                         )
-                        trace_recorder.finish_tool(
-                            tool_call_id=event.tool_call_id,
-                            status="succeeded",
-                        )
                         yield ToolCallSucceededEvent(
                             run_id=run_id,
                             tool_call_id=event.tool_call_id,
@@ -297,10 +287,6 @@ async def stream_run_events(
                     )
                     result = _normalize_json_value(event.result.content)
                     result_metadata = getattr(event.result, "metadata", None)
-                    trace_recorder.finish_tool(
-                        tool_call_id=event.tool_call_id,
-                        status="succeeded",
-                    )
                     yield ToolCallSucceededEvent(
                         run_id=run_id,
                         tool_call_id=event.tool_call_id,
@@ -350,7 +336,6 @@ async def stream_run_events(
                     terminal_emitted = True
                     if message_history_sink is not None:
                         message_history_sink(event.result.all_messages())
-                    trace_recorder.finish_run(status="succeeded")
                     yield RunSucceededEvent(run_id=run_id, output_text=output)
         except Exception as error:
             if terminal_emitted:
@@ -378,10 +363,6 @@ async def stream_run_events(
                 continue
 
             for tool_call_id, pending_tool_call in pending_tool_calls.items():
-                trace_recorder.finish_tool(
-                    tool_call_id=tool_call_id,
-                    status="failed",
-                )
                 yield ToolCallFailedEvent(
                     run_id=run_id,
                     tool_call_id=tool_call_id,
@@ -399,7 +380,6 @@ async def stream_run_events(
                     ),
                 )
 
-            trace_recorder.finish_run(status="failed")
             yield RunFailedEvent(
                 run_id=run_id,
                 error_type=type(error).__name__,
