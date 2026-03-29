@@ -238,8 +238,6 @@ func buildPhaseLabel(phase Phase, motionTick int) string {
 
 func buildPromptMarkerText(phase Phase, _ int) string {
 	switch phase {
-	case PhaseCompleted:
-		return "※ "
 	case PhaseError:
 		return "x "
 	default:
