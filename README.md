@@ -86,6 +86,35 @@ If `uv run jaca` says the Go TUI binary is missing, rebuild the environment with
 JACA_BUILD_TUI=1 uv sync --reinstall-package just-another-coding-agent --extra dev --extra test
 ```
 
+## First Run
+
+The TUI keeps provider, model, and trace preferences in `~/.jaca/config.json`.
+
+Inside `uv run jaca`:
+
+- `/provider ollama` selects local Ollama and requires no key
+- `/provider openai` selects OpenAI and starts masked auth if `OPENAI_API_KEY` is missing
+- `/provider anthropic` selects Anthropic and starts masked auth if `ANTHROPIC_API_KEY` is missing
+- `/auth openai` or `/auth anthropic` stores credentials without echoing the secret into the transcript
+- `/model <provider:model>` switches the active model and aligns provider state to that model
+- `/trace off` disables tracing
+- `/trace local` stores spans locally under `~/.jaca/traces/`
+- `/trace logfire` exports spans to Logfire
+
+Tracing is off by default. Local and Logfire tracing both require the optional
+trace dependency:
+
+```bash
+uv sync --extra trace
+```
+
+For `logfire` mode, authenticate first:
+
+```bash
+uv run logfire auth
+uv run logfire projects use <project>
+```
+
 For direct Go TUI development, pass the backend command explicitly:
 
 ```bash
