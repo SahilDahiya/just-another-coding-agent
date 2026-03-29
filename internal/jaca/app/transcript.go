@@ -144,20 +144,30 @@ func (t *Transcript) markDirty(index int) {
 }
 
 func (t *Transcript) WriteStartupBanner(model string, workspaceRoot string, thinking string) {
-	accentStyle := lipgloss.NewStyle().Foreground(defaultTheme.accent).Bold(true)
+	titleStyle := lipgloss.NewStyle().Foreground(defaultTheme.text).Bold(true)
+	labelStyle := lipgloss.NewStyle().Foreground(defaultTheme.textMuted)
+	valueStyle := lipgloss.NewStyle().Foreground(defaultTheme.textSoft)
 	hintStyle := lipgloss.NewStyle().Foreground(defaultTheme.textMuted)
 
-	logo := []string{
-		"jaca",
-	}
-
-	var renderedLines []string
-	for _, line := range logo {
-		renderedLines = append(renderedLines, accentStyle.Render(line))
-	}
-
 	var plainLines []string
-	plainLines = append(plainLines, logo...)
+	var renderedLines []string
+
+	plainLines = append(plainLines, ">_ jaca (v0.1.0)", "")
+	renderedLines = append(renderedLines, titleStyle.Render(">_ jaca (v0.1.0)"), "")
+
+	modelLine := fmt.Sprintf("model:     %s    /model to change", model)
+	dirLine := fmt.Sprintf("directory: %s", displayPath(workspaceRoot))
+	plainLines = append(plainLines, modelLine, dirLine)
+	renderedLines = append(renderedLines,
+		labelStyle.Render("model:     ")+valueStyle.Render(model)+"    "+hintStyle.Render("/model to change"),
+		labelStyle.Render("directory: ")+valueStyle.Render(displayPath(workspaceRoot)),
+	)
+	if thinking != "" {
+		plainLines = append(plainLines, fmt.Sprintf("thinking:  %s", thinking))
+		renderedLines = append(renderedLines,
+			labelStyle.Render("thinking:  ")+valueStyle.Render(thinking),
+		)
+	}
 
 	if strings.HasPrefix(model, "openai") && os.Getenv("OPENAI_API_KEY") == "" {
 		plainLines = append(plainLines, "", "no OPENAI_API_KEY", "use /provider openai")
