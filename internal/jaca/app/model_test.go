@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 
@@ -305,7 +306,162 @@ func TestDownArrowMovesSlashSelection(t *testing.T) {
 	m = sendKey(m, tea.KeyMsg{Type: tea.KeyDown})
 
 	rendered := stripANSI(m.View())
-	if !strings.Contains(rendered, "\n> /model") {
+	if !strings.Contains(rendered, "\n> /auth") {
 		t.Fatalf("expected down arrow to move active slash selection in %q", rendered)
+	}
+}
+
+func TestModelCommandPersistsSelection(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("OPENAI_API_KEY", "test-key")
+
+	m := newTestModel()
+	m.options.Backend = rpc.NewManager(rpc.BackendConfig{})
+
+	m = sendRunes(m, "/model openai:gpt-5.4")
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	if got := m.options.Model; got != "openai:gpt-5.4" {
+		t.Fatalf("options.Model = %q, want %q", got, "openai:gpt-5.4")
+	}
+	data, err := os.ReadFile(home + "/.jaca/config.json")
+	if err != nil {
+		t.Fatalf("ReadFile() returned error: %v", err)
+	}
+	if !strings.Contains(string(data), `"default_model": "openai:gpt-5.4"`) {
+		t.Fatalf("config.json missing persisted model: %q", string(data))
+	}
+	if !strings.Contains(string(data), `"default_provider": "openai"`) {
+		t.Fatalf("config.json missing persisted provider: %q", string(data))
+	}
+}
+
+func TestTraceCommandPersistsMode(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	m := newTestModel()
+	m.options.Backend = rpc.NewManager(rpc.BackendConfig{})
+
+	m = sendRunes(m, "/trace local")
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	data, err := os.ReadFile(home + "/.jaca/config.json")
+	if err != nil {
+		t.Fatalf("ReadFile() returned error: %v", err)
+	}
+	if !strings.Contains(string(data), `"trace_mode": "local"`) {
+		t.Fatalf("config.json missing trace mode: %q", string(data))
+	}
+}
+
+func TestProviderWithoutCredentialsStartsMaskedAuthFlow(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("OPENAI_API_KEY", "")
+
+	m := newTestModel()
+	m.options.Backend = rpc.NewManager(rpc.BackendConfig{})
+
+	m = sendRunes(m, "/provider openai")
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	rendered := stripANSI(m.View())
+	if !strings.Contains(rendered, "auth openai") {
+		t.Fatalf("view missing auth footer after provider selection: %q", rendered)
+	}
+	masked := sendRunes(m, "super-secret")
+	rendered = stripANSI(masked.View())
+	if strings.Contains(rendered, "super-secret") {
+		t.Fatalf("secret leaked into rendered view: %q", rendered)
+	}
+	if got := masked.promptHistory; len(got) != 1 || got[0] != "/provider openai" {
+		t.Fatalf("promptHistory = %#v, want only the non-secret provider command", got)
+	}
+}
+
+func TestModelWithoutCredentialsStartsMaskedAuthFlow(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("OPENAI_API_KEY", "")
+
+	m := newTestModel()
+	m.options.Backend = rpc.NewManager(rpc.BackendConfig{})
+
+	m = sendRunes(m, "/model openai:gpt-5.4")
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	rendered := stripANSI(m.View())
+	if !strings.Contains(rendered, "auth openai") {
+		t.Fatalf("view missing auth footer after model selection: %q", rendered)
+	}
+	if got := m.promptHistory; len(got) != 1 || got[0] != "/model openai:gpt-5.4" {
+		t.Fatalf("promptHistory = %#v, want only the non-secret model command", got)
+	}
+}
+
+func TestAuthSubmissionStoresCredentialWithoutLeakingSecret(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("OPENAI_API_KEY", "")
+
+	m := newTestModel()
+	m.options.Backend = rpc.NewManager(rpc.BackendConfig{})
+
+	m = sendRunes(m, "/provider openai")
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+	m = sendRunes(m, "super-secret")
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	data, err := os.ReadFile(home + "/.jaca/config.json")
+	if err != nil {
+		t.Fatalf("ReadFile() returned error: %v", err)
+	}
+	configText := string(data)
+	if !strings.Contains(configText, `"OPENAI_API_KEY": "super-secret"`) {
+		t.Fatalf("config.json missing saved credential: %q", configText)
+	}
+	if !strings.Contains(configText, `"default_provider": "openai"`) {
+		t.Fatalf("config.json missing provider selection: %q", configText)
+	}
+	transcript := stripANSI(m.transcript.Render())
+	if strings.Contains(transcript, "super-secret") {
+		t.Fatalf("secret leaked into transcript: %q", transcript)
+	}
+	if len(m.promptHistory) != 1 || m.promptHistory[0] != "/provider openai" {
+		t.Fatalf("promptHistory = %#v, want only the provider command", m.promptHistory)
+	}
+}
+
+func TestAuthSubmissionAppliesPendingModelSelection(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("OPENAI_API_KEY", "")
+
+	m := newTestModel()
+	m.options.Backend = rpc.NewManager(rpc.BackendConfig{})
+
+	m = sendRunes(m, "/model openai:gpt-5.4")
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+	m = sendRunes(m, "super-secret")
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	if got := m.options.Model; got != "openai:gpt-5.4" {
+		t.Fatalf("options.Model = %q, want %q", got, "openai:gpt-5.4")
+	}
+	data, err := os.ReadFile(home + "/.jaca/config.json")
+	if err != nil {
+		t.Fatalf("ReadFile() returned error: %v", err)
+	}
+	configText := string(data)
+	if !strings.Contains(configText, `"default_provider": "openai"`) {
+		t.Fatalf("config.json missing provider selection: %q", configText)
+	}
+	if !strings.Contains(configText, `"default_model": "openai:gpt-5.4"`) {
+		t.Fatalf("config.json missing model selection: %q", configText)
+	}
+	if strings.Contains(stripANSI(m.transcript.Render()), "super-secret") {
+		t.Fatalf("secret leaked into transcript: %q", stripANSI(m.transcript.Render()))
 	}
 }

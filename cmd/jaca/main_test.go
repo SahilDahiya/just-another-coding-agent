@@ -61,3 +61,27 @@ func TestRunFailsFastOnCorruptConfigJSON(t *testing.T) {
 		t.Fatalf("run() error = %q, want config path %q", err, configPath)
 	}
 }
+
+func TestResolveDefaultModelPrefersConfigWhenEnvUnset(t *testing.T) {
+	t.Setenv("JACA_MODEL", "")
+
+	got := resolveDefaultModel(map[string]string{"default_model": "openai:gpt-5.4"})
+
+	if got != "openai:gpt-5.4" {
+		t.Fatalf("resolveDefaultModel() = %q, want %q", got, "openai:gpt-5.4")
+	}
+}
+
+func TestResolveDefaultModelPrefersEnvOverride(t *testing.T) {
+	t.Setenv("JACA_MODEL", "anthropic:claude-sonnet-4-5")
+
+	got := resolveDefaultModel(map[string]string{"default_model": "openai:gpt-5.4"})
+
+	if got != "anthropic:claude-sonnet-4-5" {
+		t.Fatalf(
+			"resolveDefaultModel() = %q, want %q",
+			got,
+			"anthropic:claude-sonnet-4-5",
+		)
+	}
+}

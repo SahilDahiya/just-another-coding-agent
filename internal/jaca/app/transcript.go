@@ -35,15 +35,15 @@ type Transcript struct {
 }
 
 type toolEntry struct {
-	toolName         string
-	preview          string
-	outcome          string
-	message          string
-	duration         string
-	detailLines      []string
-	resultLines      []string
-	resultTruncated  bool
-	operationalMiss  bool
+	toolName        string
+	preview         string
+	outcome         string
+	message         string
+	duration        string
+	detailLines     []string
+	resultLines     []string
+	resultTruncated bool
+	operationalMiss bool
 }
 
 type toolGroup struct {
@@ -172,18 +172,32 @@ func (t *Transcript) WriteStartupBanner(model string, workspaceRoot string, thin
 			)
 		}
 	} else if strings.HasPrefix(model, "openai") && os.Getenv("OPENAI_API_KEY") == "" {
-		plainLines = append(plainLines, "", "no OPENAI_API_KEY", "use /provider openai <key>")
+		plainLines = append(
+			plainLines,
+			"",
+			"no OPENAI_API_KEY",
+			"use /provider openai",
+			"auth starts automatically when needed",
+		)
 		renderedLines = append(renderedLines,
 			"",
 			lipgloss.NewStyle().Foreground(defaultTheme.err).Render("no OPENAI_API_KEY"),
-			lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render("use /provider openai <key>"),
+			lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render("use /provider openai"),
+			lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render("auth starts automatically when needed"),
 		)
 	} else if strings.HasPrefix(model, "anthropic") && os.Getenv("ANTHROPIC_API_KEY") == "" {
-		plainLines = append(plainLines, "", "no ANTHROPIC_API_KEY", "use /provider anthropic <key>")
+		plainLines = append(
+			plainLines,
+			"",
+			"no ANTHROPIC_API_KEY",
+			"use /provider anthropic",
+			"auth starts automatically when needed",
+		)
 		renderedLines = append(renderedLines,
 			"",
 			lipgloss.NewStyle().Foreground(defaultTheme.err).Render("no ANTHROPIC_API_KEY"),
-			lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render("use /provider anthropic <key>"),
+			lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render("use /provider anthropic"),
+			lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render("auth starts automatically when needed"),
 		)
 	}
 	t.appendBlock(transcriptBlock{
@@ -195,8 +209,10 @@ func (t *Transcript) WriteStartupBanner(model string, workspaceRoot string, thin
 func (t *Transcript) WriteHelp() {
 	t.WriteNote("commands", []string{
 		"  /help              show this help",
-		"  /provider          configure provider credentials",
+		"  /provider          switch active provider",
+		"  /auth <provider>   save provider credentials",
 		"  /model <name>      switch model",
+		"  /trace <mode>      set tracing mode",
 		"  /thinking <level>  set thinking level",
 		"  /workspace         show workspace root",
 		"  /session           show session info",
@@ -213,9 +229,15 @@ func (t *Transcript) WriteHelp() {
 		"",
 		"provider setup",
 		"  /provider ollama                     local ollama, no key needed",
-		"  /provider ollama <url> [key]         custom endpoint",
-		"  /provider openai <key>               set OPENAI_API_KEY",
-		"  /provider anthropic <key>            set ANTHROPIC_API_KEY",
+		"  /provider openai                     select OpenAI, auth starts if needed",
+		"  /provider anthropic                  select Anthropic, auth starts if needed",
+		"  /auth openai                         save OPENAI_API_KEY",
+		"  /auth anthropic                      save ANTHROPIC_API_KEY",
+		"",
+		"tracing",
+		"  /trace off                           disable tracing",
+		"  /trace local                         store traces locally",
+		"  /trace logfire                       export traces to Logfire",
 	})
 }
 

@@ -49,14 +49,24 @@ canonical Python headless backend.
   - `OPENAI_BASE_URL`
   - `OLLAMA_BASE_URL`
   - `OLLAMA_API_KEY`
-  - `JACA_TRACE=1` to enable PydanticAI/OpenTelemetry instrumentation and configure Logfire at backend startup
-  - `LOGFIRE_TOKEN` if you want to override the active `~/.logfire/default.toml` project token explicitly
+  - `JACA_TRACE_MODE=local` to enable local JSONL trace export under `~/.jaca/traces/`
+  - `JACA_TRACE_MODE=logfire` to export traces to Logfire
+  - `LOGFIRE_TOKEN` if you want to override the active `~/.logfire/default.toml` project token explicitly in `logfire` mode
 
-When `JACA_TRACE=1` is set, the backend now fails fast unless Logfire project
-credentials are already configured via `uv run logfire auth` plus
-`uv run logfire projects use <project>` or an explicit `LOGFIRE_TOKEN`.
-Interactive TUI runs and headless RPC runs do not save trace files locally by
-default; spans are exported to Logfire.
+Tracing is off by default.
+
+When `JACA_TRACE_MODE=local` is set, the backend enables PydanticAI/OpenTelemetry
+instrumentation and writes spans to local JSONL files under `~/.jaca/traces/`.
+That path requires the optional `trace` dependency:
+
+```bash
+uv sync --extra trace
+```
+
+When `JACA_TRACE_MODE=logfire` is set, the backend also requires Logfire project
+credentials via `uv run logfire auth` plus `uv run logfire projects use <project>`
+or an explicit `LOGFIRE_TOKEN`. If either the optional dependency or the
+credentials are missing, startup fails hard.
 
 ## CI
 

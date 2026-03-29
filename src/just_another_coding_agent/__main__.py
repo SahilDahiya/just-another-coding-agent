@@ -3,14 +3,18 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
-import os
 import subprocess
 import sys
 from collections.abc import Sequence
 from pathlib import Path
 from typing import TextIO
 
-from just_another_coding_agent.config import apply_config_to_env, load_config
+from just_another_coding_agent.config import (
+    apply_config_to_env,
+    apply_trace_mode_to_env,
+    load_config,
+    resolve_default_model,
+)
 from just_another_coding_agent.go_tui import (
     default_backend_command,
     resolve_go_tui_launch,
@@ -21,10 +25,6 @@ from just_another_coding_agent.runtime.observability import (
 )
 from just_another_coding_agent.tools._workspace import normalize_workspace_root
 
-apply_config_to_env(load_config())
-
-DEFAULT_MODEL = os.environ.get("JACA_MODEL", "ollama:kimi-k2:1t-cloud")
-
 
 def main(
     argv: Sequence[str] | None = None,
@@ -32,14 +32,19 @@ def main(
     input_stream: TextIO | None = None,
     output_stream: TextIO | None = None,
 ) -> int:
+    config = load_config()
+    apply_config_to_env(config)
+    apply_trace_mode_to_env(config)
+    default_model = resolve_default_model(config)
+
     parser = argparse.ArgumentParser(
         prog="jaca",
         description="Interactive coding agent with optional headless RPC mode.",
     )
     parser.add_argument(
         "--model",
-        default=DEFAULT_MODEL,
-        help=f"Model to use (default: {DEFAULT_MODEL}, or set JACA_MODEL env var)",
+        default=default_model,
+        help=f"Model to use (default: {default_model}, or set JACA_MODEL env var)",
     )
     parser.add_argument(
         "--workspace-root",

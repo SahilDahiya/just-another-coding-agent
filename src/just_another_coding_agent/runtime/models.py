@@ -21,7 +21,7 @@ from pydantic_ai.settings import ModelSettings
 from tenacity import retry_if_exception_type, stop_after_attempt
 
 from just_another_coding_agent.contracts.thinking import ThinkingSetting
-from just_another_coding_agent.runtime.env import env_flag
+from just_another_coding_agent.runtime.env import trace_mode
 
 OPENAI_COMPATIBLE_RETRYABLE_STATUS_CODES = frozenset(
     {408, 409, 429, 500, 502, 503, 504}
@@ -171,7 +171,7 @@ def build_canonical_model_settings(
 
 
 def _maybe_instrument_model(model: Model) -> Model:
-    if not env_flag("JACA_TRACE"):
+    if trace_mode() == "off":
         return model
     if isinstance(model, InstrumentedModel):
         return model

@@ -70,3 +70,78 @@ func TestLoadFailsOnCorruptConfigJSON(t *testing.T) {
 		t.Fatalf("Load() error = %q, want config path %q", err, path)
 	}
 }
+
+func TestSaveDefaultModelPersistsSelection(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	if err := SaveDefaultModel("openai:gpt-5.4"); err != nil {
+		t.Fatalf("SaveDefaultModel() returned error: %v", err)
+	}
+
+	got, err := Load()
+	if err != nil {
+		t.Fatalf("Load() returned error: %v", err)
+	}
+	if got["default_model"] != "openai:gpt-5.4" {
+		t.Fatalf("default_model = %q, want %q", got["default_model"], "openai:gpt-5.4")
+	}
+}
+
+func TestSaveTraceModePersistsExplicitMode(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	if err := SaveTraceMode("local"); err != nil {
+		t.Fatalf("SaveTraceMode() returned error: %v", err)
+	}
+
+	got, err := Load()
+	if err != nil {
+		t.Fatalf("Load() returned error: %v", err)
+	}
+	if got["trace_mode"] != "local" {
+		t.Fatalf("trace_mode = %q, want %q", got["trace_mode"], "local")
+	}
+}
+
+func TestSaveTraceModeRejectsUnknownMode(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	if err := SaveTraceMode("bogus"); err == nil {
+		t.Fatal("SaveTraceMode() unexpectedly succeeded")
+	}
+}
+
+func TestHasProviderCredentialsAcceptsEnvironmentCredential(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("OPENAI_API_KEY", "from-env")
+
+	got, err := HasProviderCredentials("openai")
+	if err != nil {
+		t.Fatalf("HasProviderCredentials() returned error: %v", err)
+	}
+	if !got {
+		t.Fatal("HasProviderCredentials() = false, want true")
+	}
+}
+
+func TestApplyTraceModeToEnvSetsAndClearsRuntimeEnv(t *testing.T) {
+	t.Setenv("JACA_TRACE_MODE", "")
+
+	if err := ApplyTraceModeToEnv("local"); err != nil {
+		t.Fatalf("ApplyTraceModeToEnv(local) returned error: %v", err)
+	}
+	if got := os.Getenv("JACA_TRACE_MODE"); got != "local" {
+		t.Fatalf("JACA_TRACE_MODE = %q, want %q", got, "local")
+	}
+
+	if err := ApplyTraceModeToEnv("off"); err != nil {
+		t.Fatalf("ApplyTraceModeToEnv(off) returned error: %v", err)
+	}
+	if got := os.Getenv("JACA_TRACE_MODE"); got != "" {
+		t.Fatalf("JACA_TRACE_MODE = %q, want empty", got)
+	}
+}

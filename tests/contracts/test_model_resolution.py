@@ -163,7 +163,7 @@ def test_resolve_canonical_model_uses_retrying_ollama_http_transport(
 def test_resolve_canonical_model_wraps_with_instrumentation_when_enabled(
     monkeypatch,
 ) -> None:
-    monkeypatch.setenv("JACA_TRACE", "1")
+    monkeypatch.setenv("JACA_TRACE_MODE", "local")
     model = FunctionModel(function=lambda _messages, _info: "")
 
     resolved = resolve_canonical_model(model)

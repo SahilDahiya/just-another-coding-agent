@@ -1,25 +1,35 @@
 from __future__ import annotations
 
+import json
 import sys
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from just_another_coding_agent.runtime import observability
+from just_another_coding_agent.runtime.local_traces import (
+    LocalJSONLSpanExporter,
+    build_local_trace_path,
+)
 
 
-def test_configure_observability_configures_logfire_when_trace_enabled(
+def test_configure_observability_configures_local_tracing_when_requested(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     calls: list[dict[str, object]] = []
 
-    monkeypatch.setenv("JACA_TRACE", "1")
-    monkeypatch.setenv("LOGFIRE_TOKEN", "test-token")
+    monkeypatch.setenv("JACA_TRACE_MODE", "local")
     monkeypatch.setitem(
         sys.modules,
         "logfire",
         SimpleNamespace(configure=lambda **kwargs: calls.append(kwargs)),
+    )
+    monkeypatch.setattr(
+        observability,
+        "_build_local_span_processors",
+        lambda: ["processor"],
     )
     monkeypatch.setattr(observability, "_configured", False)
 
@@ -27,25 +37,54 @@ def test_configure_observability_configures_logfire_when_trace_enabled(
 
     assert calls == [
         {
-            "send_to_logfire": True,
+            "send_to_logfire": False,
             "console": False,
             "service_name": "jaca",
+            "additional_span_processors": ["processor"],
         }
     ]
+
+
+def test_configure_observability_fails_fast_without_logfire_dependency(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("JACA_TRACE_MODE", "local")
+    monkeypatch.setattr(observability, "_configured", False)
+    monkeypatch.setattr(
+        observability,
+        "_import_logfire",
+        lambda: (_ for _ in ()).throw(
+            RuntimeError(
+                "Tracing requires the optional `logfire` dependency. Install it "
+                "with `uv sync --extra trace` and try again."
+            )
+        ),
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="Tracing requires the optional `logfire` dependency",
+    ):
+        observability.configure_observability()
 
 
 def test_configure_observability_fails_fast_without_logfire_credentials(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("JACA_TRACE", "1")
+    monkeypatch.setenv("JACA_TRACE_MODE", "logfire")
     monkeypatch.delenv("LOGFIRE_TOKEN", raising=False)
+    monkeypatch.setitem(
+        sys.modules,
+        "logfire",
+        SimpleNamespace(configure=lambda **kwargs: None),
+    )
     monkeypatch.setattr(observability, "_configured", False)
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
     with pytest.raises(
         RuntimeError,
-        match="JACA_TRACE=1 requires Logfire project credentials",
+        match="JACA_TRACE_MODE=logfire requires Logfire project credentials",
     ):
         observability.configure_observability()
 
@@ -69,7 +108,7 @@ def test_configure_observability_accepts_default_logfire_toml_credentials(
         encoding="utf-8",
     )
 
-    monkeypatch.setenv("JACA_TRACE", "1")
+    monkeypatch.setenv("JACA_TRACE_MODE", "logfire")
     monkeypatch.delenv("LOGFIRE_TOKEN", raising=False)
     monkeypatch.setitem(
         sys.modules,
@@ -88,3 +127,54 @@ def test_configure_observability_accepts_default_logfire_toml_credentials(
             "service_name": "jaca",
         }
     ]
+
+
+def test_build_local_trace_path_uses_jaca_trace_directory(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+    path = build_local_trace_path(datetime(2026, 3, 28, 21, 5, 4))
+
+    assert path.parent == tmp_path / ".jaca" / "traces" / "2026-03-28"
+    assert path.name.startswith("trace-210504-")
+    assert path.suffix == ".jsonl"
+
+
+def test_local_jsonl_span_exporter_writes_jsonl_records(tmp_path: Path) -> None:
+    path = tmp_path / "trace.jsonl"
+    exporter = LocalJSONLSpanExporter(path)
+
+    span = SimpleNamespace(
+        name="tool_call",
+        context=SimpleNamespace(trace_id=0x1234, span_id=0x5678),
+        parent=SimpleNamespace(span_id=0x9999),
+        start_time=10,
+        end_time=20,
+        attributes={"gen_ai.tool.name": "bash", "retries": 2},
+        events=[
+            SimpleNamespace(
+                name="event",
+                timestamp=15,
+                attributes={"key": "value"},
+            )
+        ],
+        status=SimpleNamespace(
+            status_code=SimpleNamespace(name="OK"),
+            description="done",
+        ),
+    )
+
+    exporter.export([span])
+
+    lines = path.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 1
+    record = json.loads(lines[0])
+    assert record["name"] == "tool_call"
+    assert record["trace_id"] == "00000000000000000000000000001234"
+    assert record["span_id"] == "0000000000005678"
+    assert record["parent_span_id"] == "0000000000009999"
+    assert record["attributes"]["gen_ai.tool.name"] == "bash"
+    assert record["events"][0]["attributes"]["key"] == "value"
+    assert record["status"] == {"code": "OK", "description": "done"}

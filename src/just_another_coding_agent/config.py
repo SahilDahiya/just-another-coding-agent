@@ -9,6 +9,7 @@ from pathlib import Path
 
 CONFIG_DIR = Path.home() / ".jaca"
 CONFIG_PATH = CONFIG_DIR / "config.json"
+DEFAULT_MODEL = "ollama:kimi-k2:1t-cloud"
 
 
 def load_config() -> dict[str, str]:
@@ -42,6 +43,29 @@ def apply_config_to_env(config: dict[str, str]) -> None:
             os.environ[key] = config[key]
 
 
+def apply_trace_mode_to_env(config: dict[str, str]) -> None:
+    trace_mode = config.get("trace_mode", "").strip().lower()
+    if trace_mode in {"", "off"}:
+        os.environ.pop("JACA_TRACE_MODE", None)
+        return
+    if trace_mode in {"local", "logfire"}:
+        os.environ["JACA_TRACE_MODE"] = trace_mode
+        return
+    raise RuntimeError(
+        "Invalid trace_mode in ~/.jaca/config.json: expected off, local, or logfire"
+    )
+
+
+def resolve_default_model(config: dict[str, str]) -> str:
+    env_model = os.environ.get("JACA_MODEL", "").strip()
+    if env_model:
+        return env_model
+    saved_model = config.get("default_model", "").strip()
+    if saved_model:
+        return saved_model
+    return DEFAULT_MODEL
+
+
 def save_provider_config(
     provider: str,
     *,
@@ -68,7 +92,10 @@ def save_provider_config(
 
 __all__ = [
     "apply_config_to_env",
+    "apply_trace_mode_to_env",
+    "DEFAULT_MODEL",
     "load_config",
+    "resolve_default_model",
     "save_config",
     "save_provider_config",
 ]

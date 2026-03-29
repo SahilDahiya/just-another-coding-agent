@@ -21,7 +21,11 @@ def test_main_launches_go_tui_for_interactive_mode(
     go_binary = tmp_path / ("jaca-go.exe" if os.name == "nt" else "jaca-go")
     captured: dict[str, object] = {}
 
-    monkeypatch.setattr(entry, "resolve_go_tui_launch", lambda: ([str(go_binary)], None))
+    monkeypatch.setattr(
+        entry,
+        "resolve_go_tui_launch",
+        lambda: ([str(go_binary)], None),
+    )
     monkeypatch.setattr(
         entry,
         "default_backend_command",
@@ -69,6 +73,71 @@ def test_main_launches_go_tui_for_interactive_mode(
         ],
         "check": False,
         "cwd": None,
+    }
+
+
+def test_main_uses_saved_default_model_and_trace_mode(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    go_binary = tmp_path / ("jaca-go.exe" if os.name == "nt" else "jaca-go")
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        entry,
+        "load_config",
+        lambda: {
+            "default_model": "openai:gpt-5.4",
+            "trace_mode": "local",
+        },
+    )
+    monkeypatch.setattr(
+        entry,
+        "resolve_go_tui_launch",
+        lambda: ([str(go_binary)], None),
+    )
+    monkeypatch.setattr(
+        entry,
+        "default_backend_command",
+        lambda: ["/tmp/fake-python", "-m", "just_another_coding_agent"],
+    )
+
+    def fake_run(command, *, check, cwd=None):
+        captured["command"] = command
+        captured["trace_mode"] = os.environ.get("JACA_TRACE_MODE")
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(
+        "just_another_coding_agent.__main__.subprocess.run",
+        fake_run,
+    )
+
+    exit_code = main(
+        [
+            "--workspace-root",
+            str(workspace_root),
+            "--sessions-root",
+            str(sessions_root),
+        ]
+    )
+
+    assert exit_code == 0
+    assert captured == {
+        "command": [
+            str(go_binary),
+            "--backend-command-json",
+            json.dumps(["/tmp/fake-python", "-m", "just_another_coding_agent"]),
+            "--model",
+            "openai:gpt-5.4",
+            "--workspace-root",
+            str(workspace_root.resolve()),
+            "--sessions-root",
+            str(sessions_root.resolve()),
+        ],
+        "trace_mode": "local",
     }
 
 
@@ -121,9 +190,15 @@ def test_main_launches_repo_local_go_tui_when_installed_binary_is_missing(
     sessions_root = tmp_path / "sessions"
     repo_root = tmp_path / "repo"
     (repo_root / "cmd" / "jaca").mkdir(parents=True)
-    (repo_root / "cmd" / "jaca" / "main.go").write_text("package main\n", encoding="utf-8")
+    (repo_root / "cmd" / "jaca" / "main.go").write_text(
+        "package main\n",
+        encoding="utf-8",
+    )
     (repo_root / "go.mod").write_text("module jaca\n", encoding="utf-8")
-    (repo_root / "pyproject.toml").write_text("[build-system]\nrequires=[]\n", encoding="utf-8")
+    (repo_root / "pyproject.toml").write_text(
+        "[build-system]\nrequires=[]\n",
+        encoding="utf-8",
+    )
     captured: dict[str, object] = {}
 
     monkeypatch.setattr(

@@ -40,6 +40,12 @@ func (m *Manager) SetModel(model string) {
 	m.cfg.Model = model
 }
 
+func (m *Manager) SetEnv(env []string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.cfg.Env = append([]string{}, env...)
+}
+
 func (m *Manager) Restart(ctx context.Context) error {
 	m.mu.Lock()
 	client := m.client

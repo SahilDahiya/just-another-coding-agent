@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 var envKeys = []string{
@@ -79,7 +80,87 @@ type ProviderUpdate struct {
 	BaseURL  string
 }
 
+func SaveDefaultModel(model string) error {
+	config, err := Load()
+	if err != nil {
+		return err
+	}
+	config["default_model"] = strings.TrimSpace(model)
+	return Save(config)
+}
+
+func SaveTraceMode(mode string) error {
+	switch mode {
+	case "off", "local", "logfire":
+	default:
+		return fmt.Errorf("unknown trace mode: %s", mode)
+	}
+	config, err := Load()
+	if err != nil {
+		return err
+	}
+	config["trace_mode"] = mode
+	return Save(config)
+}
+
+func ApplyTraceModeToEnv(mode string) error {
+	switch mode {
+	case "", "off":
+		_ = os.Unsetenv("JACA_TRACE_MODE")
+		return nil
+	case "local", "logfire":
+		return os.Setenv("JACA_TRACE_MODE", mode)
+	default:
+		return fmt.Errorf("unknown trace mode: %s", mode)
+	}
+}
+
+func SaveDefaultProvider(provider string) error {
+	config, err := Load()
+	if err != nil {
+		return err
+	}
+	switch provider {
+	case "ollama", "openai", "anthropic":
+	default:
+		return errors.New("unknown provider")
+	}
+	config["default_provider"] = provider
+	return Save(config)
+}
+
+func HasProviderCredentials(provider string) (bool, error) {
+	config, err := Load()
+	if err != nil {
+		return false, err
+	}
+	switch provider {
+	case "ollama":
+		return true, nil
+	case "openai":
+		return hasConfiguredOrEnvValue(config, "OPENAI_API_KEY"), nil
+	case "anthropic":
+		return hasConfiguredOrEnvValue(config, "ANTHROPIC_API_KEY"), nil
+	default:
+		return false, errors.New("unknown provider")
+	}
+}
+
+func hasConfiguredOrEnvValue(config map[string]string, key string) bool {
+	if strings.TrimSpace(config[key]) != "" {
+		return true
+	}
+	return strings.TrimSpace(os.Getenv(key)) != ""
+}
+
 func SaveProvider(update ProviderUpdate) error {
+	if err := SaveProviderCredentials(update); err != nil {
+		return err
+	}
+	return SaveDefaultProvider(update.Provider)
+}
+
+func SaveProviderCredentials(update ProviderUpdate) error {
 	config, err := Load()
 	if err != nil {
 		return err
@@ -117,6 +198,5 @@ func SaveProvider(update ProviderUpdate) error {
 	default:
 		return errors.New("unknown provider")
 	}
-	config["default_provider"] = update.Provider
 	return Save(config)
 }

@@ -153,8 +153,8 @@ Canonical tool concurrency is explicit too. `read`, `grep`, `find`, and `ls` are
 The system prompt tells the model what tools it has, how to approach coding tasks, and that read/write/edit are workspace-scoped while bash is not sandboxed. The runtime also appends dynamic context at build time: the current date and the resolved workspace root.
 That prompt layer also carries two behavioral rules that matter for benchmark and real coding tasks alike: do not claim a file was created or changed without tool evidence, and verify code changes or required file outputs before concluding.
 Thinking is not carried in the prompt. The runtime passes it through PydanticAI model settings as an explicit run input.
-Provider-native model behavior is centralized separately in `runtime/models.py`, which resolves model strings, applies OpenAI-compatible retry transport policy, enables OpenAI Responses server history only when appropriate, and can wrap models with opt-in instrumentation via `JACA_TRACE=1`.
-When tracing is enabled, backend startup also configures Logfire explicitly. The backend relies on PydanticAI/OpenTelemetry agent and tool spans directly, so evaluation-side watchdog helpers can detect long-tool and bash-heavy probe loops without inspecting session JSONL by hand. If Logfire credentials are missing when `JACA_TRACE=1` is set, startup fails hard.
+Provider-native model behavior is centralized separately in `runtime/models.py`, which resolves model strings, applies OpenAI-compatible retry transport policy, enables OpenAI Responses server history only when appropriate, and can wrap models with opt-in instrumentation via `JACA_TRACE_MODE=local|logfire`.
+When tracing is enabled, backend startup configures one explicit sink: `local` writes JSONL span files under `~/.jaca/traces/`, while `logfire` exports to Logfire and fails hard if credentials are missing. The backend relies on PydanticAI/OpenTelemetry agent and tool spans directly, so evaluation-side watchdog helpers can detect long-tool and bash-heavy probe loops without inspecting session JSONL by hand.
 
 ### Runtime
 

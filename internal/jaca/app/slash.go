@@ -152,6 +152,8 @@ func buildSlashMenuState(input string, provider string) slashMenuState {
 	switch commandToken {
 	case "/provider":
 		rows = filterSuggestions(providerSuggestions(), rawArg)
+	case "/auth":
+		rows = filterSuggestions(authSuggestions(), rawArg)
 	case "/model":
 		rows = filterSuggestions(modelSuggestions(provider), rawArg)
 	case "/trace":
@@ -173,6 +175,7 @@ func buildSlashMenuState(input string, provider string) slashMenuState {
 func slashCommandSuggestions() []slashSuggestion {
 	return []slashSuggestion{
 		{Value: "/provider", Description: "Switch active provider", AcceptsArgs: true},
+		{Value: "/auth", Description: "Authenticate a cloud provider", AcceptsArgs: true},
 		{Value: "/model", Description: "Switch active model", AcceptsArgs: true},
 		{Value: "/trace", Description: "Set tracing mode", AcceptsArgs: true},
 		{Value: "/thinking", Description: "Set thinking effort", AcceptsArgs: true},
@@ -190,6 +193,13 @@ func providerSuggestions() []slashSuggestion {
 		{Value: "ollama", Description: "Local or configured Ollama endpoint"},
 		{Value: "openai", Description: "OpenAI hosted models"},
 		{Value: "anthropic", Description: "Anthropic Claude models"},
+	}
+}
+
+func authSuggestions() []slashSuggestion {
+	return []slashSuggestion{
+		{Value: "openai", Description: "Store OpenAI API key"},
+		{Value: "anthropic", Description: "Store Anthropic API key"},
 	}
 }
 

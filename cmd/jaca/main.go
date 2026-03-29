@@ -28,11 +28,11 @@ func run() error {
 		return err
 	}
 	config.ApplyToEnv(cfg)
-
-	defaultModel := os.Getenv("JACA_MODEL")
-	if defaultModel == "" {
-		defaultModel = "ollama:kimi-k2:1t-cloud"
+	if err := config.ApplyTraceModeToEnv(cfg["trace_mode"]); err != nil {
+		return err
 	}
+
+	defaultModel := resolveDefaultModel(cfg)
 
 	model := flag.String("model", defaultModel, "Model to use")
 	workspaceRoot := flag.String("workspace-root", ".", "Workspace root directory")
@@ -79,6 +79,17 @@ func run() error {
 	)
 	_, err = program.Run()
 	return err
+}
+
+func resolveDefaultModel(cfg map[string]string) string {
+	defaultModel := os.Getenv("JACA_MODEL")
+	if defaultModel != "" {
+		return defaultModel
+	}
+	if value := cfg["default_model"]; value != "" {
+		return value
+	}
+	return "ollama:kimi-k2:1t-cloud"
 }
 
 func resolveSessionsRoot(raw string) (string, error) {

@@ -42,8 +42,11 @@ func TestWriteStartupBannerShowsProviderGuidanceForMissingOpenAIKey(t *testing.T
 	if !strings.Contains(plain, "no OPENAI_API_KEY") {
 		t.Fatalf("plain banner missing missing-key warning: %q", plain)
 	}
-	if !strings.Contains(plain, "use /provider openai <key>") {
+	if !strings.Contains(plain, "use /provider openai") {
 		t.Fatalf("plain banner missing provider guidance: %q", plain)
+	}
+	if strings.Contains(plain, "<key>") {
+		t.Fatalf("plain banner still teaches secret-on-command guidance: %q", plain)
 	}
 }
 
