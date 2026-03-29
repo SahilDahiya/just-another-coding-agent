@@ -221,9 +221,7 @@ func (t *Transcript) WriteHelp() {
 func (t *Transcript) WriteNote(title string, lines []string) {
 	t.endToolGroup()
 	t.endLiveAssistant()
-	if len(t.blocks) > 0 && !strings.HasSuffix(t.blocks[len(t.blocks)-1].plain, "\n\n") {
-		t.appendBlock(transcriptBlock{plain: "\n", rendered: "\n"})
-	}
+	t.ensureBlockGap()
 	header := lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render("note") +
 		"  " + lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Bold(true).Render(title)
 	plain := "note  " + title + "\n"
@@ -242,9 +240,7 @@ func (t *Transcript) WriteNote(title string, lines []string) {
 func (t *Transcript) WriteUserTurn(prompt string) {
 	t.endToolGroup()
 	t.endLiveAssistant()
-	if len(t.blocks) > 0 && !strings.HasSuffix(t.blocks[len(t.blocks)-1].plain, "\n\n") {
-		t.appendBlock(transcriptBlock{plain: "\n", rendered: "\n"})
-	}
+	t.ensureBlockGap()
 	line := lipgloss.NewStyle().Foreground(defaultTheme.accent).Render(">") + " " +
 		lipgloss.NewStyle().Foreground(defaultTheme.text).Bold(true).Render(prompt)
 	t.appendBlock(transcriptBlock{
@@ -289,6 +285,7 @@ func (t *Transcript) ApplyRunEvent(event rpc.RunEvent) {
 func (t *Transcript) appendAssistantDelta(delta string) {
 	t.endToolGroup()
 	if t.liveAssistantIdx == -1 {
+		t.ensureBlockGap()
 		t.liveAssistantIdx = t.appendBlock(transcriptBlock{
 			plain:    delta,
 			rendered: lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render("◦ ") + lipgloss.NewStyle().Foreground(defaultTheme.textSoft).Render(delta),
@@ -307,8 +304,8 @@ func (t *Transcript) completeAssistant(markdown string) {
 	rendered := renderCompletedAssistantMarkdown(markdown)
 	if t.liveAssistantIdx != -1 {
 		t.replaceBlock(t.liveAssistantIdx, transcriptBlock{
-			plain:    markdown,
-			rendered: rendered,
+			plain:    markdown + "\n",
+			rendered: rendered + "\n",
 			kind:     transcriptBlockAssistantMarkdown,
 		})
 		t.liveAssistantIdx = -1
@@ -316,7 +313,7 @@ func (t *Transcript) completeAssistant(markdown string) {
 	}
 	t.appendBlock(transcriptBlock{
 		plain:    markdown + "\n",
-		rendered: rendered,
+		rendered: rendered + "\n",
 		kind:     transcriptBlockAssistantMarkdown,
 	})
 }
@@ -325,12 +322,25 @@ func (t *Transcript) endLiveAssistant() {
 	t.liveAssistantIdx = -1
 }
 
+func (t *Transcript) ensureBlockGap() {
+	if len(t.blocks) == 0 {
+		return
+	}
+	last := t.blocks[len(t.blocks)-1].plain
+	if strings.HasSuffix(last, "\n\n") {
+		return
+	}
+	if strings.HasSuffix(last, "\n") {
+		t.appendBlock(transcriptBlock{plain: "\n", rendered: "\n"})
+		return
+	}
+	t.appendBlock(transcriptBlock{plain: "\n\n", rendered: "\n\n"})
+}
+
 func (t *Transcript) startTool(event rpc.RunEvent) {
 	t.endLiveAssistant()
 	if t.toolGroup == nil {
-		if len(t.blocks) > 0 && !strings.HasSuffix(t.blocks[len(t.blocks)-1].plain, "\n") {
-			t.appendBlock(transcriptBlock{plain: "\n", rendered: "\n"})
-		}
+		t.ensureBlockGap()
 		index := t.appendBlock(transcriptBlock{})
 		t.toolGroup = &toolGroup{
 			index:   index,
@@ -528,8 +538,25 @@ func toolOutcomeColor(outcome string) lipgloss.TerminalColor {
 	}
 }
 
+var diffRemovedRe = regexp.MustCompile(`^\d+ - `)
+var diffAddedRe = regexp.MustCompile(`^\d+ \+ `)
+
 func styleToolDetailLine(line string) string {
-	return lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render(line)
+	trimmed := strings.TrimLeft(line, " │")
+	switch {
+	case diffRemovedRe.MatchString(trimmed):
+		return lipgloss.NewStyle().Foreground(defaultTheme.errSoft).Render(line)
+	case diffAddedRe.MatchString(trimmed):
+		return lipgloss.NewStyle().Foreground(defaultTheme.successSoft).Render(line)
+	case strings.HasPrefix(trimmed, "@@ "):
+		return lipgloss.NewStyle().Foreground(defaultTheme.accentSoft).Render(line)
+	case strings.HasPrefix(trimmed, "Update("):
+		return lipgloss.NewStyle().Foreground(defaultTheme.textSoft).Bold(true).Render(line)
+	case strings.HasPrefix(trimmed, "Added ") || strings.HasPrefix(trimmed, "removed "):
+		return lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render(line)
+	default:
+		return lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render(line)
+	}
 }
 
 func buildToolPreview(toolName string, args map[string]any, argsValid *bool, activity *rpc.ToolActivity) string {
