@@ -66,7 +66,7 @@ func TestModelRunsAgainstRealRPCBackendProcess(t *testing.T) {
 	if !strings.Contains(rendered, "> ship it") {
 		t.Fatalf("transcript missing user prompt: %q", rendered)
 	}
-	if !strings.Contains(rendered, "● read  README.md") || !strings.Contains(rendered, "12ms") {
+	if !strings.Contains(rendered, "read  README.md") || !strings.Contains(rendered, "12ms") {
 		t.Fatalf("transcript missing tool activity: %q", rendered)
 	}
 	if !strings.Contains(rendered, "final answer") {

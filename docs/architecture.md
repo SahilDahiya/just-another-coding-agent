@@ -22,7 +22,7 @@ Local code should translate those primitives into the canonical backend contract
 `runtime/models.py` is the sanctioned local seam for explicit model construction and provider-native policy.
 PydanticAI-native carrier features such as `ToolReturn.metadata` may be used internally, but they must be normalized immediately into typed backend contract fields before crossing the public stream/session boundary. For canonical tools, success activity ownership lives with the tools themselves; the runtime only validates and maps that metadata into the public event/session contract.
 
-The canonical agent assembly must take an explicit workspace root. Tool behavior uses that root as the default base for relative paths and bash cwd rather than relying on process cwd or other implicit global state.
+The canonical agent assembly must take an explicit workspace root. Tool behavior uses that root as the default base for relative paths and shell cwd rather than relying on process cwd or other implicit global state.
 Persisted sessions must also bind to that explicit workspace root and store native PydanticAI message history so later runs can resume through `message_history` instead of reconstructing context from public events.
 Persisted sessions must also record the effective per-run thinking setting so later runs can inherit it when the caller omits `thinking`.
 The canonical runtime is unbounded within a single run and does not impose backend-level request or tool-call ceilings.

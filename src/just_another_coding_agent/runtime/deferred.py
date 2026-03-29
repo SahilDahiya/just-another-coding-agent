@@ -7,16 +7,16 @@ from pydantic_ai import DeferredToolRequests, DeferredToolResults
 from pydantic_ai.messages import ToolCallPart
 
 from just_another_coding_agent.contracts.tools import (
-    BashToolInput,
+    ShellToolInput,
     make_tool_error_result,
 )
-from just_another_coding_agent.tools.bash import execute_bash
 from just_another_coding_agent.tools.deps import WorkspaceDeps
 from just_another_coding_agent.tools.errors import ToolOperationalError
+from just_another_coding_agent.tools.shell import execute_shell
 
 
 @dataclass(frozen=True)
-class _DeferredBashExecutionContext:
+class _DeferredShellExecutionContext:
     deps: WorkspaceDeps
     tool_call_id: str
     tool_name: str
@@ -46,40 +46,39 @@ async def _execute_deferred_tool_call(
     call: ToolCallPart,
     deps: WorkspaceDeps | None,
 ) -> Any:
-    if call.tool_name != "bash":
+    if call.tool_name != "shell":
         raise RuntimeError(
             f"Unsupported deferred canonical tool: {call.tool_name!r}"
         )
     if deps is None:
-        raise RuntimeError("Deferred canonical bash execution requires WorkspaceDeps")
+        raise RuntimeError("Deferred canonical shell execution requires WorkspaceDeps")
 
-    tool_input = _validate_deferred_bash_call(call)
-    ctx = _DeferredBashExecutionContext(
+    tool_input = _validate_deferred_shell_call(call)
+    ctx = _DeferredShellExecutionContext(
         deps=deps,
         tool_call_id=call.tool_call_id,
         tool_name=call.tool_name,
     )
 
     try:
-        return await execute_bash(
+        return await execute_shell(
             ctx=ctx,
             tool_input=tool_input,
             workspace_root=deps.workspace_root,
+            shell_family=deps.shell_family,
         )
     except ToolOperationalError as error:
         return make_tool_error_result(error)
 
 
-def _validate_deferred_bash_call(call: ToolCallPart) -> BashToolInput:
+def _validate_deferred_shell_call(call: ToolCallPart) -> ShellToolInput:
     if isinstance(call.args, str):
-        tool_input = BashToolInput.model_validate_json(call.args)
+        tool_input = ShellToolInput.model_validate_json(call.args)
     else:
-        tool_input = BashToolInput.model_validate(call.args)
+        tool_input = ShellToolInput.model_validate(call.args)
 
     if not tool_input.defer:
-        raise RuntimeError(
-            "Deferred canonical bash call must set defer=true"
-        )
+        raise RuntimeError("Deferred canonical shell call must set defer=true")
 
     return tool_input
 

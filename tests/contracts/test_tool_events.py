@@ -13,6 +13,7 @@ from pydantic_ai import (
 from pydantic_ai.messages import ModelMessage, RetryPromptPart, ToolCallPart
 from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 
+from just_another_coding_agent.contracts.platform import detect_default_shell_family
 from just_another_coding_agent.contracts.run_events import (
     AssistantTextDeltaEvent,
     RunFailedEvent,
@@ -27,6 +28,47 @@ from just_another_coding_agent.contracts.run_events import (
 from just_another_coding_agent.runtime.agent import build_canonical_agent
 from just_another_coding_agent.runtime.run import stream_run_events
 from just_another_coding_agent.tools.deps import WorkspaceDeps
+
+_SHELL_FAMILY = detect_default_shell_family()
+
+
+def _sleep_command() -> str:
+    if _SHELL_FAMILY == "powershell":
+        return "Start-Sleep -Seconds 2"
+    return "sleep 2"
+
+
+def _ok_command() -> str:
+    if _SHELL_FAMILY == "powershell":
+        return "[Console]::Out.Write('ok')"
+    return "printf ok"
+
+
+def _non_zero_command() -> str:
+    if _SHELL_FAMILY == "powershell":
+        return "[Console]::Error.Write('boom'); exit 7"
+    return "printf boom >&2; exit 7"
+
+
+def _streaming_command() -> str:
+    if _SHELL_FAMILY == "powershell":
+        return (
+            "[Console]::Out.Write('one' + [Environment]::NewLine); "
+            "[Console]::Out.Flush(); "
+            "Start-Sleep -Milliseconds 50; "
+            "[Console]::Out.Write('two' + [Environment]::NewLine); "
+            "[Console]::Out.Flush()"
+        )
+    return (
+        "python - <<'PY'\n"
+        "import sys, time\n"
+        "sys.stdout.write('one\\n')\n"
+        "sys.stdout.flush()\n"
+        "time.sleep(0.05)\n"
+        "sys.stdout.write('two\\n')\n"
+        "sys.stdout.flush()\n"
+        "PY"
+    )
 
 
 class StubStreamAgent:
@@ -191,8 +233,8 @@ async def recovering_bash_stream(
     if len(messages) == 1:
         yield {
             0: DeltaToolCall(
-                name="bash",
-                json_args='{"command":"sleep 2","timeout":1}',
+                name="shell",
+                json_args=json.dumps({"command": _sleep_command(), "timeout": 1}),
                 tool_call_id="call-bash-1",
             )
         }
@@ -201,8 +243,8 @@ async def recovering_bash_stream(
     if len(messages) == 3:
         yield {
             0: DeltaToolCall(
-                name="bash",
-                json_args='{"command":"printf ok"}',
+                name="shell",
+                json_args=json.dumps({"command": _ok_command()}),
                 tool_call_id="call-bash-2",
             )
         }
@@ -218,8 +260,8 @@ async def recovering_non_zero_bash_stream(
     if len(messages) == 1:
         yield {
             0: DeltaToolCall(
-                name="bash",
-                json_args='{"command":"printf boom >&2; exit 7"}',
+                name="shell",
+                json_args=json.dumps({"command": _non_zero_command()}),
                 tool_call_id="call-bash-1",
             )
         }
@@ -228,8 +270,8 @@ async def recovering_non_zero_bash_stream(
     if len(messages) == 3:
         yield {
             0: DeltaToolCall(
-                name="bash",
-                json_args='{"command":"printf ok"}',
+                name="shell",
+                json_args=json.dumps({"command": _ok_command()}),
                 tool_call_id="call-bash-2",
             )
         }
@@ -243,19 +285,10 @@ async def streaming_bash_stream(
     _agent_info: object,
 ) -> AsyncIterator[str | dict[int, DeltaToolCall]]:
     if len(messages) == 1:
-        command = (
-            "python - <<'PY'\n"
-            "import sys, time\n"
-            "sys.stdout.write('one\\n')\n"
-            "sys.stdout.flush()\n"
-            "time.sleep(0.05)\n"
-            "sys.stdout.write('two\\n')\n"
-            "sys.stdout.flush()\n"
-            "PY"
-        )
+        command = _streaming_command()
         yield {
             0: DeltaToolCall(
-                name="bash",
+                name="shell",
                 json_args=json.dumps({"command": command}),
                 tool_call_id="call-bash-stream",
             )
@@ -278,9 +311,9 @@ def make_deferred_bash_stream():
         if call_count == 1:
             yield {
                 0: DeltaToolCall(
-                    name="bash",
+                    name="shell",
                     json_args=json.dumps(
-                        {"command": "printf ok", "defer": True}
+                        {"command": _ok_command(), "defer": True}
                     ),
                     tool_call_id="call-bash-deferred",
                 )
@@ -516,7 +549,7 @@ async def test_stream_run_events_marks_all_pending_tool_calls_failed_before_run_
             ),
             FunctionToolCallEvent(
                 part=ToolCallPart(
-                    "bash",
+                    "shell",
                     '{"command": "pwd"}',
                     tool_call_id="call-bash",
                 )
@@ -544,7 +577,7 @@ async def test_stream_run_events_marks_all_pending_tool_calls_failed_before_run_
         "call-read",
         "call-bash",
     ]
-    assert [events[3].tool_name, events[4].tool_name] == ["read", "bash"]
+    assert [events[3].tool_name, events[4].tool_name] == ["read", "shell"]
     assert [events[3].message, events[4].message] == ["stream boom", "stream boom"]
     assert events[5].message == "stream boom"
 
@@ -568,7 +601,7 @@ async def test_stream_run_events_recovers_from_edit_mismatch_within_one_run(
         async for event in stream_run_events(
             agent=agent,
             prompt="go",
-            deps=WorkspaceDeps(workspace_root=workspace_root),
+            deps=WorkspaceDeps.from_workspace_root(workspace_root),
         )
     ]
 
@@ -639,7 +672,7 @@ async def test_stream_run_events_recovers_from_missing_read_within_one_run(
         async for event in stream_run_events(
             agent=agent,
             prompt="go",
-            deps=WorkspaceDeps(workspace_root=workspace_root),
+            deps=WorkspaceDeps.from_workspace_root(workspace_root),
         )
     ]
 
@@ -663,19 +696,12 @@ async def test_stream_run_events_recovers_from_missing_read_within_one_run(
         },
     )
     assert isinstance(events[2], ToolCallSucceededEvent)
-    assert events[2].result == {
-        "ok": False,
-        "error_type": "ToolPathError",
-        "message": (
-            f"[Errno 2] No such file or directory: "
-            f"'{workspace_root / 'missing.txt'}'"
-        ),
-    }
+    assert events[2].result["ok"] is False
+    assert events[2].result["error_type"] == "ToolPathError"
+    assert "missing.txt" in events[2].result["message"]
     assert events[2].activity is not None
     assert events[2].activity.title == "read missing.txt"
-    assert events[2].activity.summary == (
-        f"[Errno 2] No such file or directory: '{workspace_root / 'missing.txt'}'"
-    )
+    assert "missing.txt" in events[2].activity.summary
     assert events[2].activity.duration_ms is not None
     assert events[2].activity.duration_ms >= 0
     assert events[2].activity.details is not None
@@ -731,7 +757,7 @@ async def test_stream_run_events_recovers_from_write_directory_error_within_one_
         async for event in stream_run_events(
             agent=agent,
             prompt="go",
-            deps=WorkspaceDeps(workspace_root=workspace_root),
+            deps=WorkspaceDeps.from_workspace_root(workspace_root),
         )
     ]
 
@@ -745,11 +771,9 @@ async def test_stream_run_events_recovers_from_write_directory_error_within_one_
         "run_succeeded",
     ]
     assert isinstance(events[2], ToolCallSucceededEvent)
-    assert events[2].result == {
-        "ok": False,
-        "error_type": "ToolPathError",
-        "message": f"[Errno 21] Is a directory: '{nested}'",
-    }
+    assert events[2].result["ok"] is False
+    assert events[2].result["error_type"] == "ToolPathError"
+    assert "nested" in events[2].result["message"]
     assert isinstance(events[4], ToolCallSucceededEvent)
     assert events[4].result == f"Wrote {nested / 'note.txt'}"
     assert (nested / "note.txt").read_text(encoding="utf-8") == "hello"
@@ -765,7 +789,7 @@ async def test_stream_run_events_recovers_from_bash_timeout_within_one_run(
     agent = build_canonical_agent(
         model=FunctionModel(stream_function=recovering_bash_stream),
         workspace_root=workspace_root,
-        tool_names=("bash",),
+        tool_names=("shell",),
     )
 
     events = [
@@ -773,7 +797,7 @@ async def test_stream_run_events_recovers_from_bash_timeout_within_one_run(
         async for event in stream_run_events(
             agent=agent,
             prompt="go",
-            deps=WorkspaceDeps(workspace_root=workspace_root),
+            deps=WorkspaceDeps.from_workspace_root(workspace_root),
         )
     ]
 
@@ -783,10 +807,11 @@ async def test_stream_run_events_recovers_from_bash_timeout_within_one_run(
     assert events[-1].type == "run_succeeded"
     assert isinstance(events[1], ToolCallStartedEvent)
     assert events[1].activity == ToolActivity(
-        title="bash sleep 2",
+        title=f"shell {_sleep_command()}",
         details={
-            "kind": "bash",
-            "command_preview": "sleep 2",
+            "kind": "shell",
+            "command_preview": _sleep_command(),
+            "shell_family": _SHELL_FAMILY,
             "timeout": 1,
             "deferred": False,
             "exit_code": None,
@@ -804,7 +829,7 @@ async def test_stream_run_events_recovers_from_bash_timeout_within_one_run(
         "message": "Command timed out after 1 seconds",
     }
     assert events[first_result_index].activity is not None
-    assert events[first_result_index].activity.title == "bash sleep 2"
+    assert events[first_result_index].activity.title == f"shell {_sleep_command()}"
     assert (
         events[first_result_index].activity.summary
         == "Command timed out after 1 seconds"
@@ -813,8 +838,9 @@ async def test_stream_run_events_recovers_from_bash_timeout_within_one_run(
     assert events[first_result_index].activity.duration_ms >= 0
     assert events[first_result_index].activity.details is not None
     assert events[first_result_index].activity.details.model_dump() == {
-        "kind": "bash",
-        "command_preview": "sleep 2",
+        "kind": "shell",
+        "command_preview": _sleep_command(),
+        "shell_family": _SHELL_FAMILY,
         "timeout": 1,
         "deferred": False,
         "exit_code": None,
@@ -826,10 +852,11 @@ async def test_stream_run_events_recovers_from_bash_timeout_within_one_run(
     )
     assert isinstance(events[second_started_index], ToolCallStartedEvent)
     assert events[second_started_index].activity == ToolActivity(
-        title="bash printf ok",
+        title=f"shell {_ok_command()}",
         details={
-            "kind": "bash",
-            "command_preview": "printf ok",
+            "kind": "shell",
+            "command_preview": _ok_command(),
+            "shell_family": _SHELL_FAMILY,
             "timeout": None,
             "deferred": False,
             "exit_code": None,
@@ -843,14 +870,15 @@ async def test_stream_run_events_recovers_from_bash_timeout_within_one_run(
     assert isinstance(events[second_result_index], ToolCallSucceededEvent)
     assert events[second_result_index].result == {"exit_code": 0, "output": "ok"}
     assert events[second_result_index].activity is not None
-    assert events[second_result_index].activity.title == "bash printf ok"
+    assert events[second_result_index].activity.title == f"shell {_ok_command()}"
     assert events[second_result_index].activity.summary == "command exited 0"
     assert events[second_result_index].activity.duration_ms is not None
     assert events[second_result_index].activity.duration_ms >= 0
     assert events[second_result_index].activity.details is not None
     assert events[second_result_index].activity.details.model_dump() == {
-        "kind": "bash",
-        "command_preview": "printf ok",
+        "kind": "shell",
+        "command_preview": _ok_command(),
+        "shell_family": _SHELL_FAMILY,
         "timeout": None,
         "deferred": False,
         "exit_code": 0,
@@ -867,7 +895,7 @@ async def test_stream_run_events_recovers_from_non_zero_bash_exit_within_one_run
     agent = build_canonical_agent(
         model=FunctionModel(stream_function=recovering_non_zero_bash_stream),
         workspace_root=workspace_root,
-        tool_names=("bash",),
+        tool_names=("shell",),
     )
 
     events = [
@@ -875,7 +903,7 @@ async def test_stream_run_events_recovers_from_non_zero_bash_exit_within_one_run
         async for event in stream_run_events(
             agent=agent,
             prompt="go",
-            deps=WorkspaceDeps(workspace_root=workspace_root),
+            deps=WorkspaceDeps.from_workspace_root(workspace_root),
         )
     ]
 
@@ -889,11 +917,11 @@ async def test_stream_run_events_recovers_from_non_zero_bash_exit_within_one_run
         if isinstance(event, ToolCallSucceededEvent)
     )
     assert isinstance(events[first_result_index], ToolCallSucceededEvent)
-    assert events[first_result_index].result == {
-        "ok": False,
-        "error_type": "ToolCommandError",
-        "message": "boom\n\nCommand exited with code 7",
-    }
+    assert events[first_result_index].result["ok"] is False
+    assert events[first_result_index].result["error_type"] == "ToolCommandError"
+    assert events[first_result_index].result["message"].replace("\r\n", "\n") == (
+        "boom\n\nCommand exited with code 7"
+    )
     second_result_index = next(
         index
         for index, event in enumerate(events)
@@ -914,7 +942,7 @@ async def test_stream_run_events_emits_bash_tool_updates(tmp_path) -> None:
     agent = build_canonical_agent(
         model=FunctionModel(stream_function=streaming_bash_stream),
         workspace_root=workspace_root,
-        tool_names=("bash",),
+        tool_names=("shell",),
     )
 
     events = [
@@ -922,7 +950,7 @@ async def test_stream_run_events_emits_bash_tool_updates(tmp_path) -> None:
         async for event in stream_run_events(
             agent=agent,
             prompt="go",
-            deps=WorkspaceDeps(workspace_root=workspace_root),
+            deps=WorkspaceDeps.from_workspace_root(workspace_root),
         )
     ]
 
@@ -936,10 +964,10 @@ async def test_stream_run_events_emits_bash_tool_updates(tmp_path) -> None:
     ]
     assert update_events
     assert update_events[0].tool_call_id == "call-bash-stream"
-    assert update_events[0].tool_name == "bash"
+    assert update_events[0].tool_name == "shell"
     assert update_events[0].partial_result is not None
     assert update_events[0].activity is not None
-    assert update_events[0].activity.title.startswith("bash python - <<'PY'")
+    assert update_events[0].activity.title.startswith("shell ")
     assert update_events[0].activity.summary == "command still running"
     assert update_events[0].activity.duration_ms is not None
     assert update_events[0].activity.duration_ms >= 0
@@ -950,7 +978,8 @@ async def test_stream_run_events_emits_bash_tool_updates(tmp_path) -> None:
         if isinstance(event, ToolCallSucceededEvent)
     )
     assert final_tool_event.tool_call_id == "call-bash-stream"
-    assert final_tool_event.result == {"exit_code": 0, "output": "one\ntwo\n"}
+    assert final_tool_event.result["exit_code"] == 0
+    assert final_tool_event.result["output"].replace("\r\n", "\n") == "one\ntwo\n"
 
 
 async def test_stream_run_events_resumes_deferred_bash_without_duplicate_start(
@@ -962,7 +991,7 @@ async def test_stream_run_events_resumes_deferred_bash_without_duplicate_start(
     agent = build_canonical_agent(
         model=FunctionModel(stream_function=make_deferred_bash_stream()),
         workspace_root=workspace_root,
-        tool_names=("bash",),
+        tool_names=("shell",),
     )
 
     events = [
@@ -970,7 +999,7 @@ async def test_stream_run_events_resumes_deferred_bash_without_duplicate_start(
         async for event in stream_run_events(
             agent=agent,
             prompt="go",
-            deps=WorkspaceDeps(workspace_root=workspace_root),
+            deps=WorkspaceDeps.from_workspace_root(workspace_root),
         )
     ]
 
@@ -988,5 +1017,5 @@ async def test_stream_run_events_resumes_deferred_bash_without_duplicate_start(
     assert isinstance(succeeded, ToolCallSucceededEvent)
     assert started.tool_call_id == "call-bash-deferred"
     assert succeeded.tool_call_id == "call-bash-deferred"
-    assert started.args == {"command": "printf ok", "defer": True}
+    assert started.args == {"command": _ok_command(), "defer": True}
     assert succeeded.result == {"exit_code": 0, "output": "ok"}

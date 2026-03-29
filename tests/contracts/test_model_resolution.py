@@ -14,6 +14,7 @@ from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.retries import AsyncTenacityTransport
 
 from just_another_coding_agent.runtime.models import (
+    DEFAULT_OLLAMA_BASE_URL,
     build_canonical_model_settings,
     build_in_run_compaction_soft_char_limit,
     get_model_context_window_tokens,
@@ -158,6 +159,19 @@ def test_resolve_canonical_model_uses_retrying_ollama_http_transport(
     assert isinstance(model._provider, OllamaProvider)
     assert client.max_retries == 0
     assert isinstance(client._client._transport, AsyncTenacityTransport)
+
+
+def test_resolve_canonical_model_uses_default_ollama_base_url_when_unset(
+    monkeypatch,
+) -> None:
+    monkeypatch.delenv("OLLAMA_BASE_URL", raising=False)
+    monkeypatch.delenv("OLLAMA_API_KEY", raising=False)
+
+    model = resolve_canonical_model("ollama:glm-5:cloud")
+
+    assert isinstance(model, OpenAIChatModel)
+    assert isinstance(model._provider, OllamaProvider)
+    assert model._provider.base_url == f"{DEFAULT_OLLAMA_BASE_URL}/"
 
 
 def test_resolve_canonical_model_wraps_with_instrumentation_when_enabled(

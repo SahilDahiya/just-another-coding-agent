@@ -54,23 +54,26 @@ def test_build_canonical_instructions_include_dynamic_context(tmp_path) -> None:
     instructions = build_canonical_instructions(
         workspace_root=workspace_root,
         current_date=date(2026, 3, 26),
+        shell_family="powershell",
     )
 
     assert instructions.startswith(CANONICAL_AGENT_INSTRUCTIONS)
     assert (
-        "Prefer read to examine files instead of bash cat or sed." in instructions
+        "Prefer read to examine files instead of shelling out just to view files."
+        in instructions
     )
     assert (
-        "Use only these tools: read, write, edit, bash, grep, ls, find."
+        "Use only these tools: read, write, edit, shell, grep, ls, find."
         in instructions
     )
     assert "Use grep for content search across files." in instructions
     assert "Use ls for bounded directory listings." in instructions
     assert "Use find for file discovery by glob pattern." in instructions
-    assert "Use bash for builds and commands." in instructions
+    assert "Use shell for builds, commands, and verification." in instructions
+    assert "Current shell family: powershell" in instructions
     assert (
         "Do not claim you created, edited, or saved a file unless you "
-        "actually used write or edit, or verified the result with read or bash."
+        "actually used write or edit, or verified the result with read or shell."
         in instructions
     )
     assert (
@@ -91,11 +94,12 @@ def test_build_canonical_instructions_include_truthfulness_and_verification_rule
     instructions = build_canonical_instructions(
         workspace_root=workspace_root,
         current_date=date(2026, 3, 26),
+        shell_family="posix",
     )
 
     assert (
         "Do not claim you created, edited, or saved a file unless you "
-        "actually used write or edit, or verified the result with read or bash."
+        "actually used write or edit, or verified the result with read or shell."
         in instructions
     )
     assert (

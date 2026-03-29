@@ -249,13 +249,13 @@ func (t *Transcript) appendAssistantDelta(delta string) {
 	if t.liveAssistantIdx == -1 {
 		t.liveAssistantIdx = t.appendBlock(transcriptBlock{
 			plain:    delta,
-			rendered: lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render("◦ ") + lipgloss.NewStyle().Foreground(defaultTheme.textSoft).Render(delta),
+			rendered: lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render("â—¦ ") + lipgloss.NewStyle().Foreground(defaultTheme.textSoft).Render(delta),
 		})
 		return
 	}
 	block := &t.blocks[t.liveAssistantIdx]
 	block.plain += delta
-	block.rendered = lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render("◦ ") +
+	block.rendered = lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render("â—¦ ") +
 		lipgloss.NewStyle().Foreground(defaultTheme.textSoft).Render(block.plain)
 	t.markDirty(t.liveAssistantIdx)
 }
@@ -359,7 +359,7 @@ func (t *Transcript) rewriteToolGroup() {
 		for idx, line := range entry.resultLines {
 			prefix := "    "
 			if idx == 0 {
-				prefix = "  └ "
+				prefix = "  â”” "
 			}
 			plain.WriteString(prefix + line + "\n")
 			rendered.WriteString(lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render(prefix+line) + "\n")
@@ -376,7 +376,7 @@ func (t *Transcript) rewriteToolGroup() {
 }
 
 func formatToolActivityLine(entry *toolEntry) string {
-	head := "● " + entry.toolName
+	head := "â— " + entry.toolName
 	if entry.preview != "" {
 		head += "  " + entry.preview
 	}
@@ -402,7 +402,7 @@ func renderToolActivityLine(entry *toolEntry) string {
 		markerColor = defaultTheme.err
 	}
 	var b strings.Builder
-	b.WriteString(lipgloss.NewStyle().Foreground(markerColor).Render("● "))
+	b.WriteString(lipgloss.NewStyle().Foreground(markerColor).Render("â— "))
 	b.WriteString(lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render(entry.toolName))
 	if entry.preview != "" {
 		b.WriteString("  ")
@@ -451,7 +451,7 @@ func buildToolPreview(toolName string, args map[string]any, argsValid *bool, act
 		return ""
 	}
 	switch toolName {
-	case "bash":
+	case "shell":
 		if command, ok := args["command"].(string); ok {
 			return truncateInline(command, 56)
 		}
@@ -560,7 +560,7 @@ func buildToolDetailLines(activity *rpc.ToolActivity) []string {
 			}
 			summary = append(summary, fmt.Sprintf("removed %d %s", *removed, noun))
 		}
-		lines = append(lines, "  │ "+strings.Join(summary, ", "))
+		lines = append(lines, "  â”‚ "+strings.Join(summary, ", "))
 	}
 	diff, _ := activity.Details["diff"].(string)
 	if diff != "" {
@@ -679,7 +679,7 @@ func renderAssistantInline(content string, baseStyle lipgloss.Style) string {
 func renderEditDiffLines(diff string) []string {
 	rows := parseEditDiffRows(diff)
 	if len(rows) > 12 {
-		rows = append(rows[:12], "  │ ...")
+		rows = append(rows[:12], "  â”‚ ...")
 	}
 	return rows
 }
@@ -695,19 +695,19 @@ func parseEditDiffRows(diff string) []string {
 		if match := editHunkRe.FindStringSubmatch(raw); match != nil {
 			oldLine = atoiSafe(match[1])
 			newLine = atoiSafe(match[2])
-			lines = append(lines, "  │ "+raw)
+			lines = append(lines, "  â”‚ "+raw)
 			continue
 		}
 		switch {
 		case strings.HasPrefix(raw, " "):
-			lines = append(lines, fmt.Sprintf("  │ %d   %s", newLine, raw[1:]))
+			lines = append(lines, fmt.Sprintf("  â”‚ %d   %s", newLine, raw[1:]))
 			oldLine++
 			newLine++
 		case strings.HasPrefix(raw, "-"):
-			lines = append(lines, fmt.Sprintf("  │ %d - %s", oldLine, raw[1:]))
+			lines = append(lines, fmt.Sprintf("  â”‚ %d - %s", oldLine, raw[1:]))
 			oldLine++
 		case strings.HasPrefix(raw, "+"):
-			lines = append(lines, fmt.Sprintf("  │ %d + %s", newLine, raw[1:]))
+			lines = append(lines, fmt.Sprintf("  â”‚ %d + %s", newLine, raw[1:]))
 			newLine++
 		}
 	}

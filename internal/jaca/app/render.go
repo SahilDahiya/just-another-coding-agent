@@ -244,24 +244,24 @@ func buildStatusText(vm viewModel) string {
 func displayPath(path string) string {
 	home, err := osUserHomeDir()
 	if err != nil {
-		return path
+		return filepath.ToSlash(path)
 	}
 	abs, err := filepath.Abs(path)
 	if err != nil {
-		return path
+		return filepath.ToSlash(path)
 	}
 	homeAbs, err := filepath.Abs(home)
 	if err != nil {
-		return abs
+		return filepath.ToSlash(abs)
 	}
 	if abs == homeAbs {
 		return "~"
 	}
 	prefix := homeAbs + string(filepath.Separator)
 	if strings.HasPrefix(abs, prefix) {
-		return "~" + abs[len(homeAbs):]
+		return filepath.ToSlash("~" + abs[len(homeAbs):])
 	}
-	return abs
+	return filepath.ToSlash(abs)
 }
 
 var osUserHomeDir = func() (string, error) {

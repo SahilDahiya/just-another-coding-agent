@@ -1,6 +1,7 @@
 package app
 
 import (
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -16,12 +17,16 @@ func stripANSI(text string) string {
 
 func TestWriteStartupBannerIncludesOllamaHintsInPlainText(t *testing.T) {
 	t.Setenv("OLLAMA_BASE_URL", "")
+	workspaceRoot := filepath.Join("workspace", "repo")
 
 	transcript := NewTranscript()
-	transcript.WriteStartupBanner("ollama:test", "/workspace", "medium")
+	transcript.WriteStartupBanner("ollama:test", workspaceRoot, "medium")
 
 	plain := transcript.blocks[0].plain
-	if !strings.Contains(plain, "jaca  /workspace  |  model ollama:test  |  thinking medium") {
+	if !strings.Contains(
+		plain,
+		"jaca  "+displayPath(workspaceRoot)+"  |  model ollama:test  |  thinking medium",
+	) {
 		t.Fatalf("plain banner missing headline: %q", plain)
 	}
 	if !strings.Contains(plain, "ollama http://localhost:11434/v1") {
@@ -78,14 +83,14 @@ func TestToolSuccessDoesNotTreatResultMapWithoutOkAsError(t *testing.T) {
 	transcript := NewTranscript()
 	transcript.ApplyRunEvent(rpc.RunEvent{
 		Type:       "tool_call_started",
-		ToolName:   "bash",
+		ToolName:   "shell",
 		ToolCallID: "call-1",
 		Args:       map[string]any{"command": "git status --short"},
 	})
 	duration := 17
 	transcript.ApplyRunEvent(rpc.RunEvent{
 		Type:       "tool_call_succeeded",
-		ToolName:   "bash",
+		ToolName:   "shell",
 		ToolCallID: "call-1",
 		Result:     map[string]any{"output": "clean"},
 		Activity:   &rpc.ToolActivity{DurationMS: &duration},
@@ -95,7 +100,7 @@ func TestToolSuccessDoesNotTreatResultMapWithoutOkAsError(t *testing.T) {
 	if strings.Contains(plain, "error") {
 		t.Fatalf("tool row incorrectly rendered as error: %q", plain)
 	}
-	if !strings.Contains(plain, "● bash  git status --short  ok 17ms") {
+	if !strings.Contains(plain, "shell  git status --short  ok 17ms") {
 		t.Fatalf("tool row missing success state: %q", plain)
 	}
 }
@@ -138,14 +143,14 @@ func TestEditToolRowsRenderStructuredDiffPreview(t *testing.T) {
 
 	plain := transcript.blocks[len(transcript.blocks)-1].plain
 	for _, want := range []string{
-		"● edit  src/app.go  ok 83ms",
+		"edit  src/app.go  ok 83ms",
 		"  Update(src/app.go)",
-		"  │ Added 3 lines, removed 1 line",
-		"  │ @@ -10,2 +10,4 @@",
-		"  │ 10   line a",
-		"  │ 11 - line b",
-		"  │ 11 + line c",
-		"  │ 12 + line d",
+		"Added 3 lines, removed 1 line",
+		"@@ -10,2 +10,4 @@",
+		"10   line a",
+		"11 - line b",
+		"11 + line c",
+		"12 + line d",
 	} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("plain diff preview missing %q in %q", want, plain)

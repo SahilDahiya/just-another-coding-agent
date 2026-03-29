@@ -1,5 +1,6 @@
 import io
 import json
+import re
 from collections.abc import AsyncIterator
 from types import SimpleNamespace
 
@@ -316,8 +317,10 @@ def test_main_fails_fast_when_workspace_root_is_missing(tmp_path) -> None:
 
     with pytest.raises(
         FileNotFoundError,
-        match=f"Workspace root does not exist: {missing_workspace_root.resolve()}",
-        ):
+        match=re.escape(
+            f"Workspace root does not exist: {missing_workspace_root.resolve()}"
+        ),
+    ):
         main(
             [
                 "--model",
@@ -338,7 +341,7 @@ def test_main_fails_fast_when_sessions_root_is_a_file(tmp_path) -> None:
 
     with pytest.raises(
         NotADirectoryError,
-        match=f"Sessions root is not a directory: {sessions_root.resolve()}",
+        match=re.escape(f"Sessions root is not a directory: {sessions_root.resolve()}"),
     ):
         main(
             [

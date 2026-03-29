@@ -1,6 +1,9 @@
 package app
 
-import "testing"
+import (
+	"path/filepath"
+	"testing"
+)
 
 func TestDisplayPathUsesHomeRelativePrefix(t *testing.T) {
 	original := osUserHomeDir
@@ -18,16 +21,17 @@ func TestDisplayPathUsesHomeRelativePrefix(t *testing.T) {
 }
 
 func TestBuildStatusTextIncludesTruncatedSessionAndThinking(t *testing.T) {
+	workspaceRoot := filepath.Join("workspace", "repo")
 	got := buildStatusText(viewModel{
 		Phase:         PhaseStreaming,
 		Model:         "ollama:test",
-		WorkspaceRoot: "/workspace",
+		WorkspaceRoot: workspaceRoot,
 		Thinking:      "high",
 		SessionID:     "1234567890abcdef",
 		MotionTick:    1,
 	})
 
-	want := "streaming.. | ollama:test | /workspace | thinking=high | session=12345678"
+	want := "streaming.. | ollama:test | " + displayPath(workspaceRoot) + " | thinking=high | session=12345678"
 	if got != want {
 		t.Fatalf("buildStatusText() = %q, want %q", got, want)
 	}

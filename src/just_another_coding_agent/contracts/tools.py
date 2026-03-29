@@ -4,8 +4,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-CANONICAL_TOOL_NAMES = ("read", "write", "edit", "bash", "grep", "ls", "find")
-CanonicalToolName = Literal["read", "write", "edit", "bash", "grep", "ls", "find"]
+CANONICAL_TOOL_NAMES = ("read", "write", "edit", "shell", "grep", "ls", "find")
+CanonicalToolName = Literal["read", "write", "edit", "shell", "grep", "ls", "find"]
 
 
 class ReadToolInput(BaseModel):
@@ -31,7 +31,7 @@ class EditToolInput(BaseModel):
     new_text: str
 
 
-class BashToolInput(BaseModel):
+class ShellToolInput(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
     command: str = Field(min_length=1)
@@ -81,7 +81,6 @@ def make_tool_error_result(error: Exception) -> dict[str, bool | str]:
 
 
 __all__ = [
-    "BashToolInput",
     "CANONICAL_TOOL_NAMES",
     "CanonicalToolName",
     "EditToolInput",
@@ -89,6 +88,7 @@ __all__ = [
     "GrepToolInput",
     "LsToolInput",
     "ReadToolInput",
+    "ShellToolInput",
     "ToolErrorResult",
     "WriteToolInput",
     "make_tool_error_result",

@@ -94,7 +94,7 @@ def make_deferred_bash_stream():
         if call_count == 1:
             yield {
                 0: DeltaToolCall(
-                    name="bash",
+                    name="shell",
                     json_args='{"command": "printf ok", "defer": true}',
                     tool_call_id="call-bash",
                 )
@@ -336,7 +336,7 @@ async def test_stream_session_run_events_persists_deferred_bash_tool_return(
             workspace_root=workspace_root,
             session_path=session_path,
             prompt="go",
-            tool_names=("bash",),
+            tool_names=("shell",),
         )
     ]
 
@@ -349,7 +349,7 @@ async def test_stream_session_run_events_persists_deferred_bash_tool_return(
     ]
 
     loaded = load_session(path=session_path, workspace_root=workspace_root)
-    assert _has_tool_return(loaded.message_history, tool_name="bash")
+    assert _has_tool_return(loaded.message_history, tool_name="shell")
 
 
 async def test_stream_session_run_events_rejects_mismatched_existing_workspace(
@@ -557,7 +557,7 @@ async def test_stream_session_run_events_inherits_last_persisted_thinking_when_o
     assert [event.type for event in events] == ["run_started", "run_succeeded"]
     assert captured["prompt"] == "second"
     assert captured["thinking"] == "high"
-    assert captured["deps"] == WorkspaceDeps(workspace_root=workspace_root)
+    assert captured["deps"] == WorkspaceDeps.from_workspace_root(workspace_root)
     assert captured["enable_server_history"] is True
     loaded = load_session(path=session_path, workspace_root=workspace_root)
     assert [run.thinking for run in loaded.runs] == ["high", "high"]

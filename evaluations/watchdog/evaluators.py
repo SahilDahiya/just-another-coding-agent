@@ -27,17 +27,17 @@ def has_long_tool_span(
 
 
 @dataclass
-class BashHeavyWithoutEditsEvaluator(Evaluator[object, object, object]):
-    min_bash_spans: int = 3
+class ShellHeavyWithoutEditsEvaluator(Evaluator[object, object, object]):
+    min_shell_spans: int = 3
 
     def evaluate(self, ctx: EvaluatorContext[object, object, object]) -> bool:
         bash_spans = ctx.span_tree.find(
             {
                 "name_equals": TOOL_SPAN_NAME,
-                "has_attributes": {TOOL_NAME_ATTRIBUTE: "bash"},
+                "has_attributes": {TOOL_NAME_ATTRIBUTE: "shell"},
             }
         )
-        if len(bash_spans) < self.min_bash_spans:
+        if len(bash_spans) < self.min_shell_spans:
             return False
 
         edit_like_spans = [
@@ -57,4 +57,4 @@ class BashHeavyWithoutEditsEvaluator(Evaluator[object, object, object]):
         return not edit_like_spans
 
 
-__all__ = ["BashHeavyWithoutEditsEvaluator", "has_long_tool_span"]
+__all__ = ["ShellHeavyWithoutEditsEvaluator", "has_long_tool_span"]

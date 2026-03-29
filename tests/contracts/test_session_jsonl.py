@@ -316,14 +316,15 @@ def test_append_and_load_session_preserves_tool_call_updates(tmp_path) -> None:
         ToolCallStartedEvent(
             run_id="run-1",
             tool_call_id="call-bash",
-            tool_name="bash",
+            tool_name="shell",
             args={"command": "sleep 1"},
             args_valid=True,
             activity=ToolActivity(
-                title="bash sleep 1",
+                title="shell sleep 1",
                 details={
-                    "kind": "bash",
+                    "kind": "shell",
                     "command_preview": "sleep 1",
+                    "shell_family": "posix",
                     "timeout": None,
                     "exit_code": None,
                 },
@@ -332,15 +333,16 @@ def test_append_and_load_session_preserves_tool_call_updates(tmp_path) -> None:
         ToolCallUpdatedEvent(
             run_id="run-1",
             tool_call_id="call-bash",
-            tool_name="bash",
+            tool_name="shell",
             partial_result={"output": "still running"},
             activity=ToolActivity(
-                title="bash sleep 1",
+                title="shell sleep 1",
                 summary="command still running",
                 duration_ms=250,
                 details={
-                    "kind": "bash",
+                    "kind": "shell",
                     "command_preview": "sleep 1",
+                    "shell_family": "posix",
                     "timeout": None,
                     "exit_code": None,
                 },
@@ -349,15 +351,16 @@ def test_append_and_load_session_preserves_tool_call_updates(tmp_path) -> None:
         ToolCallSucceededEvent(
             run_id="run-1",
             tool_call_id="call-bash",
-            tool_name="bash",
+            tool_name="shell",
             result={"exit_code": 0, "output": "done"},
             activity=ToolActivity(
-                title="bash sleep 1",
+                title="shell sleep 1",
                 summary="command exited 0",
                 duration_ms=500,
                 details={
-                    "kind": "bash",
+                    "kind": "shell",
                     "command_preview": "sleep 1",
+                    "shell_family": "posix",
                     "timeout": None,
                     "exit_code": 0,
                 },
@@ -515,7 +518,7 @@ def test_load_session_fails_when_tool_update_has_no_started_call(tmp_path) -> No
                 "type": "tool_call_updated",
                 "run_id": "run-1",
                 "tool_call_id": "call-bash",
-                "tool_name": "bash",
+                "tool_name": "shell",
                 "partial_result": {"output": "still running"},
                 "activity": None,
             },

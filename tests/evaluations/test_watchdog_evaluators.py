@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 from pydantic_evals.otel.span_tree import SpanNode, SpanTree
 
 from evaluations.watchdog.evaluators import (
-    BashHeavyWithoutEditsEvaluator,
+    ShellHeavyWithoutEditsEvaluator,
     has_long_tool_span,
 )
 from just_another_coding_agent.runtime.tracing import (
@@ -63,11 +63,11 @@ def test_has_long_tool_span_matches_long_bash_tool_span() -> None:
             span_id=2,
             parent_span_id=1,
             duration_seconds=12,
-            attributes={TOOL_NAME_ATTRIBUTE: "bash"},
+            attributes={TOOL_NAME_ATTRIBUTE: "shell"},
         )
     )
 
-    evaluator = has_long_tool_span(tool_name="bash", min_duration_seconds=10)
+    evaluator = has_long_tool_span(tool_name="shell", min_duration_seconds=10)
 
     assert evaluator.evaluate(_FakeEvaluatorContext(span_tree=tree)) is True
 
@@ -79,24 +79,24 @@ def test_bash_heavy_without_edits_evaluator_detects_probe_loop() -> None:
             span_id=2,
             parent_span_id=1,
             duration_seconds=1,
-            attributes={TOOL_NAME_ATTRIBUTE: "bash"},
+            attributes={TOOL_NAME_ATTRIBUTE: "shell"},
         ),
         _node(
             name=TOOL_SPAN_NAME,
             span_id=3,
             parent_span_id=1,
             duration_seconds=1,
-            attributes={TOOL_NAME_ATTRIBUTE: "bash"},
+            attributes={TOOL_NAME_ATTRIBUTE: "shell"},
         ),
         _node(
             name=TOOL_SPAN_NAME,
             span_id=4,
             parent_span_id=1,
             duration_seconds=1,
-            attributes={TOOL_NAME_ATTRIBUTE: "bash"},
+            attributes={TOOL_NAME_ATTRIBUTE: "shell"},
         ),
     )
 
-    evaluator = BashHeavyWithoutEditsEvaluator(min_bash_spans=3)
+    evaluator = ShellHeavyWithoutEditsEvaluator(min_shell_spans=3)
 
     assert evaluator.evaluate(_FakeEvaluatorContext(span_tree=tree)) is True

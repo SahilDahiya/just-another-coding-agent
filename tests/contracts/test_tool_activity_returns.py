@@ -6,13 +6,14 @@ from types import SimpleNamespace
 import pytest
 from pydantic_ai.messages import ToolReturn
 
-from just_another_coding_agent.tools.bash import bash
+from just_another_coding_agent.contracts.platform import detect_default_shell_family
 from just_another_coding_agent.tools.deps import WorkspaceDeps
 from just_another_coding_agent.tools.edit import edit
 from just_another_coding_agent.tools.find import find
 from just_another_coding_agent.tools.grep import grep
 from just_another_coding_agent.tools.ls import ls
 from just_another_coding_agent.tools.read import read
+from just_another_coding_agent.tools.shell import shell
 from just_another_coding_agent.tools.write import write
 
 
@@ -20,7 +21,7 @@ def _ctx(tmp_path):
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
     return SimpleNamespace(
-        deps=WorkspaceDeps(workspace_root=workspace_root),
+        deps=WorkspaceDeps.from_workspace_root(workspace_root),
         tool_call_id="call-1",
         tool_name="tool",
     )
@@ -154,20 +155,29 @@ def test_find_returns_tool_owned_activity_metadata(tmp_path) -> None:
     }
 
 
-async def test_bash_returns_tool_owned_activity_metadata(tmp_path, monkeypatch) -> None:
+async def test_shell_returns_tool_owned_activity_metadata(
+    tmp_path,
+    monkeypatch,
+) -> None:
     ctx = _ctx(tmp_path)
     monkeypatch.chdir(tmp_path)
+    command = (
+        "[Console]::Out.Write('ok')"
+        if detect_default_shell_family() == "powershell"
+        else "printf ok"
+    )
 
-    result = await bash(ctx, "printf ok", 9)
+    result = await shell(ctx, command, 9)
 
     assert isinstance(result, ToolReturn)
     assert result.return_value == {"exit_code": 0, "output": "ok"}
     assert result.metadata == {
-        "title": "bash printf ok",
+        "title": f"shell {command}",
         "summary": "command exited 0",
         "details": {
-            "kind": "bash",
-            "command_preview": "printf ok",
+            "kind": "shell",
+            "command_preview": command,
+            "shell_family": detect_default_shell_family(),
             "timeout": 9,
             "deferred": False,
             "exit_code": 0,

@@ -61,7 +61,7 @@ Canonical tool set for the first maintained version:
 - `read`
 - `write`
 - `edit`
-- `bash`
+- `shell`
 - `grep`
 - `ls`
 - `find`
@@ -87,9 +87,9 @@ Expected tool-domain error result:
 
 Initial executable tool slice:
 
-- canonical registry names: `read`, `write`, `edit`, `bash`, `grep`, `ls`, `find`
+- canonical registry names: `read`, `write`, `edit`, `shell`, `grep`, `ls`, `find`
 - unknown tool names fail explicitly
-- initial concrete tool implementations: `read`, `write`, `edit`, `bash`, `grep`, `ls`, `find`
+- initial concrete tool implementations: `read`, `write`, `edit`, `shell`, `grep`, `ls`, `find`
 
 `read` input contract:
 
@@ -109,7 +109,7 @@ Initial executable tool slice:
 - when `limit` is omitted, `read` must still bound output size explicitly instead of dumping arbitrarily large files
 - the canonical bounded-read ceiling is `2000` lines or `50 KiB`, whichever is hit first
 - when the bounded-read ceiling is hit, the result must include an explicit continuation hint using the next `offset`
-- if the first requested line alone exceeds the byte ceiling, the result must return an explicit recovery instruction telling the model to use `bash` for a narrower read
+- if the first requested line alone exceeds the byte ceiling, the result must return an explicit recovery instruction telling the model to use `shell` for a narrower read
 - missing files return an explicit tool error result
 - directory paths return an explicit tool error result
 - offsets beyond end-of-file return an explicit tool error result
@@ -155,20 +155,20 @@ Initial executable tool slice:
 - when normalized fallback is used, matching is computed in normalized space but replacement is applied to the original LF-normalized file content so unmatched surrounding text is preserved
 - on success, the model-facing tool result remains a short confirmation string, while any UI-only diff payload must travel through a separate internal metadata channel and be normalized into typed activity details before it becomes part of the public contract
 
-`bash` input contract:
+`shell` input contract:
 
 - fields: `command`, `timeout`, `defer`
 - `command` must be a non-empty string
 - `timeout` is optional and, when present, must be a positive integer number of seconds
 - `defer` is optional and, when present, must be a boolean
 
-`bash` behavior contract:
+`shell` behavior contract:
 
-- executes one local `bash -lc` command in the configured workspace root
+- executes one local shell command in the configured workspace root using the active shell family (`posix` or `powershell`)
 - sets command cwd to the configured workspace root, but does not sandbox filesystem access outside that root
 - `defer=true` is the explicit contract for genuinely long shell, build, or test work; the runtime may execute that call through PydanticAI deferred-tool continuation while preserving one canonical public run
 - returns a JSON-compatible success result with fields `exit_code` and `output`
-- successful `bash` results always use `exit_code: 0`
+- successful `shell` results always use `exit_code: 0`
 - `output` is the combined stdout and stderr decoded as UTF-8
 - large `output` is tail-bounded to the last `2000` lines or `50 KiB`, whichever is hit first
 - when `output` is truncated, the result must include an explicit notice with the temp-file path holding the full output
@@ -302,7 +302,7 @@ Initial tool lifecycle slice:
 
 Initial typed `details` slice:
 
-- `bash`
+- `shell`
   - `kind`, `command_preview`, `timeout`, `deferred`, `exit_code`
 - `read`
   - `kind`, `path`, `offset`, `limit`
@@ -332,7 +332,7 @@ Rules for the initial activity slice:
 Canonical tool concurrency policy:
 
 - `read`, `grep`, `find`, and `ls` are parallel-eligible
-- `write`, `edit`, and `bash` are sequential only
+- `write`, `edit`, and `shell` are sequential only
 - the runtime must set tool execution mode explicitly instead of relying on framework defaults
 - provider-side `parallel_tool_calls` is enabled by default for canonical model/provider paths; carve-outs should be explicit when a specific model path is known not to support it correctly
 

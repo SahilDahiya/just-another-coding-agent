@@ -17,9 +17,13 @@ var envKeys = []string{
 }
 
 func ConfigPath() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
+	home := os.Getenv("HOME")
+	if home == "" {
+		var err error
+		home, err = os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
 	}
 	return filepath.Join(home, ".jaca", "config.json"), nil
 }

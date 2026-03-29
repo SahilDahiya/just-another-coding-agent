@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 import sysconfig
 from collections.abc import Mapping
@@ -40,3 +41,26 @@ def resolve_go_tui_binary() -> Path:
             f"`{go_tui_install_command()}`: {binary}"
         )
     return binary
+
+
+def find_go_tui_repo_root(start: Path | None = None) -> Path | None:
+    current = Path(__file__).resolve() if start is None else start.resolve()
+    for candidate in (current, *current.parents):
+        if (
+            (candidate / "pyproject.toml").is_file()
+            and (candidate / "go.mod").is_file()
+            and (candidate / "cmd" / "jaca" / "main.go").is_file()
+        ):
+            return candidate
+    return None
+
+
+def resolve_go_tui_launch() -> tuple[list[str], Path | None]:
+    try:
+        binary = resolve_go_tui_binary()
+    except RuntimeError as binary_error:
+        repo_root = find_go_tui_repo_root()
+        if repo_root is not None and shutil.which("go"):
+            return ["go", "run", "./cmd/jaca"], repo_root
+        raise binary_error
+    return [str(binary)], None

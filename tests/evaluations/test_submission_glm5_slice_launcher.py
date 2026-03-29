@@ -1,7 +1,8 @@
 import os
-import shutil
 import subprocess
 from pathlib import Path
+
+import pytest
 
 SCRIPT_PATH = (
     Path(__file__).resolve().parents[2]
@@ -9,10 +10,11 @@ SCRIPT_PATH = (
     / "scripts"
     / "run_tb2_submission_glm5_slice.sh"
 )
+GIT_BASH_PATH = Path(r"C:\Program Files\Git\bin\bash.exe")
 
 
 def _write_executable(path: Path, content: str) -> None:
-    path.write_text(content)
+    path.write_text(content, encoding="utf-8", newline="\n")
     path.chmod(0o755)
 
 
@@ -21,8 +23,36 @@ def _copy_launcher(tmp_path: Path) -> Path:
     scripts_dir = repo_root / "evaluations" / "scripts"
     scripts_dir.mkdir(parents=True)
     launcher_path = scripts_dir / SCRIPT_PATH.name
-    shutil.copy2(SCRIPT_PATH, launcher_path)
+    launcher_path.write_text(
+        SCRIPT_PATH.read_text(encoding="utf-8").replace("\r\n", "\n"),
+        encoding="utf-8",
+        newline="\n",
+    )
+    launcher_path.chmod(0o755)
     return launcher_path
+
+
+def _launcher_command(path: Path) -> list[str]:
+    if os.name == "nt":
+        return [_bash_executable(), _bash_path(path)]
+    return [str(path)]
+
+
+def _bash_path(path: Path) -> str:
+    resolved = path.resolve()
+    if os.name != "nt":
+        return str(resolved)
+    drive = resolved.drive.rstrip(":").lower()
+    tail = resolved.as_posix()[2:]
+    return f"/{drive}{tail}"
+
+
+def _bash_executable() -> str:
+    if os.name != "nt":
+        return "bash"
+    if not GIT_BASH_PATH.exists():
+        pytest.skip("Git Bash is required to execute shell launcher tests on Windows")
+    return str(GIT_BASH_PATH)
 
 
 def _write_task_file(path: Path) -> None:
@@ -54,7 +84,7 @@ def _launcher_env(tmp_path: Path) -> dict[str, str]:
     env = os.environ.copy()
     env.update(
         {
-            "PATH": f"{bin_dir}:{env['PATH']}",
+            "PATH": f"{bin_dir}{os.pathsep}{env['PATH']}",
             "SKIP_DOTENV": "1",
             "OLLAMA_API_KEY": "test-key",
             "MODEL": "ollama:glm-5:cloud",
@@ -62,7 +92,7 @@ def _launcher_env(tmp_path: Path) -> dict[str, str]:
             "SUBMISSION_ID": "glm5-test",
             "TARGET_TRIALS": "5",
             "PASSES_PER_RUN": "1",
-            "TASK_FILE": str(task_file),
+            "TASK_FILE": _bash_path(task_file),
             "HARBOR_LOG": str(harbor_log),
         }
     )
@@ -82,7 +112,7 @@ def test_slice_launcher_records_completed_first_pass_and_task_names(
     env = _launcher_env(tmp_path)
 
     result = subprocess.run(
-        [str(launcher_path)],
+        _launcher_command(launcher_path),
         text=True,
         capture_output=True,
         env=env,
@@ -120,14 +150,14 @@ def test_slice_launcher_resumes_from_last_completed_pass(tmp_path: Path) -> None
     env = _launcher_env(tmp_path)
 
     first_result = subprocess.run(
-        [str(launcher_path)],
+        _launcher_command(launcher_path),
         text=True,
         capture_output=True,
         env=env,
         check=False,
     )
     second_result = subprocess.run(
-        [str(launcher_path)],
+        _launcher_command(launcher_path),
         text=True,
         capture_output=True,
         env=env,
@@ -181,7 +211,7 @@ def test_slice_launcher_status_does_not_start_harbor(tmp_path: Path) -> None:
     )
 
     result = subprocess.run(
-        [str(launcher_path)],
+        _launcher_command(launcher_path),
         text=True,
         capture_output=True,
         env=env,

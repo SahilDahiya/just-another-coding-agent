@@ -2,13 +2,14 @@ from __future__ import annotations
 
 from typing import Any
 
+from just_another_coding_agent.contracts.platform import ShellFamily
 from just_another_coding_agent.contracts.run_events import (
-    BashActivityDetails,
     EditActivityDetails,
     FindActivityDetails,
     GrepActivityDetails,
     LsActivityDetails,
     ReadActivityDetails,
+    ShellActivityDetails,
     ToolActivityDetails,
     WriteActivityDetails,
 )
@@ -27,11 +28,11 @@ def build_args_tool_title(*, tool_name: str, args: Any, args_valid: bool | None)
     if args_valid is False or not isinstance(args, dict):
         return tool_name
 
-    if tool_name == "bash":
+    if tool_name == "shell":
         command = args.get("command")
         if isinstance(command, str) and command.strip():
-            return f"bash {truncate_activity_label(command)}"
-        return "bash"
+            return f"shell {truncate_activity_label(command)}"
+        return "shell"
 
     if tool_name == "ls":
         path = args.get("path")
@@ -52,11 +53,12 @@ def build_args_tool_details(
     args: Any,
     args_valid: bool | None,
     result: Any,
+    shell_family: ShellFamily | None = None,
 ) -> ToolActivityDetails | None:
     if args_valid is False or not isinstance(args, dict):
         return None
 
-    if tool_name == "bash":
+    if tool_name == "shell":
         command = args.get("command")
         if not isinstance(command, str) or not command.strip():
             return None
@@ -65,8 +67,10 @@ def build_args_tool_details(
             raw_exit_code = result.get("exit_code")
             if isinstance(raw_exit_code, int):
                 exit_code = raw_exit_code
-        return BashActivityDetails(
+        effective_shell_family = shell_family or "posix"
+        return ShellActivityDetails(
             command_preview=truncate_activity_label(command),
+            shell_family=effective_shell_family,
             timeout=_optional_int(args.get("timeout")),
             deferred=bool(args.get("defer", False)),
             exit_code=exit_code,
@@ -139,7 +143,7 @@ def build_fallback_success_summary(*, tool_name: str, result: Any) -> str | None
             return message
         return "tool error"
 
-    if tool_name == "bash" and isinstance(result, dict):
+    if tool_name == "shell" and isinstance(result, dict):
         exit_code = result.get("exit_code")
         if isinstance(exit_code, int):
             return f"command exited {exit_code}"
@@ -156,7 +160,7 @@ def build_fallback_success_summary(*, tool_name: str, result: Any) -> str | None
 
 
 def build_update_summary(*, tool_name: str, partial_result: Any) -> str | None:
-    if tool_name == "bash":
+    if tool_name == "shell":
         return "command still running"
 
     if isinstance(partial_result, dict) and partial_result.get("ok") is False:

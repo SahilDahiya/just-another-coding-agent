@@ -31,7 +31,7 @@ Use PydanticAI primitives wherever they already solve the problem. Local code sh
 
 - Agent runtime for coding workflows
 - Thin first-party TUI with exactly three zones: status bar, transcript, and prompt
-- Canonical coding tools: `read`, `write`, `edit`, `bash`, `grep`, `ls`, `find`
+- Canonical coding tools: `read`, `write`, `edit`, `shell`, `grep`, `ls`, `find`
 - Streaming run events
 - Session persistence
 - JSON-over-stdio RPC

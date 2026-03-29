@@ -40,6 +40,7 @@ OLLAMA_CONTEXT_WINDOW_TOKENS_BY_PREFIX: tuple[tuple[str, int], ...] = (
     ("glm-5", 198_000),
     ("kimi-k2", 256_000),
 )
+DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434/v1"
 
 
 def resolve_canonical_model(model: Any) -> Model:
@@ -96,10 +97,7 @@ def _build_ollama_chat_model(model_id: str) -> OpenAIChatModel:
 
 
 def _build_ollama_provider() -> OllamaProvider:
-    base_url = os.environ.get("OLLAMA_BASE_URL")
-    if base_url is None:
-        return OllamaProvider()
-
+    base_url = os.environ.get("OLLAMA_BASE_URL") or DEFAULT_OLLAMA_BASE_URL
     api_key = os.environ.get("OLLAMA_API_KEY") or "api-key-not-set"
     return OllamaProvider(
         openai_client=_build_openai_compatible_client(

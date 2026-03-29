@@ -13,7 +13,7 @@ from typing import TextIO
 from just_another_coding_agent.config import apply_config_to_env, load_config
 from just_another_coding_agent.go_tui import (
     default_backend_command,
-    resolve_go_tui_binary,
+    resolve_go_tui_launch,
 )
 from just_another_coding_agent.rpc import serve_rpc_stdio
 from just_another_coding_agent.tools._workspace import normalize_workspace_root
@@ -109,9 +109,9 @@ def _run_tui(
     sessions_root: Path,
     thinking: str | None,
 ) -> int:
-    binary = resolve_go_tui_binary()
+    launch_command, launch_cwd = resolve_go_tui_launch()
     command = [
-        str(binary),
+        *launch_command,
         "--backend-command-json",
         json.dumps(default_backend_command()),
         "--model",
@@ -123,7 +123,11 @@ def _run_tui(
     ]
     if thinking is not None:
         command.extend(["--thinking", thinking])
-    completed = subprocess.run(command, check=False)
+    completed = subprocess.run(
+        command,
+        check=False,
+        cwd=None if launch_cwd is None else str(launch_cwd),
+    )
     return completed.returncode
 
 
