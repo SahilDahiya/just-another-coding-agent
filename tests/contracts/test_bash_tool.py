@@ -1,4 +1,5 @@
 import re
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -6,6 +7,7 @@ import pytest
 from pydantic import ValidationError
 from pydantic_ai import CallDeferred
 
+from just_another_coding_agent.contracts.platform import detect_default_shell_family
 from just_another_coding_agent.contracts.tools import ShellToolInput
 from just_another_coding_agent.tools.deps import WorkspaceDeps
 from just_another_coding_agent.tools.errors import ToolCommandError, ToolEncodingError
@@ -19,7 +21,62 @@ class _FakeRunContext:
     tool_name: str | None = None
 
 
-async def test_shell_tool_runs_in_explicit_workspace_root_on_powershell(
+def _test_shell_family() -> str:
+    return detect_default_shell_family()
+
+
+def _powershell_available() -> bool:
+    executable = (
+        "powershell.exe"
+        if detect_default_shell_family() == "powershell"
+        else "pwsh"
+    )
+    return shutil.which(executable) is not None
+
+
+def _workspace_command() -> str:
+    if _test_shell_family() == "powershell":
+        return "Get-Location | Select-Object -ExpandProperty Path"
+    return "pwd"
+
+
+def _non_zero_command() -> str:
+    if _test_shell_family() == "powershell":
+        return "Write-Error 'boom'; exit 7"
+    return "printf boom; exit 7"
+
+
+def _empty_output_command() -> str:
+    if _test_shell_family() == "powershell":
+        return "$null = 1"
+    return ":"
+
+
+def _hello_command() -> str:
+    if _test_shell_family() == "powershell":
+        return "[Console]::Out.Write('hello')"
+    return "printf hello"
+
+
+def _timeout_command() -> str:
+    if _test_shell_family() == "powershell":
+        return "[Console]::Out.Write('partial output'); Start-Sleep -Seconds 2"
+    return "printf 'partial output'; sleep 2"
+
+
+def _large_output_command() -> str:
+    if _test_shell_family() == "powershell":
+        return '1..2104 | ForEach-Object { "line $_" }'
+    return "i=1; while [ $i -le 2104 ]; do printf 'line %s\\n' \"$i\"; i=$((i+1)); done"
+
+
+def _invalid_utf8_command() -> str:
+    if _test_shell_family() == "powershell":
+        return "[Console]::OpenStandardOutput().WriteByte(255)"
+    return "printf '\\377'"
+
+
+async def test_shell_tool_runs_in_explicit_workspace_root(
     tmp_path,
     monkeypatch,
 ) -> None:
@@ -30,11 +87,9 @@ async def test_shell_tool_runs_in_explicit_workspace_root_on_powershell(
     monkeypatch.chdir(other_dir)
 
     result = await execute_shell(
-        tool_input=ShellToolInput(
-            command="Get-Location | Select-Object -ExpandProperty Path"
-        ),
+        tool_input=ShellToolInput(command=_workspace_command()),
         workspace_root=workspace_root,
-        shell_family="powershell",
+        shell_family=_test_shell_family(),
     )
 
     assert result["exit_code"] == 0
@@ -54,9 +109,9 @@ async def test_shell_tool_fails_on_non_zero_exit_and_includes_output(
         match=r"boom[\s\S]*Command exited with code 7",
     ):
         await execute_shell(
-            tool_input=ShellToolInput(command="Write-Error 'boom'; exit 7"),
+            tool_input=ShellToolInput(command=_non_zero_command()),
             workspace_root=workspace_root,
-            shell_family="powershell",
+            shell_family=_test_shell_family(),
         )
 
 
@@ -69,9 +124,9 @@ async def test_shell_tool_returns_empty_output_when_command_prints_nothing(
     monkeypatch.chdir(tmp_path)
 
     result = await execute_shell(
-        tool_input=ShellToolInput(command="$null = 1"),
+        tool_input=ShellToolInput(command=_empty_output_command()),
         workspace_root=workspace_root,
-        shell_family="powershell",
+        shell_family=_test_shell_family(),
     )
 
     assert result == {"exit_code": 0, "output": ""}
@@ -96,7 +151,7 @@ async def test_execute_shell_accepts_minimal_execution_context_and_streams_updat
     ctx = _FakeRunContext(
         deps=WorkspaceDeps(
             workspace_root=workspace_root,
-            shell_family="powershell",
+            shell_family=_test_shell_family(),
             tool_update_sink=sink,
         ),
         tool_call_id="call-shell",
@@ -105,9 +160,9 @@ async def test_execute_shell_accepts_minimal_execution_context_and_streams_updat
 
     result = await execute_shell(
         ctx=ctx,
-        tool_input=ShellToolInput(command="[Console]::Out.Write('hello')"),
+        tool_input=ShellToolInput(command=_hello_command()),
         workspace_root=workspace_root,
-        shell_family="powershell",
+        shell_family=_test_shell_family(),
     )
 
     assert result == {"exit_code": 0, "output": "hello"}
@@ -162,14 +217,11 @@ async def test_shell_tool_fails_on_timeout(monkeypatch, tmp_path) -> None:
     ):
         await execute_shell(
             tool_input=ShellToolInput(
-                command=(
-                    "[Console]::Out.Write('partial output'); "
-                    "Start-Sleep -Seconds 2"
-                ),
+                command=_timeout_command(),
                 timeout=1,
             ),
             workspace_root=workspace_root,
-            shell_family="powershell",
+            shell_family=_test_shell_family(),
         )
 
 
@@ -182,11 +234,9 @@ async def test_shell_tool_truncates_large_output_and_saves_full_output(
     monkeypatch.chdir(tmp_path)
 
     result = await execute_shell(
-        tool_input=ShellToolInput(
-            command='1..2104 | ForEach-Object { "line $_" }'
-        ),
+        tool_input=ShellToolInput(command=_large_output_command()),
         workspace_root=workspace_root,
-        shell_family="powershell",
+        shell_family=_test_shell_family(),
     )
 
     assert result["exit_code"] == 0
@@ -212,12 +262,31 @@ async def test_shell_tool_fails_for_invalid_utf8_output(monkeypatch, tmp_path) -
 
     with pytest.raises(ToolEncodingError):
         await execute_shell(
-            tool_input=ShellToolInput(
-                command="[Console]::OpenStandardOutput().WriteByte(255)"
-            ),
+            tool_input=ShellToolInput(command=_invalid_utf8_command()),
             workspace_root=workspace_root,
-            shell_family="powershell",
+            shell_family=_test_shell_family(),
         )
+
+
+@pytest.mark.skipif(
+    not _powershell_available(),
+    reason="PowerShell runner not available on this host",
+)
+async def test_execute_shell_supports_explicit_powershell_runner(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    monkeypatch.chdir(tmp_path)
+
+    result = await execute_shell(
+        tool_input=ShellToolInput(command="[Console]::Out.Write('ok')"),
+        workspace_root=workspace_root,
+        shell_family="powershell",
+    )
+
+    assert result == {"exit_code": 0, "output": "ok"}
 
 
 async def test_execute_shell_uses_posix_runner_for_posix_shell_family(

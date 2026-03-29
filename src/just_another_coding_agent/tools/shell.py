@@ -130,7 +130,7 @@ async def _terminate_process(
     if process.returncode is not None:
         return
 
-    if shell_family == "powershell":
+    if shell_family == "powershell" and os.name == "nt":
         taskkill = await asyncio.create_subprocess_exec(
             "taskkill",
             "/PID",
@@ -169,13 +169,8 @@ async def _publish_shell_update(
 
 def _shell_command_prefix(shell_family: ShellFamily) -> tuple[str, ...]:
     if shell_family == "powershell":
-        return (
-            "powershell.exe",
-            "-NoLogo",
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-        )
+        executable = "powershell.exe" if os.name == "nt" else "pwsh"
+        return (executable, "-NoLogo", "-NoProfile", "-NonInteractive", "-Command")
     return ("sh", "-lc")
 
 
