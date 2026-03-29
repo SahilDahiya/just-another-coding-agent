@@ -276,13 +276,22 @@ def test_main_parses_args_and_runs_stdio_server(tmp_path, monkeypatch) -> None:
     input_stream = io.StringIO("")
     output_stream = io.StringIO()
     captured: dict[str, object] = {}
+    call_order: list[str] = []
 
     async def fake_serve_rpc_stdio(**kwargs) -> None:
+        call_order.append("serve")
         captured.update(kwargs)
+
+    def fake_configure_observability() -> None:
+        call_order.append("configure")
 
     monkeypatch.setattr(
         "just_another_coding_agent.__main__.serve_rpc_stdio",
         fake_serve_rpc_stdio,
+    )
+    monkeypatch.setattr(
+        "just_another_coding_agent.__main__.configure_observability",
+        fake_configure_observability,
     )
 
     exit_code = main(
@@ -301,6 +310,7 @@ def test_main_parses_args_and_runs_stdio_server(tmp_path, monkeypatch) -> None:
 
     assert exit_code == 0
     assert sessions_root.is_dir()
+    assert call_order == ["configure", "serve"]
     assert captured == {
         "input_stream": input_stream,
         "output_stream": output_stream,

@@ -16,6 +16,9 @@ from just_another_coding_agent.go_tui import (
     resolve_go_tui_launch,
 )
 from just_another_coding_agent.rpc import serve_rpc_stdio
+from just_another_coding_agent.runtime.observability import (
+    configure_observability,
+)
 from just_another_coding_agent.tools._workspace import normalize_workspace_root
 
 apply_config_to_env(load_config())
@@ -87,6 +90,7 @@ def _run_headless(
     input_stream: TextIO | None,
     output_stream: TextIO | None,
 ) -> int:
+    configure_observability()
     try:
         asyncio.run(
             serve_rpc_stdio(
