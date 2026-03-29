@@ -178,35 +178,11 @@ func renderPrompt(vm viewModel) string {
 func renderStreamRule(
 	width int,
 	phase Phase,
-	pulse int,
-	sinceLastDelta time.Duration,
-	motionTick int,
+	_ int,
+	_ time.Duration,
+	_ int,
 	baseColor lipgloss.TerminalColor,
 ) string {
-	if phase != PhaseStreaming && phase != PhaseCompacting {
-		return lipgloss.NewStyle().Foreground(baseColor).Render(strings.Repeat("─", width))
-	}
-
-	// Pulse: data just arrived — use heavy chars
-	if pulse > 0 {
-		color := defaultTheme.accentSoft
-		if pulse >= 2 {
-			color = defaultTheme.accent
-		}
-		return lipgloss.NewStyle().Foreground(color).Bold(true).Render(strings.Repeat("━", width))
-	}
-
-	// Breathing: waiting for data — cycle between dim and mid brightness
-	breathing := sinceLastDelta > 500*time.Millisecond || sinceLastDelta == 0
-	if breathing {
-		cycle := motionTick % 8
-		if cycle < 4 {
-			return lipgloss.NewStyle().Foreground(defaultTheme.border).Render(strings.Repeat("─", width))
-		}
-		return lipgloss.NewStyle().Foreground(defaultTheme.borderStrong).Render(strings.Repeat("─", width))
-	}
-
-	// Recently active but not pulsing — normal phase color
 	return lipgloss.NewStyle().Foreground(baseColor).Render(strings.Repeat("─", width))
 }
 
