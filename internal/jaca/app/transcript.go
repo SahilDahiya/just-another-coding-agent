@@ -24,8 +24,6 @@ const (
 	transcriptBlockAssistantMarkdown
 )
 
-var brailleSpinner = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
-
 type Transcript struct {
 	blocks           []transcriptBlock
 	liveAssistantIdx int
@@ -259,16 +257,8 @@ func (t *Transcript) WriteUserTurn(prompt string) {
 	t.endLiveAssistant()
 	t.ensureBlockGap()
 	plainLine := "> " + prompt
-	width := t.Width
-	if width <= 0 {
-		width = 80
-	}
-	rendered := lipgloss.NewStyle().
-		Foreground(defaultTheme.text).
-		Bold(true).
-		Background(defaultTheme.border).
-		Width(width).
-		Render(plainLine)
+	rendered := lipgloss.NewStyle().Foreground(defaultTheme.accent).Bold(true).Render("❯") + " " +
+		lipgloss.NewStyle().Foreground(defaultTheme.text).Bold(true).Render(prompt)
 	t.appendBlock(transcriptBlock{
 		plain:    plainLine + "\n",
 		rendered: rendered + "\n",

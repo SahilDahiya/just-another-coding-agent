@@ -107,12 +107,19 @@ func (m *model) commitSlashSuggestion() {
 }
 
 func (m *model) currentProvider() string {
-	if cfg, err := config.Load(); err == nil {
-		switch strings.ToLower(cfg["default_provider"]) {
-		case "openai", "anthropic", "ollama":
-			return strings.ToLower(cfg["default_provider"])
-		}
+	cfg, err := config.Load()
+	if err != nil {
+		return m.providerFromModel()
 	}
+	switch strings.ToLower(cfg["default_provider"]) {
+	case "openai", "anthropic", "ollama":
+		return strings.ToLower(cfg["default_provider"])
+	default:
+		return m.providerFromModel()
+	}
+}
+
+func (m *model) providerFromModel() string {
 	switch {
 	case strings.HasPrefix(strings.ToLower(m.options.Model), "openai:"):
 		return "openai"
