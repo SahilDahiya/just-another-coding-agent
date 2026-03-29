@@ -62,9 +62,11 @@ type viewModel struct {
 	SessionID     string
 	MotionTick    int
 	Transcript    string
-	PromptValue   string
-	PromptFooter  string
-	RunElapsed    time.Duration
+	PromptValue    string
+	PromptFooter   string
+	RunElapsed     time.Duration
+	LinePulse      int
+	SinceLastDelta time.Duration
 	VisibleZones  int
 	SlashMenu     slashMenuState
 }
@@ -149,7 +151,7 @@ func renderPrompt(vm viewModel) string {
 	if width <= 0 {
 		width = 80
 	}
-	rule := lipgloss.NewStyle().Foreground(rowBorder).Render(strings.Repeat("─", width))
+	rule := renderStreamRule(width, vm.Phase, vm.LinePulse, vm.SinceLastDelta, vm.MotionTick, rowBorder)
 	ruleInner := lipgloss.NewStyle().Foreground(defaultTheme.border).Render(strings.Repeat("─", width))
 
 	promptParts := make([]string, 0, 6)
@@ -171,6 +173,41 @@ func renderPrompt(vm viewModel) string {
 	)
 
 	return lipgloss.JoinVertical(lipgloss.Left, promptParts...)
+}
+
+func renderStreamRule(
+	width int,
+	phase Phase,
+	pulse int,
+	sinceLastDelta time.Duration,
+	motionTick int,
+	baseColor lipgloss.TerminalColor,
+) string {
+	if phase != PhaseStreaming && phase != PhaseCompacting {
+		return lipgloss.NewStyle().Foreground(baseColor).Render(strings.Repeat("─", width))
+	}
+
+	// Pulse: data just arrived — use heavy chars
+	if pulse > 0 {
+		color := defaultTheme.accentSoft
+		if pulse >= 2 {
+			color = defaultTheme.accent
+		}
+		return lipgloss.NewStyle().Foreground(color).Bold(true).Render(strings.Repeat("━", width))
+	}
+
+	// Breathing: waiting for data — cycle between dim and mid brightness
+	breathing := sinceLastDelta > 500*time.Millisecond || sinceLastDelta == 0
+	if breathing {
+		cycle := motionTick % 8
+		if cycle < 4 {
+			return lipgloss.NewStyle().Foreground(defaultTheme.border).Render(strings.Repeat("─", width))
+		}
+		return lipgloss.NewStyle().Foreground(defaultTheme.borderStrong).Render(strings.Repeat("─", width))
+	}
+
+	// Recently active but not pulsing — normal phase color
+	return lipgloss.NewStyle().Foreground(baseColor).Render(strings.Repeat("─", width))
 }
 
 func renderSlashMenu(state slashMenuState) string {

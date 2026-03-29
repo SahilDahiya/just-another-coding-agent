@@ -81,6 +81,8 @@ type model struct {
 	editPreviousArmed  bool
 	promptFooterNotice string
 	runStartTime       time.Time
+	lastDeltaTime      time.Time
+	linePulse          int
 	pendingAssistant   string
 	liveFlushScheduled bool
 	asyncCh            chan tea.Msg
@@ -138,6 +140,9 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case motionTickMsg:
 		m.motionTick++
+		if m.linePulse > 0 {
+			m.linePulse--
+		}
 		return m, waitForMotionTick()
 	case liveFlushMsg:
 		m.liveFlushScheduled = false
@@ -197,6 +202,8 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if msg.Event.Type == "assistant_text_delta" {
 			m.pendingAssistant += msg.Event.Delta
+			m.lastDeltaTime = time.Now()
+			m.linePulse = 3
 			return m, tea.Batch(listenAsync(m.asyncCh), m.scheduleLiveFlush())
 		}
 		m.flushPendingAssistantDelta()
@@ -232,17 +239,23 @@ func (m *model) View() string {
 	if m.streaming && !m.runStartTime.IsZero() {
 		elapsed = time.Since(m.runStartTime)
 	}
+	var sinceLastDelta time.Duration
+	if m.streaming && !m.lastDeltaTime.IsZero() {
+		sinceLastDelta = time.Since(m.lastDeltaTime)
+	}
 	return renderView(viewModel{
-		Phase:         m.phase,
-		Model:         m.options.Model,
-		WorkspaceRoot: m.options.WorkspaceRoot,
-		Thinking:      m.options.Thinking,
-		SessionID:     m.sessionID,
-		MotionTick:    m.motionTick,
-		Transcript:    m.viewport.View(),
-		PromptValue:   m.promptView(),
-		PromptFooter:  m.promptFooterNotice,
-		RunElapsed:    elapsed,
+		Phase:          m.phase,
+		Model:          m.options.Model,
+		WorkspaceRoot:  m.options.WorkspaceRoot,
+		Thinking:       m.options.Thinking,
+		SessionID:      m.sessionID,
+		MotionTick:     m.motionTick,
+		Transcript:     m.viewport.View(),
+		PromptValue:    m.promptView(),
+		PromptFooter:   m.promptFooterNotice,
+		RunElapsed:     elapsed,
+		LinePulse:      m.linePulse,
+		SinceLastDelta: sinceLastDelta,
 		VisibleZones:  m.visibleZones,
 		SlashMenu:     m.slashMenu,
 	})
