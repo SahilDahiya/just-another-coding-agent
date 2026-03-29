@@ -351,9 +351,10 @@ Important diagnostic note:
 
 - session JSONL now appends `session_run` and `session_event` lines as the run
   streams, and appends `session_messages` only after terminal completion
-- a timed-out or interrupted run can therefore leave an incomplete trailing run
-  on disk, and authoritative `load_session(...)` will fail hard instead of
-  silently hiding it
+- cancellation that unwinds through the session coordinator now finalizes as
+  terminal `run_failed`, but crashes or external termination before
+  finalization can still leave an incomplete trailing run on disk, and
+  authoritative `load_session(...)` will fail hard instead of silently hiding it
 - for timeout investigations, check `exec-prompt-phases.json` and
   `exec-prompt-rpc-transcript.jsonl` before assuming the backend never started
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator, Sequence
 from pathlib import Path
 from typing import Any
@@ -8,9 +9,18 @@ from pydantic_ai import capture_run_messages
 from pydantic_ai.messages import ModelMessage
 
 from just_another_coding_agent.contracts.platform import detect_default_shell_family
-from just_another_coding_agent.contracts.run_events import RunEvent
+from just_another_coding_agent.contracts.run_events import (
+    RunEvent,
+    RunFailedEvent,
+    RunStartedEvent,
+    RunSucceededEvent,
+    ToolCallFailedEvent,
+    ToolCallStartedEvent,
+    ToolCallSucceededEvent,
+)
 from just_another_coding_agent.contracts.thinking import ThinkingSetting
 from just_another_coding_agent.contracts.tools import CANONICAL_TOOL_NAMES
+from just_another_coding_agent.runtime.activity import build_failed_tool_activity
 from just_another_coding_agent.runtime.agent import build_canonical_agent
 from just_another_coding_agent.runtime.compaction import (
     build_session_history_processor,
@@ -40,9 +50,11 @@ async def stream_session_run_events(
     """Stream one run and persist session entries incrementally.
 
     The canonical session format only becomes loadable after terminal
-    completion, when session_messages are appended. Interrupted runs remain
-    visible on disk as incomplete trailing runs and load_session(...) fails
-    hard instead of silently hiding them.
+    completion, when session_messages are appended. Consumer abandonment or
+    backend crashes before finalization remain visible on disk as incomplete
+    trailing runs and load_session(...) fails hard instead of silently hiding
+    them. Cancellation that unwinds through this generator is finalized as a
+    terminal run_failed so future runs can resume the session cleanly.
     """
     normalized_workspace_root = normalize_workspace_root(workspace_root)
     shell_family = detect_default_shell_family()
@@ -90,48 +102,93 @@ async def stream_session_run_events(
     )
     run_appender = None
     authoritative_messages: list[ModelMessage] | None = None
+    pending_tool_calls: dict[str, ToolCallStartedEvent] = {}
+    active_run_id: str | None = None
+    should_finalize = False
 
     def _record_message_history(messages: Sequence[ModelMessage]) -> None:
         nonlocal authoritative_messages
         authoritative_messages = list(messages)
 
     with capture_run_messages() as messages:
-        async for event in stream_run_events(
-            agent=agent,
-            prompt=prompt,
-            message_history=(
-                loaded_session.message_history if loaded_session is not None else None
-            ),
-            thinking=resolved_thinking,
-            deps=WorkspaceDeps(
-                workspace_root=normalized_workspace_root,
-                shell_family=shell_family,
-            ),
-            enable_server_history=enable_server_history,
-            message_history_sink=_record_message_history,
-        ):
-            if run_appender is None:
-                run_appender = start_run_to_session(
-                    path=session_path,
+        try:
+            async for event in stream_run_events(
+                agent=agent,
+                prompt=prompt,
+                message_history=(
+                    loaded_session.message_history
+                    if loaded_session is not None
+                    else None
+                ),
+                thinking=resolved_thinking,
+                deps=WorkspaceDeps(
                     workspace_root=normalized_workspace_root,
                     shell_family=shell_family,
-                    run_id=event.run_id,
-                    prompt=prompt,
-                    thinking=resolved_thinking,
+                ),
+                enable_server_history=enable_server_history,
+                message_history_sink=_record_message_history,
+            ):
+                if run_appender is None:
+                    active_run_id = event.run_id
+                    run_appender = start_run_to_session(
+                        path=session_path,
+                        workspace_root=normalized_workspace_root,
+                        shell_family=shell_family,
+                        run_id=event.run_id,
+                        prompt=prompt,
+                        thinking=resolved_thinking,
+                    )
+                run_appender.append_event(event)
+                if isinstance(event, ToolCallStartedEvent):
+                    pending_tool_calls[event.tool_call_id] = event
+                elif isinstance(event, ToolCallSucceededEvent | ToolCallFailedEvent):
+                    pending_tool_calls.pop(event.tool_call_id, None)
+                elif isinstance(event, RunSucceededEvent | RunFailedEvent):
+                    should_finalize = True
+                yield event
+        except (asyncio.CancelledError, KeyboardInterrupt) as error:
+            if run_appender is not None and active_run_id is not None:
+                error_type = type(error).__name__
+                message = str(error) or "run cancelled"
+                for pending_tool_call in pending_tool_calls.values():
+                    run_appender.append_event(
+                        ToolCallFailedEvent(
+                            run_id=active_run_id,
+                            tool_call_id=pending_tool_call.tool_call_id,
+                            tool_name=pending_tool_call.tool_name,
+                            error_type=error_type,
+                            message=message,
+                            activity=build_failed_tool_activity(
+                                tool_name=pending_tool_call.tool_name,
+                                args=pending_tool_call.args,
+                                args_valid=pending_tool_call.args_valid,
+                                message=message,
+                                duration_ms=0,
+                                shell_family=shell_family,
+                            ),
+                        )
+                    )
+                pending_tool_calls.clear()
+                run_appender.append_event(
+                    RunFailedEvent(
+                        run_id=active_run_id,
+                        error_type=error_type,
+                        message=message,
+                    )
                 )
-            run_appender.append_event(event)
-            yield event
-
-    if run_appender is not None:
-        run_appender.finalize(
-            messages=restore_in_run_compaction_from_messages(
-                strip_compaction_summary_from_messages(
-                    authoritative_messages
-                    if authoritative_messages is not None
-                    else list(messages)
+                should_finalize = True
+            raise
+        finally:
+            if run_appender is not None and should_finalize:
+                run_appender.finalize(
+                    messages=restore_in_run_compaction_from_messages(
+                        strip_compaction_summary_from_messages(
+                            authoritative_messages
+                            if authoritative_messages is not None
+                            else list(messages)
+                        )
+                    )
                 )
-            )
-        )
 
 
 __all__ = ["stream_session_run_events"]

@@ -407,6 +407,7 @@ Ordering rules for the session slice:
 - `session.compact` and automatic compaction must generate summaries through a model call; the persistence layer must not invent placeholder summaries locally
 - When a new run omits `thinking`, the session-backed runtime inherits the most recent persisted non-null thinking setting from that session
 - Session-backed runtime streaming must append `session_run` and `session_event` entries incrementally as the run streams and append `session_messages` only after terminal completion
+- If cancellation unwinds through `stream_session_run_events()`, the runtime must persist terminal `tool_call_failed` events for any still-pending tool calls and then persist terminal `run_failed` before finalization
 - Persisted events for a run must satisfy the streamed run contract, including exactly one terminal outcome
 - Persisted `session_event` payloads must preserve any tool `activity` metadata unchanged
 - Appending a new run must preserve all existing lines and write the header only once
