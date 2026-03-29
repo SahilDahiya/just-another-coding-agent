@@ -146,7 +146,15 @@ func renderPrompt(vm viewModel) string {
 		footerColor = defaultTheme.err
 	}
 
-	promptParts := make([]string, 0, 4)
+	width := lipgloss.Width(vm.Transcript)
+	if width <= 0 {
+		width = 80
+	}
+	rule := lipgloss.NewStyle().Foreground(rowBorder).Render(strings.Repeat("─", width))
+	ruleInner := lipgloss.NewStyle().Foreground(defaultTheme.border).Render(strings.Repeat("─", width))
+
+	promptParts := make([]string, 0, 6)
+	promptParts = append(promptParts, rule)
 	if vm.SlashMenu.Mode != slashMenuHidden && len(vm.SlashMenu.Rows) > 0 {
 		promptParts = append(promptParts, renderSlashMenu(vm.SlashMenu))
 	}
@@ -157,25 +165,13 @@ func renderPrompt(vm viewModel) string {
 			" ",
 			lipgloss.NewStyle().Foreground(defaultTheme.textSoft).Render(vm.PromptValue),
 		),
+		ruleInner,
+		lipgloss.NewStyle().Foreground(footerColor).Render(
+			buildPromptFooterText(vm.Phase, vm.Thinking, vm.PromptFooter, vm.RunElapsed),
+		),
 	)
 
-	footerText := buildPromptFooterText(vm.Phase, vm.Thinking, vm.PromptFooter, vm.RunElapsed)
-	footer := lipgloss.NewStyle().
-		BorderTop(true).
-		BorderStyle(lipgloss.NormalBorder()).
-		BorderForeground(defaultTheme.border).
-		Foreground(footerColor).
-		Render(footerText)
-	promptParts = append(promptParts, footer)
-
-	row := lipgloss.NewStyle().
-		BorderTop(true).
-		BorderStyle(lipgloss.NormalBorder()).
-		BorderForeground(rowBorder).
-		Render(
-			lipgloss.JoinVertical(lipgloss.Left, promptParts...),
-		)
-	return row
+	return lipgloss.JoinVertical(lipgloss.Left, promptParts...)
 }
 
 func renderSlashMenu(state slashMenuState) string {
