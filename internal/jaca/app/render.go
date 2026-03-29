@@ -152,7 +152,7 @@ func renderPrompt(vm viewModel) string {
 		width = 80
 	}
 	rule := renderStreamRule(width, vm.Phase, vm.LinePulse, vm.SinceLastDelta, vm.MotionTick, rowBorder)
-	ruleInner := lipgloss.NewStyle().Foreground(defaultTheme.border).Render(strings.Repeat("─", width))
+	ruleInner := lipgloss.NewStyle().Foreground(defaultTheme.borderStrong).Render(strings.Repeat("━", width))
 
 	promptParts := make([]string, 0, 6)
 	promptParts = append(promptParts, rule)
@@ -163,7 +163,6 @@ func renderPrompt(vm viewModel) string {
 		lipgloss.JoinHorizontal(
 			lipgloss.Left,
 			lipgloss.NewStyle().Foreground(markerColor).Bold(true).Render(buildPromptMarkerText(vm.Phase, vm.MotionTick)),
-			" ",
 			vm.PromptValue,
 		),
 		ruleInner,
@@ -177,13 +176,13 @@ func renderPrompt(vm viewModel) string {
 
 func renderStreamRule(
 	width int,
-	phase Phase,
+	_ Phase,
 	_ int,
 	_ time.Duration,
 	_ int,
 	baseColor lipgloss.TerminalColor,
 ) string {
-	return lipgloss.NewStyle().Foreground(baseColor).Render(strings.Repeat("─", width))
+	return lipgloss.NewStyle().Foreground(baseColor).Render(strings.Repeat("━", width))
 }
 
 func renderSlashMenu(state slashMenuState) string {
