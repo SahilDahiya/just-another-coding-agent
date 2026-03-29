@@ -34,15 +34,18 @@ def build_started_tool_activity(
     args: Any,
     args_valid: bool | None,
     shell_family: ShellFamily | None = None,
+    group_id: str | None = None,
 ) -> ToolActivity:
     del shell_family
+    group_kind = _group_kind_for_tool(tool_name)
     return ToolActivity(
         title=_build_tool_title(
             tool_name=tool_name,
             args=args,
             args_valid=args_valid,
         ),
-        group_kind=_group_kind_for_tool(tool_name),
+        group_kind=group_kind,
+        group_id=group_id if group_kind is not None else None,
     )
 
 
@@ -55,17 +58,24 @@ def build_succeeded_tool_activity(
     result_metadata: Any = None,
     duration_ms: int,
     shell_family: ShellFamily | None = None,
+    group_id: str | None = None,
 ) -> ToolActivity:
     del shell_family
+    group_kind = _group_kind_for_tool(tool_name)
+    effective_group_id = group_id if group_kind is not None else None
+
     if result_metadata is not None:
         activity = _build_tool_activity_from_metadata(
             result_metadata=result_metadata,
             duration_ms=duration_ms,
         )
+        updates: dict[str, Any] = {}
         if activity.group_kind is None:
-            activity = activity.model_copy(
-                update={"group_kind": _group_kind_for_tool(tool_name)}
-            )
+            updates["group_kind"] = group_kind
+        if activity.group_id is None and effective_group_id is not None:
+            updates["group_id"] = effective_group_id
+        if updates:
+            activity = activity.model_copy(update=updates)
         return activity
 
     return ToolActivity(
@@ -76,7 +86,8 @@ def build_succeeded_tool_activity(
         ),
         summary=_build_fallback_success_summary(tool_name=tool_name, result=result),
         duration_ms=duration_ms,
-        group_kind=_group_kind_for_tool(tool_name),
+        group_kind=group_kind,
+        group_id=effective_group_id,
     )
 
 
@@ -88,8 +99,10 @@ def build_updated_tool_activity(
     partial_result: Any,
     duration_ms: int,
     shell_family: ShellFamily | None = None,
+    group_id: str | None = None,
 ) -> ToolActivity:
     del partial_result, shell_family
+    group_kind = _group_kind_for_tool(tool_name)
     return ToolActivity(
         title=_build_tool_title(
             tool_name=tool_name,
@@ -98,7 +111,8 @@ def build_updated_tool_activity(
         ),
         summary="command still running" if tool_name == "shell" else None,
         duration_ms=duration_ms,
-        group_kind=_group_kind_for_tool(tool_name),
+        group_kind=group_kind,
+        group_id=group_id if group_kind is not None else None,
     )
 
 
@@ -110,8 +124,10 @@ def build_failed_tool_activity(
     message: str,
     duration_ms: int,
     shell_family: ShellFamily | None = None,
+    group_id: str | None = None,
 ) -> ToolActivity:
     del shell_family
+    group_kind = _group_kind_for_tool(tool_name)
     return ToolActivity(
         title=_build_tool_title(
             tool_name=tool_name,
@@ -120,7 +136,8 @@ def build_failed_tool_activity(
         ),
         summary=message,
         duration_ms=duration_ms,
-        group_kind=_group_kind_for_tool(tool_name),
+        group_kind=group_kind,
+        group_id=group_id if group_kind is not None else None,
     )
 
 
