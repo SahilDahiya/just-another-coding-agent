@@ -12,6 +12,13 @@ import (
 
 var brailleSpinner = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
+var streamingVerbs = []string{
+	"Thinking", "Brewing", "Wandering", "Frolicking",
+	"Beboppin'", "Noodling", "Percolating", "Simmering",
+	"Riffing", "Mulling", "Tinkering", "Hatching",
+	"Meandering", "Daydreaming", "Conjuring", "Pondering",
+}
+
 type theme struct {
 	background   lipgloss.TerminalColor
 	border       lipgloss.TerminalColor
@@ -253,8 +260,10 @@ func buildPromptFooterText(phase Phase, thinking string, override string, elapse
 	}
 	switch phase {
 	case PhaseStreaming:
+		spinner := brailleSpinner[int(elapsed.Milliseconds()/240)%len(brailleSpinner)]
+		verb := streamingVerbs[int(elapsed.Seconds()/15)%len(streamingVerbs)]
 		return joinFooterParts(
-			formatElapsed(elapsed),
+			fmt.Sprintf("%s %s… (%s)", spinner, verb, formatElapsed(elapsed)),
 			"esc to interrupt",
 			buildThinkingFooterText(thinking),
 		)
