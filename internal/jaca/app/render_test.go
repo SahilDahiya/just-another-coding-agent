@@ -1,6 +1,12 @@
 package app
 
-import "testing"
+import (
+	"strings"
+	"testing"
+
+	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
+)
 
 func TestDisplayPathUsesHomeRelativePrefix(t *testing.T) {
 	original := osUserHomeDir
@@ -48,5 +54,62 @@ func TestBuildPromptFooterTextPreservesOverride(t *testing.T) {
 	want := "Conversation interrupted. Esc again to edit previous message."
 	if got != want {
 		t.Fatalf("buildPromptFooterText() = %q, want %q", got, want)
+	}
+}
+
+func TestRenderStatusUsesTrueColorPaletteWhenAvailable(t *testing.T) {
+	original := lipgloss.ColorProfile()
+	t.Cleanup(func() {
+		lipgloss.SetColorProfile(original)
+	})
+	lipgloss.SetColorProfile(termenv.TrueColor)
+
+	rendered := renderStatus(viewModel{
+		Phase:         PhaseStreaming,
+		Model:         "ollama:test",
+		WorkspaceRoot: "/workspace",
+	})
+
+	if !strings.Contains(rendered, "38;2;") {
+		t.Fatalf("renderStatus() missing truecolor escape sequence: %q", rendered)
+	}
+}
+
+func TestRenderStatusUsesAnsiPaletteWithoutTrueColorEscapes(t *testing.T) {
+	original := lipgloss.ColorProfile()
+	t.Cleanup(func() {
+		lipgloss.SetColorProfile(original)
+	})
+	lipgloss.SetColorProfile(termenv.ANSI)
+
+	rendered := renderStatus(viewModel{
+		Phase:         PhaseStreaming,
+		Model:         "ollama:test",
+		WorkspaceRoot: "/workspace",
+	})
+
+	if !strings.Contains(rendered, "\x1b[") {
+		t.Fatalf("renderStatus() missing ANSI styling: %q", rendered)
+	}
+	if strings.Contains(rendered, "38;2;") || strings.Contains(rendered, "38;5;") {
+		t.Fatalf("renderStatus() used higher color profile escapes under ANSI: %q", rendered)
+	}
+}
+
+func TestRenderStatusDropsColorInAsciiProfile(t *testing.T) {
+	original := lipgloss.ColorProfile()
+	t.Cleanup(func() {
+		lipgloss.SetColorProfile(original)
+	})
+	lipgloss.SetColorProfile(termenv.Ascii)
+
+	rendered := renderStatus(viewModel{
+		Phase:         PhaseStreaming,
+		Model:         "ollama:test",
+		WorkspaceRoot: "/workspace",
+	})
+
+	if strings.Contains(rendered, "\x1b[") {
+		t.Fatalf("renderStatus() kept ANSI escapes under Ascii profile: %q", rendered)
 	}
 }

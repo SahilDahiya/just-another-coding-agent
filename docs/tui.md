@@ -85,6 +85,7 @@ The core architectural risk is semantic drift between the Go shell and the Pytho
 - Persistent helper chrome should be minimal; slash-command discoverability must not dominate the idle shell.
 - Prompt history and draft recovery belong in the prompt zone; command palettes and secondary controls do not.
 - Completed assistant lists should read as indented terminal notes, not decorative article bullets.
+- The shell should preserve the same hierarchy across truecolor, 256-color, ANSI, and no-color terminals by using explicit palette choices, not generic hex degradation alone.
 - When transcript rows need richer semantics, prefer explicit backend `activity` or event fields over heuristic frontend interpretation.
 
 ## North Star

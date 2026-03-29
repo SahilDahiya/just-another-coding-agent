@@ -10,31 +10,39 @@ import (
 )
 
 type theme struct {
-	background   lipgloss.Color
-	border       lipgloss.Color
-	borderStrong lipgloss.Color
-	text         lipgloss.Color
-	textSoft     lipgloss.Color
-	textMuted    lipgloss.Color
-	accent       lipgloss.Color
-	accentSoft   lipgloss.Color
-	success      lipgloss.Color
-	successSoft  lipgloss.Color
-	err          lipgloss.Color
+	background   lipgloss.TerminalColor
+	border       lipgloss.TerminalColor
+	borderStrong lipgloss.TerminalColor
+	text         lipgloss.TerminalColor
+	textSoft     lipgloss.TerminalColor
+	textMuted    lipgloss.TerminalColor
+	accent       lipgloss.TerminalColor
+	accentSoft   lipgloss.TerminalColor
+	success      lipgloss.TerminalColor
+	successSoft  lipgloss.TerminalColor
+	err          lipgloss.TerminalColor
 }
 
 var defaultTheme = theme{
-	background:   lipgloss.Color("#0f1115"),
-	border:       lipgloss.Color("#2a313c"),
-	borderStrong: lipgloss.Color("#4a596d"),
-	text:         lipgloss.Color("#f1ede4"),
-	textSoft:     lipgloss.Color("#ddd7cb"),
-	textMuted:    lipgloss.Color("#a7a39a"),
-	accent:       lipgloss.Color("#d79a41"),
-	accentSoft:   lipgloss.Color("#f1c27a"),
-	success:      lipgloss.Color("#7bb07c"),
-	successSoft:  lipgloss.Color("#a7d6a5"),
-	err:          lipgloss.Color("#d46a5e"),
+	background:   themeColor("#0f1115", "233", "0"),
+	border:       themeColor("#2a313c", "238", "8"),
+	borderStrong: themeColor("#4a596d", "244", "7"),
+	text:         themeColor("#f1ede4", "255", "15"),
+	textSoft:     themeColor("#ddd7cb", "252", "7"),
+	textMuted:    themeColor("#a7a39a", "246", "8"),
+	accent:       themeColor("#d79a41", "179", "11"),
+	accentSoft:   themeColor("#f1c27a", "221", "11"),
+	success:      themeColor("#7bb07c", "107", "10"),
+	successSoft:  themeColor("#a7d6a5", "151", "10"),
+	err:          themeColor("#d46a5e", "167", "9"),
+}
+
+func themeColor(trueColor string, ansi256 string, ansi string) lipgloss.TerminalColor {
+	return lipgloss.CompleteColor{
+		TrueColor: trueColor,
+		ANSI256:   ansi256,
+		ANSI:      ansi,
+	}
 }
 
 // The Go TUI keeps one global terminal background shade across the whole app.

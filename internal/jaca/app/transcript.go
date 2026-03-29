@@ -498,7 +498,7 @@ func renderToolActivityLine(entry *toolEntry) string {
 	return b.String()
 }
 
-func toolOutcomeColor(outcome string) lipgloss.Color {
+func toolOutcomeColor(outcome string) lipgloss.TerminalColor {
 	switch outcome {
 	case "ok":
 		return defaultTheme.successSoft
