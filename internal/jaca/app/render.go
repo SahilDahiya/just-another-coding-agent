@@ -13,22 +13,22 @@ import (
 var brailleSpinner = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
 var streamingVerbs = []string{
-	"Cogitans",    // thinking
-	"Scrutans",    // examining
-	"Meditans",    // meditating
-	"Quaerens",    // seeking
-	"Ponderans",   // weighing
-	"Explorans",   // exploring
-	"Contemplans", // contemplating
-	"Elaborans",   // working out
-	"Indagans",    // investigating
-	"Fabricans",   // crafting
-	"Navigans",    // navigating
-	"Perscrutans", // searching deeply
-	"Chintan",     // चिन्तन reflecting
-	"Manan",       // मनन pondering
-	"Vichar",      // विचार deliberating
-	"Anveshan",    // अन्वेषण discovering
+	"Cogitare",    // to think
+	"Scrutari",    // to examine
+	"Meditari",    // to meditate
+	"Quaerere",    // to seek
+	"Ponderare",   // to weigh
+	"Explorare",   // to explore
+	"Contemplari", // to contemplate
+	"Elaborare",   // to work out
+	"Indagare",    // to investigate
+	"Fabricare",   // to craft
+	"Navigare",    // to navigate
+	"Perscrutari", // to search deeply
+	"Chintana",    // चिन्तन to reflect
+	"Manana",      // मनन to ponder
+	"Vichara",     // विचार to deliberate
+	"Anveshana",   // अन्वेषण to discover
 }
 
 type theme struct {
