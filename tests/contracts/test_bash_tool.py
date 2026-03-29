@@ -330,4 +330,4 @@ async def test_execute_shell_uses_posix_runner_for_posix_shell_family(
     )
 
     assert result == {"exit_code": 0, "output": "ok"}
-    assert observed["args"][:2] == ("sh", "-lc")
+    assert observed["args"][:2] == ("bash", "-lc")

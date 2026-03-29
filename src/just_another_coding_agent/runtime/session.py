@@ -51,7 +51,6 @@ async def stream_session_run_events(
         loaded_session = load_session(
             path=session_path,
             workspace_root=normalized_workspace_root,
-            shell_family=shell_family,
         )
         if should_auto_compact_session(loaded_session):
             # Auto-compaction is pre-run session maintenance, not part of the
@@ -65,7 +64,6 @@ async def stream_session_run_events(
             loaded_session = load_session(
                 path=session_path,
                 workspace_root=normalized_workspace_root,
-                shell_family=shell_family,
             )
     resolved_thinking = (
         thinking
@@ -84,11 +82,7 @@ async def stream_session_run_events(
     agent = build_canonical_agent(
         model=model,
         workspace_root=normalized_workspace_root,
-        shell_family=(
-            loaded_session.header.shell_family
-            if loaded_session is not None
-            else None
-        ),
+        shell_family=shell_family,
         tool_names=tool_names,
         history_processors=(
             [history_processor] if history_processor is not None else None
@@ -109,7 +103,10 @@ async def stream_session_run_events(
                 loaded_session.message_history if loaded_session is not None else None
             ),
             thinking=resolved_thinking,
-            deps=WorkspaceDeps.from_workspace_root(normalized_workspace_root),
+            deps=WorkspaceDeps(
+                workspace_root=normalized_workspace_root,
+                shell_family=shell_family,
+            ),
             enable_server_history=enable_server_history,
             message_history_sink=_record_message_history,
         ):
@@ -117,11 +114,7 @@ async def stream_session_run_events(
                 run_appender = start_run_to_session(
                     path=session_path,
                     workspace_root=normalized_workspace_root,
-                    shell_family=(
-                        loaded_session.header.shell_family
-                        if loaded_session is not None
-                        else None
-                    ),
+                    shell_family=shell_family,
                     run_id=event.run_id,
                     prompt=prompt,
                     thinking=resolved_thinking,

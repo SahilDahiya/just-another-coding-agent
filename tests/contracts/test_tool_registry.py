@@ -144,12 +144,13 @@ def test_build_canonical_toolset_exposes_rich_model_facing_tool_descriptions(
 
     assert function_tools["shell"].description == (
         "Execute a local shell command in the workspace root using the "
-        "configured shell family. Returns "
-        "combined stdout and stderr on success. Non-zero exits and "
-        "timeouts become error results. Large output is truncated to the "
-        "last 2000 lines or 50 KiB, and the full output is saved to a "
-        "temp file. Set defer=true for genuinely long shell, build, or "
-        "test work that should run outside the current model step."
+        "configured shell family. posix commands run with bash; "
+        "powershell commands run with PowerShell. Returns combined stdout "
+        "and stderr on success. Non-zero exits and timeouts become error "
+        "results. Large output is truncated to the last 2000 lines or 50 "
+        "KiB, and the full output is saved to a temp file. Set "
+        "defer=true for genuinely long shell, build, or test work that "
+        "should run outside the current model step."
     )
     assert (
         function_tools["shell"].parameters_json_schema["properties"]["timeout"][

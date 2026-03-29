@@ -756,6 +756,34 @@ def test_load_session_fails_when_expected_workspace_root_mismatches(tmp_path) ->
         load_session(path=path, workspace_root=other_workspace)
 
 
+def test_load_session_allows_cross_host_shell_family_mismatch(tmp_path) -> None:
+    path = tmp_path / "session.jsonl"
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    append_run_to_session(
+        path=path,
+        workspace_root=workspace_root,
+        shell_family="posix",
+        prompt="go",
+        thinking=None,
+        events=[
+            RunStartedEvent(run_id="run-1"),
+            RunSucceededEvent(run_id="run-1", output_text="done"),
+        ],
+        messages=[ModelRequest(parts=[UserPromptPart(content="go")])],
+    )
+
+    loaded = load_session(
+        path=path,
+        workspace_root=workspace_root,
+        shell_family="powershell",
+    )
+
+    assert loaded.header.shell_family == "posix"
+    assert loaded.runs[0].run_id == "run-1"
+
+
 def test_load_session_fails_when_session_messages_are_missing(tmp_path) -> None:
     path = tmp_path / "session.jsonl"
     workspace_root = tmp_path / "workspace"

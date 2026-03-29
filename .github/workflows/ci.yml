@@ -39,5 +39,5 @@ jobs:
       - name: Run tests
         run: uv run python -m pytest tests/contracts tests/e2e tests/evaluations
 
-      - name: Run Go internal tests
-        run: go test ./internal/jaca/...
+      - name: Run Go tests
+        run: go test ./cmd/jaca ./internal/jaca/...

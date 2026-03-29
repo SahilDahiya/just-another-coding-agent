@@ -66,6 +66,12 @@ CANONICAL_AGENT_INSTRUCTIONS = "\n".join(
 )
 
 
+def _shell_family_prompt_label(shell_family: ShellFamily) -> str:
+    if shell_family == "powershell":
+        return "powershell"
+    return "posix (bash)"
+
+
 def build_canonical_instructions(
     *,
     workspace_root: Path | str,
@@ -80,7 +86,7 @@ def build_canonical_instructions(
         CANONICAL_AGENT_INSTRUCTIONS,
         f"Current date: {resolved_date.isoformat()}",
         f"Current workspace root: {root}",
-        f"Current shell family: {effective_shell_family}",
+        f"Current shell family: {_shell_family_prompt_label(effective_shell_family)}",
     ]
 
     return "\n".join(sections)

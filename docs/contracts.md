@@ -164,7 +164,7 @@ Initial executable tool slice:
 
 `shell` behavior contract:
 
-- executes one local shell command in the configured workspace root using the active shell family (`posix` or `powershell`)
+- executes one local shell command in the configured workspace root using the active shell family (`posix`, which means Bash semantics, or `powershell`)
 - sets command cwd to the configured workspace root, but does not sandbox filesystem access outside that root
 - `defer=true` is the explicit contract for genuinely long shell, build, or test work; the runtime may execute that call through PydanticAI deferred-tool continuation while preserving one canonical public run
 - returns a JSON-compatible success result with fields `exit_code` and `output`

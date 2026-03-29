@@ -216,8 +216,6 @@ def load_session(
     run_order: list[str] = []
     latest_compaction_run_index = -1
     expected_workspace_root = str(normalize_workspace_root(workspace_root))
-    expected_shell_family = shell_family
-
     for line_number, raw_line in enumerate(lines, start=1):
         entry = _parse_entry(raw_line=raw_line, line_number=line_number)
 
@@ -232,15 +230,6 @@ def load_session(
                     "Session workspace_root mismatch: "
                     f"expected {expected_workspace_root}, got "
                     f"{header.workspace_root}"
-                )
-            if (
-                expected_shell_family is not None
-                and header.shell_family != expected_shell_family
-            ):
-                raise SessionFormatError(
-                    "Session shell_family mismatch: "
-                    f"expected {expected_shell_family}, got "
-                    f"{header.shell_family}"
                 )
             continue
 

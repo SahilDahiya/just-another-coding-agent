@@ -171,7 +171,7 @@ def _shell_command_prefix(shell_family: ShellFamily) -> tuple[str, ...]:
     if shell_family == "powershell":
         executable = "powershell.exe" if os.name == "nt" else "pwsh"
         return (executable, "-NoLogo", "-NoProfile", "-NonInteractive", "-Command")
-    return ("sh", "-lc")
+    return ("bash", "-lc")
 
 
 def _shell_process_kwargs(shell_family: ShellFamily) -> dict[str, object]:
@@ -316,12 +316,13 @@ SHELL_TOOL = Tool(
     name="shell",
     description=(
         "Execute a local shell command in the workspace root using the "
-        "configured shell family. Returns combined stdout and stderr on "
-        "success. Non-zero exits and timeouts become error results. Large "
-        "output is truncated to the last 2000 lines or 50 KiB, and the full "
-        "output is saved to a temp file. Set defer=true for genuinely long "
-        "shell, build, or test work that should run outside the current "
-        "model step."
+        "configured shell family. posix commands run with bash; "
+        "powershell commands run with PowerShell. Returns combined stdout "
+        "and stderr on success. Non-zero exits and timeouts become error "
+        "results. Large output is truncated to the last 2000 lines or 50 "
+        "KiB, and the full output is saved to a temp file. Set defer=true "
+        "for genuinely long shell, build, or test work that should run "
+        "outside the current model step."
     ),
     docstring_format="google",
     require_parameter_descriptions=True,
