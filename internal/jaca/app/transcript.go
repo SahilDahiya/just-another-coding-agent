@@ -348,34 +348,16 @@ func (t *Transcript) endLiveAssistant() {
 	t.liveAssistantIdx = -1
 }
 
-const pingPongWidth = 4
-
-var pingPongColors = []lipgloss.TerminalColor{
-	defaultTheme.accent,
-	defaultTheme.accentSoft,
-	defaultTheme.text,
-	defaultTheme.accentSoft,
-}
-
 func (t *Transcript) rebuildLiveAssistantRendered() {
 	if t.liveAssistantIdx < 0 {
 		return
 	}
 	block := &t.blocks[t.liveAssistantIdx]
-
-	// Ping-pong: 0,1,2,3,2,1,0,1,2,3...
-	cycle := t.MotionTick % (pingPongWidth * 2)
-	pos := cycle
-	if pos >= pingPongWidth {
-		pos = (pingPongWidth * 2) - pos - 1
+	markerColor := defaultTheme.accentSoft
+	if t.MotionTick%2 == 0 {
+		markerColor = defaultTheme.accent
 	}
-	colorIdx := t.MotionTick % len(pingPongColors)
-
-	pad := strings.Repeat(" ", pos)
-	marker := lipgloss.NewStyle().Foreground(pingPongColors[colorIdx]).Render(pad + "●")
-	trail := strings.Repeat(" ", pingPongWidth-pos)
-
-	block.rendered = marker + trail +
+	block.rendered = lipgloss.NewStyle().Foreground(markerColor).Render("● ") +
 		lipgloss.NewStyle().Foreground(defaultTheme.textSoft).Render(block.plain)
 	t.markDirty(t.liveAssistantIdx)
 }
