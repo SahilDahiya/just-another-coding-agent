@@ -40,10 +40,10 @@ func TestBuildStatusTextIncludesTruncatedSessionAndThinking(t *testing.T) {
 	}
 }
 
-func TestBuildPromptFooterTextShowsSpinnerVerbElapsedAndEffort(t *testing.T) {
+func TestBuildPromptFooterTextShowsElapsedAndEffort(t *testing.T) {
 	got := buildPromptFooterText(PhaseStreaming, "medium", "", 42*time.Second)
 
-	if !strings.Contains(got, "… (42s)") {
+	if !strings.Contains(got, "42s") {
 		t.Fatalf("buildPromptFooterText() missing elapsed: %q", got)
 	}
 	if !strings.Contains(got, "esc to interrupt") {

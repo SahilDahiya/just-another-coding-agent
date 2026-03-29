@@ -12,24 +12,6 @@ import (
 
 var brailleSpinner = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
-var streamingVerbs = []string{
-	"Cogitare",    // to think
-	"Scrutari",    // to examine
-	"Meditari",    // to meditate
-	"Quaerere",    // to seek
-	"Ponderare",   // to weigh
-	"Explorare",   // to explore
-	"Contemplari", // to contemplate
-	"Elaborare",   // to work out
-	"Indagare",    // to investigate
-	"Fabricare",   // to craft
-	"Navigare",    // to navigate
-	"Perscrutari", // to search deeply
-	"Chintana",    // चिन्तन to reflect
-	"Manana",      // मनन to ponder
-	"Vichara",     // विचार to deliberate
-	"Anveshana",   // अन्वेषण to discover
-}
 
 type theme struct {
 	background   lipgloss.TerminalColor
@@ -272,10 +254,8 @@ func buildPromptFooterText(phase Phase, thinking string, override string, elapse
 	}
 	switch phase {
 	case PhaseStreaming:
-		spinner := brailleSpinner[int(elapsed.Milliseconds()/240)%len(brailleSpinner)]
-		verb := streamingVerbs[int(elapsed.Seconds()/15)%len(streamingVerbs)]
 		return joinFooterParts(
-			fmt.Sprintf("%s %s… (%s)", spinner, verb, formatElapsed(elapsed)),
+			formatElapsed(elapsed),
 			"esc to interrupt",
 			buildThinkingFooterText(thinking),
 		)
