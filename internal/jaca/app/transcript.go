@@ -366,11 +366,8 @@ func (t *Transcript) finishTool(event rpc.RunEvent) {
 	if len(entry.detailLines) == 0 {
 		entry.resultLines, entry.resultTruncated = extractToolResultLines(event.Result)
 	}
-	if isOperationalToolError(event.Result) {
-		entry.outcome = "error"
-		entry.message = buildToolSummary(event.Activity, extractOperationalToolError(event.Result))
-		entry.resultLines = nil
-		entry.resultTruncated = false
+	if len(entry.detailLines) == 0 && len(entry.resultLines) == 0 && entry.message == "" {
+		entry.message = buildToolSummary(event.Activity, "")
 	}
 	t.rewriteToolGroup()
 }
@@ -575,6 +572,9 @@ func extractToolResultLines(result any) ([]string, bool) {
 		if output, ok := value["output"].(string); ok {
 			return truncateLines(strings.Split(strings.TrimSpace(output), "\n"), maxToolResultLines)
 		}
+		if message, ok := value["message"].(string); ok {
+			return truncateLines(strings.Split(strings.TrimSpace(message), "\n"), maxToolResultLines)
+		}
 	}
 	return nil, false
 }
@@ -591,24 +591,6 @@ func truncateLines(lines []string, limit int) ([]string, bool) {
 		return filtered[:limit], true
 	}
 	return filtered, false
-}
-
-func isOperationalToolError(result any) bool {
-	value, ok := result.(map[string]any)
-	if !ok {
-		return false
-	}
-	flag, ok := value["ok"].(bool)
-	return ok && !flag
-}
-
-func extractOperationalToolError(result any) string {
-	value, ok := result.(map[string]any)
-	if !ok {
-		return ""
-	}
-	message, _ := value["message"].(string)
-	return message
 }
 
 func buildToolDetailLines(activity *rpc.ToolActivity) []string {

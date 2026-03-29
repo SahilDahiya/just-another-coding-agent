@@ -100,6 +100,45 @@ func TestToolSuccessDoesNotTreatResultMapWithoutOkAsError(t *testing.T) {
 	}
 }
 
+func TestOperationalToolResultRendersAsNeutralOutput(t *testing.T) {
+	transcript := NewTranscript()
+	duration := 15
+	transcript.ApplyRunEvent(rpc.RunEvent{
+		Type:       "tool_call_started",
+		ToolName:   "read",
+		ToolCallID: "call-read",
+		Args:       map[string]any{"path": "agents.md"},
+		Activity:   &rpc.ToolActivity{Title: "read agents.md"},
+	})
+	transcript.ApplyRunEvent(rpc.RunEvent{
+		Type:       "tool_call_succeeded",
+		ToolName:   "read",
+		ToolCallID: "call-read",
+		Result: map[string]any{
+			"ok":      false,
+			"message": "No such file or directory: '/workspace/agents.md'",
+		},
+		Activity: &rpc.ToolActivity{
+			Title:      "read agents.md",
+			Summary:    strPtr("No such file or directory: '/workspace/agents.md'"),
+			DurationMS: &duration,
+		},
+	})
+
+	plain := transcript.blocks[len(transcript.blocks)-1].plain
+	if strings.Contains(plain, "error") {
+		t.Fatalf("operational tool result rendered as error: %q", plain)
+	}
+	for _, want := range []string{
+		"● read  agents.md  ok 15ms",
+		"  └ No such file or directory: '/workspace/agents.md'",
+	} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("operational tool result missing %q in %q", want, plain)
+		}
+	}
+}
+
 func TestEditToolRowsRenderStructuredDiffPreview(t *testing.T) {
 	duration := 83
 	transcript := NewTranscript()

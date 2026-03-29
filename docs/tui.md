@@ -67,6 +67,7 @@ The core architectural risk is semantic drift between the Go shell and the Pytho
 - Tool rows should prefer one row per action with a short preview and outcome, not anonymous repeated tool labels.
 - Tool rows should treat backend `activity.title` and `activity.summary` as the authoritative label/summary when those fields are present.
 - Finished tool rows may show backend `activity.duration_ms` when it adds timing context without crowding the transcript.
+- Non-terminal operational misses returned through `tool_call_succeeded` should render as normal tool output, not the same red alarm treatment reserved for terminal `tool_call_failed` paths.
 - Tool rows should read left-to-right as action first, then status/timing in the tail.
 - Successful `edit` activity should expand into structured `Update(path)` blocks with typed diff previews rather than dumping raw unified diff text.
 - Consecutive tool calls should group into one live activity block and update in place until assistant synthesis resumes.
