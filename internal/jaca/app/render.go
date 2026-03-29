@@ -147,11 +147,14 @@ func renderPrompt(vm viewModel) string {
 	if width <= 0 {
 		width = 80
 	}
-	ruleStyle := lipgloss.NewStyle().Foreground(rowBorder).Bold(true)
-	rule := ruleStyle.Render(strings.Repeat("━", width))
+	ruleColor := defaultTheme.text
+	if rowBorder != defaultTheme.border {
+		ruleColor = rowBorder
+	}
+	rule := lipgloss.NewStyle().Foreground(ruleColor).Render(strings.Repeat("─", width))
 
-	promptParts := make([]string, 0, 9)
-	promptParts = append(promptParts, "", rule, "")
+	promptParts := make([]string, 0, 6)
+	promptParts = append(promptParts, rule)
 	if vm.SlashMenu.Mode != slashMenuHidden && len(vm.SlashMenu.Rows) > 0 {
 		promptParts = append(promptParts, renderSlashMenu(vm.SlashMenu))
 	}
@@ -161,7 +164,6 @@ func renderPrompt(vm viewModel) string {
 			lipgloss.NewStyle().Foreground(markerColor).Bold(true).Render(buildPromptMarkerText(vm.Phase, vm.MotionTick)),
 			vm.PromptValue,
 		),
-		"",
 		rule,
 		lipgloss.NewStyle().Foreground(footerColor).Render(
 			buildPromptFooterText(vm),
@@ -179,7 +181,7 @@ func renderStreamRule(
 	_ int,
 	baseColor lipgloss.TerminalColor,
 ) string {
-	return lipgloss.NewStyle().Foreground(baseColor).Bold(true).Render(strings.Repeat("━", width))
+	return lipgloss.NewStyle().Foreground(defaultTheme.text).Render(strings.Repeat("─", width))
 }
 
 func renderSlashMenu(state slashMenuState) string {
