@@ -5,9 +5,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 )
+
+var brailleSpinner = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
 type theme struct {
 	background   lipgloss.TerminalColor
@@ -61,6 +64,7 @@ type viewModel struct {
 	Transcript    string
 	PromptValue   string
 	PromptFooter  string
+	RunElapsed    time.Duration
 	VisibleZones  int
 	SlashMenu     slashMenuState
 }
@@ -152,7 +156,7 @@ func renderPrompt(vm viewModel) string {
 			" ",
 			lipgloss.NewStyle().Foreground(defaultTheme.textSoft).Render(vm.PromptValue),
 		),
-		lipgloss.NewStyle().Foreground(footerColor).Render(buildPromptFooterText(vm.Phase, vm.Thinking, vm.PromptFooter)),
+		lipgloss.NewStyle().Foreground(footerColor).Render(buildPromptFooterText(vm.Phase, vm.Thinking, vm.PromptFooter, vm.RunElapsed)),
 	)
 
 	row := lipgloss.NewStyle().
@@ -231,17 +235,11 @@ func buildPhaseLabel(phase Phase, motionTick int) string {
 func buildPromptMarkerText(phase Phase, motionTick int) string {
 	switch phase {
 	case PhaseStreaming:
-		if motionTick%2 == 0 {
-			return ">>"
-		}
-		return "> "
+		return brailleSpinner[motionTick%len(brailleSpinner)] + " "
 	case PhaseCompacting:
-		if motionTick%2 == 0 {
-			return "::"
-		}
-		return ".:"
+		return brailleSpinner[motionTick%len(brailleSpinner)] + " "
 	case PhaseCompleted:
-		return "ok"
+		return "※ "
 	case PhaseError:
 		return "x "
 	default:
@@ -249,13 +247,17 @@ func buildPromptMarkerText(phase Phase, motionTick int) string {
 	}
 }
 
-func buildPromptFooterText(phase Phase, thinking string, override string) string {
+func buildPromptFooterText(phase Phase, thinking string, override string, elapsed time.Duration) string {
 	if override != "" {
 		return override
 	}
 	switch phase {
 	case PhaseStreaming:
-		return joinFooterParts("esc to interrupt", buildThinkingFooterText(thinking))
+		return joinFooterParts(
+			formatElapsed(elapsed),
+			"esc to interrupt",
+			buildThinkingFooterText(thinking),
+		)
 	case PhaseCompacting:
 		return "compacting session"
 	case PhaseCompleted:
@@ -265,6 +267,19 @@ func buildPromptFooterText(phase Phase, thinking string, override string) string
 	default:
 		return "ready"
 	}
+}
+
+func formatElapsed(d time.Duration) string {
+	if d <= 0 {
+		return ""
+	}
+	secs := int(d.Seconds())
+	if secs < 60 {
+		return fmt.Sprintf("%ds", secs)
+	}
+	mins := secs / 60
+	remaining := secs % 60
+	return fmt.Sprintf("%dm %ds", mins, remaining)
 }
 
 func buildThinkingFooterText(thinking string) string {

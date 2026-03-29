@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -11,7 +10,6 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 
-	"jaca/internal/jaca/config"
 	"jaca/internal/jaca/rpc"
 )
 
@@ -81,10 +79,12 @@ type model struct {
 	activeRunCancel    context.CancelFunc
 	editPreviousArmed  bool
 	promptFooterNotice string
+	runStartTime       time.Time
 	pendingAssistant   string
 	liveFlushScheduled bool
 	asyncCh            chan tea.Msg
 	slashMenu          slashMenuState
+	auth               authState
 }
 
 func New(options Options) tea.Model {
@@ -226,6 +226,10 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *model) View() string {
+	var elapsed time.Duration
+	if m.streaming && !m.runStartTime.IsZero() {
+		elapsed = time.Since(m.runStartTime)
+	}
 	return renderView(viewModel{
 		Phase:         m.phase,
 		Model:         m.options.Model,
@@ -234,8 +238,9 @@ func (m *model) View() string {
 		SessionID:     m.sessionID,
 		MotionTick:    m.motionTick,
 		Transcript:    m.viewport.View(),
-		PromptValue:   m.textInput.Value(),
+		PromptValue:   m.promptDisplayValue(),
 		PromptFooter:  m.promptFooterNotice,
+		RunElapsed:    elapsed,
 		VisibleZones:  m.visibleZones,
 		SlashMenu:     m.slashMenu,
 	})
@@ -248,6 +253,9 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc":
 		return m.handleEscape()
 	case "up":
+		if m.auth.Active {
+			return m, nil
+		}
 		if m.slashMenuVisible() {
 			m.moveSlashSelection(-1)
 			return m, nil
@@ -255,6 +263,9 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.historyPrevious()
 		return m, nil
 	case "down":
+		if m.auth.Active {
+			return m, nil
+		}
 		if m.slashMenuVisible() {
 			m.moveSlashSelection(1)
 			return m, nil
@@ -276,7 +287,9 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+u":
 		if !m.streaming {
 			m.textInput.SetValue("")
-			m.resetHistoryNavigation()
+			if !m.auth.Active {
+				m.resetHistoryNavigation()
+			}
 			m.clearInterruptGuidance()
 			m.clearSlashMenu()
 		}
@@ -298,7 +311,11 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if !m.streaming {
 		m.clearInterruptGuidance()
 		m.textInput, cmd = m.textInput.Update(msg)
-		m.syncSlashMenu()
+		if m.auth.Active {
+			m.clearSlashMenu()
+		} else {
+			m.syncSlashMenu()
+		}
 	}
 	return m, cmd
 }
@@ -325,6 +342,10 @@ func (m *model) handleInterrupt() (tea.Model, tea.Cmd) {
 }
 
 func (m *model) handleEscape() (tea.Model, tea.Cmd) {
+	if m.auth.Active {
+		m.endAuthFlow()
+		return m, nil
+	}
 	if m.slashMenuVisible() {
 		m.clearSlashMenu()
 		return m, nil
@@ -376,6 +397,9 @@ func (m *model) handleEnter() (tea.Model, tea.Cmd) {
 	if prompt == "" || m.streaming {
 		return m, nil
 	}
+	if m.auth.Active {
+		return m.handleAuthEnter()
+	}
 	m.recordPromptHistory(prompt)
 	m.textInput.SetValue("")
 	m.clearSlashMenu()
@@ -389,6 +413,7 @@ func (m *model) handleEnter() (tea.Model, tea.Cmd) {
 	m.editPreviousArmed = false
 	m.lastInterrupt = time.Time{}
 	m.activeRunSucceeded = false
+	m.runStartTime = time.Now()
 	m.refreshViewport()
 	m.asyncCh = make(chan tea.Msg, 128)
 	backend := m.options.Backend
@@ -411,15 +436,7 @@ func (m *model) handleSlashCommand(command string) (tea.Model, tea.Cmd) {
 	case "/help":
 		m.transcript.WriteHelp()
 	case "/model":
-		m.transcript.WriteNote("model", nil)
-		if strings.TrimSpace(arg) == "" {
-			m.transcript.WriteLine(fmt.Sprintf("model: %s", m.options.Model))
-		} else {
-			m.options.Model = strings.TrimSpace(arg)
-			m.options.Backend.SetModel(m.options.Model)
-			_ = m.options.Backend.Restart(context.Background())
-			m.transcript.WriteLine(fmt.Sprintf("model set to %s", m.options.Model))
-		}
+		m.handleModelCommand(arg)
 	case "/thinking":
 		m.transcript.WriteNote("thinking", nil)
 		value := strings.TrimSpace(arg)
@@ -449,16 +466,11 @@ func (m *model) handleSlashCommand(command string) (tea.Model, tea.Cmd) {
 			m.transcript.WriteLine(fmt.Sprintf("session: %s", m.sessionID))
 		}
 	case "/provider":
-		lines, restart, err := m.handleProvider(strings.TrimSpace(arg))
-		if err != nil {
-			m.transcript.WriteError(err.Error())
-		}
-		for _, line := range lines {
-			m.transcript.WriteLine(line)
-		}
-		if restart {
-			_ = m.options.Backend.Restart(context.Background())
-		}
+		m.handleProviderCommand(strings.TrimSpace(arg))
+	case "/auth":
+		m.handleAuthCommand(strings.TrimSpace(arg))
+	case "/trace":
+		m.handleTraceCommand(arg)
 	case "/compact":
 		if m.sessionID == "" {
 			m.transcript.WriteNote("compact", nil)
@@ -488,72 +500,6 @@ func (m *model) handleSlashCommand(command string) (tea.Model, tea.Cmd) {
 	}
 	m.refreshViewport()
 	return m, nil
-}
-
-func (m *model) handleProvider(arg string) ([]string, bool, error) {
-	m.transcript.WriteNote("provider", nil)
-	if arg == "" {
-		return []string{
-			"usage",
-			"  /provider ollama                  local, no key needed",
-			"  /provider ollama <url> [key]      custom endpoint",
-			"  /provider openai <key>            set OPENAI_API_KEY",
-			"  /provider anthropic <key>         set ANTHROPIC_API_KEY",
-			"",
-			"credentials are saved to ~/.jaca/config.json",
-		}, false, nil
-	}
-	tokens := strings.Fields(arg)
-	switch strings.ToLower(tokens[0]) {
-	case "ollama":
-		update := config.ProviderUpdate{Provider: "ollama"}
-		if len(tokens) >= 2 {
-			update.BaseURL = tokens[1]
-		}
-		if len(tokens) >= 3 {
-			update.APIKey = tokens[2]
-		}
-		if err := config.SaveProvider(update); err != nil {
-			return nil, false, err
-		}
-		baseURL := os.Getenv("OLLAMA_BASE_URL")
-		if baseURL == "" {
-			baseURL = "http://localhost:11434/v1"
-		}
-		lines := []string{fmt.Sprintf("ollama: %s", baseURL)}
-		if update.APIKey != "" {
-			lines = append(lines, "api key saved")
-		}
-		lines = append(lines, "saved to ~/.jaca/config.json")
-		return lines, true, nil
-	case "openai":
-		if len(tokens) < 2 {
-			return nil, false, fmt.Errorf("usage: /provider openai <api-key>")
-		}
-		if err := config.SaveProvider(config.ProviderUpdate{
-			Provider: "openai",
-			APIKey:   tokens[1],
-		}); err != nil {
-			return nil, false, err
-		}
-		return []string{"OPENAI_API_KEY saved", "saved to ~/.jaca/config.json"}, true, nil
-	case "anthropic":
-		if len(tokens) < 2 {
-			return nil, false, fmt.Errorf("usage: /provider anthropic <api-key>")
-		}
-		if err := config.SaveProvider(config.ProviderUpdate{
-			Provider: "anthropic",
-			APIKey:   tokens[1],
-		}); err != nil {
-			return nil, false, err
-		}
-		return []string{"ANTHROPIC_API_KEY saved", "saved to ~/.jaca/config.json"}, true, nil
-	default:
-		return []string{
-			fmt.Sprintf("ERROR: unknown provider: %s", tokens[0]),
-			"supported: ollama, openai, anthropic",
-		}, false, nil
-	}
 }
 
 func (m *model) runPrompt(

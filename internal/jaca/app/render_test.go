@@ -3,6 +3,7 @@ package app
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
@@ -39,17 +40,17 @@ func TestBuildStatusTextIncludesTruncatedSessionAndThinking(t *testing.T) {
 	}
 }
 
-func TestBuildPromptFooterTextShowsInterruptAndEffort(t *testing.T) {
-	got := buildPromptFooterText(PhaseStreaming, "medium", "")
+func TestBuildPromptFooterTextShowsElapsedInterruptAndEffort(t *testing.T) {
+	got := buildPromptFooterText(PhaseStreaming, "medium", "", 42*time.Second)
 
-	want := "esc to interrupt  ◐ medium · effort"
+	want := "42s  esc to interrupt  ◐ medium · effort"
 	if got != want {
 		t.Fatalf("buildPromptFooterText() = %q, want %q", got, want)
 	}
 }
 
 func TestBuildPromptFooterTextPreservesOverride(t *testing.T) {
-	got := buildPromptFooterText(PhaseStreaming, "medium", "Conversation interrupted. Esc again to edit previous message.")
+	got := buildPromptFooterText(PhaseStreaming, "medium", "Conversation interrupted. Esc again to edit previous message.", 10*time.Second)
 
 	want := "Conversation interrupted. Esc again to edit previous message."
 	if got != want {
