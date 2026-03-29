@@ -84,6 +84,7 @@ The core architectural risk is semantic drift between the Go shell and the Pytho
 - Composer ergonomics should favor shell-like recall over editor-like complexity.
 - Persistent helper chrome should be minimal; slash-command discoverability must not dominate the idle shell.
 - Prompt history and draft recovery belong in the prompt zone; command palettes and secondary controls do not.
+- Slash-command discoverability should render as a bounded inline completion menu anchored to the prompt, not as a detached modal or fourth-zone palette.
 - Completed assistant lists should read as indented terminal notes, not decorative article bullets.
 - The shell should preserve the same hierarchy across truecolor, 256-color, ANSI, and no-color terminals by using explicit palette choices, not generic hex degradation alone.
 - When transcript rows need richer semantics, prefer explicit backend `activity` or event fields over heuristic frontend interpretation.

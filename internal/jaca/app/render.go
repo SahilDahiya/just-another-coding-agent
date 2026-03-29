@@ -62,6 +62,7 @@ type viewModel struct {
 	PromptValue   string
 	PromptFooter  string
 	VisibleZones  int
+	SlashMenu     slashMenuState
 }
 
 func renderView(vm viewModel) string {
@@ -140,23 +141,81 @@ func renderPrompt(vm viewModel) string {
 		footerColor = defaultTheme.err
 	}
 
+	promptParts := make([]string, 0, 3)
+	if vm.SlashMenu.Mode != slashMenuHidden && len(vm.SlashMenu.Rows) > 0 {
+		promptParts = append(promptParts, renderSlashMenu(vm.SlashMenu))
+	}
+	promptParts = append(promptParts,
+		lipgloss.JoinHorizontal(
+			lipgloss.Left,
+			lipgloss.NewStyle().Foreground(markerColor).Bold(true).Render(buildPromptMarkerText(vm.Phase, vm.MotionTick)),
+			" ",
+			lipgloss.NewStyle().Foreground(defaultTheme.textSoft).Render(vm.PromptValue),
+		),
+		lipgloss.NewStyle().Foreground(footerColor).Render(buildPromptFooterText(vm.Phase, vm.Thinking, vm.PromptFooter)),
+	)
+
 	row := lipgloss.NewStyle().
 		BorderTop(true).
 		BorderStyle(lipgloss.NormalBorder()).
 		BorderForeground(rowBorder).
 		Render(
-			lipgloss.JoinVertical(
-				lipgloss.Left,
-				lipgloss.JoinHorizontal(
-					lipgloss.Left,
-					lipgloss.NewStyle().Foreground(markerColor).Bold(true).Render(buildPromptMarkerText(vm.Phase, vm.MotionTick)),
-					" ",
-					lipgloss.NewStyle().Foreground(defaultTheme.textSoft).Render(vm.PromptValue),
-				),
-				lipgloss.NewStyle().Foreground(footerColor).Render(buildPromptFooterText(vm.Phase, vm.Thinking, vm.PromptFooter)),
-			),
+			lipgloss.JoinVertical(lipgloss.Left, promptParts...),
 		)
 	return row
+}
+
+func renderSlashMenu(state slashMenuState) string {
+	rows := visibleSlashMenuRows(state)
+	lines := make([]string, 0, len(rows))
+	selectedStart := max(0, state.Selected-(maxSlashMenuRows/2))
+	if selectedStart+len(rows) > len(state.Rows) {
+		selectedStart = len(state.Rows) - len(rows)
+	}
+	for idx, row := range rows {
+		actualIndex := selectedStart + idx
+		prefix := " "
+		valueColor := defaultTheme.textMuted
+		descColor := defaultTheme.textMuted
+		if actualIndex == state.Selected {
+			prefix = ">"
+			valueColor = defaultTheme.accentSoft
+			descColor = defaultTheme.textSoft
+		}
+		lines = append(lines,
+			lipgloss.JoinHorizontal(
+				lipgloss.Left,
+				lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render(prefix),
+				" ",
+				lipgloss.NewStyle().Foreground(valueColor).Render(padRight(row.Value, 16)),
+				lipgloss.NewStyle().Foreground(descColor).Render(row.Description),
+			),
+		)
+	}
+	return lipgloss.JoinVertical(lipgloss.Left, lines...)
+}
+
+func visibleSlashMenuRows(state slashMenuState) []slashSuggestion {
+	if len(state.Rows) <= maxSlashMenuRows {
+		return state.Rows
+	}
+	start := state.Selected - (maxSlashMenuRows / 2)
+	if start < 0 {
+		start = 0
+	}
+	end := start + maxSlashMenuRows
+	if end > len(state.Rows) {
+		end = len(state.Rows)
+		start = end - maxSlashMenuRows
+	}
+	return state.Rows[start:end]
+}
+
+func padRight(value string, width int) string {
+	if len(value) >= width {
+		return value + "  "
+	}
+	return value + strings.Repeat(" ", width-len(value)+2)
 }
 
 func buildPhaseLabel(phase Phase, motionTick int) string {

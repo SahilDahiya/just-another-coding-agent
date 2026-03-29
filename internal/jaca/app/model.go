@@ -84,6 +84,7 @@ type model struct {
 	pendingAssistant   string
 	liveFlushScheduled bool
 	asyncCh            chan tea.Msg
+	slashMenu          slashMenuState
 }
 
 func New(options Options) tea.Model {
@@ -235,6 +236,7 @@ func (m *model) View() string {
 		PromptValue:   m.textInput.Value(),
 		PromptFooter:  m.promptFooterNotice,
 		VisibleZones:  m.visibleZones,
+		SlashMenu:     m.slashMenu,
 	})
 }
 
@@ -245,9 +247,17 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc":
 		return m.handleEscape()
 	case "up":
+		if m.slashMenuVisible() {
+			m.moveSlashSelection(-1)
+			return m, nil
+		}
 		m.historyPrevious()
 		return m, nil
 	case "down":
+		if m.slashMenuVisible() {
+			m.moveSlashSelection(1)
+			return m, nil
+		}
 		m.historyNext()
 		return m, nil
 	case "pgup":
@@ -267,15 +277,27 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.textInput.SetValue("")
 			m.resetHistoryNavigation()
 			m.clearInterruptGuidance()
+			m.clearSlashMenu()
+		}
+		return m, nil
+	case "tab":
+		if m.slashMenuVisible() {
+			m.commitSlashSuggestion()
+			return m, nil
 		}
 		return m, nil
 	case "enter":
+		if m.slashMenuVisible() {
+			m.commitSlashSuggestion()
+			return m, nil
+		}
 		return m.handleEnter()
 	}
 	var cmd tea.Cmd
 	if !m.streaming {
 		m.clearInterruptGuidance()
 		m.textInput, cmd = m.textInput.Update(msg)
+		m.syncSlashMenu()
 	}
 	return m, cmd
 }
@@ -302,6 +324,10 @@ func (m *model) handleInterrupt() (tea.Model, tea.Cmd) {
 }
 
 func (m *model) handleEscape() (tea.Model, tea.Cmd) {
+	if m.slashMenuVisible() {
+		m.clearSlashMenu()
+		return m, nil
+	}
 	if m.editPreviousArmed {
 		m.editPreviousArmed = false
 		m.promptFooterNotice = ""
@@ -319,6 +345,7 @@ func (m *model) handleEscape() (tea.Model, tea.Cmd) {
 		m.textInput.SetValue("")
 		m.resetHistoryNavigation()
 		m.promptFooterNotice = ""
+		m.clearSlashMenu()
 		return m, nil
 	}
 	return m, nil
@@ -330,6 +357,7 @@ func (m *model) restorePreviousPrompt() {
 	}
 	m.textInput.SetValue(m.promptHistory[len(m.promptHistory)-1])
 	m.historyIndex = len(m.promptHistory) - 1
+	m.syncSlashMenu()
 	m.refreshViewport()
 }
 
@@ -349,6 +377,7 @@ func (m *model) handleEnter() (tea.Model, tea.Cmd) {
 	}
 	m.recordPromptHistory(prompt)
 	m.textInput.SetValue("")
+	m.clearSlashMenu()
 	m.clearInterruptGuidance()
 	if strings.HasPrefix(prompt, "/") {
 		return m.handleSlashCommand(prompt)
@@ -606,6 +635,7 @@ func (m *model) historyPrevious() {
 	}
 	m.textInput.SetValue(m.promptHistory[m.historyIndex])
 	m.textInput.CursorEnd()
+	m.syncSlashMenu()
 }
 
 func (m *model) historyNext() {
@@ -619,11 +649,13 @@ func (m *model) historyNext() {
 		m.resetHistoryNavigation()
 		m.textInput.SetValue(draft)
 		m.textInput.CursorEnd()
+		m.syncSlashMenu()
 		return
 	}
 	m.historyIndex = next
 	m.textInput.SetValue(m.promptHistory[m.historyIndex])
 	m.textInput.CursorEnd()
+	m.syncSlashMenu()
 }
 
 func listenAsync(ch <-chan tea.Msg) tea.Cmd {

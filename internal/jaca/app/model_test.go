@@ -27,6 +27,18 @@ func newTestModel() *model {
 	return m
 }
 
+func sendKey(m *model, msg tea.KeyMsg) *model {
+	updated, _ := m.Update(msg)
+	return updated.(*model)
+}
+
+func sendRunes(m *model, value string) *model {
+	for _, r := range value {
+		m = sendKey(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	return m
+}
+
 func TestModelBuffersAssistantDeltasUntilLiveFlush(t *testing.T) {
 	m := newTestModel()
 
@@ -212,5 +224,88 @@ func TestCtrlCWhileStreamingDoesNotRequestRunCancellation(t *testing.T) {
 	rendered := stripANSI(m.View())
 	if !strings.Contains(rendered, "Conversation interrupted. Esc again to edit previous message.") {
 		t.Fatalf("missing interrupt guidance in prompt footer: %q", rendered)
+	}
+}
+
+func TestSlashShowsInlineCommandSuggestions(t *testing.T) {
+	m := newTestModel()
+
+	m = sendRunes(m, "/")
+
+	rendered := stripANSI(m.View())
+	for _, want := range []string{
+		"/provider",
+		"/model",
+		"/trace",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("view missing slash suggestion %q in %q", want, rendered)
+		}
+	}
+	if got := stripANSI(m.transcript.Render()); strings.Contains(got, "/provider") {
+		t.Fatalf("transcript changed while browsing slash suggestions: %q", got)
+	}
+}
+
+func TestTabOnProviderSuggestionCommitsCommandAndShowsProviderOptions(t *testing.T) {
+	m := newTestModel()
+
+	m = sendRunes(m, "/pro")
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyTab})
+
+	if got := m.textInput.Value(); got != "/provider " {
+		t.Fatalf("textInput.Value() = %q, want %q", got, "/provider ")
+	}
+
+	rendered := stripANSI(m.View())
+	for _, want := range []string{
+		"ollama",
+		"openai",
+		"anthropic",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("view missing provider suggestion %q in %q", want, rendered)
+		}
+	}
+}
+
+func TestSelectingTraceSuggestionCommitsOnlyToPrompt(t *testing.T) {
+	m := newTestModel()
+
+	m = sendRunes(m, "/trace loc")
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyTab})
+
+	if got := m.textInput.Value(); got != "/trace local" {
+		t.Fatalf("textInput.Value() = %q, want %q", got, "/trace local")
+	}
+	if got := stripANSI(m.transcript.Render()); strings.Contains(got, "trace") {
+		t.Fatalf("transcript changed before slash command execution: %q", got)
+	}
+}
+
+func TestEscClosesSlashSuggestionsWithoutClearingPrompt(t *testing.T) {
+	m := newTestModel()
+
+	m = sendRunes(m, "/")
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEsc})
+
+	if got := m.textInput.Value(); got != "/" {
+		t.Fatalf("textInput.Value() = %q, want %q", got, "/")
+	}
+	rendered := stripANSI(m.View())
+	if strings.Contains(rendered, "/provider") {
+		t.Fatalf("slash menu still visible after escape: %q", rendered)
+	}
+}
+
+func TestDownArrowMovesSlashSelection(t *testing.T) {
+	m := newTestModel()
+
+	m = sendRunes(m, "/")
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyDown})
+
+	rendered := stripANSI(m.View())
+	if !strings.Contains(rendered, "\n> /model") {
+		t.Fatalf("expected down arrow to move active slash selection in %q", rendered)
 	}
 }
