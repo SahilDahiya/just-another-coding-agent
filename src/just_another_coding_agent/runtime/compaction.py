@@ -12,6 +12,7 @@ from pydantic_ai.messages import (
     ModelRequest,
     ModelRequestPart,
     ModelResponse,
+    RetryPromptPart,
     SystemPromptPart,
     TextPart,
     ThinkingPart,
@@ -79,6 +80,18 @@ def build_session_history_processor(
         for run in loaded_session.runs[summary_run_index + 1 :]
         for message in run.messages
     ]
+    persisted_history = loaded_session.message_history
+    persisted_history_prefix_dump = _MODEL_MESSAGES_ADAPTER.dump_python(
+        persisted_history,
+        mode="json",
+    )
+    cleaned_persisted_history = _clean_history_for_prefix_match(
+        persisted_history
+    )
+    cleaned_persisted_history_prefix_dump = _MODEL_MESSAGES_ADAPTER.dump_python(
+        cleaned_persisted_history,
+        mode="json",
+    )
     compacted_prefix = [
         build_compaction_summary_message(latest_compaction.summary),
         *retained_messages,
@@ -88,12 +101,19 @@ def build_session_history_processor(
         if messages and _starts_with_compaction_summary(messages):
             return messages
 
-        # PydanticAI passes resumed history in front of the live run messages.
-        # Those persisted messages arrive without a run_id, while messages
-        # created during the in-flight run are tagged with the current run_id.
-        # This boundary is the seam we rely on to replace the summarized prefix.
-        persisted_prefix_length = _leading_persisted_message_count(messages)
-        if persisted_prefix_length == 0:
+        # PydanticAI passes resumed persisted history in front of any new
+        # current-run messages. Match and replace that exact persisted prefix
+        # instead of inferring a boundary from run_id shape. Accept both the
+        # raw persisted history and the cleaned/merged form PydanticAI may
+        # synthesize for consecutive requests.
+        persisted_prefix_length = _matched_persisted_prefix_length(
+            messages=messages,
+            raw_expected_prefix_dump=persisted_history_prefix_dump,
+            raw_expected_prefix_length=len(persisted_history),
+            cleaned_expected_prefix_dump=cleaned_persisted_history_prefix_dump,
+            cleaned_expected_prefix_length=len(cleaned_persisted_history),
+        )
+        if persisted_prefix_length is None:
             raise RuntimeError(
                 "Compaction history processor could not match the expected "
                 "persisted history prefix"
@@ -498,14 +518,100 @@ def _starts_with_compaction_summary(messages: list[ModelMessage]) -> bool:
     return any(_is_compaction_summary_part(part) for part in first_message.parts)
 
 
-def _leading_persisted_message_count(messages: list[ModelMessage]) -> int:
-    count = 0
+def _starts_with_expected_message_prefix(
+    *,
+    messages: list[ModelMessage],
+    expected_prefix_length: int,
+    expected_prefix_dump: list[Any],
+) -> bool:
+    if expected_prefix_length == 0:
+        return True
+    if len(messages) < expected_prefix_length:
+        return False
+
+    return _MODEL_MESSAGES_ADAPTER.dump_python(
+        messages[:expected_prefix_length],
+        mode="json",
+    ) == expected_prefix_dump
+
+
+def _matched_persisted_prefix_length(
+    *,
+    messages: list[ModelMessage],
+    raw_expected_prefix_dump: list[Any],
+    raw_expected_prefix_length: int,
+    cleaned_expected_prefix_dump: list[Any],
+    cleaned_expected_prefix_length: int,
+) -> int | None:
+    if _starts_with_expected_message_prefix(
+        messages=messages,
+        expected_prefix_length=raw_expected_prefix_length,
+        expected_prefix_dump=raw_expected_prefix_dump,
+    ):
+        return raw_expected_prefix_length
+    if _starts_with_expected_message_prefix(
+        messages=messages,
+        expected_prefix_length=cleaned_expected_prefix_length,
+        expected_prefix_dump=cleaned_expected_prefix_dump,
+    ):
+        return cleaned_expected_prefix_length
+    return None
+
+
+def _clean_history_for_prefix_match(
+    messages: list[ModelMessage],
+) -> list[ModelMessage]:
+    clean_messages: list[ModelMessage] = []
+
     for message in messages:
-        # See apply_compaction above for the run_id boundary assumption.
-        if message.run_id is not None:
-            break
-        count += 1
-    return count
+        last_message = clean_messages[-1] if clean_messages else None
+
+        if isinstance(message, ModelRequest):
+            if (
+                isinstance(last_message, ModelRequest)
+                and (
+                    not last_message.instructions
+                    or not message.instructions
+                    or last_message.instructions == message.instructions
+                )
+            ):
+                parts = [*last_message.parts, *message.parts]
+                parts.sort(
+                    key=lambda part: (
+                        0
+                        if isinstance(part, ToolReturnPart | RetryPromptPart)
+                        else 1
+                    )
+                )
+                clean_messages[-1] = ModelRequest(
+                    parts=parts,
+                    instructions=(
+                        last_message.instructions or message.instructions
+                    ),
+                    timestamp=message.timestamp or last_message.timestamp,
+                )
+            else:
+                clean_messages.append(message)
+        elif isinstance(message, ModelResponse):
+            if (
+                isinstance(last_message, ModelResponse)
+                and last_message.provider_response_id is None
+                and last_message.provider_name is None
+                and last_message.model_name is None
+                and message.provider_response_id is None
+                and message.provider_name is None
+                and message.model_name is None
+            ):
+                clean_messages[-1] = replace(
+                    last_message,
+                    parts=[*last_message.parts, *message.parts],
+                )
+            else:
+                clean_messages.append(message)
+        else:
+            clean_messages.append(message)
+
+    return clean_messages
 
 
 def _run_index_for_id(loaded_session: LoadedSession, run_id: str) -> int:

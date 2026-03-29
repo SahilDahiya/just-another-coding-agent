@@ -251,6 +251,32 @@ async def compacted_history_probe_stream(
     yield "done"
 
 
+async def compacted_real_persisted_history_probe_stream(
+    messages: list[ModelMessage],
+    _agent_info: object,
+) -> AsyncIterator[str]:
+    all_user_prompts = [
+        part.content
+        for part in _all_parts(messages)
+        if isinstance(part, UserPromptPart)
+    ]
+    system_prompts = _system_prompt_contents(messages)
+
+    if "first" in all_user_prompts:
+        raise AssertionError(
+            "raw summarized history should not be replayed"
+        )
+    if "second" not in all_user_prompts:
+        raise AssertionError("current prompt should be present")
+    if not any(
+        prompt.startswith("Session compaction summary:")
+        for prompt in system_prompts
+    ):
+        raise AssertionError("compaction summary should be injected")
+
+    yield "done"
+
+
 def make_live_compaction_probe_stream(observed: dict[str, object]):
     call_count = 0
 
@@ -712,6 +738,70 @@ async def test_stream_session_run_events_replays_compacted_history_keeps_message
     assert _system_prompt_contents(latest_messages) == []
     assert [run.prompt for run in loaded.runs] == ["first", "second", "third"]
     assert len(loaded.compactions) == 1
+
+
+async def test_stream_session_run_events_replays_compacted_history_after_real_run(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    session_path = tmp_path / "session.jsonl"
+
+    first_events = [
+        event
+        async for event in stream_session_run_events(
+            model=FunctionModel(stream_function=text_only_stream),
+            workspace_root=workspace_root,
+            session_path=session_path,
+            prompt="first",
+        )
+    ]
+    assert [event.type for event in first_events] == [
+        "run_started",
+        "assistant_text_delta",
+        "run_succeeded",
+    ]
+
+    loaded_before_compaction = load_session(
+        path=session_path,
+        workspace_root=workspace_root,
+    )
+    assert loaded_before_compaction.runs[0].messages
+    assert all(
+        message.run_id is not None
+        for message in loaded_before_compaction.runs[0].messages
+    )
+
+    append_compaction_to_session(
+        path=session_path,
+        workspace_root=workspace_root,
+        summary=SessionCompactionSummary(
+            current_objective="summarized first run",
+            established_facts=["The first run completed."],
+            user_preferences=[],
+            important_paths=[],
+            open_questions=[],
+            unresolved_work=["Continue with the next run."],
+        ),
+    )
+
+    second_events = [
+        event
+        async for event in stream_session_run_events(
+            model=FunctionModel(
+                stream_function=compacted_real_persisted_history_probe_stream
+            ),
+            workspace_root=workspace_root,
+            session_path=session_path,
+            prompt="second",
+        )
+    ]
+
+    assert [event.type for event in second_events] == [
+        "run_started",
+        "assistant_text_delta",
+        "run_succeeded",
+    ]
 
 
 async def test_summarize_session_for_compaction_uses_model_output_and_prior_summary(
