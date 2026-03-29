@@ -19,6 +19,13 @@ _TITLE_KEY_BY_TOOL = {
     "grep": "pattern",
     "find": "pattern",
 }
+_EXPLORATION_TOOL_NAMES = frozenset({"read", "grep", "ls", "find"})
+
+
+def _group_kind_for_tool(tool_name: str) -> str | None:
+    if tool_name in _EXPLORATION_TOOL_NAMES:
+        return "exploration"
+    return None
 
 
 def build_started_tool_activity(
@@ -35,6 +42,7 @@ def build_started_tool_activity(
             args=args,
             args_valid=args_valid,
         ),
+        group_kind=_group_kind_for_tool(tool_name),
     )
 
 
@@ -50,10 +58,15 @@ def build_succeeded_tool_activity(
 ) -> ToolActivity:
     del shell_family
     if result_metadata is not None:
-        return _build_tool_activity_from_metadata(
+        activity = _build_tool_activity_from_metadata(
             result_metadata=result_metadata,
             duration_ms=duration_ms,
         )
+        if activity.group_kind is None:
+            activity = activity.model_copy(
+                update={"group_kind": _group_kind_for_tool(tool_name)}
+            )
+        return activity
 
     return ToolActivity(
         title=_build_tool_title(
@@ -63,6 +76,7 @@ def build_succeeded_tool_activity(
         ),
         summary=_build_fallback_success_summary(tool_name=tool_name, result=result),
         duration_ms=duration_ms,
+        group_kind=_group_kind_for_tool(tool_name),
     )
 
 
@@ -84,6 +98,7 @@ def build_updated_tool_activity(
         ),
         summary="command still running" if tool_name == "shell" else None,
         duration_ms=duration_ms,
+        group_kind=_group_kind_for_tool(tool_name),
     )
 
 
@@ -105,6 +120,7 @@ def build_failed_tool_activity(
         ),
         summary=message,
         duration_ms=duration_ms,
+        group_kind=_group_kind_for_tool(tool_name),
     )
 
 

@@ -49,7 +49,10 @@ from just_another_coding_agent.runtime.activity import (
     build_updated_tool_activity,
 )
 from just_another_coding_agent.runtime.deferred import execute_deferred_tool_requests
-from just_another_coding_agent.runtime.models import build_canonical_model_settings
+from just_another_coding_agent.runtime.models import (
+    build_canonical_model_settings,
+    get_model_context_window_tokens,
+)
 from just_another_coding_agent.runtime.recovery import should_retry_run_error
 from just_another_coding_agent.tools.deps import WorkspaceDeps
 
@@ -356,7 +359,20 @@ async def stream_run_events(
                     terminal_emitted = True
                     if message_history_sink is not None:
                         message_history_sink(event.result.all_messages())
-                    yield RunSucceededEvent(run_id=run_id, output_text=output)
+                    usage = event.result.usage()
+                    context_limit = _get_context_window_tokens(agent)
+                    yield RunSucceededEvent(
+                        run_id=run_id,
+                        output_text=output,
+                        input_tokens=usage.input_tokens or None,
+                        output_tokens=usage.output_tokens or None,
+                        total_tokens=usage.total_tokens or None,
+                        context_window_used=(
+                            round(usage.total_tokens / context_limit, 3)
+                            if context_limit and usage.total_tokens
+                            else None
+                        ),
+                    )
         except Exception as error:
             if terminal_emitted:
                 raise RuntimeError(
@@ -504,6 +520,13 @@ def _retry_prompt_message(part: RetryPromptPart) -> str:
 
 def _duration_ms_since(started_at: float) -> int:
     return max(0, int((monotonic() - started_at) * 1000))
+
+
+def _get_context_window_tokens(agent: Agent[Any, Any]) -> int | None:
+    model = getattr(agent, "model", None)
+    if model is None:
+        return None
+    return get_model_context_window_tokens(model)
 
 
 def _tool_error_result(*, error_type: str, message: str) -> dict[str, str | bool]:

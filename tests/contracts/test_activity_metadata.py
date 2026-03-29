@@ -43,8 +43,12 @@ def test_started_activity_uses_backend_owned_titles_only() -> None:
             args_valid=True,
         )
 
+        expected_group_kind = (
+            "exploration" if tool_name in {"read", "grep", "ls", "find"} else None
+        )
         assert activity == ToolActivity(
-            title=_EXPECTED_STARTED_TITLE_BY_TOOL[tool_name]
+            title=_EXPECTED_STARTED_TITLE_BY_TOOL[tool_name],
+            group_kind=expected_group_kind,
         )
 
 
@@ -77,4 +81,5 @@ def test_succeeded_activity_prefers_tool_owned_metadata() -> None:
             "offset": 2,
             "limit": 5,
         },
+        group_kind="exploration",
     )

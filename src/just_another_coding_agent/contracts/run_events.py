@@ -95,6 +95,7 @@ class ToolActivity(BaseModel):
     summary: str | None = None
     duration_ms: int | None = None
     details: ToolActivityDetails | None = None
+    group_kind: str | None = None
 
 
 class RunStartedEvent(_RunEventBase):
@@ -143,6 +144,10 @@ class ToolCallFailedEvent(_RunEventBase):
 class RunSucceededEvent(_RunEventBase):
     type: Literal["run_succeeded"] = "run_succeeded"
     output_text: str
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    total_tokens: int | None = None
+    context_window_used: float | None = None
 
 
 class RunFailedEvent(_RunEventBase):
