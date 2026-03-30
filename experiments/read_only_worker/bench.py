@@ -224,7 +224,7 @@ def _run_python_subprocess_baseline(
 
 
 def _build_go_worker(temp_root: Path) -> tuple[Path, dict[str, Any]]:
-    binary_path = temp_root / "go-read-only-worker"
+    binary_path = temp_root / "jaca-read-only-worker"
     go_cache = temp_root / "gocache"
     go_cache.mkdir(parents=True, exist_ok=True)
     env = dict(os.environ)
@@ -237,7 +237,7 @@ def _build_go_worker(temp_root: Path) -> tuple[Path, dict[str, Any]]:
             "build",
             "-o",
             str(binary_path),
-            "./experiments/read_only_worker/go_worker",
+            "./cmd/jaca-read-only-worker",
         ],
         check=True,
         cwd=Path(__file__).resolve().parents[2],

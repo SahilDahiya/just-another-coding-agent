@@ -30,7 +30,7 @@ class _GoWorkerProcess:
         env = dict(os.environ)
         env["GOCACHE"] = str(self._go_cache_dir)
         self._process = subprocess.Popen(
-            ["go", "run", "./experiments/read_only_worker/go_worker"],
+            ["go", "run", "./cmd/jaca-read-only-worker"],
             cwd=self._repo_root,
             env=env,
             stdin=subprocess.PIPE,
