@@ -97,3 +97,58 @@ def test_resolve_go_tui_launch_uses_repo_local_go_run_when_binary_missing(
 
     assert command == ["go", "run", "./cmd/jaca"]
     assert cwd == repo_root
+
+
+def test_resolve_go_tui_launch_prefers_repo_local_go_run_even_when_binary_exists(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    repo_root = tmp_path / "repo"
+    package_dir = repo_root / "src" / "just_another_coding_agent"
+    package_dir.mkdir(parents=True)
+    (repo_root / "pyproject.toml").write_text(
+        "[build-system]\nrequires=[]\n",
+        encoding="utf-8",
+    )
+    (repo_root / "go.mod").write_text("module jaca\n", encoding="utf-8")
+    (repo_root / "cmd" / "jaca").mkdir(parents=True)
+    (repo_root / "cmd" / "jaca" / "main.go").write_text(
+        "package main\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(go_tui, "__file__", str(package_dir / "go_tui.py"))
+    monkeypatch.setattr(
+        go_tui.shutil,
+        "which",
+        lambda name: "/usr/bin/go" if name == "go" else None,
+    )
+
+    scripts_dir = tmp_path / "bin"
+    scripts_dir.mkdir()
+    (scripts_dir / go_tui.GO_TUI_BINARY).write_text("", encoding="utf-8")
+    monkeypatch.setattr(go_tui.sysconfig, "get_path", lambda key: str(scripts_dir))
+
+    command, cwd = go_tui.resolve_go_tui_launch()
+
+    assert command == ["go", "run", "./cmd/jaca"]
+    assert cwd == repo_root
+
+
+def test_resolve_go_tui_launch_uses_installed_binary_outside_repo(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    scripts_dir = tmp_path / "bin"
+    scripts_dir.mkdir()
+    binary = scripts_dir / go_tui.GO_TUI_BINARY
+    binary.write_text("", encoding="utf-8")
+
+    monkeypatch.setattr(go_tui, "__file__", str(tmp_path / "outside" / "go_tui.py"))
+    monkeypatch.setattr(go_tui.sysconfig, "get_path", lambda key: str(scripts_dir))
+    monkeypatch.setattr(go_tui.shutil, "which", lambda name: "/usr/bin/go")
+
+    command, cwd = go_tui.resolve_go_tui_launch()
+
+    assert command == [str(binary)]
+    assert cwd is None

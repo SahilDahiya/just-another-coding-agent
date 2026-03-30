@@ -56,11 +56,8 @@ def find_go_tui_repo_root(start: Path | None = None) -> Path | None:
 
 
 def resolve_go_tui_launch() -> tuple[list[str], Path | None]:
-    try:
-        binary = resolve_go_tui_binary()
-    except RuntimeError as binary_error:
-        repo_root = find_go_tui_repo_root()
-        if repo_root is not None and shutil.which("go"):
-            return ["go", "run", "./cmd/jaca"], repo_root
-        raise binary_error
+    repo_root = find_go_tui_repo_root()
+    if repo_root is not None and shutil.which("go"):
+        return ["go", "run", "./cmd/jaca"], repo_root
+    binary = resolve_go_tui_binary()
     return [str(binary)], None
