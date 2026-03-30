@@ -1,6 +1,7 @@
 import asyncio
 import json
 from collections.abc import AsyncIterator
+from contextlib import contextmanager
 
 import pytest
 from pydantic_ai.messages import (
@@ -1479,3 +1480,93 @@ async def test_stream_session_run_events_finalizes_cancelled_run(
     assert isinstance(events[3], RunFailedEvent)
     assert events[2].tool_call_id == "call-read"
     assert events[3].error_type == "CancelledError"
+
+
+async def test_stream_session_run_events_sanitize_cancelled_run_messages(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    session_path = tmp_path / "session.jsonl"
+    started = asyncio.Event()
+
+    partial_messages = [
+        ModelRequest(parts=[UserPromptPart(content="go")]),
+        ModelResponse(
+            parts=[
+                ToolCallPart(
+                    tool_name="read",
+                    args={"path": "README.md"},
+                    tool_call_id="call-read",
+                )
+            ]
+        ),
+    ]
+
+    @contextmanager
+    def fake_capture_run_messages():
+        yield partial_messages
+
+    async def cancellable_stream_run_events(
+        *,
+        agent,
+        prompt,
+        message_history=None,
+        thinking=None,
+        deps=None,
+        enable_server_history=False,
+        message_history_sink=None,
+    ):
+        del (
+            agent,
+            prompt,
+            message_history,
+            thinking,
+            deps,
+            enable_server_history,
+            message_history_sink,
+        )
+        yield RunStartedEvent(run_id="run-1")
+        yield ToolCallStartedEvent(
+            run_id="run-1",
+            tool_call_id="call-read",
+            tool_name="read",
+            args={"path": "README.md"},
+            args_valid=True,
+        )
+        started.set()
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(
+        "just_another_coding_agent.runtime.session.capture_run_messages",
+        fake_capture_run_messages,
+    )
+    monkeypatch.setattr(
+        "just_another_coding_agent.runtime.session.stream_run_events",
+        cancellable_stream_run_events,
+    )
+
+    async def consume() -> list[object]:
+        return [
+            event
+            async for event in stream_session_run_events(
+                model=FunctionModel(stream_function=text_only_stream),
+                workspace_root=workspace_root,
+                session_path=session_path,
+                prompt="go",
+            )
+        ]
+
+    task = asyncio.create_task(consume())
+    await started.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    loaded = load_session(path=session_path, workspace_root=workspace_root)
+    assert [
+        part.tool_call_id
+        for part in _all_parts(loaded.message_history)
+        if isinstance(part, ToolCallPart)
+    ] == []

@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from collections.abc import AsyncIterator, Sequence
 from pathlib import Path
 from typing import Any
 
 from pydantic_ai import capture_run_messages
-from pydantic_ai.messages import ModelMessage
+from pydantic_ai.messages import ModelMessage, ToolCallPart, ToolReturnPart
 
 from just_another_coding_agent.contracts.platform import detect_default_shell_family
 from just_another_coding_agent.contracts.run_events import (
@@ -38,6 +39,41 @@ from just_another_coding_agent.session.jsonl import (
 )
 from just_another_coding_agent.tools._workspace import normalize_workspace_root
 from just_another_coding_agent.tools.deps import WorkspaceDeps
+
+
+def _strip_unresolved_tool_calls_from_messages(
+    messages: Sequence[ModelMessage],
+) -> list[ModelMessage]:
+    pending_tool_call_ids: set[str] = set()
+
+    for message in messages:
+        for part in message.parts:
+            if isinstance(part, ToolCallPart):
+                pending_tool_call_ids.add(part.tool_call_id)
+            elif isinstance(part, ToolReturnPart):
+                pending_tool_call_ids.discard(part.tool_call_id)
+
+    if not pending_tool_call_ids:
+        return list(messages)
+
+    sanitized: list[ModelMessage] = []
+    for message in messages:
+        kept_parts = [
+            part
+            for part in message.parts
+            if not (
+                isinstance(part, (ToolCallPart, ToolReturnPart))
+                and part.tool_call_id in pending_tool_call_ids
+            )
+        ]
+        if not kept_parts:
+            continue
+        if len(kept_parts) == len(message.parts):
+            sanitized.append(message)
+            continue
+        sanitized.append(replace(message, parts=kept_parts))
+
+    return sanitized
 
 
 async def stream_session_run_events(
@@ -104,6 +140,7 @@ async def stream_session_run_events(
     pending_tool_calls: dict[str, ToolCallStartedEvent] = {}
     active_run_id: str | None = None
     should_finalize = False
+    cancelled_during_stream = False
 
     def _record_message_history(messages: Sequence[ModelMessage]) -> None:
         nonlocal authoritative_messages
@@ -147,6 +184,7 @@ async def stream_session_run_events(
                 yield event
         except (asyncio.CancelledError, KeyboardInterrupt) as error:
             if run_appender is not None and active_run_id is not None:
+                cancelled_during_stream = True
                 error_type = type(error).__name__
                 message = str(error) or "run cancelled"
                 for pending_tool_call in pending_tool_calls.values():
@@ -179,15 +217,18 @@ async def stream_session_run_events(
             raise
         finally:
             if run_appender is not None and should_finalize:
-                run_appender.finalize(
-                    messages=restore_in_run_compaction_from_messages(
-                        strip_compaction_summary_from_messages(
-                            authoritative_messages
-                            if authoritative_messages is not None
-                            else list(messages)
-                        )
+                finalized_messages = restore_in_run_compaction_from_messages(
+                    strip_compaction_summary_from_messages(
+                        authoritative_messages
+                        if authoritative_messages is not None
+                        else list(messages)
                     )
                 )
+                if cancelled_during_stream:
+                    finalized_messages = _strip_unresolved_tool_calls_from_messages(
+                        finalized_messages
+                    )
+                run_appender.finalize(messages=finalized_messages)
 
 
 __all__ = ["stream_session_run_events"]

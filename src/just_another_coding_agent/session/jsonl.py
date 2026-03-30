@@ -8,7 +8,7 @@ from typing import TextIO
 from uuid import uuid4
 
 from pydantic import TypeAdapter, ValidationError
-from pydantic_ai.messages import ModelMessage
+from pydantic_ai.messages import ModelMessage, ToolCallPart, ToolReturnPart
 
 from just_another_coding_agent.contracts.platform import (
     ShellFamily,
@@ -351,6 +351,7 @@ def _extract_run_id(events: Sequence[RunEvent]) -> str:
 
 def _validate_run_record(run: SessionRunRecord) -> str:
     _validate_run_events(run_id=run.run_id, events=run.events, require_terminal=True)
+    _validate_run_messages(run.messages)
     return run.run_id
 
 
@@ -422,6 +423,37 @@ def _validate_run_events(
     if not terminal_seen:
         if require_terminal:
             raise SessionFormatError("Run must end with a terminal outcome")
+
+
+def _validate_run_messages(messages: Sequence[ModelMessage]) -> None:
+    pending_tool_calls: dict[str, str] = {}
+
+    for message in messages:
+        for part in message.parts:
+            if isinstance(part, ToolCallPart):
+                if part.tool_call_id in pending_tool_calls:
+                    raise SessionFormatError(
+                        "Session messages must not reuse tool_call_id before a "
+                        "matching tool return"
+                    )
+                pending_tool_calls[part.tool_call_id] = part.tool_name
+                continue
+
+            if isinstance(part, ToolReturnPart):
+                expected_name = pending_tool_calls.get(part.tool_call_id)
+                if expected_name is None:
+                    continue
+                pending_tool_calls.pop(part.tool_call_id, None)
+                if expected_name != part.tool_name:
+                    raise SessionFormatError(
+                        "Session message tool return tool_name must match the "
+                        "tool call"
+                    )
+
+    if pending_tool_calls:
+        raise SessionFormatError(
+            "Session messages cannot contain unresolved tool calls"
+        )
 
 
 def start_run_to_session(

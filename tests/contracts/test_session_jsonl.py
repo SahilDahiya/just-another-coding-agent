@@ -7,6 +7,8 @@ from pydantic_ai.messages import (
     ModelRequest,
     ModelResponse,
     TextPart,
+    ToolCallPart,
+    ToolReturnPart,
     UserPromptPart,
 )
 from pydantic_ai.models.function import DeltaToolCall, FunctionModel
@@ -17,6 +19,7 @@ from just_another_coding_agent.contracts.run_events import (
     RunStartedEvent,
     RunSucceededEvent,
     ToolActivity,
+    ToolCallFailedEvent,
     ToolCallStartedEvent,
     ToolCallSucceededEvent,
     ToolCallUpdatedEvent,
@@ -771,6 +774,59 @@ def test_load_session_fails_when_session_messages_are_missing(tmp_path) -> None:
         match="Session ended with incomplete run",
     ):
         load_session(path=path, workspace_root=workspace_root)
+
+
+def test_append_run_to_session_rejects_messages_with_unresolved_tool_calls(
+    tmp_path,
+) -> None:
+    path = tmp_path / "session.jsonl"
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    with pytest.raises(
+        SessionFormatError,
+        match="Session messages cannot contain unresolved tool calls",
+    ):
+        append_run_to_session(
+            path=path,
+            workspace_root=workspace_root,
+            prompt="go",
+            thinking=None,
+            events=[
+                RunStartedEvent(run_id="run-1"),
+                ToolCallStartedEvent(
+                    run_id="run-1",
+                    tool_call_id="call-read",
+                    tool_name="read",
+                    args={"path": "README.md"},
+                    args_valid=True,
+                ),
+                ToolCallFailedEvent(
+                    run_id="run-1",
+                    tool_call_id="call-read",
+                    tool_name="read",
+                    error_type="CancelledError",
+                    message="run cancelled",
+                ),
+                RunFailedEvent(
+                    run_id="run-1",
+                    error_type="CancelledError",
+                    message="run cancelled",
+                ),
+            ],
+            messages=[
+                ModelRequest(parts=[UserPromptPart(content="go")]),
+                ModelResponse(
+                    parts=[
+                        ToolCallPart(
+                            tool_name="read",
+                            args={"path": "README.md"},
+                            tool_call_id="call-read",
+                        )
+                    ]
+                ),
+            ],
+        )
 
 
 def test_load_session_requires_workspace_root(tmp_path) -> None:
