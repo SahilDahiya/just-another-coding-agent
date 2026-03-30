@@ -39,6 +39,7 @@ Rules:
 - The canonical backend does not impose a backend-level request or tool-call ceiling within a run.
 
 `stream_run_events()` in `runtime/run.py` translates PydanticAI's internal events into these canonical public events. Runtime exceptions before a terminal event are converted into canonical failure events by design. Any exception after terminal success is invalid state and is raised.
+Successful runs may also carry additive usage metadata such as `input_tokens`, `output_tokens`, `total_tokens`, and `context_window_used` when the provider reports it and the backend can determine the active model context window.
 
 ### RPC
 
@@ -96,7 +97,7 @@ Example:
 {"type":"session_header","version":7,"workspace_root":"/abs/path/to/workspace"}
 {"type":"session_run","run_id":"abc","prompt":"fix bug","thinking":"high"}
 {"type":"session_event","run_id":"abc","event":{"type":"run_started","run_id":"abc"}}
-{"type":"session_event","run_id":"abc","event":{"type":"run_succeeded","run_id":"abc","output_text":"done"}}
+{"type":"session_event","run_id":"abc","event":{"type":"run_succeeded","run_id":"abc","output_text":"done","total_tokens":1234,"context_window_used":0.031}}
 {"type":"session_messages","run_id":"abc","messages":[...]}
 {"type":"session_compaction","compaction_id":"cmp-1","summarized_through_run_id":"abc","first_kept_run_id":null,"summary":{"current_objective":"ship the fix","established_facts":[],"user_preferences":[],"important_paths":[],"open_questions":[],"unresolved_work":[]}}
 ```
@@ -143,7 +144,7 @@ Each canonical tool entrypoint is a plain PydanticAI tool function that takes `R
 The registry (`tools/registry.py`) is thin: it validates canonical tool names, selects the requested tool functions, and returns one wrapped PydanticAI `FunctionToolset`. Expected operational failures are raised as explicit `ToolOperationalError` subclasses and converted to model-visible `{ok: false, ...}` results by a single toolset wrapper. Unexpected exceptions still fail hard.
 Shared public tool contract helpers such as canonical names and the `{ok: false, ...}` error result shape live in `contracts/tools.py`, but per-tool input carriers do not.
 
-Canonical tool success activity is now tool-owned. Each canonical tool can use PydanticAI's `ToolReturn` split internally so the model sees the same concise success value while the app gets backend-owned activity metadata in `ToolReturn.metadata`. That metadata is only an internal carrier. It becomes part of the product surface only after the runtime validates and maps it into typed `ToolActivity` fields such as `title`, `summary`, and success-path `details`. Non-success tool activity stays deliberately smaller: backend-owned titles, optional summaries, and durations without re-parsing typed args into structured details.
+Canonical tool success activity is now tool-owned. Each canonical tool can use PydanticAI's `ToolReturn` split internally so the model sees the same concise success value while the app gets backend-owned activity metadata in `ToolReturn.metadata`. That metadata is only an internal carrier. It becomes part of the product surface only after the runtime validates and maps it into typed `ToolActivity` fields such as `title`, `summary`, success-path `details`, and optional coarse `group_kind` hints. Non-success tool activity stays deliberately smaller: backend-owned titles, optional summaries, durations, and the same optional `group_kind` without re-parsing typed args into structured details. The public contract intentionally does not expose a tool `group_id`.
 
 Canonical tool concurrency is explicit too. `read`, `grep`, `find`, and `ls` are parallel-eligible; `write`, `edit`, and `shell` are serialized. The runtime also enters an explicit parallel execution mode for tool calls, and the model seam enables provider-side `parallel_tool_calls` by default for canonical provider paths, with explicit carve-outs reserved for specific model paths that prove incompatible.
 

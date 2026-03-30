@@ -268,7 +268,7 @@ Initial executable run slice:
 - `assistant_text_delta`
   - fields: `type`, `run_id`, `delta`
 - `run_succeeded`
-  - fields: `type`, `run_id`, `output_text`
+  - fields: `type`, `run_id`, `output_text`, `input_tokens`, `output_tokens`, `total_tokens`, `context_window_used`
 - `run_failed`
   - fields: `type`, `run_id`, `error_type`, `message`
 
@@ -277,6 +277,9 @@ Ordering rules for the initial slice:
 - Successful text-only run: `run_started`, zero or more `assistant_text_delta`, `run_succeeded`
 - Failed run: `run_started`, zero or more `assistant_text_delta`, `run_failed`
 - `run_succeeded` and `run_failed` are mutually exclusive and terminal
+- `run_succeeded` may also carry optional additive usage metadata when the model/provider reports it
+- `input_tokens`, `output_tokens`, and `total_tokens` are optional integer token counts on `run_succeeded`
+- `context_window_used` is an optional float ratio on `run_succeeded` and is omitted when the backend cannot determine the active model context window
 - Before any assistant text or tool lifecycle event is emitted, the runtime may hide one retryable transient failure and continue with the same public `run_id`
 - Once any assistant text or tool lifecycle event has been emitted, the runtime must not retry the run automatically
 - Consumers must not need to understand raw PydanticAI stream event kinds to consume this contract
@@ -302,10 +305,12 @@ Initial tool lifecycle slice:
   - `summary`
   - `duration_ms`
   - `details`
+  - `group_kind`
 - `title` is a terse backend-owned label for the tool action
 - `summary` is optional and should stay trustworthy rather than aspirational
 - `duration_ms` belongs on finished tool events and may also appear on `tool_call_updated`
 - `details` is optional and, when present, must use typed per-tool metadata rather than an untyped bag
+- `group_kind` is optional coarse presentation metadata from the backend; it is for frontend grouping hints, not a second event family
 
 Initial typed `details` slice for tool success activity:
 
@@ -326,11 +331,13 @@ Initial typed `details` slice for tool success activity:
 
 Rules for the initial activity slice:
 
-- v1 remains within the existing event families; no group or timeline events are added
+- v1 remains within the existing event families; no group or timeline event families are added
 - `activity` must be derived from canonical tool semantics in the backend, not guessed in the frontend
 - canonical tool success activity should be owned by the tools themselves and passed through an internal carrier such as `ToolReturn.metadata`; the runtime validates and normalizes that metadata before emitting public events
 - started, updated, and failed/error-result activity should stay minimal: backend-owned `title`, optional `summary`, and `duration_ms` when applicable
 - the runtime should not re-parse typed tool args into structured `details` for started, updated, or failed/error-result activity
+- `group_kind` is the only current coarse grouping hint in the public contract; the backend does not expose a public `group_id`
+- the current canonical `group_kind` value is `exploration` for exploration-style tools
 - no untyped `artifacts` bag
 - no absolute timestamps in the persisted public event contract
 - existing consumers that ignore `activity` must continue to work unchanged
