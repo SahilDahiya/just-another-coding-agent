@@ -147,6 +147,7 @@ Shared public tool contract helpers such as canonical names and the `{ok: false,
 Canonical tool success activity is now tool-owned. Each canonical tool can use PydanticAI's `ToolReturn` split internally so the model sees the same concise success value while the app gets backend-owned activity metadata in `ToolReturn.metadata`. That metadata is only an internal carrier. It becomes part of the product surface only after the runtime validates and maps it into typed `ToolActivity` fields such as `title`, `summary`, success-path `details`, and optional coarse `group_kind` hints. Non-success tool activity stays deliberately smaller: backend-owned titles, optional summaries, durations, and the same optional `group_kind` without re-parsing typed args into structured details. The public contract intentionally does not expose a tool `group_id`.
 
 Canonical tool concurrency is explicit too. `read`, `grep`, `find`, and `ls` are parallel-eligible; `write`, `edit`, and `shell` are serialized. The runtime also enters an explicit parallel execution mode for tool calls, and the model seam enables provider-side `parallel_tool_calls` by default for canonical provider paths, with explicit carve-outs reserved for specific model paths that prove incompatible.
+Those high-frequency read-only tools now execute through one persistent per-run Go helper process rather than per-call Python subprocesses. That helper is an internal execution seam only: Python still owns the public tool schema, validation, activity metadata, result shaping, session meaning, and RPC meaning.
 
 ### Canonical Agent
 
@@ -156,7 +157,7 @@ The system prompt tells the model what tools it has, how to approach coding task
 That prompt layer also carries two behavioral rules that matter for benchmark and real coding tasks alike: do not claim a file was created or changed without tool evidence, and verify code changes or required file outputs before concluding.
 Thinking is not carried in the prompt. The runtime passes it through PydanticAI model settings as an explicit run input.
 Provider-native model behavior is centralized separately in `runtime/models.py`, which resolves model strings, applies OpenAI-compatible retry transport policy, enables OpenAI Responses server history only when appropriate, and can wrap models with opt-in instrumentation via `JACA_TRACE_MODE=local|logfire`.
-When tracing is enabled, backend startup configures one explicit sink: `local` writes JSONL span files under `~/.jaca/traces/`, while `logfire` exports to Logfire and fails hard if credentials are missing. The backend relies on PydanticAI/OpenTelemetry agent and tool spans directly, so evaluation-side watchdog helpers can detect long-tool and shell-heavy probe loops without inspecting session JSONL by hand.
+When tracing is enabled, backend startup configures one explicit sink: `local` writes JSONL span files under `~/.jaca/traces/` without requiring Logfire authentication, while `logfire` exports to Logfire and fails hard if credentials are missing. The backend relies on PydanticAI/OpenTelemetry agent and tool spans directly, so evaluation-side watchdog helpers can detect long-tool and shell-heavy probe loops without inspecting session JSONL by hand.
 
 ### Runtime
 
@@ -200,8 +201,9 @@ Benchmark harness / CLI / TUI / UI (any language)
     | PydanticAI events
   Canonical agent (runtime/agent.py) -- model + tools + instructions
     |
-  Tools (tools/) -- workspace-bound factories
-    | file system / shell
+  Tools (tools/) -- Python-owned schemas + semantics
+    | read-only worker (persistent Go helper) for read/ls/find/grep
+    | direct file system / shell for the rest
 
   First-party TUI (tui/) -- status bar + transcript + prompt shell
   Session persistence (session/jsonl.py) -- append-only JSONL
