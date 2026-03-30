@@ -73,7 +73,7 @@ type viewModel struct {
 	SlashMenu      slashMenuState
 }
 
-var topRailFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+var topRailFrames = []string{"|", "/", "-", "\\"}
 
 func renderView(vm viewModel) string {
 	transcript := ""
@@ -303,7 +303,7 @@ func buildPromptMarkerText(phase Phase, _ int) string {
 	case PhaseError:
 		return "x "
 	default:
-		return "❯ "
+		return "> "
 	}
 }
 

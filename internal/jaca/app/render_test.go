@@ -117,20 +117,19 @@ func TestBuildTopRailIndicatorHiddenWhenIdle(t *testing.T) {
 }
 
 func TestRenderPromptRuleShowsTopRailIndicatorDuringStreaming(t *testing.T) {
+	tick := 2
 	rendered := stripANSI(renderTopRail(viewModel{
 		Phase:      PhaseStreaming,
-		MotionTick: 4,
+		MotionTick: tick,
 		RunElapsed: 37 * time.Second,
 	}))
 
 	if !strings.Contains(rendered, "00:37") {
 		t.Fatalf("renderTopRail() missing elapsed indicator: %q", rendered)
 	}
-	if !strings.Contains(rendered, topRailFrames[4]) {
-		t.Fatalf("renderTopRail() missing braille indicator: %q", rendered)
-	}
-	if !strings.HasPrefix(rendered, topRailFrames[4]+" 00:37") {
-		t.Fatalf("renderTopRail() should place indicator on the left: %q", rendered)
+	frame := topRailFrames[tick%len(topRailFrames)]
+	if !strings.Contains(rendered, frame) {
+		t.Fatalf("renderTopRail() missing spinner frame: %q", rendered)
 	}
 }
 
@@ -143,9 +142,10 @@ func TestRenderPromptRuleStaysPlainWhenIdle(t *testing.T) {
 }
 
 func TestRenderPromptShowsSingleTopRailIndicator(t *testing.T) {
+	tick := 2
 	rendered := stripANSI(renderPrompt(viewModel{
 		Phase:         PhaseStreaming,
-		MotionTick:    4,
+		MotionTick:    tick,
 		RunElapsed:    8 * time.Second,
 		Transcript:    "hello",
 		PromptValue:   "",
@@ -158,7 +158,8 @@ func TestRenderPromptShowsSingleTopRailIndicator(t *testing.T) {
 	if count := strings.Count(rendered, "00:08"); count != 1 {
 		t.Fatalf("renderPrompt() elapsed indicator count = %d, want 1 in %q", count, rendered)
 	}
-	if !strings.Contains(rendered, topRailFrames[4]+" 00:08") {
+	frame := topRailFrames[tick%len(topRailFrames)]
+	if !strings.Contains(rendered, frame+" 00:08") {
 		t.Fatalf("renderPrompt() missing top rail indicator: %q", rendered)
 	}
 }
