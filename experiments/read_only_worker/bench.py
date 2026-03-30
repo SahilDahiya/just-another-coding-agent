@@ -250,15 +250,45 @@ def _build_go_worker(temp_root: Path) -> tuple[Path, dict[str, Any]]:
     }
 
 
-def _run_go_worker_benchmark(
+def _build_rust_worker(temp_root: Path) -> tuple[Path, dict[str, Any]]:
+    target_dir = temp_root / "rust-target"
+    env = dict(os.environ)
+    env["RUSTUP_HOME"] = "/tmp/jaca-rustup-home"
+    env["CARGO_HOME"] = "/tmp/jaca-cargo-home"
+    env["PATH"] = f"/tmp/jaca-cargo-home/bin:{env['PATH']}"
+    env["CARGO_TARGET_DIR"] = str(target_dir)
+
+    started = time.perf_counter()
+    subprocess.run(
+        [
+            "cargo",
+            "build",
+            "--manifest-path",
+            "experiments/read_only_worker/rust_worker/Cargo.toml",
+            "--release",
+            "--quiet",
+        ],
+        check=True,
+        cwd=Path(__file__).resolve().parents[2],
+        env=env,
+    )
+    build_ms = round((time.perf_counter() - started) * 1000, 3)
+    binary_path = target_dir / "release" / "jaca_read_only_worker_spike"
+    return binary_path, {
+        "build_ms": build_ms,
+        "binary_size_bytes": binary_path.stat().st_size,
+    }
+
+
+def _run_external_worker_benchmark(
     workspace_root: Path,
     *,
     worker_binary: Path,
+    env: dict[str, str] | None = None,
     iterations: int,
     concurrency: int,
+    mode: str,
 ) -> dict[str, Any]:
-    env = dict(os.environ)
-
     async def _run() -> dict[str, Any]:
         cold_started = time.perf_counter()
         async with _WorkerClient([str(worker_binary)], env=env) as worker:
@@ -334,7 +364,7 @@ def _run_go_worker_benchmark(
             )
 
         return {
-            "mode": "go_worker",
+            "mode": mode,
             "cold_handshake_ms": cold_handshake_ms,
             "cold_first_read_ms": cold_first_read_ms,
             "warm_read": _summarize(read_samples),
@@ -364,20 +394,36 @@ def main() -> None:
         )
 
         go_binary, go_build = _build_go_worker(temp_root)
-        go_results = _run_go_worker_benchmark(
+        go_results = _run_external_worker_benchmark(
             workspace_root,
             worker_binary=go_binary,
             iterations=args.iterations,
             concurrency=args.concurrency,
+            mode="go_worker",
         )
         go_results.update(go_build)
+
+        rust_binary, rust_build = _build_rust_worker(temp_root)
+        rust_env = dict(os.environ)
+        rust_env["RUSTUP_HOME"] = "/tmp/jaca-rustup-home"
+        rust_env["CARGO_HOME"] = "/tmp/jaca-cargo-home"
+        rust_env["PATH"] = f"/tmp/jaca-cargo-home/bin:{rust_env['PATH']}"
+        rust_results = _run_external_worker_benchmark(
+            workspace_root,
+            worker_binary=rust_binary,
+            env=rust_env,
+            iterations=args.iterations,
+            concurrency=args.concurrency,
+            mode="rust_worker",
+        )
+        rust_results.update(rust_build)
 
         results = {
             "iterations": args.iterations,
             "concurrency": args.concurrency,
             "python_subprocess": baseline,
             "go_worker": go_results,
-            "rust_worker": "not run: cargo unavailable in this environment",
+            "rust_worker": rust_results,
         }
 
         if args.json:
