@@ -22,8 +22,6 @@ PydanticAI helps with run-local seams:
 - Hooks can intercept runs, model requests, tool validation/execution, and
   event streams
 - `model_settings` can carry explicit run settings such as `thinking`
-- deferred tools can pause a run at a tool boundary and continue later with
-  explicit `DeferredToolResults`
 
 PydanticAI does not define the product-level semantics we still need:
 

@@ -134,7 +134,7 @@ Each canonical tool entrypoint is a plain PydanticAI tool function that takes `R
 - `read` -- reads a UTF-8 file, returns contents
 - `write` -- writes a UTF-8 file, creates parent dirs, returns confirmation
 - `edit` -- replaces exactly one occurrence of `old_text` with `new_text`, trying exact matching first and then a normalized fallback for minor formatting differences while preserving surrounding unmatched content; fails on zero/multiple matches or no-op
-- `shell` -- runs one command with the active shell family (`posix`, executed with Bash semantics, or `powershell`) with `cwd` set to workspace root, returns `{"exit_code": 0, "output": str}` on success and explicit tool error results for non-zero exits or timeouts; `defer=true` is the explicit contract for genuinely long shell/build/test work
+- `shell` -- runs one command with the active shell family (`posix`, executed with Bash semantics, or `powershell`) with `cwd` set to workspace root, returns `{"exit_code": 0, "output": str}` on success and explicit tool error results for non-zero exits or timeouts
 - `grep` -- searches UTF-8 text files with ripgrep and returns matching lines with relative paths and line numbers
 - `ls` -- lists directory contents in a bounded alphabetical view with `/` suffixes for directories
 - `find` -- finds files by glob pattern and returns paths relative to the searched directory

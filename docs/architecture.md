@@ -32,7 +32,6 @@ Prefer direct use of PydanticAI primitives before creating local abstractions:
 Local code should translate those primitives into the canonical backend contract for tools, events, sessions, RPC, and failure semantics.
 `runtime/models.py` is the sanctioned local seam for explicit model construction and provider-native policy.
 PydanticAI-native carrier features such as `ToolReturn.metadata` may be used internally, but they must be normalized immediately into typed backend contract fields before crossing the public stream/session boundary. For canonical tools, success activity ownership lives with the tools themselves; the runtime only validates and maps that metadata into the public event/session contract. Non-success tool activity stays intentionally small: backend-owned titles, optional summaries, and durations, without re-parsing typed args into structured details.
-If a tool needs extra validation for a non-agent runtime seam such as deferred
 re-entry, that validator should stay private to the tool or runtime seam rather
 than becoming a second public source of truth in `contracts/`.
 If a future helper in another language executes a narrow internal tool seam, it
@@ -65,7 +64,6 @@ Use PydanticAI where it already has the right seam:
 - use Hooks for observability, classification, and other run-local interception
 - use `model_settings` for explicit run settings such as `thinking`
 - use provider-native model and provider classes when the backend needs retries, instrumentation, or OpenAI Responses history behavior that plain model strings cannot express cleanly
-- use deferred tools when a tool call should leave the current model step and resume later with explicit results, but keep the public backend contract explicit about which tools actually support that behavior
 
 Keep product semantics in this repo's own contract layer:
 
@@ -125,7 +123,6 @@ The important boundary is:
   token as four characters
 - if no canonical context metadata is known for the active model, live-run
   compaction falls back to one conservative default soft char limit
-- deferred tools are the separate seam for long shell/build/test work that
   should leave the current model step and resume with explicit results
 - the runtime uses a separate model call to generate the durable compaction summary
 - durable compaction state lives in our session file, and resumed runs

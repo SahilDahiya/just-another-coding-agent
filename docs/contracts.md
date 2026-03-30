@@ -167,16 +167,14 @@ Initial executable tool slice:
 
 `shell` input contract:
 
-- fields: `command`, `timeout`, `defer`
+- fields: `command`, `timeout`
 - `command` must be a non-empty string
 - `timeout` is optional and, when present, must be a positive integer number of seconds
-- `defer` is optional and, when present, must be a boolean
 
 `shell` behavior contract:
 
 - executes one local shell command in the configured workspace root using the active shell family (`posix`, which means Bash semantics, or `powershell`)
 - sets command cwd to the configured workspace root, but does not sandbox filesystem access outside that root
-- `defer=true` is the explicit contract for genuinely long shell, build, or test work; the runtime may execute that call through PydanticAI deferred-tool continuation while preserving one canonical public run
 - returns a JSON-compatible success result with fields `exit_code` and `output`
 - successful `shell` results always use `exit_code: 0`
 - `output` is the combined stdout and stderr decoded as UTF-8
@@ -185,7 +183,6 @@ Initial executable tool slice:
 - non-zero exits return an explicit tool error result instead of a success payload
 - timeout returns an explicit tool error result and includes captured output when available
 - shell spawn failure and invalid UTF-8 output return an explicit tool error result
-- approval-required deferred tools are not part of the canonical backend contract
 - no shell fallback, alternate decoder, or hidden retry path
 
 `grep` input contract:
@@ -320,7 +317,7 @@ Initial tool lifecycle slice:
 Initial typed `details` slice for tool success activity:
 
 - `shell`
-  - `kind`, `command_preview`, `timeout`, `deferred`, `exit_code`
+  - `kind`, `command_preview`, `timeout`, `exit_code`
 - `read`
   - `kind`, `path`, `offset`, `limit`
 - `write`
@@ -347,7 +344,6 @@ Rules for the initial activity slice:
 - no absolute timestamps in the persisted public event contract
 - existing consumers that ignore `activity` must continue to work unchanged
 - framework-native carriers such as `ToolReturn.metadata` are allowed internally, but they are not themselves part of the public contract; the public contract begins only after the runtime validates and maps success-path metadata into typed `activity.details`
-- internal deferred-tool restarts must not leak duplicate `tool_call_started` events into the public contract
 
 Canonical tool concurrency policy:
 
@@ -364,7 +360,6 @@ Ordering rules for the tool slice:
 - `tool_call_failed` is reserved for uncaught tool failures or invalid runtime state and is terminal for the current run
 - A tool exception that aborts the run must emit `tool_call_failed` before `run_failed`
 - A tool result must match an existing pending `tool_call_started`; tool name mismatches or orphaned tool results are invalid state and fail the run explicitly
-- if the runtime internally resumes a deferred tool result, the resumed framework-level tool-call echo is absorbed; the public contract still shows one start and one completion for that tool call id
 - Tool args and tool results in the public contract must be JSON-compatible
 
 ## Session Contract
