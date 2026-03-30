@@ -46,6 +46,12 @@ The canonical prompt should inject the current date and resolved workspace root 
 The canonical prompt must also enforce side-effect truthfulness and verification discipline: the model must not claim to have created or modified files without tool evidence, and it should run the smallest relevant verification step before concluding after code changes or required file outputs.
 The canonical runtime should expose `thinking` as an explicit run setting and pass it through PydanticAI model settings rather than encoding reasoning level in prompt text.
 The canonical runtime should resolve model strings through one local model seam before agent construction so provider-native retries, instrumentation, and OpenAI-specific settings stay centralized instead of leaking through the runtime.
+The canonical agent also keeps `output_type=str` and deliberately sets a very
+high PydanticAI output-validation retry budget. That is not a second generic
+run retry policy; it is an explicit choice to avoid a framework output ceiling
+becoming the stop condition for the plain-text coding agent. If the canonical
+agent ever moves to structured output or output validators, this retry policy
+must be revisited rather than silently inherited.
 The canonical tool concurrency policy should also be explicit rather than left to framework defaults: read-only tools may run in parallel, mutating tools remain serialized, and provider-side `parallel_tool_calls` should be enabled by default for the canonical provider paths unless the backend explicitly carves out a known-bad model path.
 Opt-in tracing should stay in one place too: `JACA_TRACE_MODE` controls whether the backend stays untraced, stores spans locally, or exports them to Logfire. `local` turns on PydanticAI/OpenTelemetry instrumentation plus a local JSONL span exporter under `~/.jaca/traces/`. `logfire` enables the same instrumentation but exports to Logfire and fails hard unless Logfire credentials are already configured.
 Internal tool executors should also depend only on the execution context they actually use. If an executor only needs `deps`, `tool_call_id`, and `tool_name`, that narrower structural contract should be explicit instead of pretending to require a full PydanticAI `RunContext`.

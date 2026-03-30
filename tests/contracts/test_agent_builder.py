@@ -7,6 +7,7 @@ from pydantic_ai.models.openai import OpenAIResponsesModel
 
 from just_another_coding_agent.runtime import (
     CANONICAL_AGENT_INSTRUCTIONS,
+    CANONICAL_AGENT_OUTPUT_RETRIES,
     build_canonical_agent,
     build_canonical_instructions,
     build_canonical_model_settings,
@@ -157,3 +158,19 @@ def test_build_canonical_agent_uses_model_aware_live_compaction_limit(
     )
 
     assert observed["soft_char_limit"] == 1_280_000
+
+
+def test_build_canonical_agent_documents_plain_text_output_retry_policy(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    agent = build_canonical_agent(
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        tool_names=[],
+    )
+
+    assert agent.output_type is str
+    assert agent._max_result_retries == CANONICAL_AGENT_OUTPUT_RETRIES

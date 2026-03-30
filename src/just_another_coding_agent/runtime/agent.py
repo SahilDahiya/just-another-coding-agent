@@ -22,6 +22,8 @@ from just_another_coding_agent.tools._workspace import normalize_workspace_root
 from just_another_coding_agent.tools.deps import WorkspaceDeps
 from just_another_coding_agent.tools.registry import build_canonical_toolset
 
+CANONICAL_AGENT_OUTPUT_RETRIES = 1_000_000
+
 CANONICAL_AGENT_INSTRUCTIONS = "\n".join(
     [
         (
@@ -116,10 +118,16 @@ def build_canonical_agent(
         )
     )
 
-    return Agent(
+    # The canonical agent returns plain assistant text, not structured output.
+    # Codex/pi-style interaction keeps the run alive until the model chooses to
+    # stop; we do not want PydanticAI's output-validation retry ceiling to be
+    # the effective stop condition for this plain-string agent. If this agent
+    # ever stops being `output_type=str`, this policy should be revisited rather
+    # than silently inherited by a structured-output path.
+    agent = Agent(
         resolved_model,
         output_type=str,
-        output_retries=1_000_000,
+        output_retries=CANONICAL_AGENT_OUTPUT_RETRIES,
         instructions=build_canonical_instructions(
             workspace_root=root,
             shell_family=effective_shell_family,
@@ -128,9 +136,16 @@ def build_canonical_agent(
         toolsets=[build_canonical_toolset(tool_names)],
         history_processors=effective_history_processors,
     )
+    if agent.output_type is not str:
+        raise RuntimeError(
+            "Canonical agent output retry policy only applies to plain string "
+            "output. Revisit `output_retries` before changing `output_type`."
+        )
+    return agent
 
 
 __all__ = [
+    "CANONICAL_AGENT_OUTPUT_RETRIES",
     "CANONICAL_AGENT_INSTRUCTIONS",
     "build_canonical_agent",
     "build_canonical_instructions",
