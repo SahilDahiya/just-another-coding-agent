@@ -207,17 +207,17 @@ func renderPromptRule(vm viewModel, width int, rowBorder lipgloss.TerminalColor)
 	}
 
 	indicatorWidth := lipgloss.Width(indicator)
-	leftWidth := width - indicatorWidth - 2
-	if leftWidth < 0 {
-		leftWidth = 0
+	rightWidth := width - indicatorWidth - 2
+	if rightWidth < 0 {
+		rightWidth = 0
 	}
 	left := lipgloss.NewStyle().
-		Foreground(ruleColor).
-		Render(strings.Repeat("─", leftWidth))
-	right := lipgloss.NewStyle().
 		Foreground(defaultTheme.accentSoft).
 		Render(indicator)
-	return left + strings.Repeat(" ", width-leftWidth-indicatorWidth) + right
+	right := lipgloss.NewStyle().
+		Foreground(ruleColor).
+		Render(strings.Repeat("─", rightWidth))
+	return left + strings.Repeat(" ", width-rightWidth-indicatorWidth) + right
 }
 
 func buildTopRailIndicator(vm viewModel) string {

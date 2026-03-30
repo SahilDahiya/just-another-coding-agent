@@ -129,6 +129,9 @@ func TestRenderPromptRuleShowsTopRailIndicatorDuringStreaming(t *testing.T) {
 	if !strings.Contains(rendered, topRailFrames[4]) {
 		t.Fatalf("renderPromptRule() missing braille indicator: %q", rendered)
 	}
+	if !strings.HasPrefix(rendered, topRailFrames[4]+" 00:37") {
+		t.Fatalf("renderPromptRule() should place indicator on the left: %q", rendered)
+	}
 }
 
 func TestRenderPromptRuleStaysPlainWhenIdle(t *testing.T) {
