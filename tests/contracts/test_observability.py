@@ -25,48 +25,32 @@ def _fake_logfire_module(calls: list[dict[str, object]]) -> SimpleNamespace:
 def test_configure_observability_configures_local_tracing_when_requested(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    calls: list[dict[str, object]] = []
+    calls: list[str] = []
 
     monkeypatch.setenv("JACA_TRACE_MODE", "local")
-    monkeypatch.setitem(
-        sys.modules,
-        "logfire",
-        _fake_logfire_module(calls),
-    )
     monkeypatch.setattr(
         observability,
-        "_build_local_span_processors",
-        lambda: ["processor"],
+        "_configure_local_tracing",
+        lambda service_name: calls.append(service_name),
     )
     monkeypatch.setattr(observability, "_configured", False)
 
     observability.configure_observability()
 
-    assert calls == [
-        {
-            "send_to_logfire": False,
-            "console": False,
-            "service_name": "jaca",
-            "scrubbing": {
-                "_scrubbing": True,
-                "callback": observability._scrub_only_api_keys,
-            },
-            "additional_span_processors": ["processor"],
-        }
-    ]
+    assert calls == ["jaca"]
 
 
-def test_configure_observability_fails_fast_without_logfire_dependency(
+def test_configure_observability_fails_fast_without_trace_dependency(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("JACA_TRACE_MODE", "local")
     monkeypatch.setattr(observability, "_configured", False)
     monkeypatch.setattr(
         observability,
-        "_import_logfire",
-        lambda: (_ for _ in ()).throw(
+        "_configure_local_tracing",
+        lambda service_name: (_ for _ in ()).throw(
             RuntimeError(
-                "Tracing requires the optional `logfire` dependency. Install it "
+                "Tracing requires the optional `trace` dependency. Install it "
                 "with `uv sync --extra trace` and try again."
             )
         ),
@@ -74,7 +58,7 @@ def test_configure_observability_fails_fast_without_logfire_dependency(
 
     with pytest.raises(
         RuntimeError,
-        match="Tracing requires the optional `logfire` dependency",
+        match="Tracing requires the optional `trace` dependency",
     ):
         observability.configure_observability()
 

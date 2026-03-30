@@ -7,6 +7,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+try:
+    from opentelemetry.sdk.trace.export import SpanExportResult
+except ModuleNotFoundError:  # pragma: no cover - exercised in no-trace installs
+    class _SpanExportResult:
+        SUCCESS = "success"
+
+    SpanExportResult = _SpanExportResult
+
 
 def build_local_trace_path(now: datetime | None = None) -> Path:
     timestamp = datetime.now() if now is None else now
@@ -28,8 +36,6 @@ class LocalJSONLSpanExporter:
         self._lock = threading.Lock()
 
     def export(self, spans: list[Any]) -> Any:
-        from opentelemetry.sdk.trace.export import SpanExportResult
-
         with self._lock:
             with self.path.open("a", encoding="utf-8") as handle:
                 for span in spans:

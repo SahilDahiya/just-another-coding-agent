@@ -24,31 +24,27 @@ def configure_observability() -> None:
     if _configured:
         return
 
-    logfire = _import_logfire()
-    scrubbing = logfire.ScrubbingOptions(callback=_scrub_only_api_keys)
-    kwargs: dict[str, Any] = {
-        "console": False,
-        "scrubbing": scrubbing,
-        "service_name": os.environ.get(
-            "LOGFIRE_SERVICE_NAME",
-            _DEFAULT_SERVICE_NAME,
-        ),
-    }
+    service_name = os.environ.get("LOGFIRE_SERVICE_NAME", _DEFAULT_SERVICE_NAME)
     if mode == "local":
-        kwargs["send_to_logfire"] = False
-        kwargs["additional_span_processors"] = _build_local_span_processors()
+        _configure_local_tracing(service_name)
     elif mode == "logfire":
+        logfire = _import_logfire()
+        scrubbing = logfire.ScrubbingOptions(callback=_scrub_only_api_keys)
         if not _has_logfire_credentials():
             raise RuntimeError(
                 "JACA_TRACE_MODE=logfire requires Logfire project credentials. "
                 "Run `uv run logfire auth` and `uv run logfire projects use "
                 "<project>` or set `LOGFIRE_TOKEN`."
             )
-        kwargs["send_to_logfire"] = True
+        logfire.configure(
+            send_to_logfire=True,
+            console=False,
+            service_name=service_name,
+            scrubbing=scrubbing,
+        )
     else:
         raise AssertionError(f"unsupported trace mode: {mode}")
 
-    logfire.configure(**kwargs)
     _configured = True
 
 
@@ -87,6 +83,25 @@ def _import_logfire() -> Any:
             "with `uv sync --extra trace` and try again."
         ) from error
     return logfire
+
+
+def _configure_local_tracing(service_name: str) -> None:
+    try:
+        from opentelemetry import trace
+        from opentelemetry.sdk.resources import Resource
+        from opentelemetry.sdk.trace import TracerProvider
+    except ModuleNotFoundError as error:
+        raise RuntimeError(
+            "Tracing requires the optional `trace` dependency. Install it "
+            "with `uv sync --extra trace` and try again."
+        ) from error
+
+    provider = TracerProvider(
+        resource=Resource.create({"service.name": service_name})
+    )
+    for processor in _build_local_span_processors():
+        provider.add_span_processor(processor)
+    trace.set_tracer_provider(provider)
 
 
 def _build_local_span_processors() -> list[Any]:

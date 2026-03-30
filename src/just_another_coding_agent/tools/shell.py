@@ -6,7 +6,7 @@ import signal
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Annotated, Any, Protocol
+from typing import Annotated, Protocol
 
 from pydantic import Field
 from pydantic_ai import RunContext, Tool

@@ -382,6 +382,7 @@ def test_main_exits_cleanly_on_keyboard_interrupt(
         "just_another_coding_agent.__main__.asyncio.run",
         fake_asyncio_run,
     )
+    monkeypatch.setattr("just_another_coding_agent.__main__.load_config", lambda: {})
 
     exit_code = main(
         [

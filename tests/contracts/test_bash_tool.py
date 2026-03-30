@@ -8,7 +8,7 @@ import pytest
 from just_another_coding_agent.contracts.platform import detect_default_shell_family
 from just_another_coding_agent.tools.deps import WorkspaceDeps
 from just_another_coding_agent.tools.errors import ToolCommandError, ToolEncodingError
-from just_another_coding_agent.tools.shell import execute_shell, shell
+from just_another_coding_agent.tools.shell import execute_shell
 
 
 @dataclass(frozen=True)

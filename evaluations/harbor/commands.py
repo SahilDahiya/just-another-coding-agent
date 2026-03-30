@@ -9,6 +9,7 @@ _COMMON_ENV_KEYS = ("JUST_ANOTHER_CODING_AGENT_THINKING",)
 _OPENAI_ENV_KEYS = ("OPENAI_API_KEY", "OPENAI_BASE_URL")
 _OLLAMA_ENV_KEYS = ("OLLAMA_API_KEY", "OLLAMA_BASE_URL")
 _ANTHROPIC_ENV_KEYS = ("ANTHROPIC_API_KEY",)
+_DEFAULT_OLLAMA_BASE_URL = "https://ollama.com/v1"
 
 
 def _provider_env_keys_for_model(model: str) -> tuple[str, ...]:
@@ -30,7 +31,10 @@ def build_provider_env(
 ) -> dict[str, str]:
     source = os.environ if environ is None else environ
     allowed_keys = (*_provider_env_keys_for_model(model), *_COMMON_ENV_KEYS)
-    return {key: source[key] for key in allowed_keys if key in source}
+    selected = {key: source[key] for key in allowed_keys if key in source}
+    if model.startswith("ollama:") and "OLLAMA_BASE_URL" not in selected:
+        selected["OLLAMA_BASE_URL"] = _DEFAULT_OLLAMA_BASE_URL
+    return selected
 
 
 def build_harbor_exec_command(
