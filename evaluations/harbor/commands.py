@@ -5,20 +5,32 @@ import os
 import shlex
 from collections.abc import Mapping
 
-_PROVIDER_ENV_KEYS = (
-    "OPENAI_API_KEY",
-    "OPENAI_BASE_URL",
-    "OLLAMA_API_KEY",
-    "OLLAMA_BASE_URL",
-    "JUST_ANOTHER_CODING_AGENT_THINKING",
-)
+_COMMON_ENV_KEYS = ("JUST_ANOTHER_CODING_AGENT_THINKING",)
+_OPENAI_ENV_KEYS = ("OPENAI_API_KEY", "OPENAI_BASE_URL")
+_OLLAMA_ENV_KEYS = ("OLLAMA_API_KEY", "OLLAMA_BASE_URL")
+_ANTHROPIC_ENV_KEYS = ("ANTHROPIC_API_KEY",)
+
+
+def _provider_env_keys_for_model(model: str) -> tuple[str, ...]:
+    if model.startswith("openai-responses:"):
+        return _OPENAI_ENV_KEYS
+    if model.startswith("openai:") or model.startswith("openai-chat:"):
+        return _OPENAI_ENV_KEYS
+    if model.startswith("ollama:"):
+        return _OLLAMA_ENV_KEYS
+    if model.startswith("anthropic:"):
+        return _ANTHROPIC_ENV_KEYS
+    raise ValueError(f"Unsupported Harbor model provider: {model}")
 
 
 def build_provider_env(
+    *,
+    model: str,
     environ: Mapping[str, str] | None = None,
 ) -> dict[str, str]:
     source = os.environ if environ is None else environ
-    return {key: source[key] for key in _PROVIDER_ENV_KEYS if key in source}
+    allowed_keys = (*_provider_env_keys_for_model(model), *_COMMON_ENV_KEYS)
+    return {key: source[key] for key in allowed_keys if key in source}
 
 
 def build_harbor_exec_command(

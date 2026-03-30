@@ -66,7 +66,7 @@ else:
                     model=self.model_name,
                     thinking=os.environ.get("JUST_ANOTHER_CODING_AGENT_THINKING"),
                 ),
-                    env=build_provider_env(),
+                    env=build_provider_env(model=self.model_name),
                 )
             ]
 

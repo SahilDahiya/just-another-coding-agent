@@ -80,6 +80,7 @@ def test_harbor_agent_supports_current_base_installed_agent_api(
             sys.modules.pop(module_name)
 
     _install_fake_harbor_modules()
+    monkeypatch.setenv("OPENAI_API_KEY", "openai-secret")
     monkeypatch.setenv("OLLAMA_API_KEY", "test-key")
     monkeypatch.setenv("JUST_ANOTHER_CODING_AGENT_THINKING", "high")
 
