@@ -199,7 +199,6 @@ async def stream_session_run_events(
                                 args_valid=pending_tool_call.args_valid,
                                 message=message,
                                 duration_ms=0,
-                                shell_family=shell_family,
                             ),
                         )
                     )

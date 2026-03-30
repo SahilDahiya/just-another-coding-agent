@@ -4,7 +4,6 @@ from typing import Any
 
 from pydantic import TypeAdapter
 
-from just_another_coding_agent.contracts.platform import ShellFamily
 from just_another_coding_agent.contracts.run_events import (
     ToolActivity,
     ToolActivityDetails,
@@ -33,9 +32,7 @@ def build_started_tool_activity(
     tool_name: str,
     args: Any,
     args_valid: bool | None,
-    shell_family: ShellFamily | None = None,
 ) -> ToolActivity:
-    del shell_family
     group_kind = _group_kind_for_tool(tool_name)
     return ToolActivity(
         title=_build_tool_title(
@@ -55,9 +52,7 @@ def build_succeeded_tool_activity(
     result: Any,
     result_metadata: Any = None,
     duration_ms: int,
-    shell_family: ShellFamily | None = None,
 ) -> ToolActivity:
-    del shell_family
     group_kind = _group_kind_for_tool(tool_name)
 
     if result_metadata is not None:
@@ -91,9 +86,8 @@ def build_updated_tool_activity(
     args_valid: bool | None,
     partial_result: Any,
     duration_ms: int,
-    shell_family: ShellFamily | None = None,
 ) -> ToolActivity:
-    del partial_result, shell_family
+    del partial_result
     group_kind = _group_kind_for_tool(tool_name)
     return ToolActivity(
         title=_build_tool_title(
@@ -114,9 +108,7 @@ def build_failed_tool_activity(
     args_valid: bool | None,
     message: str,
     duration_ms: int,
-    shell_family: ShellFamily | None = None,
 ) -> ToolActivity:
-    del shell_family
     group_kind = _group_kind_for_tool(tool_name)
     return ToolActivity(
         title=_build_tool_title(
