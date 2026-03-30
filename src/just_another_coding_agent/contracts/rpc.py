@@ -4,6 +4,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
+from .model_catalog import ProviderName
 from .run_events import RunEvent, SessionLifecycleEvent
 from .thinking import ThinkingSetting
 
@@ -34,6 +35,16 @@ class SessionCompactRequest(_RpcModel):
     payload: SessionCompactPayload
 
 
+class ModelCatalogPayload(_RpcModel):
+    pass
+
+
+class ModelCatalogRequest(_RpcModel):
+    id: str
+    command: Literal["model.catalog"]
+    payload: ModelCatalogPayload
+
+
 class RunStartPayload(_RpcModel):
     session_id: SessionId
     prompt: str
@@ -47,7 +58,10 @@ class RunStartRequest(_RpcModel):
 
 
 RpcRequest = Annotated[
-    SessionCreateRequest | SessionCompactRequest | RunStartRequest,
+    SessionCreateRequest
+    | SessionCompactRequest
+    | ModelCatalogRequest
+    | RunStartRequest,
     Field(discriminator="command"),
 ]
 
@@ -74,10 +88,25 @@ class SessionCompactResponse(_RpcModel):
     summary: SessionCompactSummary
 
 
+class ModelCatalogModel(_RpcModel):
+    model_id: str
+    description: str
+
+
+class ModelCatalogProvider(_RpcModel):
+    provider: ProviderName
+    default_model_id: str
+    models: list[ModelCatalogModel]
+
+
+class ModelCatalogResponse(_RpcModel):
+    providers: list[ModelCatalogProvider]
+
+
 class RpcResponseEnvelope(_RpcModel):
     type: Literal["rpc_response"] = "rpc_response"
     id: str
-    response: SessionCreateResponse | SessionCompactResponse
+    response: SessionCreateResponse | SessionCompactResponse | ModelCatalogResponse
 
 
 class RpcEventEnvelope(_RpcModel):
@@ -98,6 +127,11 @@ __all__ = [
     "RpcEventEnvelope",
     "RpcRequest",
     "RpcResponseEnvelope",
+    "ModelCatalogModel",
+    "ModelCatalogPayload",
+    "ModelCatalogProvider",
+    "ModelCatalogRequest",
+    "ModelCatalogResponse",
     "RunStartPayload",
     "RunStartRequest",
     "SessionId",

@@ -3,7 +3,7 @@ package app
 import "testing"
 
 func TestModelSuggestionsIncludeExpandedOllamaModels(t *testing.T) {
-	rows := modelSuggestions("ollama")
+	rows := modelSuggestions(*testModelCatalog(), "ollama")
 
 	want := map[string]bool{
 		"ollama:kimi-k2:1t-cloud":   false,

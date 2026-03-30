@@ -60,6 +60,11 @@ type compactDoneMsg struct {
 	Err error
 }
 
+type modelCatalogLoadedMsg struct {
+	Catalog rpc.ModelCatalogResponse
+	Err     error
+}
+
 type model struct {
 	options            Options
 	phase              Phase
@@ -93,6 +98,7 @@ type model struct {
 	lastOutputTokens   *int
 	lastTotalTokens    *int
 	lastContextWindow  *float64
+	modelCatalog       *rpc.ModelCatalogResponse
 }
 
 func New(options Options) tea.Model {
@@ -118,10 +124,14 @@ func New(options Options) tea.Model {
 }
 
 func (m *model) Init() tea.Cmd {
-	return tea.Batch(
+	cmds := []tea.Cmd{
 		waitForStartupTick(),
 		waitForMotionTick(),
-	)
+	}
+	if m.options.Backend != nil {
+		cmds = append(cmds, fetchModelCatalog(m.options.Backend))
+	}
+	return tea.Batch(cmds...)
 }
 
 func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -241,6 +251,17 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.phase = PhaseIdle
 			m.transcript.WriteLine("session compacted")
 		}
+		m.refreshViewport()
+		return m, nil
+	case modelCatalogLoadedMsg:
+		if msg.Err != nil {
+			m.transcript.WriteError(fmt.Sprintf("model catalog: %v", msg.Err))
+			m.refreshViewport()
+			return m, nil
+		}
+		catalog := msg.Catalog
+		m.modelCatalog = &catalog
+		m.syncSlashMenu()
 		m.refreshViewport()
 		return m, nil
 	case tea.MouseMsg:
@@ -672,6 +693,15 @@ func listenAsync(ch <-chan tea.Msg) tea.Cmd {
 			return nil
 		}
 		return msg
+	}
+}
+
+func fetchModelCatalog(backend *rpc.Manager) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		catalog, err := backend.ModelCatalog(ctx)
+		return modelCatalogLoadedMsg{Catalog: catalog, Err: err}
 	}
 }
 

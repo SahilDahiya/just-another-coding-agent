@@ -7,7 +7,16 @@ from typing import Any, TextIO
 
 from pydantic import TypeAdapter, ValidationError
 
+from just_another_coding_agent.contracts.model_catalog import (
+    CANONICAL_PROVIDER_ORDER,
+    default_model_for_provider,
+    shipped_models_for_provider,
+)
 from just_another_coding_agent.contracts.rpc import (
+    ModelCatalogModel,
+    ModelCatalogProvider,
+    ModelCatalogRequest,
+    ModelCatalogResponse,
     RpcErrorEnvelope,
     RpcEventEnvelope,
     RpcRequest,
@@ -28,9 +37,7 @@ from just_another_coding_agent.runtime.compaction import (
     summarize_and_append_compaction_to_session,
 )
 from just_another_coding_agent.runtime.session import stream_session_run_events
-from just_another_coding_agent.session import (
-    SessionFormatError,
-)
+from just_another_coding_agent.session import SessionFormatError
 
 _RPC_REQUEST_ADAPTER = TypeAdapter(RpcRequest)
 
@@ -72,6 +79,28 @@ async def handle_rpc_json_line(
         yield RpcResponseEnvelope(
             id=request.id,
             response=SessionCreateResponse(session_id=session_id),
+        ).model_dump_json()
+        return
+
+    if isinstance(request, ModelCatalogRequest):
+        yield RpcResponseEnvelope(
+            id=request.id,
+            response=ModelCatalogResponse(
+                providers=[
+                    ModelCatalogProvider(
+                        provider=provider,
+                        default_model_id=default_model_for_provider(provider),
+                        models=[
+                            ModelCatalogModel(
+                                model_id=model.model_id,
+                                description=model.description,
+                            )
+                            for model in shipped_models_for_provider(provider)
+                        ],
+                    )
+                    for provider in CANONICAL_PROVIDER_ORDER
+                ]
+            ),
         ).model_dump_json()
         return
 

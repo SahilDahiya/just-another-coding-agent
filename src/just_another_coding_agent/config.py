@@ -7,9 +7,11 @@ import os
 import stat
 from pathlib import Path
 
+from just_another_coding_agent.contracts.model_catalog import default_model_for_provider
+
 CONFIG_DIR = Path.home() / ".jaca"
 CONFIG_PATH = CONFIG_DIR / "config.json"
-DEFAULT_MODEL = "ollama:kimi-k2:1t-cloud"
+DEFAULT_MODEL = default_model_for_provider("ollama")
 
 
 def load_config() -> dict[str, str]:

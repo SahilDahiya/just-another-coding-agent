@@ -189,6 +189,47 @@ async def test_serve_rpc_stdio_handles_multiple_lines_in_one_process(
     assert [run.prompt for run in loaded.runs] == ["create note", "what did you do?"]
 
 
+async def test_serve_rpc_stdio_supports_model_catalog(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    input_stream = io.StringIO(
+        json.dumps(
+            {
+                "id": "req-catalog",
+                "command": "model.catalog",
+                "payload": {},
+            }
+        )
+        + "\n"
+    )
+    output_stream = io.StringIO()
+
+    await serve_rpc_stdio(
+        input_stream=input_stream,
+        output_stream=output_stream,
+        model=FunctionModel(
+            function=compaction_summary_function,
+            stream_function=resume_aware_write_stream,
+        ),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    messages = [
+        json.loads(line) for line in output_stream.getvalue().splitlines() if line
+    ]
+    assert messages[0]["type"] == "rpc_response"
+    assert messages[0]["id"] == "req-catalog"
+    assert messages[0]["response"]["providers"][0]["provider"] == "ollama"
+    assert (
+        messages[0]["response"]["providers"][0]["default_model_id"]
+        == "ollama:kimi-k2:1t-cloud"
+    )
+
+
 async def test_serve_rpc_stdio_supports_session_compact(
     tmp_path,
     monkeypatch,

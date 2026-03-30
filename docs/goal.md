@@ -10,6 +10,10 @@ The product is a coding agent backend first. The TUI is a first-party shell over
 
 The move from a Python TUI to a Go TUI is justified only by product quality and shell craft. It does not change contract ownership. Python remains the single source of truth for backend semantics, tool behavior, streamed event meaning, session meaning, and recovery policy. The Go TUI may present that contract well, but it must not become a second agent runtime or a second place where product semantics are invented.
 
+That same rule applies to the shipped model surface: Python owns the canonical
+catalog of selectable models and provider defaults, and the Go TUI renders that
+backend-owned catalog instead of hardcoding model ids locally.
+
 The same boundary applies to any future non-Python execution helper. If a
 Rust worker or similar helper is added for performance-sensitive internal
 execution, it remains an implementation detail under Python-owned tool

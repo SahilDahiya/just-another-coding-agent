@@ -104,6 +104,16 @@ func (m *Manager) CompactSession(ctx context.Context, sessionID string) (Session
 	return client.CompactSession(ctx, sessionID)
 }
 
+func (m *Manager) ModelCatalog(ctx context.Context) (ModelCatalogResponse, error) {
+	m.mu.Lock()
+	client, err := m.ensureStartedLocked()
+	m.mu.Unlock()
+	if err != nil {
+		return ModelCatalogResponse{}, err
+	}
+	return client.ModelCatalog(ctx)
+}
+
 func (m *Manager) StreamRun(
 	ctx context.Context,
 	sessionID string,
@@ -284,6 +294,35 @@ func (c *Client) CompactSession(ctx context.Context, sessionID string) (SessionC
 		return SessionCompactResponse{}, fmt.Errorf("%s: %s", envelope.ErrorType, envelope.Message)
 	default:
 		return SessionCompactResponse{}, fmt.Errorf("unexpected envelope for session.compact: %T", line)
+	}
+}
+
+func (c *Client) ModelCatalog(ctx context.Context) (ModelCatalogResponse, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	requestID := c.nextRequestID()
+	if err := c.writeRequest(Request{
+		ID:      requestID,
+		Command: "model.catalog",
+		Payload: ModelCatalogPayload{},
+	}); err != nil {
+		return ModelCatalogResponse{}, err
+	}
+	line, err := c.readEnvelope(ctx)
+	if err != nil {
+		return ModelCatalogResponse{}, err
+	}
+	switch envelope := line.(type) {
+	case ResponseEnvelope:
+		var response ModelCatalogResponse
+		if err := json.Unmarshal(envelope.Response, &response); err != nil {
+			return ModelCatalogResponse{}, err
+		}
+		return response, nil
+	case ErrorEnvelope:
+		return ModelCatalogResponse{}, fmt.Errorf("%s: %s", envelope.ErrorType, envelope.Message)
+	default:
+		return ModelCatalogResponse{}, fmt.Errorf("unexpected envelope for model.catalog: %T", line)
 	}
 }
 

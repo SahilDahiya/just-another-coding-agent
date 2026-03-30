@@ -8,6 +8,11 @@ The architecture is intentionally thin. PydanticAI is the engine. This repo owns
 
 The main architectural risk in the current shape is split-brain product logic between Python and Go. The mitigation is explicit: Python owns backend semantics and public contracts; Go owns terminal presentation, input handling, and RPC client behavior. If the shell needs richer semantics, the backend contract should grow rather than teaching Go to infer or reinvent backend meaning locally.
 
+That includes the shipped model surface. Python owns the canonical model
+catalog, provider defaults, and model-context metadata. Go may fetch and render
+that catalog, but it must not hardcode or reinterpret shipped model semantics
+locally.
+
 The same risk exists when a non-Python execution helper is introduced for
 performance. The current read-only worker is a separate Go helper for
 `read`, `ls`, `find`, and `grep`, but it does not change semantic ownership.

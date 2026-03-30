@@ -237,6 +237,94 @@ async def test_handle_rpc_json_line_creates_session_and_resumes_runs(
     assert [run.thinking for run in loaded.runs] == ["high", "high"]
 
 
+async def test_handle_rpc_json_line_returns_backend_owned_model_catalog(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+
+    messages = await _rpc_messages(
+        request_payload={
+            "id": "req-catalog",
+            "command": "model.catalog",
+            "payload": {},
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    assert messages == [
+        {
+            "type": "rpc_response",
+            "id": "req-catalog",
+            "response": {
+                "providers": [
+                    {
+                        "provider": "ollama",
+                        "default_model_id": "ollama:kimi-k2:1t-cloud",
+                        "models": [
+                            {
+                                "model_id": "ollama:kimi-k2:1t-cloud",
+                                "description": "Current default Kimi K2",
+                            },
+                            {
+                                "model_id": "ollama:glm-5:cloud",
+                                "description": "GLM-5 cloud path",
+                            },
+                            {
+                                "model_id": "ollama:qwen3.5:397b-cloud",
+                                "description": "Qwen 3.5 397B cloud",
+                            },
+                            {
+                                "model_id": "ollama:minimax-m2.7:cloud",
+                                "description": "MiniMax M2.7 cloud",
+                            },
+                            {
+                                "model_id": "ollama:qwen3-coder-next",
+                                "description": "Qwen3 Coder Next",
+                            },
+                        ],
+                    },
+                    {
+                        "provider": "openai",
+                        "default_model_id": "openai:gpt-5.4",
+                        "models": [
+                            {
+                                "model_id": "openai:gpt-5.4",
+                                "description": "Default GPT-5.4 path",
+                            },
+                            {
+                                "model_id": "openai:gpt-5.4-mini",
+                                "description": "Faster GPT-5.4 mini",
+                            },
+                            {
+                                "model_id": "openai:gpt-5.3-codex",
+                                "description": "Codex-optimized GPT-5.3",
+                            },
+                        ],
+                    },
+                    {
+                        "provider": "anthropic",
+                        "default_model_id": "anthropic:claude-sonnet-4-5",
+                        "models": [
+                            {
+                                "model_id": "anthropic:claude-sonnet-4-5",
+                                "description": "Balanced Claude Sonnet",
+                            },
+                            {
+                                "model_id": "anthropic:claude-opus-4-1",
+                                "description": "Stronger Claude Opus",
+                            },
+                        ],
+                    },
+                ]
+            },
+        }
+    ]
+
+
 async def test_handle_rpc_json_line_compacts_session_and_returns_metadata(
     tmp_path,
 ) -> None:

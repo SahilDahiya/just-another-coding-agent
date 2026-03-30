@@ -1,6 +1,4 @@
 import os
-import re
-from pathlib import Path
 
 from pydantic_ai.models import infer_model
 from pydantic_ai.models.anthropic import AnthropicModel
@@ -15,6 +13,10 @@ from pydantic_ai.providers.ollama import OllamaProvider
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.retries import AsyncTenacityTransport
 
+from just_another_coding_agent.contracts.model_catalog import (
+    default_model_for_provider,
+    shipped_models,
+)
 from just_another_coding_agent.runtime.models import (
     DEFAULT_OLLAMA_BASE_URL,
     build_canonical_model_settings,
@@ -23,13 +25,6 @@ from just_another_coding_agent.runtime.models import (
     resolve_canonical_model,
     unwrap_instrumented_model,
 )
-
-REPO_ROOT = Path(__file__).resolve().parents[2]
-MODEL_ID_PATTERN = re.compile(r'"((?:openai|openai-responses|anthropic|ollama):[^"]+)"')
-
-
-def _extract_model_ids(path: Path) -> set[str]:
-    return set(MODEL_ID_PATTERN.findall(path.read_text(encoding="utf-8")))
 
 
 def test_resolve_canonical_model_keeps_model_instances() -> None:
@@ -273,25 +268,16 @@ def test_build_in_run_compaction_soft_char_limit_uses_default_for_unknown_models
     assert build_in_run_compaction_soft_char_limit(model) == 12_000
 
 
-def test_all_shipped_model_picker_and_defaults_have_context_windows() -> None:
-    shipped_model_ids = set()
-    shipped_model_ids.update(
-        _extract_model_ids(REPO_ROOT / "internal/jaca/app/slash.go")
-    )
-    shipped_model_ids.update(
-        _extract_model_ids(REPO_ROOT / "internal/jaca/app/settings.go")
-    )
-    shipped_model_ids.update(
-        _extract_model_ids(REPO_ROOT / "cmd/jaca/main.go")
-    )
-    shipped_model_ids.update(
-        _extract_model_ids(REPO_ROOT / "src/just_another_coding_agent/config.py")
-    )
-
+def test_all_backend_owned_shipped_models_have_context_windows() -> None:
     missing = sorted(
-        model_id
-        for model_id in shipped_model_ids
-        if get_model_context_window_tokens(model_id) is None
+        model.model_id
+        for model in shipped_models()
+        if get_model_context_window_tokens(model.model_id) is None
     )
 
     assert missing == []
+
+
+def test_backend_owned_default_model_per_provider_has_context_window() -> None:
+    for provider in ("ollama", "openai", "anthropic"):
+        assert get_model_context_window_tokens(default_model_for_provider(provider))

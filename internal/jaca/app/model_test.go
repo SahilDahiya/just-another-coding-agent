@@ -29,7 +29,43 @@ func newTestModel() *model {
 	m.height = 12
 	m.visibleZones = 3
 	m.asyncCh = make(chan tea.Msg)
+	m.modelCatalog = testModelCatalog()
 	return m
+}
+
+func testModelCatalog() *rpc.ModelCatalogResponse {
+	return &rpc.ModelCatalogResponse{
+		Providers: []rpc.ModelCatalogProvider{
+			{
+				Provider:       "ollama",
+				DefaultModelID: "ollama:kimi-k2:1t-cloud",
+				Models: []rpc.ModelCatalogModel{
+					{ModelID: "ollama:kimi-k2:1t-cloud", Description: "Current default Kimi K2"},
+					{ModelID: "ollama:glm-5:cloud", Description: "GLM-5 cloud path"},
+					{ModelID: "ollama:qwen3.5:397b-cloud", Description: "Qwen 3.5 397B cloud"},
+					{ModelID: "ollama:minimax-m2.7:cloud", Description: "MiniMax M2.7 cloud"},
+					{ModelID: "ollama:qwen3-coder-next", Description: "Qwen3 Coder Next"},
+				},
+			},
+			{
+				Provider:       "openai",
+				DefaultModelID: "openai:gpt-5.4",
+				Models: []rpc.ModelCatalogModel{
+					{ModelID: "openai:gpt-5.4", Description: "Default GPT-5.4 path"},
+					{ModelID: "openai:gpt-5.4-mini", Description: "Faster GPT-5.4 mini"},
+					{ModelID: "openai:gpt-5.3-codex", Description: "Codex-optimized GPT-5.3"},
+				},
+			},
+			{
+				Provider:       "anthropic",
+				DefaultModelID: "anthropic:claude-sonnet-4-5",
+				Models: []rpc.ModelCatalogModel{
+					{ModelID: "anthropic:claude-sonnet-4-5", Description: "Balanced Claude Sonnet"},
+					{ModelID: "anthropic:claude-opus-4-1", Description: "Stronger Claude Opus"},
+				},
+			},
+		},
+	}
 }
 
 func sendKey(m *model, msg tea.KeyMsg) *model {

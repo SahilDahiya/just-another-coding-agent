@@ -13,6 +13,8 @@ type Request struct {
 
 type SessionCreatePayload struct{}
 
+type ModelCatalogPayload struct{}
+
 type SessionCompactPayload struct {
 	SessionID string `json:"session_id"`
 }
@@ -45,6 +47,21 @@ type ErrorEnvelope struct {
 
 type SessionCreateResponse struct {
 	SessionID string `json:"session_id"`
+}
+
+type ModelCatalogModel struct {
+	ModelID     string `json:"model_id"`
+	Description string `json:"description"`
+}
+
+type ModelCatalogProvider struct {
+	Provider       string              `json:"provider"`
+	DefaultModelID string              `json:"default_model_id"`
+	Models         []ModelCatalogModel `json:"models"`
+}
+
+type ModelCatalogResponse struct {
+	Providers []ModelCatalogProvider `json:"providers"`
 }
 
 type SessionCompactSummary struct {

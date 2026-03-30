@@ -41,6 +41,9 @@ Rules:
 - Every shipped default or picker-visible model id must have explicit
   model-context metadata in the runtime model seam; contract tests fail if the
   shipped model surface drifts ahead of that mapping.
+- The shipped model catalog is backend-owned metadata. The Go TUI may request
+  and render it, but it must not hardcode picker-visible model ids or provider
+  defaults locally.
 
 `thinking` contract:
 

@@ -90,3 +90,13 @@ func TestResolveDefaultModelPrefersEnvOverride(t *testing.T) {
 		)
 	}
 }
+
+func TestResolveDefaultModelReturnsEmptyWithoutEnvOrConfig(t *testing.T) {
+	t.Setenv("JACA_MODEL", "")
+
+	got := resolveDefaultModel(map[string]string{})
+
+	if got != "" {
+		t.Fatalf("resolveDefaultModel() = %q, want empty", got)
+	}
+}

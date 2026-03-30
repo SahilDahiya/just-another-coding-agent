@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -15,17 +16,6 @@ func canonicalProviderName(raw string) string {
 		return "anthropic"
 	default:
 		return strings.ToLower(strings.TrimSpace(raw))
-	}
-}
-
-func defaultModelForProvider(provider string) string {
-	switch provider {
-	case "openai":
-		return "openai:gpt-5.4"
-	case "anthropic":
-		return "anthropic:claude-sonnet-4-5"
-	default:
-		return "ollama:kimi-k2:1t-cloud"
 	}
 }
 
@@ -192,7 +182,10 @@ func (m *model) applyProviderSelection(provider string) ([]string, bool, error) 
 
 	lines := []string{fmt.Sprintf("provider set to %s", provider)}
 	if !modelMatchesProvider(m.options.Model, provider) {
-		nextModel := defaultModelForProvider(provider)
+		nextModel, err := m.defaultModelForProvider(provider)
+		if err != nil {
+			return nil, false, err
+		}
 		if err := config.SaveDefaultModel(nextModel); err != nil {
 			return nil, false, err
 		}
@@ -203,6 +196,21 @@ func (m *model) applyProviderSelection(provider string) ([]string, bool, error) 
 		lines = append(lines, fmt.Sprintf("model set to %s", nextModel))
 	}
 	return lines, true, nil
+}
+
+func (m *model) defaultModelForProvider(provider string) (string, error) {
+	if m.modelCatalog == nil {
+		return "", errors.New("model catalog unavailable")
+	}
+	for _, providerCatalog := range m.modelCatalog.Providers {
+		if providerCatalog.Provider == provider {
+			if providerCatalog.DefaultModelID == "" {
+				return "", fmt.Errorf("missing default model for provider: %s", provider)
+			}
+			return providerCatalog.DefaultModelID, nil
+		}
+	}
+	return "", fmt.Errorf("unknown provider: %s", provider)
 }
 
 func (m *model) applyModelSelection(model string, provider string) ([]string, bool, error) {

@@ -77,6 +77,39 @@ func TestClientInterruptSendsSIGINT(t *testing.T) {
 	}
 }
 
+func TestClientModelCatalog(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell-based helper is unix-only")
+	}
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+
+	tmpDir := t.TempDir()
+	markerPath := tmpDir + "/catalog.txt"
+	readyPath := tmpDir + "/ready.txt"
+	client := startPythonHelperClient(
+		t,
+		markerPath,
+		readyPath,
+		"import pathlib, os, sys; ready = pathlib.Path(os.environ['JACA_RPC_HELPER_READY']); ready.write_text('ready');\nfor line in sys.stdin:\n    sys.stdout.write('{\"type\":\"rpc_response\",\"id\":\"go-1\",\"response\":{\"providers\":[{\"provider\":\"ollama\",\"default_model_id\":\"ollama:kimi-k2:1t-cloud\",\"models\":[{\"model_id\":\"ollama:kimi-k2:1t-cloud\",\"description\":\"Current default Kimi K2\"}]}]}}\\n'); sys.stdout.flush(); break",
+	)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	response, err := client.ModelCatalog(ctx)
+	if err != nil {
+		t.Fatalf("ModelCatalog() returned error: %v", err)
+	}
+	if len(response.Providers) != 1 {
+		t.Fatalf("len(Providers) = %d, want 1", len(response.Providers))
+	}
+	if response.Providers[0].DefaultModelID != "ollama:kimi-k2:1t-cloud" {
+		t.Fatalf("DefaultModelID = %q, want ollama:kimi-k2:1t-cloud", response.Providers[0].DefaultModelID)
+	}
+}
+
 func startPythonHelperClient(t *testing.T, markerPath string, readyPath string, script string) *Client {
 	t.Helper()
 

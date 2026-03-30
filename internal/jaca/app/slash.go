@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"jaca/internal/jaca/config"
+	"jaca/internal/jaca/rpc"
 )
 
 const maxSlashMenuRows = 6
@@ -35,7 +36,11 @@ func (m *model) syncSlashMenu() {
 		m.clearSlashMenu()
 		return
 	}
-	state := buildSlashMenuState(m.textInput.Value(), m.currentProvider())
+	state := buildSlashMenuState(
+		m.textInput.Value(),
+		m.currentProvider(),
+		m.catalogModelSuggestions(m.currentProvider()),
+	)
 	if state.Mode == slashMenuHidden {
 		m.clearSlashMenu()
 		return
@@ -138,7 +143,11 @@ func (m *model) providerFromModel() string {
 	}
 }
 
-func buildSlashMenuState(input string, provider string) slashMenuState {
+func buildSlashMenuState(
+	input string,
+	provider string,
+	modelRows []slashSuggestion,
+) slashMenuState {
 	if input == "" || !strings.HasPrefix(input, "/") {
 		return slashMenuState{}
 	}
@@ -170,7 +179,7 @@ func buildSlashMenuState(input string, provider string) slashMenuState {
 	case "/auth":
 		rows = filterSuggestions(authSuggestions(), rawArg)
 	case "/model":
-		rows = filterSuggestions(modelSuggestions(provider), rawArg)
+		rows = filterSuggestions(modelRows, rawArg)
 	case "/trace":
 		rows = filterSuggestions(traceSuggestions(), rawArg)
 	default:
@@ -226,28 +235,28 @@ func traceSuggestions() []slashSuggestion {
 	}
 }
 
-func modelSuggestions(provider string) []slashSuggestion {
-	switch provider {
-	case "openai":
-		return []slashSuggestion{
-			{Value: "openai:gpt-5.4", Description: "Default GPT-5.4 path"},
-			{Value: "openai:gpt-5.4-mini", Description: "Faster GPT-5.4 mini"},
-			{Value: "openai:gpt-5.3-codex", Description: "Codex-optimized GPT-5.3"},
-		}
-	case "anthropic":
-		return []slashSuggestion{
-			{Value: "anthropic:claude-sonnet-4-5", Description: "Balanced Claude Sonnet"},
-			{Value: "anthropic:claude-opus-4-1", Description: "Stronger Claude Opus"},
-		}
-	default:
-		return []slashSuggestion{
-			{Value: "ollama:kimi-k2:1t-cloud", Description: "Current default Kimi K2"},
-			{Value: "ollama:glm-5:cloud", Description: "GLM-5 cloud path"},
-			{Value: "ollama:qwen3.5:397b-cloud", Description: "Qwen 3.5 397B cloud"},
-			{Value: "ollama:minimax-m2.7:cloud", Description: "MiniMax M2.7 cloud"},
-			{Value: "ollama:qwen3-coder-next", Description: "Qwen3 Coder Next"},
-		}
+func (m *model) catalogModelSuggestions(provider string) []slashSuggestion {
+	if m.modelCatalog == nil {
+		return nil
 	}
+	return modelSuggestions(*m.modelCatalog, provider)
+}
+
+func modelSuggestions(catalog rpc.ModelCatalogResponse, provider string) []slashSuggestion {
+	for _, providerCatalog := range catalog.Providers {
+		if providerCatalog.Provider != provider {
+			continue
+		}
+		rows := make([]slashSuggestion, 0, len(providerCatalog.Models))
+		for _, model := range providerCatalog.Models {
+			rows = append(rows, slashSuggestion{
+				Value:       model.ModelID,
+				Description: model.Description,
+			})
+		}
+		return rows
+	}
+	return nil
 }
 
 func filterSuggestions(rows []slashSuggestion, query string) []slashSuggestion {

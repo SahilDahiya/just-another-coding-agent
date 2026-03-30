@@ -40,6 +40,9 @@ func run() error {
 	thinking := flag.String("thinking", "", "Thinking level")
 	backendCommandJSON := flag.String("backend-command-json", "", "JSON array command used to start the canonical headless backend")
 	flag.Parse()
+	if *model == "" {
+		return fmt.Errorf("missing model; launch via the installed jaca wrapper or set JACA_MODEL/default_model")
+	}
 
 	backendCommand, err := parseBackendCommandJSON(*backendCommandJSON)
 	if err != nil {
@@ -89,7 +92,7 @@ func resolveDefaultModel(cfg map[string]string) string {
 	if value := cfg["default_model"]; value != "" {
 		return value
 	}
-	return "ollama:kimi-k2:1t-cloud"
+	return ""
 }
 
 func resolveSessionsRoot(raw string) (string, error) {
