@@ -542,7 +542,9 @@ func (t *Transcript) rewriteToolGroup() {
 	if t.toolGroup == nil {
 		return
 	}
-	if isExplorationGroup(t.toolGroup.order, t.toolGroup.entries) && !hasExplorationErrors(t.toolGroup.order, t.toolGroup.entries) {
+	if isExplorationGroup(t.toolGroup.order, t.toolGroup.entries) &&
+		!hasExplorationErrors(t.toolGroup.order, t.toolGroup.entries) &&
+		!hasExplorationOperationalMisses(t.toolGroup.order, t.toolGroup.entries) {
 		plainText, renderedText := renderExplorationGroup(t.toolGroup.order, t.toolGroup.entries)
 		t.replaceBlock(t.toolGroup.index, &toolGroupCell{
 			plain:    plainText,

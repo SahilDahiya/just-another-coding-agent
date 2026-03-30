@@ -89,7 +89,9 @@ The core architectural risk is semantic drift between the Go shell and the Pytho
 - Consecutive exploration-tagged read/search rows may settle into a grouped
   `Exploring` / `Explored` transcript block with coalesced file/search labels,
   while still preserving the underlying per-tool lifecycle as the source of
-  truth.
+  truth. If an exploration burst contains an operational miss such as `read`
+  not found, fall back to normal per-tool rows so the miss details remain
+  visible instead of being hidden inside a grouped block.
 - Completed assistant turns should settle into readable prose/Markdown instead of remaining raw streamed text.
 - The prompt is the single input surface for chat and slash commands.
 - The prompt zone should behave like a compact two-line shell composer: one input line, one low-salience footer line for state and recall hints.

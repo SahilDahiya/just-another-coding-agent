@@ -131,6 +131,29 @@ func TestMouseWheelScrollsViewport(t *testing.T) {
 	}
 }
 
+func TestRefreshViewportMeasuresPromptHeightFromRenderedLayout(t *testing.T) {
+	m := newTestModel()
+
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(*model)
+	baseHeight := m.viewport.Height
+
+	m = sendRunes(m, "/")
+	if m.viewport.Height >= baseHeight {
+		t.Fatalf("viewport height = %d, want smaller than idle height %d when slash menu opens", m.viewport.Height, baseHeight)
+	}
+
+	want := max(1, m.height-promptHeight(m.currentViewModel()))
+	if m.viewport.Height != want {
+		t.Fatalf("viewport height = %d, want %d from measured prompt height", m.viewport.Height, want)
+	}
+
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEsc})
+	if m.viewport.Height != baseHeight {
+		t.Fatalf("viewport height after closing slash menu = %d, want %d", m.viewport.Height, baseHeight)
+	}
+}
+
 func TestCtrlCWhileStreamingShowsInterruptGuidanceInPromptFooter(t *testing.T) {
 	m := newTestModel()
 	m.streaming = true

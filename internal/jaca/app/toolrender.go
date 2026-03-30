@@ -138,9 +138,21 @@ func hasExplorationErrors(order []string, entries map[string]*toolEntry) bool {
 	return false
 }
 
+func hasExplorationOperationalMisses(order []string, entries map[string]*toolEntry) bool {
+	for _, id := range order {
+		if entries[id].operationalMiss {
+			return true
+		}
+	}
+	return false
+}
+
 func isExplorationComplete(order []string, entries map[string]*toolEntry) bool {
 	for _, id := range order {
 		e := entries[id]
+		if e.operationalMiss {
+			return false
+		}
 		if e.outcome != "ok" && e.outcome != "error" && e.outcome != "" {
 			return false
 		}
@@ -373,6 +385,21 @@ func buildToolPreview(toolName string, args map[string]any, argsValid *bool, act
 				return normalized[len(prefix):]
 			}
 			return normalized
+		}
+	}
+	if activity != nil && activity.Details != nil {
+		switch toolName {
+		case "read", "write", "edit", "ls":
+			if sp, ok := activity.Details["short_path"].(string); ok && sp != "" {
+				return truncateInline(sp, 56)
+			}
+			if p, ok := activity.Details["path"].(string); ok && p != "" {
+				return truncateInline(shortenPathFallback(p), 56)
+			}
+		case "grep", "find":
+			if pattern, ok := activity.Details["pattern"].(string); ok && pattern != "" {
+				return truncateInline(pattern, 56)
+			}
 		}
 	}
 	if argsValid != nil && !*argsValid {

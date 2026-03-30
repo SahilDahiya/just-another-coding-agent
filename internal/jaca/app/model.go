@@ -131,13 +131,13 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		m.textInput.Width = max(0, msg.Width-4)
 		m.viewport.Width = msg.Width
-		m.viewport.Height = max(1, msg.Height-8)
 		m.transcript.Width = msg.Width
 		m.refreshViewport()
 		return m, nil
 	case startupTickMsg:
 		if m.visibleZones < 2 {
 			m.visibleZones++
+			m.refreshViewport()
 			if m.visibleZones < 2 {
 				return m, waitForStartupTick()
 			}
@@ -257,6 +257,11 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *model) View() string {
+	vm := m.currentViewModel()
+	return renderView(vm)
+}
+
+func (m *model) currentViewModel() viewModel {
 	var elapsed time.Duration
 	if m.streaming && !m.runStartTime.IsZero() {
 		elapsed = time.Since(m.runStartTime)
@@ -265,8 +270,9 @@ func (m *model) View() string {
 	if m.streaming && !m.lastDeltaTime.IsZero() {
 		sinceLastDelta = time.Since(m.lastDeltaTime)
 	}
-	return renderView(viewModel{
+	return viewModel{
 		Phase:          m.phase,
+		Width:          m.width,
 		Model:          m.options.Model,
 		WorkspaceRoot:  m.options.WorkspaceRoot,
 		Thinking:       m.options.Thinking,
@@ -284,7 +290,7 @@ func (m *model) View() string {
 		SinceLastDelta: sinceLastDelta,
 		VisibleZones:   m.visibleZones,
 		SlashMenu:      m.slashMenu,
-	})
+	}
 }
 
 func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -302,6 +308,7 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.historyPrevious()
+		m.refreshViewport()
 		return m, nil
 	case "down":
 		if m.auth.Active {
@@ -312,6 +319,7 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.historyNext()
+		m.refreshViewport()
 		return m, nil
 	case "pgup":
 		m.viewport.HalfViewUp()
@@ -338,12 +346,14 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "tab":
 		if m.slashMenuVisible() {
 			m.commitSlashSuggestion()
+			m.refreshViewport()
 			return m, nil
 		}
 		return m, nil
 	case "enter":
 		if m.slashMenuVisible() {
 			m.commitSlashSuggestion()
+			m.refreshViewport()
 			return m, nil
 		}
 		return m.handleEnter()
@@ -357,6 +367,7 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		} else {
 			m.syncSlashMenu()
 		}
+		m.refreshViewport()
 	}
 	return m, cmd
 }
@@ -385,10 +396,12 @@ func (m *model) handleInterrupt() (tea.Model, tea.Cmd) {
 func (m *model) handleEscape() (tea.Model, tea.Cmd) {
 	if m.auth.Active {
 		m.endAuthFlow()
+		m.refreshViewport()
 		return m, nil
 	}
 	if m.slashMenuVisible() {
 		m.clearSlashMenu()
+		m.refreshViewport()
 		return m, nil
 	}
 	if m.editPreviousArmed {
@@ -409,6 +422,7 @@ func (m *model) handleEscape() (tea.Model, tea.Cmd) {
 		m.resetHistoryNavigation()
 		m.promptFooterNotice = ""
 		m.clearSlashMenu()
+		m.refreshViewport()
 		return m, nil
 	}
 	return m, nil
@@ -591,6 +605,9 @@ func (m *model) compactSession(sessionID string, backend *rpc.Manager, ch chan t
 
 func (m *model) refreshViewport() {
 	shouldFollow := m.viewport.AtBottom()
+	vm := m.currentViewModel()
+	vm.Transcript = ""
+	m.viewport.Height = max(1, m.height-promptHeight(vm))
 	m.viewport.SetContent(m.transcript.Render())
 	if shouldFollow {
 		m.viewport.GotoBottom()

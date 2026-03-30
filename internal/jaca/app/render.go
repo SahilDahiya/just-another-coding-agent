@@ -53,6 +53,7 @@ func themeColor(trueColor string, ansi256 string, ansi string) lipgloss.Terminal
 
 type viewModel struct {
 	Phase          Phase
+	Width          int
 	Model          string
 	WorkspaceRoot  string
 	Thinking       string
@@ -148,7 +149,10 @@ func renderPrompt(vm viewModel) string {
 
 	const promptPadX = 2
 
-	width := lipgloss.Width(vm.Transcript)
+	width := vm.Width
+	if width <= 0 {
+		width = lipgloss.Width(vm.Transcript)
+	}
 	if width <= 0 {
 		width = 80
 	}
@@ -191,6 +195,13 @@ func renderPrompt(vm viewModel) string {
 	}
 
 	return lipgloss.JoinVertical(lipgloss.Left, promptParts...)
+}
+
+func promptHeight(vm viewModel) int {
+	if vm.VisibleZones < 2 {
+		return 0
+	}
+	return lipgloss.Height(renderPrompt(vm))
 }
 
 func renderTopRail(vm viewModel) string {
