@@ -32,13 +32,22 @@ DEFAULT_IN_RUN_COMPACTION_SOFT_CHAR_LIMIT = 12_000
 IN_RUN_COMPACTION_CONTEXT_WINDOW_UTILIZATION = 0.8
 IN_RUN_COMPACTION_CHARS_PER_TOKEN_HEURISTIC = 4
 OPENAI_CONTEXT_WINDOW_TOKENS_BY_PREFIX: tuple[tuple[str, int], ...] = (
+    ("gpt-5.4-mini", 400_000),
+    ("gpt-5.4", 1_050_000),
     ("gpt-5.3-codex", 400_000),
     ("gpt-5-codex", 400_000),
     ("gpt-4o", 128_000),
 )
+ANTHROPIC_CONTEXT_WINDOW_TOKENS_BY_PREFIX: tuple[tuple[str, int], ...] = (
+    ("claude-sonnet-4-5", 200_000),
+    ("claude-opus-4-1", 200_000),
+)
 OLLAMA_CONTEXT_WINDOW_TOKENS_BY_PREFIX: tuple[tuple[str, int], ...] = (
+    ("qwen3.5", 262_144),
+    ("qwen3-coder-next", 262_144),
+    ("minimax-m2.7", 200_000),
     ("glm-5", 198_000),
-    ("kimi-k2", 256_000),
+    ("kimi-k2", 262_144),
 )
 DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434/v1"
 
@@ -231,6 +240,11 @@ def get_model_context_window_tokens(model: Any) -> int | None:
                 model.split(":", 1)[1],
                 OPENAI_CONTEXT_WINDOW_TOKENS_BY_PREFIX,
             )
+        if model.startswith("anthropic:"):
+            return _match_model_name_prefix(
+                model.split(":", 1)[1],
+                ANTHROPIC_CONTEXT_WINDOW_TOKENS_BY_PREFIX,
+            )
         if model.startswith("ollama:"):
             return _match_model_name_prefix(
                 model.split(":", 1)[1],
@@ -258,6 +272,12 @@ def get_model_context_window_tokens(model: Any) -> int | None:
                 policy_model.model_name,
                 OLLAMA_CONTEXT_WINDOW_TOKENS_BY_PREFIX,
             )
+
+    if isinstance(policy_model, AnthropicModel):
+        return _match_model_name_prefix(
+            policy_model.model_name,
+            ANTHROPIC_CONTEXT_WINDOW_TOKENS_BY_PREFIX,
+        )
 
     return None
 

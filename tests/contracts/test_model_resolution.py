@@ -1,4 +1,6 @@
 import os
+import re
+from pathlib import Path
 
 from pydantic_ai.models import infer_model
 from pydantic_ai.models.anthropic import AnthropicModel
@@ -21,6 +23,13 @@ from just_another_coding_agent.runtime.models import (
     resolve_canonical_model,
     unwrap_instrumented_model,
 )
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+MODEL_ID_PATTERN = re.compile(r'"((?:openai|openai-responses|anthropic|ollama):[^"]+)"')
+
+
+def _extract_model_ids(path: Path) -> set[str]:
+    return set(MODEL_ID_PATTERN.findall(path.read_text(encoding="utf-8")))
 
 
 def test_resolve_canonical_model_keeps_model_instances() -> None:
@@ -218,9 +227,16 @@ def test_get_model_context_window_tokens_for_supported_models(monkeypatch) -> No
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
 
     assert get_model_context_window_tokens("openai-responses:gpt-5.3-codex") == 400_000
+    assert get_model_context_window_tokens("openai:gpt-5.4") == 1_050_000
+    assert get_model_context_window_tokens("openai:gpt-5.4-mini") == 400_000
     assert get_model_context_window_tokens("openai:gpt-4o") == 128_000
+    assert get_model_context_window_tokens("anthropic:claude-sonnet-4-5") == 200_000
+    assert get_model_context_window_tokens("anthropic:claude-opus-4-1") == 200_000
     assert get_model_context_window_tokens("ollama:glm-5:cloud") == 198_000
-    assert get_model_context_window_tokens("ollama:kimi-k2:1t-cloud") == 256_000
+    assert get_model_context_window_tokens("ollama:kimi-k2:1t-cloud") == 262_144
+    assert get_model_context_window_tokens("ollama:qwen3.5:397b-cloud") == 262_144
+    assert get_model_context_window_tokens("ollama:minimax-m2.7:cloud") == 200_000
+    assert get_model_context_window_tokens("ollama:qwen3-coder-next") == 262_144
 
 
 def test_build_in_run_compaction_soft_char_limit_scales_with_model_context(
@@ -232,9 +248,20 @@ def test_build_in_run_compaction_soft_char_limit_scales_with_model_context(
         build_in_run_compaction_soft_char_limit("openai-responses:gpt-5.3-codex")
         == 1_280_000
     )
+    assert build_in_run_compaction_soft_char_limit("openai:gpt-5.4") == 3_360_000
+    assert build_in_run_compaction_soft_char_limit("openai:gpt-5.4-mini") == 1_280_000
     assert build_in_run_compaction_soft_char_limit("openai:gpt-4o") == 409_600
     assert build_in_run_compaction_soft_char_limit("ollama:glm-5:cloud") == 633_600
-    assert build_in_run_compaction_soft_char_limit("ollama:kimi-k2:1t-cloud") == 819_200
+    assert build_in_run_compaction_soft_char_limit("ollama:kimi-k2:1t-cloud") == 838_860
+    assert (
+        build_in_run_compaction_soft_char_limit("ollama:qwen3.5:397b-cloud")
+        == 838_860
+    )
+    assert (
+        build_in_run_compaction_soft_char_limit("ollama:minimax-m2.7:cloud")
+        == 640_000
+    )
+    assert build_in_run_compaction_soft_char_limit("ollama:qwen3-coder-next") == 838_860
 
 
 def test_build_in_run_compaction_soft_char_limit_uses_default_for_unknown_models() -> (
@@ -244,3 +271,27 @@ def test_build_in_run_compaction_soft_char_limit_uses_default_for_unknown_models
 
     assert get_model_context_window_tokens(model) is None
     assert build_in_run_compaction_soft_char_limit(model) == 12_000
+
+
+def test_all_shipped_model_picker_and_defaults_have_context_windows() -> None:
+    shipped_model_ids = set()
+    shipped_model_ids.update(
+        _extract_model_ids(REPO_ROOT / "internal/jaca/app/slash.go")
+    )
+    shipped_model_ids.update(
+        _extract_model_ids(REPO_ROOT / "internal/jaca/app/settings.go")
+    )
+    shipped_model_ids.update(
+        _extract_model_ids(REPO_ROOT / "cmd/jaca/main.go")
+    )
+    shipped_model_ids.update(
+        _extract_model_ids(REPO_ROOT / "src/just_another_coding_agent/config.py")
+    )
+
+    missing = sorted(
+        model_id
+        for model_id in shipped_model_ids
+        if get_model_context_window_tokens(model_id) is None
+    )
+
+    assert missing == []

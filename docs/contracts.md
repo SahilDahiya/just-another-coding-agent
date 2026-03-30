@@ -38,6 +38,9 @@ Rules:
 - Run-local history compaction may derive its soft threshold from explicit
   model-context metadata in the runtime model seam, but that threshold remains
   an internal heuristic rather than a caller-controlled contract field.
+- Every shipped default or picker-visible model id must have explicit
+  model-context metadata in the runtime model seam; contract tests fail if the
+  shipped model surface drifts ahead of that mapping.
 
 `thinking` contract:
 

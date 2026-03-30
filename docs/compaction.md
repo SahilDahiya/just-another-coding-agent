@@ -36,6 +36,9 @@ The current automatic trigger is pre-run and token-budget-aware:
   model context window
 - it requires at least one completed run after the latest compaction boundary
   so a just-compacted session does not immediately compact again
+- shipped default and picker-visible model ids are required to carry explicit
+  context-window metadata so this trigger cannot silently degrade when the
+  model surface changes
 
 The compaction source is intentionally not a raw transcript dump. It uses:
 
