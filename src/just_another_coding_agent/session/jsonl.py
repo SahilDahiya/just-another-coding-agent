@@ -8,7 +8,12 @@ from typing import TextIO
 from uuid import uuid4
 
 from pydantic import TypeAdapter, ValidationError
-from pydantic_ai.messages import ModelMessage, ToolCallPart, ToolReturnPart
+from pydantic_ai.messages import (
+    ModelMessage,
+    RetryPromptPart,
+    ToolCallPart,
+    ToolReturnPart,
+)
 
 from just_another_coding_agent.contracts.platform import (
     ShellFamily,
@@ -449,6 +454,10 @@ def _validate_run_messages(messages: Sequence[ModelMessage]) -> None:
                         "Session message tool return tool_name must match the "
                         "tool call"
                     )
+                continue
+
+            if isinstance(part, RetryPromptPart):
+                pending_tool_calls.pop(part.tool_call_id, None)
 
     if pending_tool_calls:
         raise SessionFormatError(
