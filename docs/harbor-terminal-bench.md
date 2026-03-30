@@ -26,6 +26,9 @@ to the user prompt before `run.start`, so Terminal Bench behavior stays adapter-
 - `harbor` is installed locally
 - the backend repo is available locally
 - provider credentials are exported in the Harbor host process environment
+- Logfire credentials are available in the Harbor host process environment or host home directory
+  - easiest path: `uv run logfire auth` and `uv run logfire projects use <project>`
+  - explicit path: `export LOGFIRE_TOKEN=...`
 - a Harbor-supported environment is available
   - local default is Docker
 - the local source tree is importable by Harbor
@@ -42,6 +45,7 @@ Optional:
 ```bash
 export OPENAI_BASE_URL=...
 export JUST_ANOTHER_CODING_AGENT_THINKING=high
+export LOGFIRE_SERVICE_NAME=jaca-harbor
 ```
 
 For Ollama-backed runs through PydanticAI's `ollama:` provider:
@@ -49,9 +53,12 @@ For Ollama-backed runs through PydanticAI's `ollama:` provider:
 ```bash
 export OLLAMA_BASE_URL=https://ollama.com/v1
 export OLLAMA_API_KEY=...
+export LOGFIRE_SERVICE_NAME=jaca-harbor
 ```
 
 If you are using a self-hosted Ollama server instead of Ollama Cloud, the base URL must be reachable from inside the Harbor task container. `http://localhost:11434/v1` will not work from a Docker-isolated benchmark container unless that `localhost` is inside the same container.
+
+Harbor tasks always export traces to Logfire. The adapter forces `JACA_TRACE_MODE=logfire` inside the task container and forwards a Logfire token from the Harbor host. By default, Harbor traces use `service.name=jaca-harbor`, which separates them from normal interactive chat traces that use the default backend service name. If you want a different Harbor-specific service name, set `LOGFIRE_SERVICE_NAME` in the Harbor host process before launching `harbor run`.
 
 ## Canonical Model String
 

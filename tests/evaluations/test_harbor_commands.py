@@ -7,6 +7,7 @@ def test_build_provider_env_filters_to_openai_provider_env() -> None:
         environ={
             "OPENAI_API_KEY": "secret",
             "OPENAI_BASE_URL": "https://example.test/v1",
+            "LOGFIRE_TOKEN": "logfire-secret",
             "OLLAMA_BASE_URL": "https://ollama.com/v1",
             "OLLAMA_API_KEY": "ollama-secret",
             "ANTHROPIC_API_KEY": "anthropic-secret",
@@ -19,6 +20,9 @@ def test_build_provider_env_filters_to_openai_provider_env() -> None:
         "OPENAI_API_KEY": "secret",
         "OPENAI_BASE_URL": "https://example.test/v1",
         "JUST_ANOTHER_CODING_AGENT_THINKING": "high",
+        "JACA_TRACE_MODE": "logfire",
+        "LOGFIRE_SERVICE_NAME": "jaca-harbor",
+        "LOGFIRE_TOKEN": "logfire-secret",
     }
 
 
@@ -26,6 +30,8 @@ def test_build_provider_env_filters_to_ollama_provider_env() -> None:
     env = build_provider_env(
         model="ollama:kimi-k2:1t-cloud",
         environ={
+            "JACA_TRACE_MODE": "off",
+            "LOGFIRE_TOKEN": "logfire-secret",
             "OPENAI_API_KEY": "secret",
             "OPENAI_BASE_URL": "https://example.test/v1",
             "OLLAMA_BASE_URL": "https://ollama.com/v1",
@@ -40,7 +46,81 @@ def test_build_provider_env_filters_to_ollama_provider_env() -> None:
         "OLLAMA_BASE_URL": "https://ollama.com/v1",
         "OLLAMA_API_KEY": "ollama-secret",
         "JUST_ANOTHER_CODING_AGENT_THINKING": "high",
+        "JACA_TRACE_MODE": "logfire",
+        "LOGFIRE_SERVICE_NAME": "jaca-harbor",
+        "LOGFIRE_TOKEN": "logfire-secret",
     }
+
+
+def test_build_provider_env_uses_explicit_service_name_override() -> None:
+    env = build_provider_env(
+        model="ollama:kimi-k2:1t-cloud",
+        environ={
+            "OLLAMA_API_KEY": "ollama-secret",
+            "JUST_ANOTHER_CODING_AGENT_THINKING": "high",
+            "JACA_TRACE_MODE": "local",
+            "LOGFIRE_SERVICE_NAME": "harbor-task",
+            "LOGFIRE_TOKEN": "logfire-secret",
+        },
+    )
+
+    assert env == {
+        "OLLAMA_BASE_URL": "https://ollama.com/v1",
+        "OLLAMA_API_KEY": "ollama-secret",
+        "JUST_ANOTHER_CODING_AGENT_THINKING": "high",
+        "JACA_TRACE_MODE": "logfire",
+        "LOGFIRE_SERVICE_NAME": "harbor-task",
+        "LOGFIRE_TOKEN": "logfire-secret",
+    }
+
+
+def test_build_provider_env_reads_logfire_token_from_default_credentials_file(
+    monkeypatch, tmp_path
+) -> None:
+    credentials_dir = tmp_path / ".logfire"
+    credentials_dir.mkdir()
+    (credentials_dir / "default.toml").write_text(
+        '[tokens]\n"https://logfire-us.pydantic.dev" = "logfire-secret"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    env = build_provider_env(
+        model="ollama:kimi-k2:1t-cloud",
+        environ={
+            "OLLAMA_API_KEY": "ollama-secret",
+            "JUST_ANOTHER_CODING_AGENT_THINKING": "high",
+        },
+    )
+
+    assert env == {
+        "OLLAMA_BASE_URL": "https://ollama.com/v1",
+        "OLLAMA_API_KEY": "ollama-secret",
+        "JUST_ANOTHER_CODING_AGENT_THINKING": "high",
+        "JACA_TRACE_MODE": "logfire",
+        "LOGFIRE_SERVICE_NAME": "jaca-harbor",
+        "LOGFIRE_TOKEN": "logfire-secret",
+    }
+
+
+def test_build_provider_env_requires_logfire_credentials(monkeypatch, tmp_path) -> None:
+    monkeypatch.delenv("LOGFIRE_TOKEN", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    try:
+        build_provider_env(
+            model="ollama:kimi-k2:1t-cloud",
+            environ={
+                "OLLAMA_API_KEY": "ollama-secret",
+            },
+        )
+    except ValueError as error:
+        assert str(error) == (
+            "Harbor tasks always export traces to Logfire and require host "
+            "Logfire credentials. Run `uv run logfire auth` and `uv run "
+            "logfire projects use <project>` or set `LOGFIRE_TOKEN`."
+        )
+    else:  # pragma: no cover - defensive
+        raise AssertionError("Expected Harbor run without Logfire credentials to fail")
 
 
 def test_build_provider_env_rejects_unsupported_model_provider() -> None:

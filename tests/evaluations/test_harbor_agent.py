@@ -83,6 +83,7 @@ def test_harbor_agent_supports_current_base_installed_agent_api(
     monkeypatch.setenv("OPENAI_API_KEY", "openai-secret")
     monkeypatch.setenv("OLLAMA_API_KEY", "test-key")
     monkeypatch.setenv("JUST_ANOTHER_CODING_AGENT_THINKING", "high")
+    monkeypatch.setenv("LOGFIRE_TOKEN", "logfire-secret")
 
     module = importlib.import_module("evaluations.harbor.agent")
     agent = module.JustAnotherCodingAgentHarborAgent(
@@ -101,9 +102,46 @@ def test_harbor_agent_supports_current_base_installed_agent_api(
         "OLLAMA_API_KEY": "test-key",
         "JUST_ANOTHER_CODING_AGENT_THINKING": "high",
         "OLLAMA_BASE_URL": "https://ollama.com/v1",
+        "JACA_TRACE_MODE": "logfire",
+        "LOGFIRE_SERVICE_NAME": "jaca-harbor",
+        "LOGFIRE_TOKEN": "logfire-secret",
     }
     assert "evaluations.bench.exec_prompt" in commands[0].command
     assert "--model ollama:kimi-k2:1t-cloud" in commands[0].command
+
+
+def test_harbor_agent_uses_explicit_harbor_logfire_service_name_override(
+    monkeypatch, tmp_path: Path
+) -> None:
+    for module_name in list(sys.modules):
+        if module_name.startswith("evaluations.harbor.agent") or module_name.startswith(
+            "harbor"
+        ):
+            sys.modules.pop(module_name)
+
+    _install_fake_harbor_modules()
+    monkeypatch.setenv("OLLAMA_API_KEY", "test-key")
+    monkeypatch.setenv("JUST_ANOTHER_CODING_AGENT_THINKING", "high")
+    monkeypatch.setenv("LOGFIRE_TOKEN", "logfire-secret")
+    monkeypatch.setenv("LOGFIRE_SERVICE_NAME", "harbor-task")
+
+    module = importlib.import_module("evaluations.harbor.agent")
+    agent = module.JustAnotherCodingAgentHarborAgent(
+        logs_dir=tmp_path / "logs",
+        model_name="ollama:kimi-k2:1t-cloud",
+    )
+
+    commands = agent.create_run_agent_commands("Fix the task")
+
+    assert len(commands) == 1
+    assert commands[0].env == {
+        "OLLAMA_API_KEY": "test-key",
+        "JUST_ANOTHER_CODING_AGENT_THINKING": "high",
+        "OLLAMA_BASE_URL": "https://ollama.com/v1",
+        "JACA_TRACE_MODE": "logfire",
+        "LOGFIRE_TOKEN": "logfire-secret",
+        "LOGFIRE_SERVICE_NAME": "harbor-task",
+    }
 
 
 def test_harbor_agent_setup_matches_current_environment_exec_api(
