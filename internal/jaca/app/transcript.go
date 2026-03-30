@@ -417,6 +417,7 @@ func (t *Transcript) ensureBlockGap() {
 func (t *Transcript) startTool(event rpc.RunEvent) {
 	t.endLiveAssistant()
 	if t.toolGroup == nil {
+		t.ensureBlockGap()
 		index := t.appendBlock(&toolGroupCell{})
 		t.toolGroup = &toolGroup{
 			index:   index,

@@ -215,10 +215,15 @@ func coalesceExplorationEntries(order []string, entries map[string]*toolEntry) [
 	flush()
 
 	if len(lines) > maxExplorationLines {
-		omitted := len(lines) - maxExplorationLines + 1
-		lines = append(lines[:maxExplorationLines-1], explorationLine{
-			label: fmt.Sprintf("... +%d more", omitted),
-		})
+		headCount := 3
+		tailCount := 2
+		omitted := len(lines) - headCount - tailCount
+		tail := make([]explorationLine, tailCount)
+		copy(tail, lines[len(lines)-tailCount:])
+		lines = append(lines[:headCount],
+			explorationLine{label: fmt.Sprintf("... +%d more", omitted)},
+		)
+		lines = append(lines, tail...)
 	}
 	return lines
 }
@@ -279,11 +284,15 @@ func capitalizeFirst(s string) string {
 
 func renderExplorationGroup(order []string, entries map[string]*toolEntry) (string, string) {
 	complete := isExplorationComplete(order, entries)
+	count := len(order)
 
 	headerLabel := "Exploring"
 	markerColor := defaultTheme.textMuted
 	if complete {
 		headerLabel = "Explored"
+	}
+	if count > 1 {
+		headerLabel += fmt.Sprintf(" (%d tools)", count)
 	}
 
 	headerPlain := "● " + headerLabel + "\n"
@@ -302,6 +311,12 @@ func renderExplorationGroup(order []string, entries map[string]*toolEntry) (stri
 		prefix := "    "
 		if idx == 0 {
 			prefix = "  └ "
+		}
+
+		if strings.HasPrefix(line.label, "...") {
+			plain.WriteString(prefix + line.label + "\n")
+			rendered.WriteString(dimStyle.Render(prefix+line.label) + "\n")
+			continue
 		}
 
 		plainLine := prefix + line.label
