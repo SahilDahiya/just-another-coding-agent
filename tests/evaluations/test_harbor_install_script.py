@@ -11,10 +11,18 @@ def test_install_script_uses_virtualenv_for_local_package_install() -> None:
     )
 
     assert 'PACKAGE_ROOT=/installed-agent/just-another-coding-agent' in script
+    expected_prebuilt = (
+        'PREBUILT_READ_ONLY_WORKER="$PACKAGE_ROOT/prebuilt/jaca-read-only-worker"'
+    )
     assert 'VENV_PATH="$PACKAGE_ROOT/.venv"' in script
     assert 'BOOTSTRAP_PYTHON=python3' in script
     assert '"$BOOTSTRAP_PYTHON" -m venv "$VENV_PATH"' in script
     assert 'VENV_PYTHON="$VENV_PATH/bin/python"' in script
+    expected_export = (
+        'export JACA_PREBUILT_READ_ONLY_WORKER="$PREBUILT_READ_ONLY_WORKER"'
+    )
+    assert expected_prebuilt in script
+    assert expected_export in script
     assert '"$VENV_PYTHON" -m pip install "$PACKAGE_ROOT"' in script
     assert '"$VENV_PYTHON" -m just_another_coding_agent --help' in script
     assert "go build" not in script

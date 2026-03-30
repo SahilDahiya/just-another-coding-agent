@@ -22,6 +22,12 @@ The current implementation ships as a separate Go helper binary:
 - `cmd/jaca-read-only-worker`
 - installed as `jaca-read-only-worker`
 
+Source installs in constrained environments such as Harbor task containers use
+an explicit prebuilt-helper path instead of running `go build` during package
+installation. The packaging seam is still explicit and fail-fast:
+`JACA_PREBUILT_READ_ONLY_WORKER` must point at the uploaded helper binary or
+installation fails.
+
 ## Boundary
 
 Python remains the owner of:

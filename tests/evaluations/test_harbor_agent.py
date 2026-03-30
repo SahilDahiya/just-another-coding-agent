@@ -117,6 +117,13 @@ def test_harbor_agent_setup_matches_current_environment_exec_api(
 
     _install_fake_harbor_modules()
     module = importlib.import_module("evaluations.harbor.agent")
+    prebuilt_worker = tmp_path / "jaca-read-only-worker"
+    prebuilt_worker.write_text("fake worker", encoding="utf-8")
+    monkeypatch.setattr(
+        module,
+        "_build_harbor_read_only_worker",
+        lambda _repo_root: prebuilt_worker,
+    )
 
     class FakeEnvironment:
         def __init__(self) -> None:
@@ -148,13 +155,18 @@ def test_harbor_agent_setup_matches_current_environment_exec_api(
 
     asyncio.run(agent.setup(environment))
 
+    expected_mkdir = (
+        "mkdir -p /installed-agent/just-another-coding-agent "
+        "/installed-agent/just-another-coding-agent/prebuilt"
+    )
     assert environment.exec_commands == [
-        "mkdir -p /installed-agent/just-another-coding-agent",
+        expected_mkdir,
         "super-setup",
     ]
     assert [target for _, target in environment.uploaded_files] == [
         "/installed-agent/just-another-coding-agent/pyproject.toml",
         "/installed-agent/just-another-coding-agent/README.md",
+        "/installed-agent/just-another-coding-agent/prebuilt/jaca-read-only-worker",
     ]
     assert [target for _, target in environment.uploaded_dirs] == [
         "/installed-agent/just-another-coding-agent/src",

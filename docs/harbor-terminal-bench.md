@@ -111,8 +111,8 @@ PYTHONPATH=$PWD/src:$PWD harbor run \
 What this does:
 
 1. Harbor imports the custom installed agent from this repo.
-2. The agent uploads `pyproject.toml`, `README.md`, `src/`, and `evaluations/` into the task container.
-3. The install script installs the backend package in the container without building the Go TUI.
+2. The agent uploads `pyproject.toml`, `README.md`, `src/`, `evaluations/`, and a prebuilt `jaca-read-only-worker` helper into the task container.
+3. The install script installs the backend package in the container without requiring a Go toolchain there; it points packaging at the uploaded prebuilt read-only worker explicitly.
 4. The run command launches `just-another-coding-agent-exec-prompt`.
 5. The wrapper creates a backend session, runs one prompt, prints terminal output, and exits non-zero on canonical run failure.
 

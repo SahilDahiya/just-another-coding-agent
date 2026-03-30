@@ -2,6 +2,7 @@
 set -euo pipefail
 
 PACKAGE_ROOT=/installed-agent/just-another-coding-agent
+PREBUILT_READ_ONLY_WORKER="$PACKAGE_ROOT/prebuilt/jaca-read-only-worker"
 VENV_PATH="$PACKAGE_ROOT/.venv"
 BOOTSTRAP_PYTHON=python3
 VENV_PYTHON="$VENV_PATH/bin/python"
@@ -45,6 +46,7 @@ if ! "$BOOTSTRAP_PYTHON" -m venv "$VENV_PATH"; then
 fi
 
 "$VENV_PYTHON" -m pip install --upgrade pip
+export JACA_PREBUILT_READ_ONLY_WORKER="$PREBUILT_READ_ONLY_WORKER"
 "$VENV_PYTHON" -m pip install "$PACKAGE_ROOT"
 
 "$VENV_PYTHON" -m just_another_coding_agent --help >/dev/null
