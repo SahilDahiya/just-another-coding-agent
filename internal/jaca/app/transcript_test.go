@@ -287,6 +287,28 @@ func TestToolUpdateRendersLivePartialOutputAndFinalResult(t *testing.T) {
 	}
 }
 
+func TestSessionCompactionLifecycleEventsRenderInTranscript(t *testing.T) {
+	transcript := NewTranscript()
+
+	transcript.ApplyRunEvent(rpc.RunEvent{Type: "session_compaction_started"})
+	transcript.ApplyRunEvent(rpc.RunEvent{
+		Type:              "session_compaction_completed",
+		CompactionID:      "compact-1",
+		SummarizedThrough: "run-5",
+	})
+
+	plain := stripANSI(transcript.Render())
+	for _, want := range []string{
+		"note  compact",
+		"compacting session...",
+		"session compacted",
+	} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("compaction transcript missing %q in %q", want, plain)
+		}
+	}
+}
+
 func TestRenderOnlyInvalidatesFromFirstDirtyRow(t *testing.T) {
 	transcript := NewTranscript()
 	transcript.WriteLine("first")

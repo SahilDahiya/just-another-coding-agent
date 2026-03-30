@@ -94,6 +94,7 @@ The core architectural risk is semantic drift between the Go shell and the Pytho
 - The prompt is the single input surface for chat and slash commands.
 - The prompt zone should behave like a compact two-line shell composer: one input line, one low-salience footer line for state and recall hints.
 - Backend token and context-window usage should appear as restrained footer context after a completed run, not as a new panel or heavy stats surface.
+- Session lifecycle events such as `session_compaction_started` and `session_compaction_completed` may appear before `run_started`; the TUI should surface them in the transcript and switch to the compacting state instead of silently dropping them.
 - `esc` is the primary conversation-control key: first `esc` requests interrupt for an active run, second `esc` restores the previous user prompt for editing.
 - single `ctrl+c` must remain copy-safe and non-destructive; if the shell receives it without an active selection, only an idle second `ctrl+c` may quit.
 - Historical user turns should still read like prompt echoes in the transcript, not like assistant prose.

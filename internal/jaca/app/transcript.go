@@ -29,7 +29,7 @@ func (c *rawCell) IsMarkdown() bool { return false }
 
 // assistantCell holds completed assistant markdown with lazy, evictable rendering.
 type assistantCell struct {
-	plain       string
+	plain        string
 	cachedRender string
 }
 
@@ -284,8 +284,26 @@ func (t *Transcript) WriteError(message string) {
 	t.WriteLine("ERROR: " + message)
 }
 
+func (t *Transcript) WriteCompactionStarted() {
+	t.endToolGroup()
+	t.endLiveAssistant()
+	t.ensureBlockGap()
+	t.WriteNote("compact", nil)
+	t.WriteLine("compacting session...")
+}
+
+func (t *Transcript) WriteCompactionCompleted() {
+	t.endToolGroup()
+	t.endLiveAssistant()
+	t.WriteLine("session compacted")
+}
+
 func (t *Transcript) ApplyRunEvent(event rpc.RunEvent) {
 	switch event.Type {
+	case "session_compaction_started":
+		t.WriteCompactionStarted()
+	case "session_compaction_completed":
+		t.WriteCompactionCompleted()
 	case "assistant_text_delta":
 		t.appendAssistantDelta(event.Delta)
 	case "tool_call_started":
@@ -601,4 +619,3 @@ func atoiSafe(raw string) int {
 	fmt.Sscanf(raw, "%d", &n)
 	return n
 }
-

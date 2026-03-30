@@ -77,6 +77,8 @@ type EventEnvelope struct {
 type RunEvent struct {
 	Type              string         `json:"type"`
 	RunID             string         `json:"run_id"`
+	CompactionID      string         `json:"compaction_id,omitempty"`
+	SummarizedThrough string         `json:"summarized_through_run_id,omitempty"`
 	Delta             string         `json:"delta,omitempty"`
 	ToolCallID        string         `json:"tool_call_id,omitempty"`
 	ToolName          string         `json:"tool_name,omitempty"`

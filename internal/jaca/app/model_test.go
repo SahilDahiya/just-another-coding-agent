@@ -277,6 +277,37 @@ func TestRunSucceededUsageAppearsInFooter(t *testing.T) {
 	}
 }
 
+func TestCompactionLifecycleEventsUpdatePhaseAndTranscript(t *testing.T) {
+	m := newTestModel()
+	m.streaming = true
+	m.phase = PhaseStreaming
+
+	updated, _ := m.Update(runEventMsg{Event: rpc.RunEvent{Type: "session_compaction_started"}})
+	m = updated.(*model)
+
+	if m.phase != PhaseCompacting {
+		t.Fatalf("phase after compaction start = %q, want %q", m.phase, PhaseCompacting)
+	}
+
+	updated, _ = m.Update(runEventMsg{Event: rpc.RunEvent{
+		Type:              "session_compaction_completed",
+		CompactionID:      "compact-1",
+		SummarizedThrough: "run-5",
+	}})
+	m = updated.(*model)
+
+	if m.phase != PhaseStreaming {
+		t.Fatalf("phase after compaction complete = %q, want %q", m.phase, PhaseStreaming)
+	}
+
+	rendered := stripANSI(m.transcript.Render())
+	for _, want := range []string{"compacting session...", "session compacted"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("transcript missing %q in %q", want, rendered)
+		}
+	}
+}
+
 func TestSlashShowsInlineCommandSuggestions(t *testing.T) {
 	m := newTestModel()
 

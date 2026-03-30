@@ -77,3 +77,34 @@ func TestDecodeEnvelopePreservesToolActivityGroupKind(t *testing.T) {
 		t.Fatalf("GroupKind = %v, want exploration", envelope.Event.Activity.GroupKind)
 	}
 }
+
+func TestDecodeEnvelopePreservesSessionCompactionCompletedFields(t *testing.T) {
+	line := []byte(`{
+		"type":"rpc_event",
+		"id":"req-3",
+		"event":{
+			"type":"session_compaction_completed",
+			"compaction_id":"compact-1",
+			"summarized_through_run_id":"run-5"
+		}
+	}`)
+
+	value, err := decodeEnvelope(line)
+	if err != nil {
+		t.Fatalf("decodeEnvelope() returned error: %v", err)
+	}
+
+	envelope, ok := value.(EventEnvelope)
+	if !ok {
+		t.Fatalf("decodeEnvelope() type = %T, want EventEnvelope", value)
+	}
+	if envelope.Event.Type != "session_compaction_completed" {
+		t.Fatalf("Type = %q, want session_compaction_completed", envelope.Event.Type)
+	}
+	if envelope.Event.CompactionID != "compact-1" {
+		t.Fatalf("CompactionID = %q, want compact-1", envelope.Event.CompactionID)
+	}
+	if envelope.Event.SummarizedThrough != "run-5" {
+		t.Fatalf("SummarizedThrough = %q, want run-5", envelope.Event.SummarizedThrough)
+	}
+}

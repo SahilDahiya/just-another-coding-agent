@@ -205,6 +205,12 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.refreshViewport()
 			return m, cmd
 		}
+		if msg.Event.Type == "session_compaction_started" {
+			m.phase = PhaseCompacting
+		}
+		if msg.Event.Type == "session_compaction_completed" && m.streaming {
+			m.phase = PhaseStreaming
+		}
 		if msg.Event.Type == "run_succeeded" {
 			m.activeRunSucceeded = true
 			m.lastInputTokens = msg.Event.InputTokens
