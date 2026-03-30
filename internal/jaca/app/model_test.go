@@ -43,7 +43,6 @@ func testModelCatalog() *rpc.ModelCatalogResponse {
 					{ModelID: "ollama:kimi-k2:1t-cloud", Description: "Current default Kimi K2"},
 					{ModelID: "ollama:glm-5:cloud", Description: "GLM-5 cloud path"},
 					{ModelID: "ollama:qwen3.5:397b-cloud", Description: "Qwen 3.5 397B cloud"},
-					{ModelID: "ollama:minimax-m2.7:cloud", Description: "MiniMax M2.7 cloud"},
 					{ModelID: "ollama:qwen3-coder-next", Description: "Qwen3 Coder Next"},
 				},
 			},

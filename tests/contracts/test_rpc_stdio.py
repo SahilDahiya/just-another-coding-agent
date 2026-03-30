@@ -278,10 +278,6 @@ async def test_handle_rpc_json_line_returns_backend_owned_model_catalog(
                                 "description": "Qwen 3.5 397B cloud",
                             },
                             {
-                                "model_id": "ollama:minimax-m2.7:cloud",
-                                "description": "MiniMax M2.7 cloud",
-                            },
-                            {
                                 "model_id": "ollama:qwen3-coder-next",
                                 "description": "Qwen3 Coder Next",
                             },

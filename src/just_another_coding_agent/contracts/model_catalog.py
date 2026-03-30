@@ -43,11 +43,6 @@ SHIPPED_MODELS: tuple[ShippedModel, ...] = (
     ),
     ShippedModel(
         provider="ollama",
-        model_id="ollama:minimax-m2.7:cloud",
-        description="MiniMax M2.7 cloud",
-    ),
-    ShippedModel(
-        provider="ollama",
         model_id="ollama:qwen3-coder-next",
         description="Qwen3 Coder Next",
     ),

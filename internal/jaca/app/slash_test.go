@@ -9,7 +9,6 @@ func TestModelSuggestionsIncludeExpandedOllamaModels(t *testing.T) {
 		"ollama:kimi-k2:1t-cloud":   false,
 		"ollama:glm-5:cloud":        false,
 		"ollama:qwen3.5:397b-cloud": false,
-		"ollama:minimax-m2.7:cloud": false,
 		"ollama:qwen3-coder-next":   false,
 	}
 
