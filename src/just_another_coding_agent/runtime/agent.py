@@ -112,23 +112,20 @@ def build_canonical_agent(
     effective_history_processors = list(history_processors or [])
     effective_history_processors.append(
         build_in_run_history_processor(
-            soft_char_limit=build_in_run_compaction_soft_char_limit(
-                resolved_model
-            )
+            soft_char_limit=build_in_run_compaction_soft_char_limit(resolved_model)
         )
     )
 
     return Agent(
         resolved_model,
         output_type=str,
+        retries=50,
         instructions=build_canonical_instructions(
             workspace_root=root,
             shell_family=effective_shell_family,
         ),
         deps_type=WorkspaceDeps,
-        toolsets=[
-            build_canonical_toolset(tool_names)
-        ],
+        toolsets=[build_canonical_toolset(tool_names)],
         history_processors=effective_history_processors,
     )
 
