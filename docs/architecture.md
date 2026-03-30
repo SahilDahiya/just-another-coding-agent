@@ -8,6 +8,12 @@ The architecture is intentionally thin. PydanticAI is the engine. This repo owns
 
 The main architectural risk in the current shape is split-brain product logic between Python and Go. The mitigation is explicit: Python owns backend semantics and public contracts; Go owns terminal presentation, input handling, and RPC client behavior. If the shell needs richer semantics, the backend contract should grow rather than teaching Go to infer or reinvent backend meaning locally.
 
+The same risk exists if a future non-Python execution helper is introduced for
+performance. A Rust helper for read-only tools may be a good internal
+execution engine, but it does not change semantic ownership. Python still owns
+tool schemas, validation, result shaping, activity metadata, session meaning,
+RPC meaning, and recovery policy.
+
 For Go TUI refactors, optimize first for module boundaries, testability, and reduced semantic drift. Treat LOC reduction as a guardrail rather than a target, and sequence extractions before new interface layers so the same transcript subsystem is not refactored twice without learning anything.
 
 ## Implementation Stance
@@ -29,6 +35,9 @@ PydanticAI-native carrier features such as `ToolReturn.metadata` may be used int
 If a tool needs extra validation for a non-agent runtime seam such as deferred
 re-entry, that validator should stay private to the tool or runtime seam rather
 than becoming a second public source of truth in `contracts/`.
+If a future helper in another language executes a narrow internal tool seam, it
+should receive already-validated internal requests from Python rather than
+becoming a second owner of public tool semantics.
 
 The canonical agent assembly must take an explicit workspace root. Tool behavior uses that root as the default base for relative paths and shell cwd rather than relying on process cwd or other implicit global state.
 Persisted sessions must also bind to that explicit workspace root and store native PydanticAI message history so later runs can resume through `message_history` instead of reconstructing context from public events.
@@ -141,6 +150,8 @@ The important boundary is:
 - `src/just_another_coding_agent/tools/`
   - canonical coding tools
   - tool execution policy
+  - Python-owned tool semantics even when a future internal helper executes a
+    narrow read-only path
 - `src/just_another_coding_agent/session/`
   - session persistence
   - session load/save helpers
@@ -169,6 +180,10 @@ The important boundary is:
 - Keep the TUI constrained to exactly three zones: status bar, transcript, and prompt.
 - TUI capabilities must live in those zones or behind slash commands; no side panels, drawers, or split-pane growth.
 - Keep backend semantics in Python. Go may format, group, and present streamed state, but it must not become an independent source of truth for tool semantics, event semantics, session semantics, or recovery policy.
+- Keep future internal execution helpers in the same role: they may optimize
+  execution, but they must not become an independent source of truth for tool
+  semantics, event semantics, session semantics, RPC semantics, or recovery
+  policy.
 - Keep Harbor, Terminal Bench, and similar external harness bindings out of `just_another_coding_agent` core packages.
 - Evaluation harnesses may wrap the canonical stdio/session/runtime path, but they must not create a second execution contract.
 

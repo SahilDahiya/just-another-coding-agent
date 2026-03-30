@@ -41,3 +41,4 @@ read_when: start here, onboarding, or you need to find the right doc quickly
 - [adr/0003-canonical-session-and-rpc-contract.md](adr/0003-canonical-session-and-rpc-contract.md) - external contract decision
 - [adr/0004-canonical-package-layout.md](adr/0004-canonical-package-layout.md) - package layout decision
 - [adr/0005-preserve-pi-product-behavior-not-architecture.md](adr/0005-preserve-pi-product-behavior-not-architecture.md) - inspiration boundary
+- [adr/0006-internal-execution-helpers-must-not-own-tool-semantics.md](adr/0006-internal-execution-helpers-must-not-own-tool-semantics.md) - internal helper boundary

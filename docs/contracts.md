@@ -73,6 +73,11 @@ Rules:
 - Canonical public tool schema and validation live on the PydanticAI tool
   function signatures plus parameter constraints, not on duplicate public
   `*ToolInput` carrier models.
+- Internal execution helpers may exist, but they are not part of the public
+  tool contract.
+- Python remains the semantic owner of tool schemas, validation, result
+  shaping, activity metadata, and contract tests even if an internal helper in
+  another language executes part of a tool path.
 - `contracts/tools.py` should contain only shared public tool contract types
   such as canonical names and explicit tool error result shapes.
 - Tool definitions sent to the model must have explicit top-level descriptions and parameter descriptions.
