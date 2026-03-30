@@ -243,6 +243,8 @@ func modelSuggestions(provider string) []slashSuggestion {
 		return []slashSuggestion{
 			{Value: "ollama:kimi-k2:1t-cloud", Description: "Current default Kimi K2"},
 			{Value: "ollama:glm-5:cloud", Description: "GLM-5 cloud path"},
+			{Value: "ollama:qwen3.5:397b-cloud", Description: "Qwen 3.5 397B cloud"},
+			{Value: "ollama:minimax-m2.7:cloud", Description: "MiniMax M2.7 cloud"},
 			{Value: "ollama:qwen3-coder-next", Description: "Qwen3 Coder Next"},
 		}
 	}
@@ -262,4 +264,3 @@ func filterSuggestions(rows []slashSuggestion, query string) []slashSuggestion {
 	}
 	return filtered
 }
-
