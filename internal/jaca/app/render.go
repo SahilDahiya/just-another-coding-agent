@@ -72,6 +72,8 @@ type viewModel struct {
 	SlashMenu      slashMenuState
 }
 
+var topRailFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+
 func renderView(vm viewModel) string {
 	transcript := ""
 	prompt := ""
@@ -154,16 +156,7 @@ func renderPrompt(vm viewModel) string {
 	if ruleWidth < 10 {
 		ruleWidth = 10
 	}
-	var rule string
-	if vm.Phase == PhaseStreaming || vm.Phase == PhaseCompacting {
-		rule = renderAnimatedRule(ruleWidth, vm.MotionTick)
-	} else {
-		ruleColor := defaultTheme.text
-		if rowBorder != defaultTheme.border {
-			ruleColor = rowBorder
-		}
-		rule = lipgloss.NewStyle().Foreground(ruleColor).Render(strings.Repeat("─", ruleWidth))
-	}
+	rule := renderPromptRule(vm, ruleWidth, rowBorder)
 
 	promptParts := make([]string, 0, 8)
 	promptParts = append(promptParts, "", "", rule)
@@ -194,47 +187,45 @@ func renderPrompt(vm viewModel) string {
 	return lipgloss.JoinVertical(lipgloss.Left, promptParts...)
 }
 
-var rulePulseColors = []lipgloss.TerminalColor{
-	themeColor("#2e5a5a", "30", "6"), // blue-teal
-	themeColor("#2e5a5a", "30", "6"),
-	themeColor("#2e6a5a", "36", "6"),
-	themeColor("#2e6a5a", "36", "6"),
-	themeColor("#2e7a5a", "36", "6"), // teal-green
-	themeColor("#2e7a5a", "36", "6"),
-	themeColor("#3a8a50", "71", "10"),
-	themeColor("#3a8a50", "71", "10"),
-	themeColor("#4a9a46", "71", "10"), // green
-	themeColor("#4a9a46", "71", "10"),
-	themeColor("#6a9a3a", "107", "10"),
-	themeColor("#6a9a3a", "107", "10"),
-	themeColor("#8a9a30", "142", "11"), // green-yellow
-	themeColor("#8a9a30", "142", "11"),
-	themeColor("#a09028", "142", "11"),
-	themeColor("#a09028", "142", "11"),
-	themeColor("#b08820", "179", "11"), // yellow
-	themeColor("#b08820", "179", "11"),
-	themeColor("#a09028", "142", "11"),
-	themeColor("#a09028", "142", "11"),
-	themeColor("#8a9a30", "142", "11"),
-	themeColor("#8a9a30", "142", "11"),
-	themeColor("#6a9a3a", "107", "10"),
-	themeColor("#6a9a3a", "107", "10"),
-	themeColor("#4a9a46", "71", "10"),
-	themeColor("#4a9a46", "71", "10"),
-	themeColor("#3a8a50", "71", "10"),
-	themeColor("#3a8a50", "71", "10"),
-	themeColor("#2e7a5a", "36", "6"),
-	themeColor("#2e7a5a", "36", "6"),
-	themeColor("#2e6a5a", "36", "6"),
-	themeColor("#2e6a5a", "36", "6"),
-}
-
-func renderAnimatedRule(width int, tick int) string {
+func renderPromptRule(vm viewModel, width int, rowBorder lipgloss.TerminalColor) string {
 	if width <= 0 {
 		return ""
 	}
-	color := rulePulseColors[tick%len(rulePulseColors)]
-	return lipgloss.NewStyle().Foreground(color).Render(strings.Repeat("─", width))
+
+	ruleColor := defaultTheme.text
+	if rowBorder != defaultTheme.border {
+		ruleColor = rowBorder
+	}
+
+	if vm.Phase != PhaseStreaming && vm.Phase != PhaseCompacting {
+		return lipgloss.NewStyle().Foreground(ruleColor).Render(strings.Repeat("─", width))
+	}
+
+	indicator := buildTopRailIndicator(vm)
+	if indicator == "" {
+		return lipgloss.NewStyle().Foreground(ruleColor).Render(strings.Repeat("─", width))
+	}
+
+	indicatorWidth := lipgloss.Width(indicator)
+	leftWidth := width - indicatorWidth - 2
+	if leftWidth < 0 {
+		leftWidth = 0
+	}
+	left := lipgloss.NewStyle().
+		Foreground(ruleColor).
+		Render(strings.Repeat("─", leftWidth))
+	right := lipgloss.NewStyle().
+		Foreground(defaultTheme.accentSoft).
+		Render(indicator)
+	return left + strings.Repeat(" ", width-leftWidth-indicatorWidth) + right
+}
+
+func buildTopRailIndicator(vm viewModel) string {
+	if vm.Phase != PhaseStreaming && vm.Phase != PhaseCompacting {
+		return ""
+	}
+	frame := topRailFrames[vm.MotionTick%len(topRailFrames)]
+	return fmt.Sprintf("%s %s", frame, formatElapsedClock(vm.RunElapsed))
 }
 
 func renderSlashMenu(state slashMenuState) string {
@@ -316,7 +307,6 @@ func buildPromptFooterText(vm viewModel) string {
 	switch vm.Phase {
 	case PhaseStreaming:
 		return joinFooterParts(
-			formatElapsed(vm.RunElapsed),
 			"esc to interrupt",
 			buildThinkingFooterText(vm.Thinking),
 		)
@@ -393,6 +383,22 @@ func formatElapsed(d time.Duration) string {
 	mins := secs / 60
 	remaining := secs % 60
 	return fmt.Sprintf("%dm %ds", mins, remaining)
+}
+
+func formatElapsedClock(d time.Duration) string {
+	if d <= 0 {
+		return "00:00"
+	}
+	totalSeconds := int(d.Seconds())
+	if totalSeconds < 0 {
+		totalSeconds = 0
+	}
+	minutes := totalSeconds / 60
+	seconds := totalSeconds % 60
+	if minutes > 99 {
+		minutes = 99
+	}
+	return fmt.Sprintf("%02d:%02d", minutes, seconds)
 }
 
 func buildThinkingFooterText(thinking string) string {

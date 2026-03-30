@@ -42,21 +42,21 @@ func TestBuildStatusTextIncludesTruncatedSessionAndThinking(t *testing.T) {
 	}
 }
 
-func TestBuildPromptFooterTextShowsElapsedAndEffort(t *testing.T) {
+func TestBuildPromptFooterTextShowsInterruptHintAndEffort(t *testing.T) {
 	got := buildPromptFooterText(viewModel{
 		Phase:      PhaseStreaming,
 		Thinking:   "medium",
 		RunElapsed: 42 * time.Second,
 	})
 
-	if !strings.Contains(got, "42s") {
-		t.Fatalf("buildPromptFooterText() missing elapsed: %q", got)
-	}
 	if !strings.Contains(got, "esc to interrupt") {
 		t.Fatalf("buildPromptFooterText() missing interrupt hint: %q", got)
 	}
 	if !strings.Contains(got, "◐ medium · effort") {
 		t.Fatalf("buildPromptFooterText() missing effort: %q", got)
+	}
+	if strings.Contains(got, "42s") || strings.Contains(got, "00:42") {
+		t.Fatalf("buildPromptFooterText() should not include elapsed once top rail owns it: %q", got)
 	}
 }
 
@@ -86,6 +86,63 @@ func TestBuildPromptFooterTextPreservesOverride(t *testing.T) {
 	want := "Conversation interrupted. Esc again to edit previous message."
 	if got != want {
 		t.Fatalf("buildPromptFooterText() = %q, want %q", got, want)
+	}
+}
+
+func TestBuildTopRailIndicatorShowsFixedElapsed(t *testing.T) {
+	got := buildTopRailIndicator(viewModel{
+		Phase:      PhaseStreaming,
+		MotionTick: 3,
+		RunElapsed: 42 * time.Second,
+	})
+
+	if !strings.Contains(got, "00:42") {
+		t.Fatalf("buildTopRailIndicator() missing fixed elapsed: %q", got)
+	}
+	if !strings.Contains(got, topRailFrames[3]) {
+		t.Fatalf("buildTopRailIndicator() missing braille frame: %q", got)
+	}
+}
+
+func TestBuildTopRailIndicatorHiddenWhenIdle(t *testing.T) {
+	got := buildTopRailIndicator(viewModel{
+		Phase:      PhaseIdle,
+		MotionTick: 3,
+		RunElapsed: 42 * time.Second,
+	})
+
+	if got != "" {
+		t.Fatalf("buildTopRailIndicator() = %q, want empty for idle", got)
+	}
+}
+
+func TestRenderPromptRuleShowsTopRailIndicatorDuringStreaming(t *testing.T) {
+	rendered := stripANSI(renderPromptRule(viewModel{
+		Phase:      PhaseStreaming,
+		MotionTick: 4,
+		RunElapsed: 37 * time.Second,
+	}, 32, defaultTheme.accent))
+
+	if !strings.Contains(rendered, "00:37") {
+		t.Fatalf("renderPromptRule() missing elapsed indicator: %q", rendered)
+	}
+	if !strings.Contains(rendered, topRailFrames[4]) {
+		t.Fatalf("renderPromptRule() missing braille indicator: %q", rendered)
+	}
+}
+
+func TestRenderPromptRuleStaysPlainWhenIdle(t *testing.T) {
+	rendered := stripANSI(renderPromptRule(viewModel{
+		Phase:      PhaseIdle,
+		MotionTick: 4,
+		RunElapsed: 37 * time.Second,
+	}, 12, defaultTheme.border))
+
+	if strings.Contains(rendered, "00:37") {
+		t.Fatalf("idle rule should not show elapsed indicator: %q", rendered)
+	}
+	if rendered != strings.Repeat("─", 12) {
+		t.Fatalf("idle rule = %q, want plain rule", rendered)
 	}
 }
 
