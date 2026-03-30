@@ -1,3 +1,6 @@
+from just_another_coding_agent.tools.read_only_worker.client import (
+    ReadOnlyWorkerClient,
+)
 from just_another_coding_agent.tools.read_only_worker.protocol import (
     READ_ONLY_WORKER_KIND,
     READ_ONLY_WORKER_OPERATIONS,
@@ -44,6 +47,7 @@ __all__ = [
     "READ_ONLY_WORKER_PROTOCOL_VERSION",
     "ReadCallResult",
     "ReadOnlyWorkerErrorResponse",
+    "ReadOnlyWorkerClient",
     "ReadWorkerRequest",
     "ShutdownWorkerRequest",
     "WorkerErrorCode",
