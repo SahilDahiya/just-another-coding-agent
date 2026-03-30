@@ -92,6 +92,9 @@ Important implications:
 
 - the workspace path is container-local and server-side only
 - sessions are ephemeral unless you explicitly download them as Harbor artifacts
+- `/logs/agent/just-another-coding-agent.txt` is a liveness stream, not the full transcript
+  - it should show early `exec_prompt` status markers such as `subprocess started`, `session created`, `run.start sent`, and the first observed RPC/tool/assistant activity
+  - the detailed canonical RPC transcript still lives under `/tmp/just-another-coding-agent-sessions`
 
 ## Local Harbor Run
 

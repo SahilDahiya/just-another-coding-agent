@@ -97,6 +97,7 @@ def run_exec_prompt(
     thinking: ThinkingSetting | None = None,
     sessions_root: Path | str | None = None,
     first_rpc_event_timeout_sec: float = _DEFAULT_FIRST_RPC_EVENT_TIMEOUT_SEC,
+    status_stream: TextIO | None = None,
     popen_factory: Any = subprocess.Popen,
 ) -> str:
     resolved_workspace_root = Path(workspace_root).expanduser().resolve()
@@ -114,6 +115,7 @@ def run_exec_prompt(
                 thinking=thinking,
                 sessions_root=Path(temporary_root),
                 first_rpc_event_timeout_sec=first_rpc_event_timeout_sec,
+                status_stream=status_stream,
                 popen_factory=popen_factory,
             )
 
@@ -124,6 +126,7 @@ def run_exec_prompt(
         thinking=thinking,
         sessions_root=Path(sessions_root).expanduser().resolve(),
         first_rpc_event_timeout_sec=first_rpc_event_timeout_sec,
+        status_stream=status_stream,
         popen_factory=popen_factory,
     )
 
@@ -136,6 +139,7 @@ def _run_exec_prompt(
     thinking: ThinkingSetting | None,
     sessions_root: Path,
     first_rpc_event_timeout_sec: float,
+    status_stream: TextIO | None,
     popen_factory: Any,
 ) -> str:
     diagnostics = _ExecPromptDiagnostics(root=sessions_root)
@@ -153,6 +157,7 @@ def _run_exec_prompt(
         bufsize=1,
     )
     diagnostics.record_phase("subprocess_started_at")
+    _write_status(status_stream, "subprocess started")
 
     if process.stdin is None or process.stdout is None:
         raise ExecPromptError(
@@ -174,6 +179,7 @@ def _run_exec_prompt(
         diagnostics.record_phase("session_create_received_at")
         session_id = _extract_session_id(session_create_response)
         diagnostics.set_session_id(session_id)
+        _write_status(status_stream, "session created")
 
         _write_json_line(
             process.stdin,
@@ -189,12 +195,15 @@ def _run_exec_prompt(
             diagnostics=diagnostics,
         )
         diagnostics.record_phase("run_start_sent_at")
+        _write_status(status_stream, "run.start sent")
         diagnostics.record_phase(
             "first_rpc_event_timeout_sec",
             value=first_rpc_event_timeout_sec,
         )
 
         saw_first_rpc_event = False
+        saw_first_tool_event = False
+        saw_first_assistant_text_delta = False
         while True:
             try:
                 response = _read_json_line(
@@ -211,6 +220,7 @@ def _run_exec_prompt(
             if not saw_first_rpc_event:
                 saw_first_rpc_event = True
                 diagnostics.record_phase("first_rpc_event_received_at")
+                _write_status(status_stream, "first rpc event received")
             response_type = response.get("type")
 
             if response_type == "rpc_error":
@@ -230,11 +240,18 @@ def _run_exec_prompt(
             event_type = event.get("type")
             if event_type == "assistant_text_delta":
                 diagnostics.record_phase_once("first_assistant_text_delta_at")
+                if not saw_first_assistant_text_delta:
+                    saw_first_assistant_text_delta = True
+                    _write_status(status_stream, "first assistant text delta received")
             if isinstance(event_type, str) and event_type.startswith("tool_call_"):
                 diagnostics.record_phase_once("first_tool_event_at")
+                if not saw_first_tool_event:
+                    saw_first_tool_event = True
+                    _write_status(status_stream, "first tool event received")
             if event_type == "run_succeeded":
                 diagnostics.record_phase("terminal_event_at")
                 diagnostics.record_phase("terminal_event_type", value="run_succeeded")
+                _write_status(status_stream, "run succeeded")
                 output_text = event.get("output_text")
                 if not isinstance(output_text, str):
                     raise ExecPromptError(
@@ -245,6 +262,7 @@ def _run_exec_prompt(
             if event_type == "run_failed":
                 diagnostics.record_phase("terminal_event_at")
                 diagnostics.record_phase("terminal_event_type", value="run_failed")
+                _write_status(status_stream, "run failed")
                 raise ExecPromptError(
                     f"{event.get('error_type')}: {event.get('message')}"
                 )
@@ -263,6 +281,13 @@ def _write_json_line(
         diagnostics.append_transcript(direction="send", payload=payload)
     stream.write(json.dumps(payload))
     stream.write("\n")
+    stream.flush()
+
+
+def _write_status(stream: TextIO | None, message: str) -> None:
+    if stream is None:
+        return
+    stream.write(f"[exec_prompt] {message}\n")
     stream.flush()
 
 
@@ -442,6 +467,7 @@ def main(
             workspace_root=args.cd,
             thinking=_parse_thinking(args.thinking),
             sessions_root=args.sessions_root,
+            status_stream=error_stream,
         )
     except ExecPromptError as error:
         error_stream.write(f"{error}\n")

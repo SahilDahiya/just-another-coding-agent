@@ -215,6 +215,81 @@ def test_run_exec_prompt_returns_terminal_output(tmp_path) -> None:
     ]
 
 
+def test_run_exec_prompt_emits_liveness_markers_to_status_stream(tmp_path) -> None:
+    status_stream = io.StringIO()
+    popen_factory, _process, _captured = _make_popen(
+        [
+            {
+                "type": "rpc_response",
+                "id": "req-create",
+                "response": {"session_id": "0" * 32},
+            },
+            {
+                "type": "rpc_event",
+                "id": "req-run",
+                "event": {"run_id": "run-1", "type": "run_started"},
+            },
+            {
+                "type": "rpc_event",
+                "id": "req-run",
+                "event": {
+                    "run_id": "run-1",
+                    "type": "tool_call_started",
+                    "tool_call_id": "call-1",
+                    "tool_name": "read",
+                    "args": {"path": "/tmp/example.txt"},
+                    "args_valid": True,
+                    "activity": {
+                        "title": "read /tmp/example.txt",
+                        "summary": None,
+                        "duration_ms": None,
+                        "details": None,
+                        "group_kind": None,
+                    },
+                },
+            },
+            {
+                "type": "rpc_event",
+                "id": "req-run",
+                "event": {
+                    "run_id": "run-1",
+                    "type": "assistant_text_delta",
+                    "delta": "working",
+                },
+            },
+            {
+                "type": "rpc_event",
+                "id": "req-run",
+                "event": {
+                    "run_id": "run-1",
+                    "type": "run_succeeded",
+                    "output_text": "done",
+                },
+            },
+        ]
+    )
+
+    output = run_exec_prompt(
+        prompt="solve it",
+        model="openai-responses:gpt-5.3-codex",
+        workspace_root=tmp_path,
+        sessions_root=tmp_path / "sessions",
+        popen_factory=popen_factory,
+        status_stream=status_stream,
+    )
+
+    assert output == "done"
+    assert status_stream.getvalue().splitlines() == [
+        "[exec_prompt] subprocess started",
+        "[exec_prompt] session created",
+        "[exec_prompt] run.start sent",
+        "[exec_prompt] first rpc event received",
+        "[exec_prompt] first tool event received",
+        "[exec_prompt] first assistant text delta received",
+        "[exec_prompt] run succeeded",
+    ]
+
+
 def test_build_benchmark_prompt_wraps_user_prompt() -> None:
     prompt = build_benchmark_prompt("solve it")
 
@@ -472,3 +547,38 @@ def test_main_parses_thinking_flag(tmp_path, monkeypatch) -> None:
 
     assert exit_code == 0
     assert captured["thinking"] == "high"
+
+
+def test_main_passes_stderr_as_status_stream(tmp_path, monkeypatch) -> None:
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    captured: dict[str, object] = {}
+
+    def fake_run_exec_prompt(**kwargs) -> str:
+        captured.update(kwargs)
+        status_stream = kwargs["status_stream"]
+        status_stream.write("[exec_prompt] subprocess started\n")
+        status_stream.flush()
+        return "done"
+
+    monkeypatch.setattr(
+        "evaluations.bench.exec_prompt.run_exec_prompt",
+        fake_run_exec_prompt,
+    )
+
+    exit_code = main(
+        [
+            "--model",
+            "openai-responses:gpt-5.3-codex",
+            "-C",
+            str(tmp_path),
+            "solve it",
+        ],
+        stdout=stdout,
+        stderr=stderr,
+    )
+
+    assert exit_code == 0
+    assert captured["status_stream"] is stderr
+    assert stdout.getvalue() == "done\n"
+    assert stderr.getvalue() == "[exec_prompt] subprocess started\n"
