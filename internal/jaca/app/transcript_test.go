@@ -6,6 +6,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
+
 	"jaca/internal/jaca/rpc"
 )
 
@@ -144,6 +147,31 @@ func TestOperationalToolResultRendersAsNeutralOutput(t *testing.T) {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("operational tool result missing %q in %q", want, plain)
 		}
+	}
+}
+
+func TestExplorationToolRowsUseSofterPreviewStyling(t *testing.T) {
+	original := lipgloss.ColorProfile()
+	t.Cleanup(func() {
+		lipgloss.SetColorProfile(original)
+	})
+	lipgloss.SetColorProfile(termenv.TrueColor)
+
+	normal := renderToolActivityLine(&toolEntry{
+		toolName: "read",
+		preview:  "AGENTS.md",
+	})
+	exploration := renderToolActivityLine(&toolEntry{
+		toolName:  "read",
+		preview:   "AGENTS.md",
+		groupKind: "exploration",
+	})
+
+	if normal == exploration {
+		t.Fatalf("expected exploration row styling to differ from normal row: %q", exploration)
+	}
+	if !strings.Contains(exploration, "AGENTS.md") {
+		t.Fatalf("exploration row missing preview: %q", exploration)
 	}
 }
 

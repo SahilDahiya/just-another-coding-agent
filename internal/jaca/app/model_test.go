@@ -11,6 +11,10 @@ import (
 	"jaca/internal/jaca/rpc"
 )
 
+func intPtr(v int) *int { return &v }
+
+func floatPtr(v float64) *float64 { return &v }
+
 func newTestModel() *model {
 	m := New(Options{
 		Model:         "ollama:test",
@@ -225,6 +229,30 @@ func TestCtrlCWhileStreamingDoesNotRequestRunCancellation(t *testing.T) {
 	rendered := stripANSI(m.View())
 	if !strings.Contains(rendered, "Conversation interrupted. Esc again to edit previous message.") {
 		t.Fatalf("missing interrupt guidance in prompt footer: %q", rendered)
+	}
+}
+
+func TestRunSucceededUsageAppearsInFooter(t *testing.T) {
+	m := newTestModel()
+	m.streaming = true
+	m.phase = PhaseStreaming
+
+	m.Update(runEventMsg{Event: rpc.RunEvent{
+		Type:              "run_succeeded",
+		RunID:             "run-1",
+		OutputText:        "done",
+		InputTokens:       intPtr(120),
+		OutputTokens:      intPtr(45),
+		TotalTokens:       intPtr(165),
+		ContextWindowUsed: floatPtr(0.413),
+	}})
+	m.Update(runEventMsg{Done: true})
+
+	rendered := stripANSI(m.View())
+	for _, want := range []string{"completed", "120 in", "45 out", "165 tok", "41% ctx"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("view missing %q in %q", want, rendered)
+		}
 	}
 }
 

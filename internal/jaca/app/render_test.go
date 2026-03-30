@@ -89,6 +89,46 @@ func TestBuildPromptFooterTextPreservesOverride(t *testing.T) {
 	}
 }
 
+func TestBuildPromptFooterTextShowsDetailedUsageWhenCompleted(t *testing.T) {
+	input := 120
+	output := 45
+	total := 165
+	context := 0.413
+
+	got := buildPromptFooterText(viewModel{
+		Phase:         PhaseCompleted,
+		InputTokens:   &input,
+		OutputTokens:  &output,
+		TotalTokens:   &total,
+		ContextWindow: &context,
+	})
+
+	for _, want := range []string{"completed", "120 in", "45 out", "165 tok", "41% ctx"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("buildPromptFooterText() missing %q in %q", want, got)
+		}
+	}
+}
+
+func TestBuildPromptFooterTextShowsCompactUsageWhenIdle(t *testing.T) {
+	total := 165
+	context := 0.413
+
+	got := buildPromptFooterText(viewModel{
+		Phase:         PhaseIdle,
+		Model:         "ollama:kimi-k2:1t-cloud",
+		WorkspaceRoot: "/workspace",
+		TotalTokens:   &total,
+		ContextWindow: &context,
+	})
+
+	for _, want := range []string{"ollama:kimi-k2:1t-cloud", "/workspace", "165 tok", "41% ctx"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("buildPromptFooterText() missing %q in %q", want, got)
+		}
+	}
+}
+
 func TestRenderStatusUsesTrueColorPaletteWhenAvailable(t *testing.T) {
 	original := lipgloss.ColorProfile()
 	t.Cleanup(func() {

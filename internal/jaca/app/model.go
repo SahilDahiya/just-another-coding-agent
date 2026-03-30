@@ -89,6 +89,10 @@ type model struct {
 	slashMenu          slashMenuState
 	auth               authState
 	configErrLogged    bool
+	lastInputTokens    *int
+	lastOutputTokens   *int
+	lastTotalTokens    *int
+	lastContextWindow  *float64
 }
 
 func New(options Options) tea.Model {
@@ -200,6 +204,10 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if msg.Event.Type == "run_succeeded" {
 			m.activeRunSucceeded = true
+			m.lastInputTokens = msg.Event.InputTokens
+			m.lastOutputTokens = msg.Event.OutputTokens
+			m.lastTotalTokens = msg.Event.TotalTokens
+			m.lastContextWindow = msg.Event.ContextWindowUsed
 		}
 		if msg.Event.Type == "run_failed" {
 			m.phase = PhaseError
@@ -258,6 +266,10 @@ func (m *model) View() string {
 		PromptValue:    m.promptView(),
 		PromptFooter:   m.promptFooterNotice,
 		RunElapsed:     elapsed,
+		InputTokens:    m.lastInputTokens,
+		OutputTokens:   m.lastOutputTokens,
+		TotalTokens:    m.lastTotalTokens,
+		ContextWindow:  m.lastContextWindow,
 		LinePulse:      m.linePulse,
 		SinceLastDelta: sinceLastDelta,
 		VisibleZones:   m.visibleZones,

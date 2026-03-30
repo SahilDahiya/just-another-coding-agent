@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,31 +12,31 @@ import (
 )
 
 type theme struct {
-	background   lipgloss.TerminalColor
-	border       lipgloss.TerminalColor
-	text         lipgloss.TerminalColor
-	textSoft     lipgloss.TerminalColor
-	textMuted    lipgloss.TerminalColor
-	accent       lipgloss.TerminalColor
-	accentSoft   lipgloss.TerminalColor
-	success      lipgloss.TerminalColor
-	successSoft  lipgloss.TerminalColor
-	err          lipgloss.TerminalColor
-	errSoft      lipgloss.TerminalColor
+	background  lipgloss.TerminalColor
+	border      lipgloss.TerminalColor
+	text        lipgloss.TerminalColor
+	textSoft    lipgloss.TerminalColor
+	textMuted   lipgloss.TerminalColor
+	accent      lipgloss.TerminalColor
+	accentSoft  lipgloss.TerminalColor
+	success     lipgloss.TerminalColor
+	successSoft lipgloss.TerminalColor
+	err         lipgloss.TerminalColor
+	errSoft     lipgloss.TerminalColor
 }
 
 var defaultTheme = theme{
-	background:   themeColor("#0f1115", "233", "0"),
-	border:       themeColor("#2a313c", "238", "8"),
-	text:         themeColor("#f1ede4", "255", "15"),
-	textSoft:     themeColor("#ddd7cb", "252", "7"),
-	textMuted:    themeColor("#a7a39a", "246", "8"),
-	accent:       themeColor("#d79a41", "179", "11"),
-	accentSoft:   themeColor("#f1c27a", "221", "11"),
-	success:      themeColor("#7bb07c", "107", "10"),
-	successSoft:  themeColor("#a7d6a5", "151", "10"),
-	err:          themeColor("#d46a5e", "167", "9"),
-	errSoft:      themeColor("#bf5f5f", "131", "1"),
+	background:  themeColor("#0f1115", "233", "0"),
+	border:      themeColor("#2a313c", "238", "8"),
+	text:        themeColor("#f1ede4", "255", "15"),
+	textSoft:    themeColor("#ddd7cb", "252", "7"),
+	textMuted:   themeColor("#a7a39a", "246", "8"),
+	accent:      themeColor("#d79a41", "179", "11"),
+	accentSoft:  themeColor("#f1c27a", "221", "11"),
+	success:     themeColor("#7bb07c", "107", "10"),
+	successSoft: themeColor("#a7d6a5", "151", "10"),
+	err:         themeColor("#d46a5e", "167", "9"),
+	errSoft:     themeColor("#bf5f5f", "131", "1"),
 }
 
 func themeColor(trueColor string, ansi256 string, ansi string) lipgloss.TerminalColor {
@@ -61,6 +62,10 @@ type viewModel struct {
 	PromptValue    string
 	PromptFooter   string
 	RunElapsed     time.Duration
+	InputTokens    *int
+	OutputTokens   *int
+	TotalTokens    *int
+	ContextWindow  *float64
 	LinePulse      int
 	SinceLastDelta time.Duration
 	VisibleZones   int
@@ -175,11 +180,11 @@ func renderPrompt(vm viewModel) string {
 }
 
 var rulePulseColors = []lipgloss.TerminalColor{
-	themeColor("#2e5a5a", "30", "6"),  // blue-teal
+	themeColor("#2e5a5a", "30", "6"), // blue-teal
 	themeColor("#2e5a5a", "30", "6"),
 	themeColor("#2e6a5a", "36", "6"),
 	themeColor("#2e6a5a", "36", "6"),
-	themeColor("#2e7a5a", "36", "6"),  // teal-green
+	themeColor("#2e7a5a", "36", "6"), // teal-green
 	themeColor("#2e7a5a", "36", "6"),
 	themeColor("#3a8a50", "71", "10"),
 	themeColor("#3a8a50", "71", "10"),
@@ -302,6 +307,12 @@ func buildPromptFooterText(vm viewModel) string {
 		)
 	case PhaseCompacting:
 		return "compacting session"
+	case PhaseCompleted:
+		usage := buildUsageFooterText(vm, true)
+		if usage == "" {
+			return "completed"
+		}
+		return joinFooterParts("completed", usage)
 	case PhaseError:
 		return "last run failed  edit prompt or retry"
 	default:
@@ -324,7 +335,36 @@ func buildIdleFooterText(vm viewModel) string {
 		}
 		parts = append(parts, fmt.Sprintf("session=%s", session))
 	}
+	if usage := buildUsageFooterText(vm, false); usage != "" {
+		parts = append(parts, usage)
+	}
 	return strings.Join(parts, "  ")
+}
+
+func buildUsageFooterText(vm viewModel, detailed bool) string {
+	parts := []string{}
+	if detailed {
+		if vm.InputTokens != nil {
+			parts = append(parts, fmt.Sprintf("%d in", *vm.InputTokens))
+		}
+		if vm.OutputTokens != nil {
+			parts = append(parts, fmt.Sprintf("%d out", *vm.OutputTokens))
+		}
+	}
+	if vm.TotalTokens != nil {
+		parts = append(parts, fmt.Sprintf("%d tok", *vm.TotalTokens))
+	} else if !detailed {
+		if vm.InputTokens != nil {
+			parts = append(parts, fmt.Sprintf("%d in", *vm.InputTokens))
+		}
+		if vm.OutputTokens != nil {
+			parts = append(parts, fmt.Sprintf("%d out", *vm.OutputTokens))
+		}
+	}
+	if vm.ContextWindow != nil {
+		parts = append(parts, fmt.Sprintf("%d%% ctx", int(math.Round(*vm.ContextWindow*100))))
+	}
+	return joinFooterParts(parts...)
 }
 
 func formatElapsed(d time.Duration) string {

@@ -37,13 +37,14 @@ type Transcript struct {
 }
 
 type toolEntry struct {
-	toolName        string
-	preview         string
-	outcome         string
-	message         string
-	duration        string
-	detailLines     []string
-	resultLines     []string
+	toolName           string
+	preview            string
+	outcome            string
+	message            string
+	duration           string
+	groupKind          string
+	detailLines        []string
+	resultLines        []string
 	resultTruncated    bool
 	resultOmittedLines int
 	operationalMiss    bool
@@ -471,7 +472,7 @@ func (t *Transcript) endLiveAssistant() {
 // Smooth breathing cycle for the live ● marker.
 // Ramps from dim to full and back over 12 steps (~1.7s at 140ms tick).
 var livePulseGradient = []lipgloss.TerminalColor{
-	themeColor("#3d3520", "238", "8"),  // near-invisible
+	themeColor("#3d3520", "238", "8"), // near-invisible
 	themeColor("#5a4e2e", "240", "8"),
 	themeColor("#77673c", "242", "11"),
 	themeColor("#94804a", "244", "11"),
@@ -530,8 +531,9 @@ func (t *Transcript) startTool(event rpc.RunEvent) {
 	}
 	t.toolGroup.order = append(t.toolGroup.order, event.ToolCallID)
 	t.toolGroup.entries[event.ToolCallID] = &toolEntry{
-		toolName: event.ToolName,
-		preview:  buildToolPreview(event.ToolName, event.Args, event.ArgsValid, event.Activity),
+		toolName:  event.ToolName,
+		preview:   buildToolPreview(event.ToolName, event.Args, event.ArgsValid, event.Activity),
+		groupKind: buildToolGroupKind(event.Activity),
 	}
 	t.rewriteToolGroup()
 }
@@ -567,6 +569,7 @@ func (t *Transcript) finishTool(event rpc.RunEvent) {
 	if len(entry.detailLines) == 0 && len(entry.resultLines) == 0 && entry.message == "" {
 		entry.message = buildToolSummary(event.Activity, "")
 	}
+	entry.groupKind = buildToolGroupKind(event.Activity)
 	t.rewriteToolGroup()
 }
 
@@ -581,6 +584,7 @@ func (t *Transcript) updateTool(event rpc.RunEvent) {
 	entry.outcome = "running"
 	entry.message = buildToolSummary(event.Activity, "")
 	entry.duration = buildToolDuration(event.Activity)
+	entry.groupKind = buildToolGroupKind(event.Activity)
 	entry.detailLines = nil
 	entry.resultLines, entry.resultTruncated, entry.resultOmittedLines = extractToolResultLines(event.Partial)
 	t.rewriteToolGroup()
@@ -597,6 +601,7 @@ func (t *Transcript) failTool(event rpc.RunEvent) {
 	entry.outcome = "error"
 	entry.message = buildToolSummary(event.Activity, event.Message)
 	entry.duration = buildToolDuration(event.Activity)
+	entry.groupKind = buildToolGroupKind(event.Activity)
 	entry.detailLines = nil
 	entry.resultLines = nil
 	entry.resultTruncated = false
@@ -691,7 +696,11 @@ func renderToolActivityLine(entry *toolEntry) string {
 	b.WriteString(lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render(entry.toolName))
 	if entry.preview != "" {
 		b.WriteString("  ")
-		b.WriteString(lipgloss.NewStyle().Foreground(defaultTheme.text).Render(entry.preview))
+		previewColor := defaultTheme.text
+		if entry.groupKind == "exploration" && entry.outcome != "error" {
+			previewColor = defaultTheme.textSoft
+		}
+		b.WriteString(lipgloss.NewStyle().Foreground(previewColor).Render(entry.preview))
 	}
 	if entry.outcome != "" {
 		b.WriteString("  ")
@@ -796,6 +805,13 @@ func buildToolDuration(activity *rpc.ToolActivity) string {
 		return fmt.Sprintf("%dms", *activity.DurationMS)
 	}
 	return fmt.Sprintf("%.1fs", float64(*activity.DurationMS)/1000.0)
+}
+
+func buildToolGroupKind(activity *rpc.ToolActivity) string {
+	if activity == nil || activity.GroupKind == nil {
+		return ""
+	}
+	return *activity.GroupKind
 }
 
 func isOperationalMiss(result any) bool {
