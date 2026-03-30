@@ -5,14 +5,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"os/exec"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
+	"unicode/utf8"
 )
 
 const (
@@ -60,14 +61,14 @@ type readRequest struct {
 
 type readResult struct {
 	baseMessage
-	Type                    string `json:"type"`
-	WindowText              string `json:"window_text"`
-	TotalLines              int    `json:"total_lines"`
-	StartLine               int    `json:"start_line"`
-	EndLine                 int    `json:"end_line"`
-	Truncated               bool   `json:"truncated"`
-	NextOffset              *int   `json:"next_offset"`
-	FirstLineExceedsMaxBytes bool  `json:"first_line_exceeds_max_bytes"`
+	Type                     string `json:"type"`
+	WindowText               string `json:"window_text"`
+	TotalLines               int    `json:"total_lines"`
+	StartLine                int    `json:"start_line"`
+	EndLine                  int    `json:"end_line"`
+	Truncated                bool   `json:"truncated"`
+	NextOffset               *int   `json:"next_offset"`
+	FirstLineExceedsMaxBytes bool   `json:"first_line_exceeds_max_bytes"`
 }
 
 type lsRequest struct {
@@ -161,9 +162,9 @@ type errorResponse struct {
 }
 
 type worker struct {
-	writeMu sync.Mutex
+	writeMu  sync.Mutex
 	cancelMu sync.Mutex
-	cancels map[string]context.CancelFunc
+	cancels  map[string]context.CancelFunc
 }
 
 func newWorker() *worker {
@@ -313,6 +314,14 @@ func executeRead(ctx context.Context, req readRequest) (readResult, errorRespons
 			Message:     "request cancelled",
 		}, false
 	}
+	if !utf8.Valid(data) {
+		return readResult{}, errorResponse{
+			baseMessage: baseMessage{RequestID: req.RequestID},
+			Type:        "error",
+			ErrorCode:   "encoding_error",
+			Message:     fmt.Sprintf("%s is not valid UTF-8 text", req.Path),
+		}, false
+	}
 
 	lines := splitLinesKeepEnds(string(data))
 	if len(lines) == 0 {
@@ -443,9 +452,9 @@ func executeLS(ctx context.Context, req lsRequest) (lsResult, errorResponse, boo
 	})
 
 	result := lsResult{
-		baseMessage: baseMessage{RequestID: req.RequestID},
-		Type:        "ls_result",
-		Entries:     make([]lsEntry, 0, len(entries)),
+		baseMessage:  baseMessage{RequestID: req.RequestID},
+		Type:         "ls_result",
+		Entries:      make([]lsEntry, 0, len(entries)),
 		TotalEntries: len(entries),
 	}
 
@@ -708,7 +717,7 @@ func executeGrep(ctx context.Context, req grepRequest) (grepResult, errorRespons
 				Text string `json:"text"`
 			} `json:"path"`
 			LineNumber int `json:"line_number"`
-			Lines struct {
+			Lines      struct {
 				Text string `json:"text"`
 			} `json:"lines"`
 		} `json:"data"`
@@ -839,13 +848,13 @@ func run() error {
 				continue
 			}
 			if err := worker.writeJSON(helloResponse{
-				baseMessage:           baseMessage{RequestID: req.RequestID},
-				Type:                  "hello_ok",
-				ProtocolVersion:       protocolVersion,
-				WorkerKind:            workerKind,
-				SupportedOperations:   supportedOperations,
-				SupportsCancel:        true,
-				SupportsParallelCall:  true,
+				baseMessage:          baseMessage{RequestID: req.RequestID},
+				Type:                 "hello_ok",
+				ProtocolVersion:      protocolVersion,
+				WorkerKind:           workerKind,
+				SupportedOperations:  supportedOperations,
+				SupportsCancel:       true,
+				SupportsParallelCall: true,
 			}); err != nil {
 				return err
 			}

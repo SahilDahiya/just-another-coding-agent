@@ -5,6 +5,12 @@ import os
 import subprocess
 from pathlib import Path
 
+import pytest
+
+from just_another_coding_agent.tools.errors import ToolEncodingError
+from just_another_coding_agent.tools.read_only_worker.client import (
+    ReadOnlyWorkerClient,
+)
 from just_another_coding_agent.tools.read_only_worker.protocol import (
     READ_ONLY_WORKER_OPERATIONS,
     HelloWorkerRequest,
@@ -127,3 +133,28 @@ def test_go_read_only_worker_handles_handshake_read_and_ls(tmp_path: Path) -> No
             {"name": "note.txt", "is_dir": False},
             {"name": "src", "is_dir": True},
         ]
+
+
+async def test_go_read_only_worker_rejects_binary_read_input(tmp_path: Path) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    (workspace_root / "weights.pt").write_bytes(b"\x80\n" * 40000)
+    go_cache_dir = tmp_path / "gocache"
+    go_cache_dir.mkdir(parents=True, exist_ok=True)
+    env = dict(os.environ)
+    env["GOCACHE"] = str(go_cache_dir)
+
+    async with ReadOnlyWorkerClient(
+        ["go", "run", "./cmd/jaca-read-only-worker"],
+        env=env,
+    ) as client:
+        with pytest.raises(ToolEncodingError, match="not valid UTF-8 text"):
+            await client.send(
+                ReadWorkerRequest(
+                    request_id="read-binary-1",
+                    workspace_root=str(workspace_root),
+                    path="weights.pt",
+                    max_lines=2000,
+                    max_bytes=50 * 1024,
+                )
+            )

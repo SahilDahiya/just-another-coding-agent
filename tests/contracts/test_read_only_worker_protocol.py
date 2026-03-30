@@ -5,6 +5,7 @@ from pydantic import ValidationError
 
 from just_another_coding_agent.tools.errors import (
     ToolCommandError,
+    ToolEncodingError,
     ToolOperationalError,
     ToolPathError,
 )
@@ -213,6 +214,11 @@ def test_read_only_worker_error_mapping_distinguishes_error_classes() -> None:
         error_code="operational_error",
         message="offset too large",
     )
+    encoding_error = ReadOnlyWorkerErrorResponse(
+        request_id="read-2",
+        error_code="encoding_error",
+        message="weights.pt is not valid UTF-8 text",
+    )
     protocol_error = ReadOnlyWorkerErrorResponse(
         request_id="hello-1",
         error_code="protocol_error",
@@ -221,6 +227,7 @@ def test_read_only_worker_error_mapping_distinguishes_error_classes() -> None:
 
     assert isinstance(worker_error_to_exception(path_error), ToolPathError)
     assert isinstance(worker_error_to_exception(command_error), ToolCommandError)
+    assert isinstance(worker_error_to_exception(encoding_error), ToolEncodingError)
     assert isinstance(
         worker_error_to_exception(operational_error),
         ToolOperationalError,
