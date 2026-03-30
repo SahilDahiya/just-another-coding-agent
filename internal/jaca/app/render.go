@@ -144,23 +144,29 @@ func renderPrompt(vm viewModel) string {
 		footerColor = defaultTheme.err
 	}
 
+	const promptPadX = 2
+
 	width := lipgloss.Width(vm.Transcript)
 	if width <= 0 {
 		width = 80
 	}
+	ruleWidth := width - promptPadX*2
+	if ruleWidth < 10 {
+		ruleWidth = 10
+	}
 	var rule string
 	if vm.Phase == PhaseStreaming || vm.Phase == PhaseCompacting {
-		rule = renderAnimatedRule(width, vm.MotionTick)
+		rule = renderAnimatedRule(ruleWidth, vm.MotionTick)
 	} else {
 		ruleColor := defaultTheme.text
 		if rowBorder != defaultTheme.border {
 			ruleColor = rowBorder
 		}
-		rule = lipgloss.NewStyle().Foreground(ruleColor).Render(strings.Repeat("─", width))
+		rule = lipgloss.NewStyle().Foreground(ruleColor).Render(strings.Repeat("─", ruleWidth))
 	}
 
-	promptParts := make([]string, 0, 6)
-	promptParts = append(promptParts, rule)
+	promptParts := make([]string, 0, 8)
+	promptParts = append(promptParts, "", "", rule)
 	if vm.SlashMenu.Mode != slashMenuHidden && len(vm.SlashMenu.Rows) > 0 {
 		promptParts = append(promptParts, renderSlashMenu(vm.SlashMenu))
 	}
@@ -174,7 +180,16 @@ func renderPrompt(vm viewModel) string {
 		lipgloss.NewStyle().Foreground(footerColor).Render(
 			buildPromptFooterText(vm),
 		),
+		"",
 	)
+
+	padStyle := lipgloss.NewStyle().PaddingLeft(promptPadX)
+	for i, part := range promptParts {
+		if part == "" {
+			continue
+		}
+		promptParts[i] = padStyle.Render(part)
+	}
 
 	return lipgloss.JoinVertical(lipgloss.Left, promptParts...)
 }

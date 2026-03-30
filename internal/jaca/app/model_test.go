@@ -355,7 +355,7 @@ func TestDownArrowMovesSlashSelection(t *testing.T) {
 	m = sendKey(m, tea.KeyMsg{Type: tea.KeyDown})
 
 	rendered := stripANSI(m.View())
-	if !strings.Contains(rendered, "\n> /auth") {
+	if !strings.Contains(rendered, "> /auth") {
 		t.Fatalf("expected down arrow to move active slash selection in %q", rendered)
 	}
 }
