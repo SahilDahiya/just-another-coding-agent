@@ -669,6 +669,118 @@ def test_should_not_auto_compact_tiny_history_only_because_five_runs_exist(
     )
 
 
+def test_should_not_auto_compact_again_without_new_runs_after_latest_compaction(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    session_path = tmp_path / "session.jsonl"
+    large_prompt = "z" * 400_000
+
+    for index in range(2):
+        run_id = f"run-{index + 1}"
+        append_run_to_session(
+            path=session_path,
+            workspace_root=workspace_root,
+            prompt=large_prompt,
+            thinking=None,
+            messages=[ModelRequest(parts=[UserPromptPart(content=large_prompt)])],
+            events=[
+                RunStartedEvent(run_id=run_id),
+                RunSucceededEvent(run_id=run_id, output_text="done"),
+            ],
+        )
+
+    append_compaction_to_session(
+        path=session_path,
+        workspace_root=workspace_root,
+        summary=SessionCompactionSummary(
+            current_objective="continue the task",
+            established_facts=["The first two runs were summarized."],
+            user_preferences=[],
+            important_paths=[],
+            read_paths=[],
+            modified_paths=[],
+            open_questions=[],
+            unresolved_work=["Handle the next prompt."],
+        ),
+    )
+
+    loaded = load_session(path=session_path, workspace_root=workspace_root)
+
+    assert (
+        session_summary_module.should_auto_compact_session(
+            loaded,
+            model="ollama:glm-5:cloud",
+        )
+        is False
+    )
+
+
+def test_should_auto_compact_again_after_new_large_run_post_compaction(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    session_path = tmp_path / "session.jsonl"
+    initial_large_prompt = "z" * 400_000
+    post_compaction_large_prompt = "z" * 500_000
+
+    for index in range(2):
+        run_id = f"run-{index + 1}"
+        append_run_to_session(
+            path=session_path,
+            workspace_root=workspace_root,
+            prompt=initial_large_prompt,
+            thinking=None,
+            messages=[
+                ModelRequest(parts=[UserPromptPart(content=initial_large_prompt)])
+            ],
+            events=[
+                RunStartedEvent(run_id=run_id),
+                RunSucceededEvent(run_id=run_id, output_text="done"),
+            ],
+        )
+
+    append_compaction_to_session(
+        path=session_path,
+        workspace_root=workspace_root,
+        summary=SessionCompactionSummary(
+            current_objective="continue the task",
+            established_facts=["The first two runs were summarized."],
+            user_preferences=[],
+            important_paths=[],
+            read_paths=[],
+            modified_paths=[],
+            open_questions=[],
+            unresolved_work=["Handle the next prompt."],
+        ),
+    )
+    append_run_to_session(
+        path=session_path,
+        workspace_root=workspace_root,
+        prompt=post_compaction_large_prompt,
+        thinking=None,
+        messages=[
+            ModelRequest(parts=[UserPromptPart(content=post_compaction_large_prompt)])
+        ],
+        events=[
+            RunStartedEvent(run_id="run-3"),
+            RunSucceededEvent(run_id="run-3", output_text="done"),
+        ],
+    )
+
+    loaded = load_session(path=session_path, workspace_root=workspace_root)
+
+    assert (
+        session_summary_module.should_auto_compact_session(
+            loaded,
+            model="ollama:glm-5:cloud",
+        )
+        is True
+    )
+
+
 async def test_stream_session_run_events_replays_compacted_history_keeps_messages_raw(
     tmp_path,
 ) -> None:
@@ -1075,6 +1187,168 @@ async def test_summarize_session_for_compaction_carries_forward_working_set_path
     assert summary.modified_paths == ["src/old.py", "note.txt"]
 
 
+async def test_compaction_preserves_working_set_paths_across_boundaries(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    session_path = tmp_path / "session.jsonl"
+
+    append_run_to_session(
+        path=session_path,
+        workspace_root=workspace_root,
+        prompt="first",
+        thinking=None,
+        messages=[ModelRequest(parts=[UserPromptPart(content="first")])],
+        events=[
+            RunStartedEvent(run_id="run-1"),
+            RunSucceededEvent(run_id="run-1", output_text="done"),
+        ],
+    )
+    append_compaction_to_session(
+        path=session_path,
+        workspace_root=workspace_root,
+        summary=SessionCompactionSummary(
+            current_objective="continue the task",
+            established_facts=["The first run completed."],
+            user_preferences=[],
+            important_paths=[],
+            read_paths=["docs/plan.md"],
+            modified_paths=["src/old.py"],
+            open_questions=[],
+            unresolved_work=["Inspect the current files."],
+        ),
+    )
+    append_run_to_session(
+        path=session_path,
+        workspace_root=workspace_root,
+        prompt="second",
+        thinking=None,
+        messages=[ModelRequest(parts=[UserPromptPart(content="second")])],
+        events=[
+            RunStartedEvent(run_id="run-2"),
+            ToolCallStartedEvent(
+                run_id="run-2",
+                tool_call_id="call-read",
+                tool_name="read",
+                args={"path": "src/app.py"},
+                args_valid=True,
+            ),
+            ToolCallSucceededEvent(
+                run_id="run-2",
+                tool_call_id="call-read",
+                tool_name="read",
+                result="read result",
+                activity=ToolActivity(
+                    title="Read src/app.py",
+                    details=ReadActivityDetails(
+                        path=str(workspace_root / "src/app.py"),
+                        short_path="src/app.py",
+                        offset=1,
+                        limit=200,
+                    ),
+                ),
+            ),
+            ToolCallStartedEvent(
+                run_id="run-2",
+                tool_call_id="call-write",
+                tool_name="write",
+                args={"path": "note.txt", "content": "hello\n"},
+                args_valid=True,
+            ),
+            ToolCallSucceededEvent(
+                run_id="run-2",
+                tool_call_id="call-write",
+                tool_name="write",
+                result="write result",
+                activity=ToolActivity(
+                    title="Wrote note.txt",
+                    details=WriteActivityDetails(
+                        path=str(workspace_root / "note.txt"),
+                        bytes_written=6,
+                    ),
+                ),
+            ),
+            RunSucceededEvent(run_id="run-2", output_text="done"),
+        ],
+    )
+
+    first_loaded = load_session(path=session_path, workspace_root=workspace_root)
+    first_summary = await summarize_session_for_compaction(
+        model=_test_summary_model(
+            custom_output_args={
+                "current_objective": "continue the second run",
+                "established_facts": ["The second run is active."],
+                "user_preferences": [],
+                "important_paths": [],
+                "open_questions": [],
+                "unresolved_work": ["Ship the second fix."],
+            }
+        ),
+        loaded_session=first_loaded,
+    )
+    append_compaction_to_session(
+        path=session_path,
+        workspace_root=workspace_root,
+        summary=first_summary,
+    )
+    append_run_to_session(
+        path=session_path,
+        workspace_root=workspace_root,
+        prompt="third",
+        thinking=None,
+        messages=[ModelRequest(parts=[UserPromptPart(content="third")])],
+        events=[
+            RunStartedEvent(run_id="run-3"),
+            ToolCallStartedEvent(
+                run_id="run-3",
+                tool_call_id="call-read-2",
+                tool_name="read",
+                args={"path": "src/cli.py"},
+                args_valid=True,
+            ),
+            ToolCallSucceededEvent(
+                run_id="run-3",
+                tool_call_id="call-read-2",
+                tool_name="read",
+                result="read result",
+                activity=ToolActivity(
+                    title="Read src/cli.py",
+                    details=ReadActivityDetails(
+                        path=str(workspace_root / "src/cli.py"),
+                        short_path="src/cli.py",
+                        offset=1,
+                        limit=200,
+                    ),
+                ),
+            ),
+            RunSucceededEvent(run_id="run-3", output_text="done"),
+        ],
+    )
+
+    second_loaded = load_session(path=session_path, workspace_root=workspace_root)
+    second_summary = await summarize_session_for_compaction(
+        model=_test_summary_model(
+            custom_output_args={
+                "current_objective": "continue the third run",
+                "established_facts": ["The third run is active."],
+                "user_preferences": [],
+                "important_paths": [],
+                "open_questions": [],
+                "unresolved_work": ["Ship the third fix."],
+            }
+        ),
+        loaded_session=second_loaded,
+    )
+
+    assert second_summary.read_paths == [
+        "docs/plan.md",
+        "src/app.py",
+        "src/cli.py",
+    ]
+    assert second_summary.modified_paths == ["src/old.py", "note.txt"]
+
+
 async def test_summarize_session_for_compaction_normalizes_summary_content(
     tmp_path,
 ) -> None:
@@ -1394,6 +1668,91 @@ async def test_stream_session_run_events_auto_compacts_stale_session_before_resu
         loaded.latest_compaction.summary.current_objective
         == "continue after auto compaction"
     )
+
+
+async def test_stream_session_run_events_does_not_recompact_without_new_completed_run(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    session_path = tmp_path / "session.jsonl"
+    large_prompt = "q" * 400_000
+
+    for index in range(2):
+        run_id = f"run-{index + 1}"
+        append_run_to_session(
+            path=session_path,
+            workspace_root=workspace_root,
+            prompt=large_prompt,
+            thinking=None,
+            messages=[ModelRequest(parts=[UserPromptPart(content=large_prompt)])],
+            events=[
+                RunStartedEvent(run_id=run_id),
+                RunSucceededEvent(run_id=run_id, output_text="done"),
+            ],
+        )
+
+    append_compaction_to_session(
+        path=session_path,
+        workspace_root=workspace_root,
+        summary=SessionCompactionSummary(
+            current_objective="continue the task",
+            established_facts=["The first two runs were summarized."],
+            user_preferences=[],
+            important_paths=[],
+            read_paths=[],
+            modified_paths=[],
+            open_questions=[],
+            unresolved_work=["Handle the next prompt."],
+        ),
+    )
+
+    async def fail_if_recompacted(**_kwargs):
+        raise AssertionError("already compacted session should not compact again")
+
+    async def fake_stream_run_events(
+        *,
+        agent,
+        prompt,
+        message_history=None,
+        thinking=None,
+        deps=None,
+        enable_server_history=False,
+        message_history_sink=None,
+    ):
+        del (
+            agent,
+            prompt,
+            message_history,
+            thinking,
+            deps,
+            enable_server_history,
+            message_history_sink,
+        )
+        yield RunStartedEvent(run_id="run-3")
+        yield RunSucceededEvent(run_id="run-3", output_text="done")
+
+    monkeypatch.setattr(
+        "just_another_coding_agent.runtime.session.summarize_and_append_compaction_to_session",
+        fail_if_recompacted,
+    )
+    monkeypatch.setattr(
+        "just_another_coding_agent.runtime.session.stream_run_events",
+        fake_stream_run_events,
+    )
+
+    events = [
+        event
+        async for event in stream_session_run_events(
+            model=FunctionModel(stream_function=text_only_stream),
+            workspace_root=workspace_root,
+            session_path=session_path,
+            prompt="follow-up",
+        )
+    ]
+
+    assert [event.type for event in events] == ["run_started", "run_succeeded"]
 
 
 async def test_live_compaction_preserves_raw_persisted_messages(
