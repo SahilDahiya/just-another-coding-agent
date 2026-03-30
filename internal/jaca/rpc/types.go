@@ -75,19 +75,23 @@ type EventEnvelope struct {
 }
 
 type RunEvent struct {
-	Type       string         `json:"type"`
-	RunID      string         `json:"run_id"`
-	Delta      string         `json:"delta,omitempty"`
-	ToolCallID string         `json:"tool_call_id,omitempty"`
-	ToolName   string         `json:"tool_name,omitempty"`
-	Args       map[string]any `json:"args,omitempty"`
-	ArgsValid  *bool          `json:"args_valid,omitempty"`
-	Result     any            `json:"result,omitempty"`
-	Partial    any            `json:"partial_result,omitempty"`
-	ErrorType  string         `json:"error_type,omitempty"`
-	Message    string         `json:"message,omitempty"`
-	OutputText string         `json:"output_text,omitempty"`
-	Activity   *ToolActivity  `json:"activity,omitempty"`
+	Type              string         `json:"type"`
+	RunID             string         `json:"run_id"`
+	Delta             string         `json:"delta,omitempty"`
+	ToolCallID        string         `json:"tool_call_id,omitempty"`
+	ToolName          string         `json:"tool_name,omitempty"`
+	Args              map[string]any `json:"args,omitempty"`
+	ArgsValid         *bool          `json:"args_valid,omitempty"`
+	Result            any            `json:"result,omitempty"`
+	Partial           any            `json:"partial_result,omitempty"`
+	ErrorType         string         `json:"error_type,omitempty"`
+	Message           string         `json:"message,omitempty"`
+	OutputText        string         `json:"output_text,omitempty"`
+	InputTokens       *int           `json:"input_tokens,omitempty"`
+	OutputTokens      *int           `json:"output_tokens,omitempty"`
+	TotalTokens       *int           `json:"total_tokens,omitempty"`
+	ContextWindowUsed *float64       `json:"context_window_used,omitempty"`
+	Activity          *ToolActivity  `json:"activity,omitempty"`
 }
 
 type ToolActivity struct {
@@ -95,6 +99,7 @@ type ToolActivity struct {
 	Summary    *string        `json:"summary"`
 	DurationMS *int           `json:"duration_ms"`
 	Details    map[string]any `json:"details"`
+	GroupKind  *string        `json:"group_kind"`
 }
 
 func decodeEnvelope(line []byte) (any, error) {
