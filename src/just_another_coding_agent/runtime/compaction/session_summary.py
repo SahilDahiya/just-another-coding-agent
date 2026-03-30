@@ -2,25 +2,25 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic_ai import Agent, ModelRetry
-from pydantic_ai.messages import (
-    ModelMessage,
-    SystemPromptPart,
-    TextPart,
-    ThinkingPart,
-    ToolCallPart,
-    ToolReturnPart,
-    UserPromptPart,
-)
+from pydantic_ai import Agent
 
 from just_another_coding_agent.contracts.platform import detect_default_shell_family
+from just_another_coding_agent.contracts.run_events import (
+    RunFailedEvent,
+    RunSucceededEvent,
+    ToolCallFailedEvent,
+    ToolCallSucceededEvent,
+)
 from just_another_coding_agent.contracts.session import (
     LoadedSession,
     SessionCompactionEntry,
     SessionCompactionSummary,
     SessionRunRecord,
 )
-from just_another_coding_agent.runtime.models import resolve_canonical_model
+from just_another_coding_agent.runtime.models import (
+    get_model_context_window_tokens,
+    resolve_canonical_model,
+)
 from just_another_coding_agent.session.jsonl import (
     SessionFormatError,
     append_compaction_to_session,
@@ -28,6 +28,11 @@ from just_another_coding_agent.session.jsonl import (
 )
 
 AUTO_COMPACTION_RUN_THRESHOLD = 5
+SESSION_COMPACTION_CONTEXT_WINDOW_UTILIZATION = 0.8
+SESSION_COMPACTION_CHARS_PER_TOKEN_HEURISTIC = 4
+DEFAULT_SESSION_COMPACTION_SOURCE_CHAR_LIMIT = 120_000
+MAX_COMPACTION_TEXT_FIELD_CHARS = 1_200
+MAX_COMPACTION_TOOL_ACTIVITY_LINES = 8
 COMPACTION_SUMMARY_INSTRUCTIONS = "\n".join(
     [
         "You summarize coding-agent session state into a structured compaction record.",
@@ -64,29 +69,21 @@ async def summarize_session_for_compaction(
         output_type=SessionCompactionSummary,
         instructions=COMPACTION_SUMMARY_INSTRUCTIONS,
     )
-
-    @summarizer.output_validator
-    def validate_summary(
-        summary: SessionCompactionSummary,
-    ) -> SessionCompactionSummary:
-        normalized = _normalize_compaction_summary(summary)
-        if (
-            normalized.current_objective is None
-            and not normalized.established_facts
-            and not normalized.user_preferences
-            and not normalized.important_paths
-            and not normalized.open_questions
-            and not normalized.unresolved_work
-        ):
-            raise ModelRetry(
-                "Compaction summary is empty. Preserve at least one durable "
-                "objective, fact, preference, path, question, or unresolved task."
-            )
-
-        return normalized
-
-    result = await summarizer.run(_build_compaction_source(loaded_session))
-    return result.output
+    result = await summarizer.run(_build_compaction_source(loaded_session, model=model))
+    normalized = _normalize_compaction_summary(result.output)
+    if (
+        normalized.current_objective is None
+        and not normalized.established_facts
+        and not normalized.user_preferences
+        and not normalized.important_paths
+        and not normalized.open_questions
+        and not normalized.unresolved_work
+    ):
+        raise SessionFormatError(
+            "Compaction summary is empty. Preserve at least one durable "
+            "objective, fact, preference, path, question, or unresolved task."
+        )
+    return normalized
 
 
 async def summarize_and_append_compaction_to_session(
@@ -136,7 +133,35 @@ def _runs_since_latest_compaction(loaded_session: LoadedSession) -> int:
     return len(loaded_session.runs[summary_run_index + 1 :])
 
 
-def _build_compaction_source(loaded_session: LoadedSession) -> str:
+def _build_compaction_source(loaded_session: LoadedSession, *, model: Any) -> str:
+    return _build_bounded_compaction_source(
+        loaded_session,
+        max_chars=_compaction_source_char_limit(model),
+    )
+
+
+def _compaction_source_char_limit(model: Any) -> int:
+    context_window_tokens = get_model_context_window_tokens(model)
+    if context_window_tokens is None:
+        return DEFAULT_SESSION_COMPACTION_SOURCE_CHAR_LIMIT
+
+    return int(
+        context_window_tokens
+        * SESSION_COMPACTION_CONTEXT_WINDOW_UTILIZATION
+        * SESSION_COMPACTION_CHARS_PER_TOKEN_HEURISTIC
+    )
+
+
+def _build_bounded_compaction_source(
+    loaded_session: LoadedSession,
+    *,
+    max_chars: int,
+) -> str:
+    if max_chars <= 0:
+        raise SessionFormatError(
+            "Compaction source does not fit within the active model context window"
+        )
+
     latest_compaction = loaded_session.latest_compaction
     start_index = 0
     sections: list[str] = []
@@ -149,20 +174,41 @@ def _build_compaction_source(loaded_session: LoadedSession) -> str:
             latest_compaction.summarized_through_run_id,
         ) + 1
 
-    sections.append("Runs since the latest compaction boundary:")
-    if start_index >= len(loaded_session.runs):
-        sections.append("(no new runs)")
-    else:
-        for run in loaded_session.runs[start_index:]:
-            sections.append(_render_run(run))
+    run_sections = [_render_run(run) for run in loaded_session.runs[start_index:]]
+    omitted_runs = 0
 
-    return "\n\n".join(sections)
+    while True:
+        candidate_sections = list(sections)
+        candidate_sections.append("Runs since the latest compaction boundary:")
+        if omitted_runs:
+            candidate_sections.append(
+                "(omitted "
+                f"{omitted_runs} oldest run(s) to fit the model context window)"
+            )
+        if run_sections:
+            candidate_sections.extend(run_sections)
+        else:
+            candidate_sections.append("(no new runs)")
+
+        source = "\n\n".join(candidate_sections)
+        if len(source) <= max_chars:
+            return source
+
+        if len(run_sections) <= 1:
+            raise SessionFormatError(
+                "Compaction source does not fit within the active model context window"
+            )
+
+        run_sections.pop(0)
+        omitted_runs += 1
 
 
 def _render_summary(summary: SessionCompactionSummary) -> str:
     lines: list[str] = []
     if summary.current_objective is not None:
-        lines.append(f"Current objective: {summary.current_objective}")
+        lines.append(
+            f"Current objective: {_compact_text(summary.current_objective)}"
+        )
     _append_rendered_section(lines, "Established facts", summary.established_facts)
     _append_rendered_section(lines, "User preferences", summary.user_preferences)
     _append_rendered_section(lines, "Important paths", summary.important_paths)
@@ -176,21 +222,22 @@ def _append_rendered_section(lines: list[str], heading: str, values: list[str]) 
         return
 
     lines.append(f"{heading}:")
-    lines.extend(f"- {value}" for value in values)
+    lines.extend(f"- {_compact_text(value)}" for value in values)
 
 
 def _render_run(run: SessionRunRecord) -> str:
     lines = [f"Run {run.run_id}", f"Prompt: {run.prompt}"]
     if run.thinking is not None:
         lines.append(f"Thinking: {run.thinking}")
+    lines[1] = f"Prompt: {_compact_text(run.prompt)}"
 
-    lines.append("Messages:")
-    for message in run.messages:
-        lines.extend(f"- {line}" for line in _render_message(message))
-
-    lines.append("Events:")
-    for event in run.events:
-        lines.append(f"- {event.type}: {event.model_dump_json()}")
+    terminal_lines = _render_terminal_run_outcome(run)
+    tool_lines = _render_tool_activity_lines(run)
+    if terminal_lines:
+        lines.extend(terminal_lines)
+    if tool_lines:
+        lines.append("Tool outcomes:")
+        lines.extend(f"- {line}" for line in tool_lines)
 
     return "\n".join(lines)
 
@@ -228,32 +275,70 @@ def _normalize_summary_items(values: list[str]) -> list[str]:
     return normalized
 
 
-def _render_message(message: ModelMessage) -> list[str]:
-    rendered_parts: list[str] = []
-    for part in message.parts:
-        if isinstance(part, UserPromptPart):
-            rendered_parts.append(f"user: {part.content}")
-        elif isinstance(part, SystemPromptPart):
-            rendered_parts.append(f"system: {part.content}")
-        elif isinstance(part, TextPart):
-            rendered_parts.append(f"assistant: {part.content}")
-        elif isinstance(part, ThinkingPart):
-            rendered_parts.append(f"assistant_thinking: {part.content}")
-        elif isinstance(part, ToolCallPart):
-            rendered_parts.append(
-                f"tool_call {part.tool_name}: {part.args_as_json_str()}"
-            )
-        elif isinstance(part, ToolReturnPart):
-            rendered_parts.append(
-                f"tool_return {part.tool_name}: {part.model_response_str()}"
-            )
-        else:
-            raise RuntimeError(
-                "Unsupported message part for compaction: "
-                f"{type(part).__name__}"
+def _render_terminal_run_outcome(run: SessionRunRecord) -> list[str]:
+    lines: list[str] = []
+    for event in reversed(run.events):
+        if isinstance(event, RunSucceededEvent):
+            lines.append("Outcome: succeeded")
+            if event.output_text:
+                lines.append(f"Assistant result: {_compact_text(event.output_text)}")
+            return lines
+        if isinstance(event, RunFailedEvent):
+            lines.append(f"Outcome: failed ({event.error_type})")
+            lines.append(f"Failure: {_compact_text(event.message)}")
+            return lines
+
+    return lines
+
+
+def _render_tool_activity_lines(run: SessionRunRecord) -> list[str]:
+    rendered: list[str] = []
+    for event in run.events:
+        if isinstance(event, ToolCallSucceededEvent):
+            activity = event.activity
+            if activity is None or activity.group_kind == "exploration":
+                continue
+            line = _format_tool_activity_line(activity.title, activity.summary)
+            if line is not None:
+                rendered.append(line)
+            continue
+
+        if isinstance(event, ToolCallFailedEvent):
+            activity = event.activity
+            title = activity.title if activity is not None else event.tool_name
+            rendered.append(
+                _compact_text(f"{title}: failed - {event.message}")
             )
 
-    return rendered_parts
+    if len(rendered) > MAX_COMPACTION_TOOL_ACTIVITY_LINES:
+        rendered = rendered[-MAX_COMPACTION_TOOL_ACTIVITY_LINES :]
+    return rendered
+
+
+def _format_tool_activity_line(title: str, summary: str | None) -> str | None:
+    compact_title = _compact_text(title)
+    if summary is None:
+        return compact_title or None
+
+    compact_summary = _compact_text(summary)
+    if not compact_summary:
+        return compact_title or None
+    if compact_summary == compact_title:
+        return compact_title or None
+    return f"{compact_title}: {compact_summary}"
+
+
+def _compact_text(
+    text: str,
+    *,
+    max_chars: int = MAX_COMPACTION_TEXT_FIELD_CHARS,
+) -> str:
+    collapsed = " ".join(text.split())
+    if len(collapsed) <= max_chars:
+        return collapsed
+    if max_chars <= 1:
+        return collapsed[:max_chars]
+    return collapsed[: max_chars - 1] + "…"
 
 
 def _run_index_for_id(loaded_session: LoadedSession, run_id: str) -> int:

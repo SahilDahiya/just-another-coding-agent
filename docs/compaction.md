@@ -21,11 +21,26 @@ Code:
 Responsibilities:
 
 - decide when automatic durable compaction should happen
-- build the compaction source from prior runs and any previous compaction
+- build a bounded structured compaction source from prior runs and any previous compaction
 - validate and normalize model-produced summary output
 - append one durable `session_compaction` entry to the session file
 
 This is cross-run state management. It is not a live-run `history_processor`.
+
+The compaction source is intentionally not a raw transcript dump. It uses:
+
+- the latest durable compaction summary, when present
+- structured per-run summaries for runs since the latest compaction boundary
+- bounded prompt/output/activity text rather than raw event JSON or raw tool-return payloads
+
+If the source would exceed the active model context window, oldest run sections
+are trimmed before the summarizer model call starts. If even the minimal source
+cannot fit, compaction fails explicitly before the model call instead of relying
+on a provider-side `prompt too long` error.
+
+Model-produced summaries are normalized after the summary call returns. If the
+normalized result is empty, compaction fails explicitly instead of retrying
+inside the model loop.
 
 ### 2. Resume-history materialization
 
