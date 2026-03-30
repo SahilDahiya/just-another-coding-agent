@@ -6,8 +6,8 @@ from just_another_coding_agent.runtime.env import trace_mode
 @pytest.mark.parametrize(
     ("value", "expected"),
     [
-        (None, "off"),
-        ("", "off"),
+        (None, "local"),
+        ("", "local"),
         ("off", "off"),
         ("local", "local"),
         ("logfire", "logfire"),

@@ -40,28 +40,6 @@ def test_configure_observability_configures_local_tracing_when_requested(
     assert calls == ["jaca"]
 
 
-def test_configure_observability_fails_fast_without_trace_dependency(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("JACA_TRACE_MODE", "local")
-    monkeypatch.setattr(observability, "_configured", False)
-    monkeypatch.setattr(
-        observability,
-        "_configure_local_tracing",
-        lambda service_name: (_ for _ in ()).throw(
-            RuntimeError(
-                "Tracing requires the optional `trace` dependency. Install it "
-                "with `uv sync --extra trace` and try again."
-            )
-        ),
-    )
-
-    with pytest.raises(
-        RuntimeError,
-        match="Tracing requires the optional `trace` dependency",
-    ):
-        observability.configure_observability()
-
 
 def test_configure_observability_fails_fast_without_logfire_credentials(
     tmp_path: Path,

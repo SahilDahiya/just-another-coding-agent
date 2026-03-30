@@ -56,15 +56,10 @@ canonical Python headless backend.
   - `JACA_TRACE_MODE=logfire` to export traces to Logfire
   - `LOGFIRE_TOKEN` if you want to override the active `~/.logfire/default.toml` project token explicitly in `logfire` mode
 
-Tracing is off by default.
+Tracing defaults to `local` (JSONL files under `~/.jaca/traces/`). Set `JACA_TRACE_MODE=off` to disable.
 
 When `JACA_TRACE_MODE=local` is set, the backend enables PydanticAI/OpenTelemetry
 instrumentation and writes spans to local JSONL files under `~/.jaca/traces/`.
-That path requires the optional `trace` dependency:
-
-```bash
-uv sync --extra trace
-```
 
 When `JACA_TRACE_MODE=logfire` is set, the backend also requires Logfire project
 credentials via `uv run logfire auth` plus `uv run logfire projects use <project>`

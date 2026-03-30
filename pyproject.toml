@@ -9,6 +9,7 @@ description = "Python-native headless coding-agent backend built around Pydantic
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+  "logfire>=4.31.0",
   "pydantic-ai-slim[anthropic,mcp,openai,retries]>=1.71.0,<2.0",
   "pydantic-evals>=1.73.0,<2.0",
 ]
@@ -21,9 +22,7 @@ test = [
   "pytest>=8.3.0",
   "pytest-asyncio>=0.24.0",
 ]
-trace = [
-  "logfire>=4.31.0",
-]
+trace = []
 
 [project.scripts]
 jaca = "just_another_coding_agent.__main__:main"

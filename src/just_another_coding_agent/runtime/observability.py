@@ -75,26 +75,15 @@ def _scrub_only_api_keys(match: Any) -> Any:
 
 
 def _import_logfire() -> Any:
-    try:
-        import logfire
-    except ModuleNotFoundError as error:
-        raise RuntimeError(
-            "Tracing requires the optional `logfire` dependency. Install it "
-            "with `uv sync --extra trace` and try again."
-        ) from error
+    import logfire
+
     return logfire
 
 
 def _configure_local_tracing(service_name: str) -> None:
-    try:
-        from opentelemetry import trace
-        from opentelemetry.sdk.resources import Resource
-        from opentelemetry.sdk.trace import TracerProvider
-    except ModuleNotFoundError as error:
-        raise RuntimeError(
-            "Tracing requires the optional `trace` dependency. Install it "
-            "with `uv sync --extra trace` and try again."
-        ) from error
+    from opentelemetry import trace
+    from opentelemetry.sdk.resources import Resource
+    from opentelemetry.sdk.trace import TracerProvider
 
     provider = TracerProvider(
         resource=Resource.create({"service.name": service_name})
