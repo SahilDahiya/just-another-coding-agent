@@ -45,7 +45,6 @@ ANTHROPIC_CONTEXT_WINDOW_TOKENS_BY_PREFIX: tuple[tuple[str, int], ...] = (
 OLLAMA_CONTEXT_WINDOW_TOKENS_BY_PREFIX: tuple[tuple[str, int], ...] = (
     ("qwen3.5", 262_144),
     ("qwen3-coder-next", 262_144),
-    ("minimax-m2.7", 200_000),
     ("glm-5", 198_000),
     ("kimi-k2", 262_144),
 )

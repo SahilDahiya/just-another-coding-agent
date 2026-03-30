@@ -230,7 +230,6 @@ def test_get_model_context_window_tokens_for_supported_models(monkeypatch) -> No
     assert get_model_context_window_tokens("ollama:glm-5:cloud") == 198_000
     assert get_model_context_window_tokens("ollama:kimi-k2:1t-cloud") == 262_144
     assert get_model_context_window_tokens("ollama:qwen3.5:397b-cloud") == 262_144
-    assert get_model_context_window_tokens("ollama:minimax-m2.7:cloud") == 200_000
     assert get_model_context_window_tokens("ollama:qwen3-coder-next") == 262_144
 
 
@@ -251,10 +250,6 @@ def test_build_in_run_compaction_soft_char_limit_scales_with_model_context(
     assert (
         build_in_run_compaction_soft_char_limit("ollama:qwen3.5:397b-cloud")
         == 838_860
-    )
-    assert (
-        build_in_run_compaction_soft_char_limit("ollama:minimax-m2.7:cloud")
-        == 640_000
     )
     assert build_in_run_compaction_soft_char_limit("ollama:qwen3-coder-next") == 838_860
 
