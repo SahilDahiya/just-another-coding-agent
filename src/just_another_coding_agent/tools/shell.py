@@ -8,8 +8,8 @@ import tempfile
 from pathlib import Path
 from typing import Annotated, Any, Protocol
 
-from pydantic import BaseModel, ConfigDict, Field
-from pydantic_ai import CallDeferred, RunContext, Tool
+from pydantic import Field
+from pydantic_ai import RunContext, Tool
 
 from just_another_coding_agent.contracts.platform import ShellFamily
 from just_another_coding_agent.contracts.run_events import ShellActivityDetails
@@ -29,14 +29,6 @@ from just_another_coding_agent.tools.truncation import (
 
 SHELL_MAX_LINES = 2000
 SHELL_MAX_BYTES = 50 * 1024
-
-
-class _DeferredShellCall(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-
-    command: str = Field(min_length=1)
-    timeout: int | None = Field(default=None, gt=0)
-    defer: bool = False
 
 
 class ShellExecutionContext(Protocol):
@@ -281,24 +273,13 @@ async def shell(
     ctx: RunContext[WorkspaceDeps],
     command: Annotated[str, Field(min_length=1)],
     timeout: Annotated[int | None, Field(gt=0)] = None,
-    defer: bool = False,
 ) -> dict[str, int | str]:
     """Execute one local shell command in the workspace root.
 
     Args:
         command: Shell command to execute using the configured shell family.
         timeout: Optional timeout in seconds before the command is stopped.
-        defer: When true, request deferred execution so the runtime can run
-            long shell, build, or test work outside the current model step.
     """
-    if defer:
-        raise CallDeferred(
-            metadata={
-                "executor": "local-shell",
-                "shell_family": ctx.deps.shell_family,
-            }
-        )
-
     result = await execute_shell(
         ctx=ctx,
         workspace_root=ctx.deps.workspace_root,
@@ -314,7 +295,6 @@ async def shell(
             command_preview=truncate_activity_label(command),
             shell_family=ctx.deps.shell_family,
             timeout=timeout,
-            deferred=defer,
             exit_code=result["exit_code"],
         ),
     )
@@ -330,9 +310,7 @@ SHELL_TOOL = Tool(
         "powershell commands run with PowerShell. Returns combined stdout "
         "and stderr on success. Non-zero exits and timeouts become error "
         "results. Large output is truncated to the last 2000 lines or 50 "
-        "KiB, and the full output is saved to a temp file. Set defer=true "
-        "for genuinely long shell, build, or test work that should run "
-        "outside the current model step."
+        "KiB, and the full output is saved to a temp file."
     ),
     docstring_format="google",
     require_parameter_descriptions=True,
@@ -341,23 +319,8 @@ SHELL_TOOL = Tool(
 )
 
 
-def parse_deferred_shell_call_args(
-    args: str | dict[str, Any],
-) -> tuple[str, int | None]:
-    if isinstance(args, str):
-        call = _DeferredShellCall.model_validate_json(args)
-    else:
-        call = _DeferredShellCall.model_validate(args)
-
-    if not call.defer:
-        raise RuntimeError("Deferred canonical shell call must set defer=true")
-
-    return call.command, call.timeout
-
-
 __all__ = [
     "SHELL_TOOL",
     "execute_shell",
-    "parse_deferred_shell_call_args",
     "shell",
 ]

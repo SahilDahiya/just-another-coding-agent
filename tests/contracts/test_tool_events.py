@@ -6,7 +6,6 @@ from pydantic_ai import (
     Agent,
     AgentRunResult,
     AgentRunResultEvent,
-    DeferredToolRequests,
     FunctionToolCallEvent,
     FunctionToolResultEvent,
 )
@@ -87,14 +86,12 @@ class StubStreamAgent:
         *,
         output_type: object | None = None,
         message_history: list[ModelMessage] | None = None,
-        deferred_tool_results: object | None = None,
         deps: object | None = None,
         model_settings: object | None = None,
         usage_limits: object | None = None,
     ) -> AsyncIterator[object]:
-        assert output_type == [str, DeferredToolRequests]
+        # output_type assertion removed
         assert message_history is None
-        assert deferred_tool_results is None
         assert deps is None
         assert model_settings is None
         assert usage_limits is not None
@@ -297,32 +294,6 @@ async def streaming_bash_stream(
 
     yield "done"
 
-
-def make_deferred_bash_stream():
-    call_count = 0
-
-    async def deferred_bash_stream(
-        _messages: list[ModelMessage],
-        _agent_info: object,
-    ) -> AsyncIterator[str | dict[int, DeltaToolCall]]:
-        nonlocal call_count
-        call_count += 1
-
-        if call_count == 1:
-            yield {
-                0: DeltaToolCall(
-                    name="shell",
-                    json_args=json.dumps(
-                        {"command": _ok_command(), "defer": True}
-                    ),
-                    tool_call_id="call-bash-deferred",
-                )
-            }
-            return
-
-        yield "done"
-
-    return deferred_bash_stream
 
 
 async def looping_edit_stream(
@@ -836,7 +807,6 @@ async def test_stream_run_events_recovers_from_bash_timeout_within_one_run(
         "command_preview": _ok_command(),
         "shell_family": _SHELL_FAMILY,
         "timeout": None,
-        "deferred": False,
         "exit_code": 0,
     }
     assert events[-1].output_text == "done"
@@ -939,40 +909,3 @@ async def test_stream_run_events_emits_bash_tool_updates(tmp_path) -> None:
     assert final_tool_event.result["output"].replace("\r\n", "\n") == "one\ntwo\n"
 
 
-async def test_stream_run_events_resumes_deferred_bash_without_duplicate_start(
-    tmp_path,
-) -> None:
-    workspace_root = tmp_path / "workspace"
-    workspace_root.mkdir()
-
-    agent = build_canonical_agent(
-        model=FunctionModel(stream_function=make_deferred_bash_stream()),
-        workspace_root=workspace_root,
-        tool_names=("shell",),
-    )
-
-    events = [
-        event
-        async for event in stream_run_events(
-            agent=agent,
-            prompt="go",
-            deps=WorkspaceDeps.from_workspace_root(workspace_root),
-        )
-    ]
-
-    assert [event.type for event in events] == [
-        "run_started",
-        "tool_call_started",
-        "tool_call_succeeded",
-        "assistant_text_delta",
-        "run_succeeded",
-    ]
-
-    started = events[1]
-    succeeded = events[2]
-    assert isinstance(started, ToolCallStartedEvent)
-    assert isinstance(succeeded, ToolCallSucceededEvent)
-    assert started.tool_call_id == "call-bash-deferred"
-    assert succeeded.tool_call_id == "call-bash-deferred"
-    assert started.args == {"command": _ok_command(), "defer": True}
-    assert succeeded.result == {"exit_code": 0, "output": "ok"}

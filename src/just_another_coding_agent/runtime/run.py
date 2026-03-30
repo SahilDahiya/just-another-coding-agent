@@ -14,8 +14,6 @@ from pydantic import TypeAdapter
 from pydantic_ai import (
     Agent,
     AgentRunResultEvent,
-    DeferredToolRequests,
-    DeferredToolResults,
     FunctionToolCallEvent,
     FunctionToolResultEvent,
     PartDeltaEvent,
@@ -48,7 +46,6 @@ from just_another_coding_agent.runtime.activity import (
     build_succeeded_tool_activity,
     build_updated_tool_activity,
 )
-from just_another_coding_agent.runtime.deferred import execute_deferred_tool_requests
 from just_another_coding_agent.runtime.models import (
     build_canonical_model_settings,
     get_model_context_window_tokens,
@@ -85,11 +82,6 @@ class _QueuedRunFinished:
     pass
 
 
-@dataclass(frozen=True)
-class _DeferredContinuation:
-    message_history: Sequence[ModelMessage]
-    deferred_tool_results: DeferredToolResults
-
 
 def _build_unbounded_usage_limits() -> UsageLimits:
     return UsageLimits(
@@ -120,16 +112,12 @@ async def stream_run_events(
     run_id = uuid4().hex
     recovery_attempts = 0
     pending_tool_calls: dict[str, _PendingToolCall] = {}
-    current_prompt: str | None = prompt
-    current_message_history = message_history
-    current_deferred_tool_results: DeferredToolResults | None = None
 
     yield RunStartedEvent(run_id=run_id)
 
     while True:
         saw_streamed_event = False
         terminal_emitted = False
-        deferred_continuation: _DeferredContinuation | None = None
         queue: asyncio.Queue[object] = asyncio.Queue()
 
         async def _queue_tool_update(
@@ -156,10 +144,8 @@ async def stream_run_events(
             try:
                 with agent.parallel_tool_call_execution_mode("parallel"):
                     async for event in agent.run_stream_events(
-                        current_prompt,
-                        output_type=[str, DeferredToolRequests],
-                        message_history=current_message_history,
-                        deferred_tool_results=current_deferred_tool_results,
+                        prompt,
+                        message_history=message_history,
                         deps=queued_deps,
                         model_settings=build_canonical_model_settings(
                             model=getattr(agent, "model", None),
@@ -180,13 +166,6 @@ async def stream_run_events(
             while True:
                 event = await queue.get()
                 if isinstance(event, _QueuedRunFinished):
-                    if deferred_continuation is not None:
-                        current_prompt = None
-                        current_message_history = deferred_continuation.message_history
-                        current_deferred_tool_results = (
-                            deferred_continuation.deferred_tool_results
-                        )
-                        break
                     if not terminal_emitted:
                         raise RuntimeError(
                             "PydanticAI stream ended without a terminal result"
@@ -234,7 +213,7 @@ async def stream_run_events(
                             or existing_tool_call.args != args
                         ):
                             raise RuntimeError(
-                                "Deferred tool restart mismatch for tool_call_id "
+                                "Duplicate tool call mismatch for tool_call_id "
                                 f"{event.tool_call_id!r}"
                             )
                         continue
@@ -335,21 +314,6 @@ async def stream_run_events(
 
                 if isinstance(event, AgentRunResultEvent):
                     output = event.result.output
-                    if isinstance(output, DeferredToolRequests):
-                        if message_history_sink is not None:
-                            message_history_sink(event.result.all_messages())
-                        deferred_continuation = _DeferredContinuation(
-                            message_history=event.result.all_messages(),
-                            deferred_tool_results=(
-                                await execute_deferred_tool_requests(
-                                    requests=output,
-                                    deps=queued_deps
-                                    if isinstance(queued_deps, WorkspaceDeps)
-                                    else None,
-                                )
-                            ),
-                        )
-                        continue
                     if not isinstance(output, str):
                         output_type = type(output).__name__
                         raise TypeError(

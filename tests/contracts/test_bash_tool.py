@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
-from pydantic_ai import CallDeferred
 
 from just_another_coding_agent.contracts.platform import detect_default_shell_family
 from just_another_coding_agent.tools.deps import WorkspaceDeps
@@ -167,22 +166,6 @@ async def test_execute_shell_accepts_minimal_execution_context_and_streams_updat
     assert updates == [
         ("call-shell", "shell", {"output": "hello"}),
     ]
-
-
-async def test_shell_tool_can_request_deferred_execution(tmp_path) -> None:
-    workspace_root = tmp_path / "workspace"
-    workspace_root.mkdir()
-
-    with pytest.raises(CallDeferred):
-        await shell(
-            _FakeRunContext(
-                deps=WorkspaceDeps.from_workspace_root(workspace_root),
-                tool_call_id="call-shell",
-                tool_name="shell",
-            ),
-            "pytest -q",
-            defer=True,
-        )
 
 
 async def test_shell_tool_fails_on_timeout(monkeypatch, tmp_path) -> None:

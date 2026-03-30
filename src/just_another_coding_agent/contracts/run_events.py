@@ -28,7 +28,6 @@ class ShellActivityDetails(_ToolActivityDetailsBase):
     command_preview: str
     shell_family: ShellFamily
     timeout: int | None = None
-    deferred: bool = False
     exit_code: int | None = None
 
 

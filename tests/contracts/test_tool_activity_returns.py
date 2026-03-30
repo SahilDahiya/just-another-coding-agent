@@ -179,7 +179,6 @@ async def test_shell_returns_tool_owned_activity_metadata(
             "command_preview": command,
             "shell_family": detect_default_shell_family(),
             "timeout": 9,
-            "deferred": False,
             "exit_code": 0,
         },
     }

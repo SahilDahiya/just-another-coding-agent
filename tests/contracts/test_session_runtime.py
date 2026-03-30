@@ -92,27 +92,6 @@ def make_write_stream():
     return write_stream
 
 
-def make_deferred_bash_stream():
-    call_count = 0
-
-    async def deferred_bash_stream(_messages, _agent_info):
-        nonlocal call_count
-        call_count += 1
-
-        if call_count == 1:
-            yield {
-                0: DeltaToolCall(
-                    name="shell",
-                    json_args='{"command": "printf ok", "defer": true}',
-                    tool_call_id="call-bash",
-                )
-            }
-            return
-
-        yield "done"
-
-    return deferred_bash_stream
-
 
 async def resume_aware_write_stream(messages, _agent_info):
     latest_prompt = _last_user_prompt(messages)
@@ -340,35 +319,6 @@ async def test_stream_session_run_events_persists_authoritative_session(
     assert loaded.runs[0].messages
     assert loaded.message_history == loaded.runs[0].messages
 
-
-async def test_stream_session_run_events_persists_deferred_bash_tool_return(
-    tmp_path,
-) -> None:
-    workspace_root = tmp_path / "workspace"
-    workspace_root.mkdir()
-    session_path = tmp_path / "session.jsonl"
-
-    events = [
-        event
-        async for event in stream_session_run_events(
-            model=FunctionModel(stream_function=make_deferred_bash_stream()),
-            workspace_root=workspace_root,
-            session_path=session_path,
-            prompt="go",
-            tool_names=("shell",),
-        )
-    ]
-
-    assert [event.type for event in events] == [
-        "run_started",
-        "tool_call_started",
-        "tool_call_succeeded",
-        "assistant_text_delta",
-        "run_succeeded",
-    ]
-
-    loaded = load_session(path=session_path, workspace_root=workspace_root)
-    assert _has_tool_return(loaded.message_history, tool_name="shell")
 
 
 async def test_stream_session_run_events_rejects_mismatched_existing_workspace(
