@@ -83,6 +83,8 @@ def build_compaction_summary_message(
     _append_summary_section(lines, "Established facts", summary.established_facts)
     _append_summary_section(lines, "User preferences", summary.user_preferences)
     _append_summary_section(lines, "Important paths", summary.important_paths)
+    _append_summary_section(lines, "Read paths", summary.read_paths)
+    _append_summary_section(lines, "Modified paths", summary.modified_paths)
     _append_summary_section(lines, "Open questions", summary.open_questions)
     _append_summary_section(lines, "Unresolved work", summary.unresolved_work)
 

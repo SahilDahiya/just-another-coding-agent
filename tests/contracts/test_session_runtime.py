@@ -17,12 +17,15 @@ from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 from pydantic_ai.models.test import TestModel
 
 from just_another_coding_agent.contracts.run_events import (
+    ReadActivityDetails,
     RunFailedEvent,
     RunStartedEvent,
     RunSucceededEvent,
+    ToolActivity,
     ToolCallFailedEvent,
     ToolCallStartedEvent,
     ToolCallSucceededEvent,
+    WriteActivityDetails,
 )
 from just_another_coding_agent.contracts.session import SessionCompactionSummary
 from just_another_coding_agent.runtime import stream_session_run_events
@@ -858,6 +861,8 @@ def test_build_resume_message_history_uses_summary_plus_retained_runs(tmp_path) 
                     "established_facts": ["first is summarized"],
                     "user_preferences": [],
                     "important_paths": [],
+                    "read_paths": [],
+                    "modified_paths": [],
                     "open_questions": [],
                     "unresolved_work": ["finish the task"],
                 },
@@ -963,6 +968,111 @@ async def test_summarize_session_for_compaction_uses_model_output_and_prior_summ
     assert summary.important_paths == ["note.txt", "src/app.py"]
     assert summary.open_questions == ["Should we add retries?"]
     assert summary.unresolved_work == ["Run the final acceptance check."]
+
+
+async def test_summarize_session_for_compaction_carries_forward_working_set_paths(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    session_path = tmp_path / "session.jsonl"
+
+    append_run_to_session(
+        path=session_path,
+        workspace_root=workspace_root,
+        prompt="first",
+        thinking=None,
+        messages=[ModelRequest(parts=[UserPromptPart(content="first")])],
+        events=[
+            RunStartedEvent(run_id="run-1"),
+            RunSucceededEvent(run_id="run-1", output_text="done"),
+        ],
+    )
+    append_compaction_to_session(
+        path=session_path,
+        workspace_root=workspace_root,
+        summary=SessionCompactionSummary(
+            current_objective="continue the task",
+            established_facts=["The first run completed."],
+            user_preferences=[],
+            important_paths=["note.txt"],
+            open_questions=[],
+            unresolved_work=["Inspect the current files."],
+            read_paths=["docs/plan.md"],
+            modified_paths=["src/old.py"],
+        ),
+    )
+    append_run_to_session(
+        path=session_path,
+        workspace_root=workspace_root,
+        prompt="second",
+        thinking=None,
+        messages=[ModelRequest(parts=[UserPromptPart(content="second")])],
+        events=[
+            RunStartedEvent(run_id="run-2"),
+            ToolCallStartedEvent(
+                run_id="run-2",
+                tool_call_id="call-read",
+                tool_name="read",
+                args={"path": "src/app.py"},
+                args_valid=True,
+            ),
+            ToolCallSucceededEvent(
+                run_id="run-2",
+                tool_call_id="call-read",
+                tool_name="read",
+                result="read result",
+                activity=ToolActivity(
+                    title="Read src/app.py",
+                    details=ReadActivityDetails(
+                        path=str(workspace_root / "src/app.py"),
+                        short_path="src/app.py",
+                        offset=1,
+                        limit=200,
+                    ),
+                ),
+            ),
+            ToolCallStartedEvent(
+                run_id="run-2",
+                tool_call_id="call-write",
+                tool_name="write",
+                args={"path": "note.txt", "content": "hello\n"},
+                args_valid=True,
+            ),
+            ToolCallSucceededEvent(
+                run_id="run-2",
+                tool_call_id="call-write",
+                tool_name="write",
+                result="write result",
+                activity=ToolActivity(
+                    title="Wrote note.txt",
+                    details=WriteActivityDetails(
+                        path=str(workspace_root / "note.txt"),
+                        bytes_written=6,
+                    ),
+                ),
+            ),
+            RunSucceededEvent(run_id="run-2", output_text="done"),
+        ],
+    )
+
+    loaded = load_session(path=session_path, workspace_root=workspace_root)
+    summary = await summarize_session_for_compaction(
+        model=_test_summary_model(
+            custom_output_args={
+                "current_objective": "continue the second run",
+                "established_facts": ["The second run is active."],
+                "user_preferences": [],
+                "important_paths": ["note.txt"],
+                "open_questions": [],
+                "unresolved_work": ["Ship the final fix."],
+            }
+        ),
+        loaded_session=loaded,
+    )
+
+    assert summary.read_paths == ["docs/plan.md", "src/app.py"]
+    assert summary.modified_paths == ["src/old.py", "note.txt"]
 
 
 async def test_summarize_session_for_compaction_normalizes_summary_content(
@@ -1415,6 +1525,8 @@ async def test_resumed_compacted_session_still_applies_live_in_run_compaction(
                     "established_facts": ["run-1 is summarized"],
                     "user_preferences": [],
                     "important_paths": ["retained-big.txt", "current-big.txt"],
+                    "read_paths": [],
+                    "modified_paths": [],
                     "open_questions": [],
                     "unresolved_work": ["inspect the current big file"],
                 },

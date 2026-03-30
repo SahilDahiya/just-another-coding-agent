@@ -420,6 +420,7 @@ Ordering rules for the session slice:
 - Authoritative session loads must provide the expected workspace root and it must match the persisted `session_header.workspace_root` exactly
 - Session resume semantics must reconstruct effective conversation context from the latest compaction summary plus retained `session_messages` when a compaction entry exists; retained messages start at `first_kept_run_id` when present, otherwise they start strictly after `summarized_through_run_id`
 - Durable cross-run compaction must be materialized into resume `message_history` before the next run starts; only run-local compaction uses PydanticAI `history_processors`
+- Durable compaction summaries must carry structured working-set path state in addition to prose: `read_paths` for explicitly read files and `modified_paths` for explicitly written or edited files
 - Run-local history processors may compact current-run tool-return content for
   the model when context pressure grows, but the persistence layer must restore
   the original raw tool-return content before writing `session_messages`
@@ -475,6 +476,7 @@ Ordering rules for the RPC slice:
 
 - A valid `session.create` request yields exactly one `rpc_response` containing a server-generated opaque `session_id`
 - A valid `session.compact` request must reference an existing `session_id` and yields exactly one `rpc_response` describing the newly appended compaction entry
+- `session.compact` responses must include the durable summary's structured working-set path fields (`read_paths` and `modified_paths`) alongside the existing prose sections
 - If model-driven compaction summary generation fails, `session.compact` fails hard; it does not append a placeholder summary
 - A valid `run.start` request must reference an existing `session_id` and yields zero or more `rpc_event` lines whose embedded events satisfy the streamed run contract
 - Session lifecycle `rpc_event` payloads such as `session_compaction_started` and `session_compaction_completed` may appear before `run_started`

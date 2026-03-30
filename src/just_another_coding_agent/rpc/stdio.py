@@ -120,6 +120,8 @@ async def handle_rpc_json_line(
                     established_facts=compaction.summary.established_facts,
                     user_preferences=compaction.summary.user_preferences,
                     important_paths=compaction.summary.important_paths,
+                    read_paths=compaction.summary.read_paths,
+                    modified_paths=compaction.summary.modified_paths,
                     open_questions=compaction.summary.open_questions,
                     unresolved_work=compaction.summary.unresolved_work,
                 ),

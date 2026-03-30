@@ -61,6 +61,8 @@ class SessionCompactSummary(_RpcModel):
     established_facts: list[str]
     user_preferences: list[str]
     important_paths: list[str]
+    read_paths: list[str]
+    modified_paths: list[str]
     open_questions: list[str]
     unresolved_work: list[str]
 

@@ -33,6 +33,7 @@ from just_another_coding_agent.session.jsonl import (
     append_compaction_to_session,
     load_session,
 )
+from just_another_coding_agent.tools._activity import shorten_path
 
 SESSION_AUTO_COMPACTION_CONTEXT_WINDOW_UTILIZATION = 0.7
 SESSION_AUTO_COMPACTION_PROMPT_RESERVE_TOKENS = 24_000
@@ -79,12 +80,17 @@ async def summarize_session_for_compaction(
         instructions=COMPACTION_SUMMARY_INSTRUCTIONS,
     )
     result = await summarizer.run(_build_compaction_source(loaded_session, model=model))
-    normalized = _normalize_compaction_summary(result.output)
+    normalized = _with_deterministic_working_set_paths(
+        _normalize_compaction_summary(result.output),
+        loaded_session=loaded_session,
+    )
     if (
         normalized.current_objective is None
         and not normalized.established_facts
         and not normalized.user_preferences
         and not normalized.important_paths
+        and not normalized.read_paths
+        and not normalized.modified_paths
         and not normalized.open_questions
         and not normalized.unresolved_work
     ):
@@ -165,6 +171,20 @@ def _runs_since_latest_compaction(loaded_session: LoadedSession) -> int:
     return len(loaded_session.runs[summary_run_index + 1 :])
 
 
+def _runs_since_latest_compaction_boundary(
+    loaded_session: LoadedSession,
+) -> list[SessionRunRecord]:
+    latest_compaction = loaded_session.latest_compaction
+    if latest_compaction is None:
+        return list(loaded_session.runs)
+
+    summary_run_index = _run_index_for_id(
+        loaded_session,
+        latest_compaction.summarized_through_run_id,
+    )
+    return list(loaded_session.runs[summary_run_index + 1 :])
+
+
 def _estimate_message_history_chars(messages: list[ModelMessage]) -> int:
     return len(
         json.dumps(
@@ -204,21 +224,16 @@ def _build_bounded_compaction_source(
         )
 
     latest_compaction = loaded_session.latest_compaction
-    start_index = 0
     sections: list[str] = []
 
     if latest_compaction is not None:
         sections.append("Previous compaction summary:")
         sections.append(_render_summary(latest_compaction.summary))
-        start_index = (
-            _run_index_for_id(
-                loaded_session,
-                latest_compaction.summarized_through_run_id,
-            )
-            + 1
-        )
 
-    run_sections = [_render_run(run) for run in loaded_session.runs[start_index:]]
+    run_sections = [
+        _render_run(run)
+        for run in _runs_since_latest_compaction_boundary(loaded_session)
+    ]
     omitted_runs = 0
 
     while True:
@@ -254,6 +269,8 @@ def _render_summary(summary: SessionCompactionSummary) -> str:
     _append_rendered_section(lines, "Established facts", summary.established_facts)
     _append_rendered_section(lines, "User preferences", summary.user_preferences)
     _append_rendered_section(lines, "Important paths", summary.important_paths)
+    _append_rendered_section(lines, "Read paths", summary.read_paths)
+    _append_rendered_section(lines, "Modified paths", summary.modified_paths)
     _append_rendered_section(lines, "Open questions", summary.open_questions)
     _append_rendered_section(lines, "Unresolved work", summary.unresolved_work)
     return "\n".join(lines) if lines else "(empty summary)"
@@ -293,9 +310,113 @@ def _normalize_compaction_summary(
         established_facts=_normalize_summary_items(summary.established_facts),
         user_preferences=_normalize_summary_items(summary.user_preferences),
         important_paths=_normalize_summary_items(summary.important_paths),
+        read_paths=_normalize_summary_items(summary.read_paths),
+        modified_paths=_normalize_summary_items(summary.modified_paths),
         open_questions=_normalize_summary_items(summary.open_questions),
         unresolved_work=_normalize_summary_items(summary.unresolved_work),
     )
+
+
+def _with_deterministic_working_set_paths(
+    summary: SessionCompactionSummary,
+    *,
+    loaded_session: LoadedSession,
+) -> SessionCompactionSummary:
+    latest_compaction = loaded_session.latest_compaction
+    previous_read_paths = (
+        latest_compaction.summary.read_paths if latest_compaction is not None else []
+    )
+    previous_modified_paths = (
+        latest_compaction.summary.modified_paths
+        if latest_compaction is not None
+        else []
+    )
+
+    return SessionCompactionSummary(
+        current_objective=summary.current_objective,
+        established_facts=summary.established_facts,
+        user_preferences=summary.user_preferences,
+        important_paths=summary.important_paths,
+        read_paths=_merge_summary_paths(
+            previous_read_paths,
+            _collect_recent_read_paths(loaded_session),
+        ),
+        modified_paths=_merge_summary_paths(
+            previous_modified_paths,
+            _collect_recent_modified_paths(loaded_session),
+        ),
+        open_questions=summary.open_questions,
+        unresolved_work=summary.unresolved_work,
+    )
+
+
+def _collect_recent_read_paths(loaded_session: LoadedSession) -> list[str]:
+    collected: list[str] = []
+    for run in _runs_since_latest_compaction_boundary(loaded_session):
+        for event in run.events:
+            if (
+                isinstance(event, ToolCallSucceededEvent)
+                and event.tool_name == "read"
+                and (
+                    path := _extract_activity_path(
+                        event,
+                        workspace_root=loaded_session.header.workspace_root,
+                    )
+                )
+                is not None
+            ):
+                collected.append(path)
+    return _merge_summary_paths(collected)
+
+
+def _collect_recent_modified_paths(loaded_session: LoadedSession) -> list[str]:
+    collected: list[str] = []
+    for run in _runs_since_latest_compaction_boundary(loaded_session):
+        for event in run.events:
+            if not isinstance(event, ToolCallSucceededEvent):
+                continue
+            if event.tool_name not in {"write", "edit"}:
+                continue
+            path = _extract_activity_path(
+                event,
+                workspace_root=loaded_session.header.workspace_root,
+            )
+            if path is not None:
+                collected.append(path)
+    return _merge_summary_paths(collected)
+
+
+def _extract_activity_path(
+    event: ToolCallSucceededEvent,
+    *,
+    workspace_root: str,
+) -> str | None:
+    activity = event.activity
+    details = activity.details if activity is not None else None
+    if details is None:
+        return None
+
+    short_path = getattr(details, "short_path", None)
+    if isinstance(short_path, str) and short_path.strip():
+        return short_path.strip()
+
+    path = getattr(details, "path", None)
+    if not isinstance(path, str) or not path.strip():
+        return None
+    return shorten_path(path.strip(), workspace_root)
+
+
+def _merge_summary_paths(*groups: list[str]) -> list[str]:
+    merged: list[str] = []
+    seen: set[str] = set()
+    for group in groups:
+        for value in group:
+            item = value.strip()
+            if not item or item in seen:
+                continue
+            seen.add(item)
+            merged.append(item)
+    return merged
 
 
 def _normalize_optional_text(value: str | None) -> str | None:
