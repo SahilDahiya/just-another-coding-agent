@@ -59,6 +59,7 @@ def test_read_tool_truncates_large_file_and_returns_continuation_hint(tmp_path) 
         "\n\n[Showing lines 1-2000 of 2104. Use offset=2001 to continue.]"
     )
 
+
 def test_read_tool_fails_for_missing_file(tmp_path) -> None:
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()

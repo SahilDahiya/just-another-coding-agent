@@ -183,6 +183,18 @@ def _unwrap_policy_model(model: Model) -> Model:
     return current
 
 
+def unwrap_instrumented_model(model: Model) -> Model:
+    """Unwrap instrumentation wrappers to get the underlying model.
+
+    Only unwraps InstrumentedModel wrappers, preserving other policy wrappers.
+    Useful for testing to assert on the actual model type.
+    """
+    current = model
+    while isinstance(current, InstrumentedModel):
+        current = current.wrapped
+    return current
+
+
 def _apply_parallel_tool_call_policy(*, settings: dict[str, Any], model: Model) -> None:
     supported = _supports_parallel_tool_calls(model)
     configured = settings.get("parallel_tool_calls")

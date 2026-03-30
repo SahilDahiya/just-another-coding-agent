@@ -451,8 +451,7 @@ def _validate_run_messages(messages: Sequence[ModelMessage]) -> None:
                 pending_tool_calls.pop(part.tool_call_id, None)
                 if expected_name != part.tool_name:
                     raise SessionFormatError(
-                        "Session message tool return tool_name must match the "
-                        "tool call"
+                        "Session message tool return tool_name must match the tool call"
                     )
                 continue
 

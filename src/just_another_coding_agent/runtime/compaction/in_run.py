@@ -133,9 +133,7 @@ def _restore_compacted_tool_return_part(part: ToolReturnPart) -> ToolReturnPart:
         return part
 
     if "original_content" not in compaction_metadata:
-        raise RuntimeError(
-            "In-run compaction metadata is missing original_content"
-        )
+        raise RuntimeError("In-run compaction metadata is missing original_content")
 
     restored_metadata = dict(part.metadata)
     restored_content = compaction_metadata["original_content"]
@@ -215,8 +213,7 @@ def _build_compacted_tool_return_summary(
         message = part.content.get("message")
         if isinstance(error_type, str) and isinstance(message, str):
             return (
-                f"Compacted historical {part.tool_name} result: "
-                f"{error_type}: {message}"
+                f"Compacted historical {part.tool_name} result: {error_type}: {message}"
             )
         return (
             f"Compacted historical {part.tool_name} result: "

@@ -32,6 +32,7 @@ _EXPECTED_STARTED_TITLE_BY_TOOL = {
     "find": "find *.py",
 }
 
+
 def test_started_activity_uses_backend_owned_titles_only() -> None:
     assert set(_SAMPLE_ARGS_BY_TOOL) == set(CANONICAL_TOOL_NAMES)
     assert set(_EXPECTED_STARTED_TITLE_BY_TOOL) == set(CANONICAL_TOOL_NAMES)

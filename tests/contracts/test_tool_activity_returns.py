@@ -168,14 +168,7 @@ async def test_edit_returns_tool_owned_activity_metadata(tmp_path) -> None:
     assert result.metadata["details"] == {
         "kind": "edit",
         "path": "note.txt",
-        "diff": (
-            f"--- {note}\n"
-            f"+++ {note}\n"
-            "@@ -1,2 +1,2 @@\n"
-            " hello\n"
-            "-world\n"
-            "+agent\n"
-        ),
+        "diff": (f"--- {note}\n+++ {note}\n@@ -1,2 +1,2 @@\n hello\n-world\n+agent\n"),
         "added_lines": 1,
         "removed_lines": 1,
     }

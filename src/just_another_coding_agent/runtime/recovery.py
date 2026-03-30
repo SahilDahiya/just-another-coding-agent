@@ -39,8 +39,7 @@ def should_retry_run_error(
 def is_retryable_run_error(error: BaseException) -> bool:
     retryable_types = _get_retryable_run_error_types()
     return any(
-        isinstance(current, retryable_types)
-        for current in _iter_error_chain(error)
+        isinstance(current, retryable_types) for current in _iter_error_chain(error)
     )
 
 

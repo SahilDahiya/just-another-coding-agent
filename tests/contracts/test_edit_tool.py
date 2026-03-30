@@ -67,6 +67,7 @@ def test_edit_tool_allows_deleting_text(tmp_path) -> None:
 
     assert path.read_bytes() == b"hello\n"
 
+
 def test_edit_tool_fails_for_missing_file(tmp_path) -> None:
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()

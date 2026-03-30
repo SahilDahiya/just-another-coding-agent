@@ -108,7 +108,9 @@ class ReadOnlyWorkerClient:
         if self._process is None or self._process.stdin is None:
             return
         shutdown = ShutdownWorkerRequest(request_id=uuid4().hex)
-        self._process.stdin.write(f"{encode_worker_message(shutdown)}\n".encode("utf-8"))
+        self._process.stdin.write(
+            f"{encode_worker_message(shutdown)}\n".encode("utf-8")
+        )
         await self._process.stdin.drain()
         self._process.stdin.close()
 
@@ -142,8 +144,10 @@ class ReadOnlyWorkerClient:
         stderr_output = ""
         if self._process.stderr is not None:
             stderr_output = (
-                await self._process.stderr.read()
-            ).decode("utf-8", errors="replace").strip()
+                (await self._process.stderr.read())
+                .decode("utf-8", errors="replace")
+                .strip()
+            )
         return_code = await self._process.wait()
         if self._pending:
             message = (

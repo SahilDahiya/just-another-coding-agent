@@ -82,9 +82,6 @@ def test_restore_in_run_compaction_fails_when_original_content_is_missing() -> N
     try:
         restore_in_run_compaction_from_messages(messages)
     except RuntimeError as error:
-        assert (
-            str(error)
-            == "In-run compaction metadata is missing original_content"
-        )
+        assert str(error) == "In-run compaction metadata is missing original_content"
     else:
         raise AssertionError("expected restore_in_run_compaction_from_messages to fail")

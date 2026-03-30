@@ -11,9 +11,7 @@ def trace_mode() -> str:
         return "local"
     if value in {"local", "logfire"}:
         return value
-    raise RuntimeError(
-        "JACA_TRACE_MODE must be one of: off, local, logfire"
-    )
+    raise RuntimeError("JACA_TRACE_MODE must be one of: off, local, logfire")
 
 
 __all__ = ["trace_mode"]

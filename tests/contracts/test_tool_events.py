@@ -158,9 +158,7 @@ async def recovering_edit_stream(
         yield {
             0: DeltaToolCall(
                 name="edit",
-                json_args=(
-                    '{"path":"note.txt","old_text":"world","new_text":"agent"}'
-                ),
+                json_args=('{"path":"note.txt","old_text":"world","new_text":"agent"}'),
                 tool_call_id="call-edit-2",
             )
         }
@@ -293,7 +291,6 @@ async def streaming_bash_stream(
         return
 
     yield "done"
-
 
 
 async def looping_edit_stream(
@@ -462,8 +459,9 @@ async def test_stream_run_events_fails_hard_when_retry_prompt_has_no_pending_too
     )
 
 
-async def test_stream_run_events_fails_hard_on_retry_prompt_tool_name_mismatch(
-) -> None:
+async def test_stream_run_events_fails_hard_on_retry_prompt_tool_name_mismatch() -> (
+    None
+):
     agent = StubStreamAgent(
         events=[
             FunctionToolCallEvent(
@@ -609,14 +607,7 @@ async def test_stream_run_events_recovers_from_edit_mismatch_within_one_run(
     assert events[4].activity.details.model_dump() == {
         "kind": "edit",
         "path": "note.txt",
-        "diff": (
-            f"--- {note}\n"
-            f"+++ {note}\n"
-            "@@ -1,2 +1,2 @@\n"
-            " hello\n"
-            "-world\n"
-            "+agent\n"
-        ),
+        "diff": (f"--- {note}\n+++ {note}\n@@ -1,2 +1,2 @@\n hello\n-world\n+agent\n"),
         "added_lines": 1,
         "removed_lines": 1,
     }
@@ -900,12 +891,8 @@ async def test_stream_run_events_emits_bash_tool_updates(tmp_path) -> None:
     assert update_events[0].activity.details is None
 
     final_tool_event = next(
-        event
-        for event in reversed(events)
-        if isinstance(event, ToolCallSucceededEvent)
+        event for event in reversed(events) if isinstance(event, ToolCallSucceededEvent)
     )
     assert final_tool_event.tool_call_id == "call-bash-stream"
     assert final_tool_event.result["exit_code"] == 0
     assert final_tool_event.result["output"].replace("\r\n", "\n") == "one\ntwo\n"
-
-

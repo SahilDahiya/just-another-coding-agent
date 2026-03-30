@@ -118,9 +118,7 @@ def execute_ls(
     notices: list[str] = []
     if bounded.limit_hit:
         notices.append(
-            "Showing first "
-            f"{limit} entries. Use limit={limit * 2} "
-            "for more."
+            f"Showing first {limit} entries. Use limit={limit * 2} for more."
         )
     if bounded.byte_limit_hit:
         notices.append(

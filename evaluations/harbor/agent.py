@@ -56,9 +56,7 @@ else:
             read_only_worker_binary = _build_harbor_read_only_worker(repo_root)
 
             try:
-                mkdir_command = (
-                    f"mkdir -p {target_root} {target_prebuilt_dir}"
-                )
+                mkdir_command = f"mkdir -p {target_root} {target_prebuilt_dir}"
                 await environment.exec(command=mkdir_command)
                 await environment.upload_file(
                     source_path=repo_root / "pyproject.toml",
@@ -93,10 +91,10 @@ else:
             return [
                 ExecInput(
                     command=build_harbor_exec_command(
-                    instruction=instruction,
-                    model=self.model_name,
-                    thinking=os.environ.get("JUST_ANOTHER_CODING_AGENT_THINKING"),
-                ),
+                        instruction=instruction,
+                        model=self.model_name,
+                        thinking=os.environ.get("JUST_ANOTHER_CODING_AGENT_THINKING"),
+                    ),
                     env=build_provider_env(model=self.model_name),
                 )
             ]

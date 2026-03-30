@@ -64,8 +64,7 @@ async def looping_edit_stream(
         0: DeltaToolCall(
             name="edit",
             json_args=(
-                '{"path": "note.txt", "old_text": "missing", '
-                '"new_text": "agent"}'
+                '{"path": "note.txt", "old_text": "missing", "new_text": "agent"}'
             ),
             tool_call_id=f"call-edit-{len(messages)}",
         )

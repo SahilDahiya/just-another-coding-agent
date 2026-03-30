@@ -82,7 +82,6 @@ class _QueuedRunFinished:
     pass
 
 
-
 def _build_unbounded_usage_limits() -> UsageLimits:
     return UsageLimits(
         request_limit=None,
@@ -374,9 +373,7 @@ async def stream_run_events(
                         args=pending_tool_call.args,
                         args_valid=pending_tool_call.args_valid,
                         message=str(error),
-                        duration_ms=_duration_ms_since(
-                            pending_tool_call.started_at
-                        ),
+                        duration_ms=_duration_ms_since(pending_tool_call.started_at),
                         shell_family=(
                             queued_deps.shell_family
                             if isinstance(queued_deps, WorkspaceDeps)
@@ -422,10 +419,7 @@ def _resolve_pending_tool_call(
             f"Tool result must match a pending tool_call_started: {tool_call_id}"
         )
 
-    if (
-        result_tool_name is not None
-        and result_tool_name != pending_tool_call.tool_name
-    ):
+    if result_tool_name is not None and result_tool_name != pending_tool_call.tool_name:
         raise RuntimeError(
             "Tool result tool_name mismatch for tool_call_id "
             f"{tool_call_id!r}: expected {pending_tool_call.tool_name!r}, got "

@@ -93,7 +93,6 @@ def make_write_stream():
     return write_stream
 
 
-
 async def resume_aware_write_stream(messages, _agent_info):
     latest_prompt = _last_user_prompt(messages)
     saw_write = _has_tool_return(messages, tool_name="write")
@@ -152,8 +151,7 @@ async def compacted_history_probe_stream(
     if not _has_tool_return(messages, tool_name="write"):
         raise AssertionError("retained post-compaction tool history should be replayed")
     if not any(
-        prompt.startswith("Session compaction summary:")
-        for prompt in system_prompts
+        prompt.startswith("Session compaction summary:") for prompt in system_prompts
     ):
         raise AssertionError("compaction summary should be injected")
 
@@ -172,14 +170,11 @@ async def compacted_real_persisted_history_probe_stream(
     system_prompts = _system_prompt_contents(messages)
 
     if "first" in all_user_prompts:
-        raise AssertionError(
-            "raw summarized history should not be replayed"
-        )
+        raise AssertionError("raw summarized history should not be replayed")
     if "second" not in all_user_prompts:
         raise AssertionError("current prompt should be present")
     if not any(
-        prompt.startswith("Session compaction summary:")
-        for prompt in system_prompts
+        prompt.startswith("Session compaction summary:") for prompt in system_prompts
     ):
         raise AssertionError("compaction summary should be injected")
 
@@ -252,9 +247,7 @@ def make_resumed_live_compaction_probe_stream():
             assert len(read_returns) == 1
             retained_read = read_returns[0].content
             assert isinstance(retained_read, str)
-            assert retained_read.startswith(
-                "retained-0000 abcdefghijklmnopqrstuvwxyz"
-            )
+            assert retained_read.startswith("retained-0000 abcdefghijklmnopqrstuvwxyz")
             yield {
                 0: DeltaToolCall(
                     name="read",
@@ -319,7 +312,6 @@ async def test_stream_session_run_events_persists_authoritative_session(
     assert loaded.runs[0].events == events
     assert loaded.runs[0].messages
     assert loaded.message_history == loaded.runs[0].messages
-
 
 
 async def test_stream_session_run_events_rejects_mismatched_existing_workspace(
@@ -1220,6 +1212,7 @@ async def test_stream_session_run_events_auto_compacts_stale_session_before_resu
         loaded.latest_compaction.summary.current_objective
         == "continue after auto compaction"
     )
+
 
 async def test_live_compaction_preserves_raw_persisted_messages(
     tmp_path,

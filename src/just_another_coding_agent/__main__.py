@@ -149,9 +149,7 @@ def _resolve_sessions_root(raw_sessions_root: str | None) -> Path:
 
     sessions_root = Path(raw_sessions_root).expanduser().resolve()
     if sessions_root.exists() and not sessions_root.is_dir():
-        raise NotADirectoryError(
-            f"Sessions root is not a directory: {sessions_root}"
-        )
+        raise NotADirectoryError(f"Sessions root is not a directory: {sessions_root}")
 
     sessions_root.mkdir(parents=True, exist_ok=True)
     return sessions_root

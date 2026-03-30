@@ -202,9 +202,7 @@ def _run_exec_prompt(
                     expected="run.start response",
                     diagnostics=diagnostics,
                     timeout_sec=(
-                        first_rpc_event_timeout_sec
-                        if not saw_first_rpc_event
-                        else None
+                        first_rpc_event_timeout_sec if not saw_first_rpc_event else None
                     ),
                 )
             except NoRunEventsTimeout:
@@ -300,9 +298,7 @@ def _read_json_line(
 
 def _extract_session_id(payload: dict[str, object]) -> str:
     if payload.get("type") == "rpc_error":
-        raise ExecPromptError(
-            f"{payload.get('error_type')}: {payload.get('message')}"
-        )
+        raise ExecPromptError(f"{payload.get('error_type')}: {payload.get('message')}")
 
     if payload.get("type") != "rpc_response":
         raise ExecPromptError("session.create must return rpc_response")
@@ -383,9 +379,7 @@ class _ExecPromptDiagnostics:
             return
         self.record_phase(name)
 
-    def append_transcript(
-        self, *, direction: str, payload: dict[str, object]
-    ) -> None:
+    def append_transcript(self, *, direction: str, payload: dict[str, object]) -> None:
         with self._transcript_path.open("a", encoding="utf-8") as handle:
             handle.write(
                 json.dumps(

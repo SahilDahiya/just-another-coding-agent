@@ -61,6 +61,7 @@ def test_write_tool_allows_empty_content(tmp_path) -> None:
 
     assert path.read_text(encoding="utf-8") == ""
 
+
 def test_write_tool_fails_for_directory_target(tmp_path) -> None:
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()

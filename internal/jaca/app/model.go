@@ -166,6 +166,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.phase = PhaseError
 			m.transcript.WriteError(msg.Err.Error())
 			m.streaming = false
+			m.textInput.Focus()
 			m.activeRunCancel = nil
 			m.lastInterrupt = time.Time{}
 			m.refreshViewport()
@@ -177,6 +178,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Err != nil {
 			m.flushPendingAssistantDelta()
 			m.streaming = false
+			m.textInput.Focus()
 			m.activeRunCancel = nil
 			m.phase = PhaseError
 			m.lastInterrupt = time.Time{}
@@ -187,6 +189,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Done {
 			m.flushPendingAssistantDelta()
 			m.streaming = false
+			m.textInput.Focus()
 			m.activeRunCancel = nil
 			m.lastInterrupt = time.Time{}
 			cmd := tea.Cmd(nil)
@@ -224,6 +227,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, listenAsync(m.asyncCh)
 	case compactDoneMsg:
 		m.streaming = false
+		m.textInput.Focus()
 		if msg.Err != nil {
 			m.phase = PhaseError
 			m.transcript.WriteError(fmt.Sprintf("compaction failed: %v", msg.Err))
@@ -441,6 +445,7 @@ func (m *model) handleEnter() (tea.Model, tea.Cmd) {
 	m.transcript.WriteUserTurn(prompt)
 	m.phase = PhaseStreaming
 	m.streaming = true
+	m.textInput.Blur()
 	m.editPreviousArmed = false
 	m.lastInterrupt = time.Time{}
 	m.activeRunSucceeded = false
@@ -510,6 +515,7 @@ func (m *model) handleSlashCommand(command string) (tea.Model, tea.Cmd) {
 		}
 		m.phase = PhaseCompacting
 		m.streaming = true
+		m.textInput.Blur()
 		m.transcript.WriteNote("compact", nil)
 		m.transcript.WriteLine("compacting...")
 		m.refreshViewport()

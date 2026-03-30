@@ -243,6 +243,7 @@ func modelSuggestions(provider string) []slashSuggestion {
 		return []slashSuggestion{
 			{Value: "ollama:kimi-k2:1t-cloud", Description: "Current default Kimi K2"},
 			{Value: "ollama:glm-5:cloud", Description: "GLM-5 cloud path"},
+			{Value: "ollama:qwen3-coder-next", Description: "Qwen3 Coder Next"},
 		}
 	}
 }

@@ -48,9 +48,7 @@ def build_harbor_exec_command(
     prompt_b64 = base64.b64encode(instruction.encode("utf-8")).decode("ascii")
     python_executable = "/installed-agent/just-another-coding-agent/.venv/bin/python"
     thinking_arg = (
-        f"--thinking {shlex.quote(thinking)} "
-        if thinking is not None
-        else ""
+        f"--thinking {shlex.quote(thinking)} " if thinking is not None else ""
     )
     return (
         f"printf %s {shlex.quote(prompt_b64)} | base64 -d | "

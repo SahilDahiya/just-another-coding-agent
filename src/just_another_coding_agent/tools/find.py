@@ -140,11 +140,7 @@ def execute_find(
         if line.strip()
     ]
     matches = sorted(
-        [
-            path_text
-            for path_text in all_paths
-            if _matches_pattern(path_text, pattern)
-        ],
+        [path_text for path_text in all_paths if _matches_pattern(path_text, pattern)],
         key=str.lower,
     )
     if not matches:

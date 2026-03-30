@@ -47,9 +47,7 @@ class _RustWorkerProcess:
         del exc_type, exc, tb
         try:
             self.send_raw(
-                encode_worker_message(
-                    ShutdownWorkerRequest(request_id="shutdown-test")
-                )
+                encode_worker_message(ShutdownWorkerRequest(request_id="shutdown-test"))
             )
         except Exception:
             pass
@@ -81,8 +79,7 @@ class _RustWorkerProcess:
         if self._process.stderr is not None:
             stderr_output = self._process.stderr.read()
         raise AssertionError(
-            "Rust read-only worker exited without a response:\n"
-            f"{stderr_output.strip()}"
+            f"Rust read-only worker exited without a response:\n{stderr_output.strip()}"
         )
 
 

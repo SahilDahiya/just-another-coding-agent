@@ -8,7 +8,6 @@ from pydantic_ai.messages import (
     ModelResponse,
     TextPart,
     ToolCallPart,
-    ToolReturnPart,
     UserPromptPart,
 )
 from pydantic_ai.models.function import DeltaToolCall, FunctionModel
@@ -902,6 +901,8 @@ def test_append_compaction_to_session_rejects_empty_session(tmp_path) -> None:
             workspace_root=workspace_root,
             summary=SessionCompactionSummary(),
         )
+
+
 def test_load_session_tracks_compaction_entries_without_changing_message_history(
     tmp_path,
 ) -> None:

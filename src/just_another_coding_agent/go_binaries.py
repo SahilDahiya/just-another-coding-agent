@@ -43,8 +43,8 @@ def build_go_binary(
     if completed.returncode != 0:
         stderr = completed.stderr.strip()
         stdout = completed.stdout.strip()
-        detail = stderr or stdout or (
-            f"go build exited with status {completed.returncode}"
+        detail = (
+            stderr or stdout or (f"go build exited with status {completed.returncode}")
         )
         raise RuntimeError(f"failed to build {failure_label}: {detail}")
     if not output_path.is_file():

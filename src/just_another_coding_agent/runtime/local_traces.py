@@ -10,6 +10,7 @@ from typing import Any
 try:
     from opentelemetry.sdk.trace.export import SpanExportResult
 except ModuleNotFoundError:  # pragma: no cover - exercised in no-trace installs
+
     class _SpanExportResult:
         SUCCESS = "success"
 
@@ -18,16 +19,9 @@ except ModuleNotFoundError:  # pragma: no cover - exercised in no-trace installs
 
 def build_local_trace_path(now: datetime | None = None) -> Path:
     timestamp = datetime.now() if now is None else now
-    trace_dir = (
-        Path.home()
-        / ".jaca"
-        / "traces"
-        / timestamp.strftime("%Y-%m-%d")
-    )
+    trace_dir = Path.home() / ".jaca" / "traces" / timestamp.strftime("%Y-%m-%d")
     trace_dir.mkdir(parents=True, exist_ok=True)
-    return trace_dir / (
-        f"trace-{timestamp.strftime('%H%M%S-%f')}-{os.getpid()}.jsonl"
-    )
+    return trace_dir / (f"trace-{timestamp.strftime('%H%M%S-%f')}-{os.getpid()}.jsonl")
 
 
 class LocalJSONLSpanExporter:
@@ -57,9 +51,7 @@ def _serialize_span(span: Any) -> dict[str, Any]:
         "name": span.name,
         "trace_id": f"{context.trace_id:032x}",
         "span_id": f"{context.span_id:016x}",
-        "parent_span_id": (
-            None if parent is None else f"{parent.span_id:016x}"
-        ),
+        "parent_span_id": (None if parent is None else f"{parent.span_id:016x}"),
         "start_time_unix_nano": span.start_time,
         "end_time_unix_nano": span.end_time,
         "attributes": _normalize_attributes(getattr(span, "attributes", {})),
@@ -67,9 +59,7 @@ def _serialize_span(span: Any) -> dict[str, Any]:
             {
                 "name": event.name,
                 "timestamp_unix_nano": event.timestamp,
-                "attributes": _normalize_attributes(
-                    getattr(event, "attributes", {})
-                ),
+                "attributes": _normalize_attributes(getattr(event, "attributes", {})),
             }
             for event in getattr(span, "events", [])
         ],
@@ -81,8 +71,7 @@ def _normalize_attributes(attributes: Any) -> dict[str, Any]:
     if not isinstance(attributes, dict):
         return {}
     return {
-        str(key): _normalize_attribute_value(value)
-        for key, value in attributes.items()
+        str(key): _normalize_attribute_value(value) for key, value in attributes.items()
     }
 
 

@@ -11,8 +11,7 @@ READ_ONLY_WORKER_BINARY = (
 
 def read_only_worker_install_command() -> str:
     return (
-        "uv sync --reinstall-package just-another-coding-agent "
-        "--extra dev --extra test"
+        "uv sync --reinstall-package just-another-coding-agent --extra dev --extra test"
     )
 
 

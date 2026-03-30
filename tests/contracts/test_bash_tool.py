@@ -24,9 +24,7 @@ def _test_shell_family() -> str:
 
 def _powershell_available() -> bool:
     executable = (
-        "powershell.exe"
-        if detect_default_shell_family() == "powershell"
-        else "pwsh"
+        "powershell.exe" if detect_default_shell_family() == "powershell" else "pwsh"
     )
     return shutil.which(executable) is not None
 

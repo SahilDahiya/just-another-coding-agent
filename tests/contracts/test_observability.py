@@ -40,7 +40,6 @@ def test_configure_observability_configures_local_tracing_when_requested(
     assert calls == ["jaca"]
 
 
-
 def test_configure_observability_fails_fast_without_logfire_credentials(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -70,7 +69,7 @@ def test_configure_observability_accepts_default_logfire_toml_credentials(
     logfire_dir = tmp_path / ".logfire"
     logfire_dir.mkdir()
     (logfire_dir / "default.toml").write_text(
-        '\n'.join(
+        "\n".join(
             [
                 '[tokens."https://logfire-us.pydantic.dev"]',
                 'token = "test-token"',

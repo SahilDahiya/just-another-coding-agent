@@ -78,8 +78,7 @@ def test_build_canonical_instructions_include_dynamic_context(tmp_path) -> None:
     )
     assert (
         "After code changes or required file outputs, run the smallest "
-        "relevant verification step before concluding."
-        in instructions
+        "relevant verification step before concluding." in instructions
     )
     assert "Current date: 2026-03-26" in instructions
     assert f"Current workspace root: {workspace_root.resolve()}" in instructions
@@ -104,8 +103,7 @@ def test_build_canonical_instructions_include_truthfulness_and_verification_rule
     )
     assert (
         "After code changes or required file outputs, run the smallest "
-        "relevant verification step before concluding."
-        in instructions
+        "relevant verification step before concluding." in instructions
     )
 
 
@@ -116,6 +114,8 @@ def test_build_canonical_model_settings_include_thinking_when_set() -> None:
 
 
 def test_build_canonical_agent_resolves_string_models(tmp_path, monkeypatch) -> None:
+    from just_another_coding_agent.runtime.models import unwrap_instrumented_model
+
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
@@ -126,8 +126,9 @@ def test_build_canonical_agent_resolves_string_models(tmp_path, monkeypatch) -> 
         workspace_root=workspace_root,
         tool_names=[],
     )
-
-    assert isinstance(agent.model, OpenAIResponsesModel)
+    # Unwrap instrumentation to check the underlying model type
+    unwrapped_model = unwrap_instrumented_model(agent.model)
+    assert isinstance(unwrapped_model, OpenAIResponsesModel)
     assert agent.model.model_name == "gpt-5.3-codex"
 
 

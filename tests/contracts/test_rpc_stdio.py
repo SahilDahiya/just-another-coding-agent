@@ -79,8 +79,7 @@ async def looping_edit_stream(
         0: DeltaToolCall(
             name="edit",
             json_args=(
-                '{"path": "note.txt", "old_text": "missing", '
-                '"new_text": "agent"}'
+                '{"path": "note.txt", "old_text": "missing", "new_text": "agent"}'
             ),
             tool_call_id=f"call-edit-{len(messages)}",
         )
@@ -269,10 +268,14 @@ async def test_handle_rpc_json_line_compacts_session_and_returns_metadata(
         sessions_root=sessions_root,
         session_id=session_id,
     )
-    created_run_id = load_session(
-        path=session_path,
-        workspace_root=workspace_root,
-    ).runs[0].run_id
+    created_run_id = (
+        load_session(
+            path=session_path,
+            workspace_root=workspace_root,
+        )
+        .runs[0]
+        .run_id
+    )
 
     messages = await _rpc_messages(
         request_payload={

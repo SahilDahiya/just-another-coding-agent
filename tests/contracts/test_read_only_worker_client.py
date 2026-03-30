@@ -60,9 +60,7 @@ for line in sys.stdin:
 """,
     )
 
-    async with ReadOnlyWorkerClient(
-        [sys.executable, "-u", str(script_path)]
-    ) as client:
+    async with ReadOnlyWorkerClient([sys.executable, "-u", str(script_path)]) as client:
         response = await client.send(
             ReadWorkerRequest(
                 request_id="read-1",
@@ -113,9 +111,7 @@ for line in sys.stdin:
 """,
     )
 
-    async with ReadOnlyWorkerClient(
-        [sys.executable, "-u", str(script_path)]
-    ) as client:
+    async with ReadOnlyWorkerClient([sys.executable, "-u", str(script_path)]) as client:
         with pytest.raises(ToolPathError, match="missing directory"):
             await client.send(
                 LsWorkerRequest(
@@ -184,9 +180,7 @@ for line in sys.stdin:
 """,
     )
 
-    async with ReadOnlyWorkerClient(
-        [sys.executable, "-u", str(script_path)]
-    ) as client:
+    async with ReadOnlyWorkerClient([sys.executable, "-u", str(script_path)]) as client:
         with pytest.raises(RuntimeError, match="exited"):
             await client.send(
                 ReadWorkerRequest(

@@ -253,6 +253,7 @@ EDIT_TOOL = Tool(
     sequential=True,
 )
 
+
 def _generate_unified_diff(
     *,
     old_content: str,

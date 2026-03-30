@@ -47,9 +47,9 @@ _TOOLS_BY_NAME = {
 }
 
 if set(PARALLEL_CANONICAL_TOOL_NAMES).isdisjoint(SEQUENTIAL_CANONICAL_TOOL_NAMES):
-    if set(PARALLEL_CANONICAL_TOOL_NAMES) | set(
-        SEQUENTIAL_CANONICAL_TOOL_NAMES
-    ) != set(CANONICAL_TOOL_NAMES):
+    if set(PARALLEL_CANONICAL_TOOL_NAMES) | set(SEQUENTIAL_CANONICAL_TOOL_NAMES) != set(
+        CANONICAL_TOOL_NAMES
+    ):
         raise RuntimeError("Canonical tool concurrency policy must cover all tools")
 else:
     raise RuntimeError("Canonical tool concurrency policy must be disjoint")

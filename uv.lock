@@ -502,6 +502,7 @@ name = "just-another-coding-agent"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "logfire" },
     { name = "pydantic-ai-slim", extra = ["anthropic", "mcp", "openai", "retries"] },
     { name = "pydantic-evals" },
 ]
@@ -514,13 +515,10 @@ test = [
     { name = "pytest" },
     { name = "pytest-asyncio" },
 ]
-trace = [
-    { name = "logfire" },
-]
 
 [package.metadata]
 requires-dist = [
-    { name = "logfire", marker = "extra == 'trace'", specifier = ">=4.31.0" },
+    { name = "logfire", specifier = ">=4.31.0" },
     { name = "pydantic-ai-slim", extras = ["anthropic", "mcp", "openai", "retries"], specifier = ">=1.71.0,<2.0" },
     { name = "pydantic-evals", specifier = ">=1.73.0,<2.0" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3.0" },

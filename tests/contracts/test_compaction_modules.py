@@ -14,20 +14,14 @@ from just_another_coding_agent.runtime.compaction import (
 
 
 def test_compaction_public_api_is_split_across_submodules() -> None:
-    assert (
-        in_run.build_in_run_history_processor
-        is build_in_run_history_processor
-    )
+    assert in_run.build_in_run_history_processor is build_in_run_history_processor
     assert (
         in_run.restore_in_run_compaction_from_messages
         is restore_in_run_compaction_from_messages
     )
 
     assert resume.build_resume_message_history is build_resume_message_history
-    assert (
-        resume.build_compaction_summary_message
-        is build_compaction_summary_message
-    )
+    assert resume.build_compaction_summary_message is build_compaction_summary_message
     assert (
         resume.strip_compaction_summary_from_messages
         is strip_compaction_summary_from_messages
@@ -41,7 +35,4 @@ def test_compaction_public_api_is_split_across_submodules() -> None:
         session_summary.summarize_and_append_compaction_to_session
         is summarize_and_append_compaction_to_session
     )
-    assert (
-        session_summary.should_auto_compact_session
-        is should_auto_compact_session
-    )
+    assert session_summary.should_auto_compact_session is should_auto_compact_session

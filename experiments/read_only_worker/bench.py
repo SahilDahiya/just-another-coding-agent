@@ -78,11 +78,7 @@ def _build_corpus(workspace_root: Path) -> None:
     for index in range(300):
         target = src / f"file_{index:03d}.py"
         target.write_text(
-            (
-                f"# file {index}\n"
-                "def run():\n"
-                f"    return 'TODO item {index}'\n"
-            ),
+            (f"# file {index}\ndef run():\n    return 'TODO item {index}'\n"),
             encoding="utf-8",
         )
 

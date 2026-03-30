@@ -48,21 +48,23 @@ def configure_observability() -> None:
     _configured = True
 
 
-_API_KEY_PATTERNS = frozenset({
-    "api_key",
-    "api-key",
-    "apikey",
-    "secret",
-    "secret_key",
-    "token",
-    "password",
-    "passwd",
-    "authorization",
-    "openai_api_key",
-    "anthropic_api_key",
-    "ollama_api_key",
-    "logfire_token",
-})
+_API_KEY_PATTERNS = frozenset(
+    {
+        "api_key",
+        "api-key",
+        "apikey",
+        "secret",
+        "secret_key",
+        "token",
+        "password",
+        "passwd",
+        "authorization",
+        "openai_api_key",
+        "anthropic_api_key",
+        "ollama_api_key",
+        "logfire_token",
+    }
+)
 
 
 def _scrub_only_api_keys(match: Any) -> Any:
@@ -85,9 +87,7 @@ def _configure_local_tracing(service_name: str) -> None:
     from opentelemetry.sdk.resources import Resource
     from opentelemetry.sdk.trace import TracerProvider
 
-    provider = TracerProvider(
-        resource=Resource.create({"service.name": service_name})
-    )
+    provider = TracerProvider(resource=Resource.create({"service.name": service_name}))
     for processor in _build_local_span_processors():
         provider.add_span_processor(processor)
     trace.set_tracer_provider(provider)

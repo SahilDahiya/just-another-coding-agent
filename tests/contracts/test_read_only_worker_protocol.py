@@ -37,9 +37,7 @@ from just_another_coding_agent.tools.read_only_worker.protocol import (
 
 def test_read_only_worker_request_round_trip_supports_handshake_and_calls() -> None:
     hello = parse_worker_request_line(
-        encode_worker_message(
-            HelloWorkerRequest(request_id="hello-1")
-        )
+        encode_worker_message(HelloWorkerRequest(request_id="hello-1"))
     )
     assert isinstance(hello, HelloWorkerRequest)
     assert hello.protocol_version == READ_ONLY_WORKER_PROTOCOL_VERSION
@@ -94,18 +92,14 @@ def test_read_only_worker_request_round_trip_supports_handshake_and_calls() -> N
     assert cancel_request.target_request_id == "grep-1"
 
     shutdown_request = parse_worker_request_line(
-        encode_worker_message(
-            ShutdownWorkerRequest(request_id="shutdown-1")
-        )
+        encode_worker_message(ShutdownWorkerRequest(request_id="shutdown-1"))
     )
     assert isinstance(shutdown_request, ShutdownWorkerRequest)
 
 
 def test_read_only_worker_response_round_trip_is_structured_and_versioned() -> None:
     hello_response = parse_worker_response_line(
-        encode_worker_message(
-            HelloWorkerResponse(request_id="hello-1")
-        )
+        encode_worker_message(HelloWorkerResponse(request_id="hello-1"))
     )
     assert isinstance(hello_response, HelloWorkerResponse)
     assert hello_response.protocol_version == READ_ONLY_WORKER_PROTOCOL_VERSION

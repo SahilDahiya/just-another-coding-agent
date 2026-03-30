@@ -64,6 +64,5 @@ def test_ls_tool_respects_entry_limit(tmp_path) -> None:
     )
 
     assert result == (
-        "alpha.txt\nbeta.txt\n\n"
-        "[Showing first 2 entries. Use limit=4 for more.]"
+        "alpha.txt\nbeta.txt\n\n[Showing first 2 entries. Use limit=4 for more.]"
     )

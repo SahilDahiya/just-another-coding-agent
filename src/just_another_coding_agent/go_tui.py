@@ -44,7 +44,7 @@ def resolve_go_tui_binary() -> Path:
 
 
 def find_go_tui_repo_root(start: Path | None = None) -> Path | None:
-    current = (Path(__file__).resolve() if start is None else start.resolve())
+    current = Path(__file__).resolve() if start is None else start.resolve()
     for candidate in (current, *current.parents):
         if (
             (candidate / "pyproject.toml").is_file()

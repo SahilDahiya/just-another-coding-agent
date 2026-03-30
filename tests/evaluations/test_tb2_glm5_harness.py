@@ -5,10 +5,7 @@ from pathlib import Path
 import pytest
 
 SCRIPT_PATH = (
-    Path(__file__).resolve().parents[2]
-    / "evaluations"
-    / "scripts"
-    / "tb2_glm5.sh"
+    Path(__file__).resolve().parents[2] / "evaluations" / "scripts" / "tb2_glm5.sh"
 )
 GIT_BASH_PATH = Path(r"C:\Program Files\Git\bin\bash.exe")
 

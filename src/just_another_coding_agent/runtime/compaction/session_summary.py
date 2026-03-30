@@ -116,8 +116,7 @@ def should_auto_compact_session(loaded_session: LoadedSession) -> bool:
         return False
 
     return (
-        _runs_since_latest_compaction(loaded_session)
-        >= AUTO_COMPACTION_RUN_THRESHOLD
+        _runs_since_latest_compaction(loaded_session) >= AUTO_COMPACTION_RUN_THRESHOLD
     )
 
 
@@ -169,10 +168,13 @@ def _build_bounded_compaction_source(
     if latest_compaction is not None:
         sections.append("Previous compaction summary:")
         sections.append(_render_summary(latest_compaction.summary))
-        start_index = _run_index_for_id(
-            loaded_session,
-            latest_compaction.summarized_through_run_id,
-        ) + 1
+        start_index = (
+            _run_index_for_id(
+                loaded_session,
+                latest_compaction.summarized_through_run_id,
+            )
+            + 1
+        )
 
     run_sections = [_render_run(run) for run in loaded_session.runs[start_index:]]
     omitted_runs = 0
@@ -206,9 +208,7 @@ def _build_bounded_compaction_source(
 def _render_summary(summary: SessionCompactionSummary) -> str:
     lines: list[str] = []
     if summary.current_objective is not None:
-        lines.append(
-            f"Current objective: {_compact_text(summary.current_objective)}"
-        )
+        lines.append(f"Current objective: {_compact_text(summary.current_objective)}")
     _append_rendered_section(lines, "Established facts", summary.established_facts)
     _append_rendered_section(lines, "User preferences", summary.user_preferences)
     _append_rendered_section(lines, "Important paths", summary.important_paths)
@@ -306,12 +306,10 @@ def _render_tool_activity_lines(run: SessionRunRecord) -> list[str]:
         if isinstance(event, ToolCallFailedEvent):
             activity = event.activity
             title = activity.title if activity is not None else event.tool_name
-            rendered.append(
-                _compact_text(f"{title}: failed - {event.message}")
-            )
+            rendered.append(_compact_text(f"{title}: failed - {event.message}"))
 
     if len(rendered) > MAX_COMPACTION_TOOL_ACTIVITY_LINES:
-        rendered = rendered[-MAX_COMPACTION_TOOL_ACTIVITY_LINES :]
+        rendered = rendered[-MAX_COMPACTION_TOOL_ACTIVITY_LINES:]
     return rendered
 
 

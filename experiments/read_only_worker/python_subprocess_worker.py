@@ -38,6 +38,8 @@ def _resolve_operation(name: str) -> Callable[..., Any] | None:
 
         return execute_read
     return None
+
+
 def _main(argv: list[str]) -> int:
     if len(argv) != 3:
         print(
