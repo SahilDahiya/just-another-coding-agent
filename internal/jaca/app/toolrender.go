@@ -17,6 +17,7 @@ type toolEntry struct {
 	message            string
 	duration           string
 	groupKind          string
+	activity           *rpc.ToolActivity
 	detailLines        []string
 	resultLines        []string
 	resultTruncated    bool
@@ -114,6 +115,207 @@ func renderToolActivityLine(entry *toolEntry) string {
 	}
 	b.WriteByte('\n')
 	return b.String()
+}
+
+func isExplorationGroup(order []string, entries map[string]*toolEntry) bool {
+	if len(order) == 0 {
+		return false
+	}
+	for _, id := range order {
+		if entries[id].groupKind != "exploration" {
+			return false
+		}
+	}
+	return true
+}
+
+func hasExplorationErrors(order []string, entries map[string]*toolEntry) bool {
+	for _, id := range order {
+		if entries[id].outcome == "error" {
+			return true
+		}
+	}
+	return false
+}
+
+func isExplorationComplete(order []string, entries map[string]*toolEntry) bool {
+	for _, id := range order {
+		e := entries[id]
+		if e.outcome != "ok" && e.outcome != "error" && e.outcome != "" {
+			return false
+		}
+		if e.outcome == "" {
+			return false
+		}
+	}
+	return true
+}
+
+const (
+	maxExplorationLines    = 6
+	maxExplorationQueryLen = 40
+)
+
+var explorationLabels = map[string]string{
+	"read": "Read",
+	"grep": "Search",
+	"find": "Find",
+	"ls":   "List",
+}
+
+type explorationLine struct {
+	label string
+	args  string
+}
+
+func coalesceExplorationEntries(order []string, entries map[string]*toolEntry) []explorationLine {
+	var lines []explorationLine
+	var pendingLabel string
+	var pendingArgs []string
+
+	flush := func() {
+		if pendingLabel != "" && len(pendingArgs) > 0 {
+			lines = append(lines, explorationLine{
+				label: pendingLabel,
+				args:  strings.Join(pendingArgs, ", "),
+			})
+		}
+		pendingLabel = ""
+		pendingArgs = nil
+	}
+
+	for _, id := range order {
+		entry := entries[id]
+		label := explorationLabels[entry.toolName]
+		if label == "" {
+			label = capitalizeFirst(entry.toolName)
+		}
+
+		switch entry.toolName {
+		case "read", "ls":
+			path := explorationShortPath(entry)
+			if label == pendingLabel {
+				pendingArgs = append(pendingArgs, path)
+			} else {
+				flush()
+				pendingLabel = label
+				pendingArgs = []string{path}
+			}
+		case "grep", "find":
+			flush()
+			lines = append(lines, explorationLine{
+				label: label,
+				args:  explorationSearchArgs(entry),
+			})
+		default:
+			flush()
+			lines = append(lines, explorationLine{label: label, args: explorationShortPath(entry)})
+		}
+	}
+	flush()
+
+	if len(lines) > maxExplorationLines {
+		omitted := len(lines) - maxExplorationLines + 1
+		lines = append(lines[:maxExplorationLines-1], explorationLine{
+			label: fmt.Sprintf("... +%d more", omitted),
+		})
+	}
+	return lines
+}
+
+func explorationShortPath(entry *toolEntry) string {
+	if entry.activity != nil && entry.activity.Details != nil {
+		if sp, ok := entry.activity.Details["short_path"].(string); ok && sp != "" {
+			return sp
+		}
+		if p, ok := entry.activity.Details["path"].(string); ok && p != "" {
+			return shortenPathFallback(p)
+		}
+	}
+	return shortenPathFallback(entry.preview)
+}
+
+func explorationSearchArgs(entry *toolEntry) string {
+	query := ""
+	dir := ""
+	if entry.activity != nil && entry.activity.Details != nil {
+		if q, ok := entry.activity.Details["pattern"].(string); ok {
+			query = q
+		}
+		if sp, ok := entry.activity.Details["short_path"].(string); ok && sp != "" {
+			dir = sp
+		} else if p, ok := entry.activity.Details["path"].(string); ok && p != "" {
+			dir = shortenPathFallback(p)
+		}
+	}
+	if query == "" {
+		return shortenPathFallback(entry.preview)
+	}
+	if len(query) > maxExplorationQueryLen {
+		query = query[:maxExplorationQueryLen-3] + "..."
+	}
+	if dir != "" && dir != "." {
+		return query + " in " + dir
+	}
+	return query
+}
+
+func shortenPathFallback(path string) string {
+	if path == "" {
+		return ""
+	}
+	if slash := strings.LastIndex(path, "/"); slash >= 0 && !strings.Contains(path, " ") {
+		return path[slash+1:]
+	}
+	return path
+}
+
+func capitalizeFirst(s string) string {
+	if s == "" {
+		return s
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
+}
+
+func renderExplorationGroup(order []string, entries map[string]*toolEntry) (string, string) {
+	complete := isExplorationComplete(order, entries)
+
+	headerLabel := "Exploring"
+	markerColor := defaultTheme.textMuted
+	if complete {
+		headerLabel = "Explored"
+	}
+
+	headerPlain := "● " + headerLabel + "\n"
+	headerRendered := lipgloss.NewStyle().Foreground(markerColor).Render("● ") +
+		lipgloss.NewStyle().Foreground(defaultTheme.textSoft).Bold(true).Render(headerLabel) + "\n"
+
+	var plain, rendered strings.Builder
+	plain.WriteString(headerPlain)
+	rendered.WriteString(headerRendered)
+
+	cyanStyle := lipgloss.NewStyle().Foreground(themeColor("#56b6c2", "73", "6"))
+	dimStyle := lipgloss.NewStyle().Foreground(defaultTheme.textMuted)
+
+	lines := coalesceExplorationEntries(order, entries)
+	for idx, line := range lines {
+		prefix := "    "
+		if idx == 0 {
+			prefix = "  └ "
+		}
+
+		plainLine := prefix + line.label
+		renderedLine := dimStyle.Render(prefix) + cyanStyle.Render(line.label)
+		if line.args != "" {
+			plainLine += " " + line.args
+			renderedLine += " " + dimStyle.Render(line.args)
+		}
+
+		plain.WriteString(plainLine + "\n")
+		rendered.WriteString(renderedLine + "\n")
+	}
+
+	return plain.String(), rendered.String()
 }
 
 func toolOutcomeColor(outcome string) lipgloss.TerminalColor {

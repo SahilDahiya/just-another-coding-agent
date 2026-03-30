@@ -12,6 +12,7 @@ from pydantic_ai import RunContext, Tool
 from just_another_coding_agent.contracts.run_events import FindActivityDetails
 from just_another_coding_agent.tools._activity import (
     make_tool_return,
+    shorten_path,
     truncate_activity_label,
 )
 from just_another_coding_agent.tools._workspace import resolve_workspace_path
@@ -197,7 +198,12 @@ async def find(
         return_value=result,
         title=f"find {truncate_activity_label(pattern)}",
         summary="find completed",
-        details=FindActivityDetails(pattern=pattern, path=path, limit=limit),
+        details=FindActivityDetails(
+            pattern=pattern,
+            path=path,
+            short_path=shorten_path(path, str(ctx.deps.workspace_root)),
+            limit=limit,
+        ),
     )
 
 

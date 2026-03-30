@@ -676,6 +676,7 @@ async def test_stream_run_events_recovers_from_missing_read_within_one_run(
     assert events[4].activity.details.model_dump() == {
         "kind": "read",
         "path": "note.txt",
+        "short_path": "note.txt",
         "offset": None,
         "limit": None,
     }

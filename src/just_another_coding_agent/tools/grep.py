@@ -13,6 +13,7 @@ from pydantic_ai import RunContext, Tool
 from just_another_coding_agent.contracts.run_events import GrepActivityDetails
 from just_another_coding_agent.tools._activity import (
     make_tool_return,
+    shorten_path,
     truncate_activity_label,
 )
 from just_another_coding_agent.tools._workspace import resolve_workspace_path
@@ -287,6 +288,7 @@ async def grep(
         details=GrepActivityDetails(
             pattern=pattern,
             path=path,
+            short_path=shorten_path(path, str(ctx.deps.workspace_root)),
             glob=glob,
             ignore_case=ignore_case,
             literal=literal,

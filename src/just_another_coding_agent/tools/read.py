@@ -10,6 +10,7 @@ from pydantic_ai import RunContext, Tool
 from just_another_coding_agent.contracts.run_events import ReadActivityDetails
 from just_another_coding_agent.tools._activity import (
     make_tool_return,
+    shorten_path,
     truncate_activity_label,
 )
 from just_another_coding_agent.tools._workspace import resolve_workspace_path
@@ -191,7 +192,12 @@ async def read(
         return_value=result,
         title=f"read {truncate_activity_label(path)}",
         summary="read completed",
-        details=ReadActivityDetails(path=path, offset=offset, limit=limit),
+        details=ReadActivityDetails(
+            path=path,
+            short_path=shorten_path(path, str(ctx.deps.workspace_root)),
+            offset=offset,
+            limit=limit,
+        ),
     )
 
 

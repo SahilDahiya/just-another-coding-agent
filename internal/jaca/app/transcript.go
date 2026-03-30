@@ -428,6 +428,7 @@ func (t *Transcript) startTool(event rpc.RunEvent) {
 		toolName:  event.ToolName,
 		preview:   buildToolPreview(event.ToolName, event.Args, event.ArgsValid, event.Activity),
 		groupKind: buildToolGroupKind(event.Activity),
+		activity:  event.Activity,
 	}
 	t.rewriteToolGroup()
 }
@@ -464,6 +465,9 @@ func (t *Transcript) finishTool(event rpc.RunEvent) {
 		entry.message = buildToolSummary(event.Activity, "")
 	}
 	entry.groupKind = buildToolGroupKind(event.Activity)
+	if event.Activity != nil {
+		entry.activity = event.Activity
+	}
 	t.rewriteToolGroup()
 }
 
@@ -508,6 +512,14 @@ func (t *Transcript) endToolGroup() {
 
 func (t *Transcript) rewriteToolGroup() {
 	if t.toolGroup == nil {
+		return
+	}
+	if isExplorationGroup(t.toolGroup.order, t.toolGroup.entries) && !hasExplorationErrors(t.toolGroup.order, t.toolGroup.entries) {
+		plainText, renderedText := renderExplorationGroup(t.toolGroup.order, t.toolGroup.entries)
+		t.replaceBlock(t.toolGroup.index, &toolGroupCell{
+			plain:    plainText,
+			rendered: renderedText,
+		})
 		return
 	}
 	var plain strings.Builder

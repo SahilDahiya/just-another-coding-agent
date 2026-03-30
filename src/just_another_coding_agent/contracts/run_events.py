@@ -34,6 +34,7 @@ class ShellActivityDetails(_ToolActivityDetailsBase):
 class ReadActivityDetails(_ToolActivityDetailsBase):
     kind: Literal["read"] = "read"
     path: str
+    short_path: str | None = None
     offset: int | None = None
     limit: int | None = None
 
@@ -56,6 +57,7 @@ class GrepActivityDetails(_ToolActivityDetailsBase):
     kind: Literal["grep"] = "grep"
     pattern: str
     path: str | None = None
+    short_path: str | None = None
     glob: str | None = None
     ignore_case: bool = False
     literal: bool = False
@@ -65,6 +67,7 @@ class GrepActivityDetails(_ToolActivityDetailsBase):
 class LsActivityDetails(_ToolActivityDetailsBase):
     kind: Literal["ls"] = "ls"
     path: str | None = None
+    short_path: str | None = None
     limit: int | None = None
 
 
@@ -72,6 +75,7 @@ class FindActivityDetails(_ToolActivityDetailsBase):
     kind: Literal["find"] = "find"
     pattern: str
     path: str | None = None
+    short_path: str | None = None
     limit: int | None = None
 
 

@@ -1,9 +1,16 @@
-from just_another_coding_agent.contracts.run_events import ToolActivity
+from just_another_coding_agent.contracts.run_events import (
+    FindActivityDetails,
+    GrepActivityDetails,
+    LsActivityDetails,
+    ReadActivityDetails,
+    ToolActivity,
+)
 from just_another_coding_agent.contracts.tools import CANONICAL_TOOL_NAMES
 from just_another_coding_agent.runtime.activity import (
     build_started_tool_activity,
     build_succeeded_tool_activity,
 )
+from just_another_coding_agent.tools._activity import shorten_path
 
 _SAMPLE_ARGS_BY_TOOL: dict[str, dict[str, object]] = {
     "read": {"path": "note.txt", "offset": 1, "limit": 10},
@@ -84,3 +91,59 @@ def test_succeeded_activity_prefers_tool_owned_metadata() -> None:
         },
         group_kind="exploration",
     )
+
+
+def test_short_path_is_workspace_relative_for_exploration_tools() -> None:
+    workspace_root = "/home/user/project"
+
+    read_details = ReadActivityDetails(
+        path="src/main.py",
+        short_path=shorten_path("src/main.py", workspace_root),
+        offset=None,
+        limit=None,
+    )
+    assert read_details.short_path == "src/main.py"
+
+    grep_details = GrepActivityDetails(
+        pattern="TODO",
+        path="/home/user/project/src",
+        short_path=shorten_path("/home/user/project/src", workspace_root),
+    )
+    assert grep_details.short_path == "src"
+
+    ls_details = LsActivityDetails(
+        path="/home/user/project/src/lib",
+        short_path=shorten_path("/home/user/project/src/lib", workspace_root),
+    )
+    assert ls_details.short_path == "src/lib"
+
+    find_details = FindActivityDetails(
+        pattern="*.py",
+        path="/home/user/project",
+        short_path=shorten_path("/home/user/project", workspace_root),
+    )
+    assert find_details.short_path == "."
+
+
+def test_short_path_falls_back_to_basename_for_outside_paths() -> None:
+    workspace_root = "/home/user/project"
+
+    assert shorten_path("/etc/config.toml", workspace_root) == "config.toml"
+    assert shorten_path("/tmp/data", workspace_root) == "data"
+
+
+def test_short_path_is_none_when_path_is_none() -> None:
+    assert shorten_path(None, "/home/user/project") is None
+
+    grep_details = GrepActivityDetails(
+        pattern="TODO",
+        path=None,
+        short_path=shorten_path(None, "/home/user/project"),
+    )
+    assert grep_details.short_path is None
+
+    ls_details = LsActivityDetails(
+        path=None,
+        short_path=shorten_path(None, "/home/user/project"),
+    )
+    assert ls_details.short_path is None

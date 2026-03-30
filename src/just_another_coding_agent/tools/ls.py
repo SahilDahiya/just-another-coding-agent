@@ -10,6 +10,7 @@ from pydantic_ai import RunContext, Tool
 from just_another_coding_agent.contracts.run_events import LsActivityDetails
 from just_another_coding_agent.tools._activity import (
     make_tool_return,
+    shorten_path,
     truncate_activity_label,
 )
 from just_another_coding_agent.tools._workspace import resolve_workspace_path
@@ -156,7 +157,11 @@ async def ls(
         return_value=result,
         title=title,
         summary="listing completed",
-        details=LsActivityDetails(path=path, limit=limit),
+        details=LsActivityDetails(
+            path=path,
+            short_path=shorten_path(path, str(ctx.deps.workspace_root)),
+            limit=limit,
+        ),
     )
 
 

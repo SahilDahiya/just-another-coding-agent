@@ -131,6 +131,7 @@ async def test_read_returns_tool_owned_activity_metadata(tmp_path) -> None:
         "details": {
             "kind": "read",
             "path": "note.txt",
+            "short_path": "note.txt",
             "offset": 2,
             "limit": 3,
         },
@@ -196,6 +197,7 @@ async def test_grep_returns_tool_owned_activity_metadata(tmp_path) -> None:
             "kind": "grep",
             "pattern": "TODO",
             "path": ".",
+            "short_path": ".",
             "glob": "*.txt",
             "ignore_case": False,
             "literal": False,
@@ -224,6 +226,7 @@ async def test_ls_returns_tool_owned_activity_metadata(tmp_path) -> None:
         "details": {
             "kind": "ls",
             "path": None,
+            "short_path": None,
             "limit": 7,
         },
     }
@@ -251,6 +254,7 @@ async def test_find_returns_tool_owned_activity_metadata(tmp_path) -> None:
             "kind": "find",
             "pattern": "*.py",
             "path": ".",
+            "short_path": ".",
             "limit": 8,
         },
     }
