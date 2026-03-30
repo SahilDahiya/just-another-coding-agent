@@ -7,7 +7,14 @@ from pathlib import Path
 from typing import Any
 
 from pydantic_ai import capture_run_messages
-from pydantic_ai.messages import ModelMessage, ToolCallPart, ToolReturnPart
+from pydantic_ai.messages import (
+    ModelMessage,
+    ModelRequest,
+    ModelResponse,
+    RetryPromptPart,
+    ToolCallPart,
+    ToolReturnPart,
+)
 
 from just_another_coding_agent.contracts.platform import detect_default_shell_family
 from just_another_coding_agent.contracts.run_events import (
@@ -76,6 +83,59 @@ def _strip_unresolved_tool_calls_from_messages(
     return sanitized
 
 
+def _strip_failed_correction_tail_from_messages(
+    messages: Sequence[ModelMessage],
+) -> list[ModelMessage]:
+    sanitized = list(messages)
+
+    while sanitized:
+        last_message = sanitized[-1]
+        if not isinstance(last_message, ModelRequest):
+            break
+
+        retry_parts = [
+            part for part in last_message.parts if isinstance(part, RetryPromptPart)
+        ]
+        if not retry_parts or len(retry_parts) != len(last_message.parts):
+            break
+
+        retry_tool_call_ids = {part.tool_call_id for part in retry_parts}
+        sanitized.pop()
+
+        if not sanitized:
+            break
+
+        previous_message = sanitized[-1]
+        if not isinstance(previous_message, ModelResponse):
+            break
+
+        kept_parts = [
+            part
+            for part in previous_message.parts
+            if not (
+                isinstance(part, ToolCallPart)
+                and part.tool_call_id in retry_tool_call_ids
+            )
+        ]
+
+        if not kept_parts:
+            sanitized.pop()
+            continue
+
+        if len(kept_parts) != len(previous_message.parts):
+            sanitized[-1] = replace(previous_message, parts=kept_parts)
+
+    return sanitized
+
+
+def _sanitize_failed_run_messages(
+    messages: Sequence[ModelMessage],
+) -> list[ModelMessage]:
+    return _strip_failed_correction_tail_from_messages(
+        _strip_unresolved_tool_calls_from_messages(messages)
+    )
+
+
 async def stream_session_run_events(
     *,
     model: Any,
@@ -138,7 +198,7 @@ async def stream_session_run_events(
     pending_tool_calls: dict[str, ToolCallStartedEvent] = {}
     active_run_id: str | None = None
     should_finalize = False
-    cancelled_during_stream = False
+    failed_terminal = False
 
     def _record_message_history(messages: Sequence[ModelMessage]) -> None:
         nonlocal authoritative_messages
@@ -178,11 +238,12 @@ async def stream_session_run_events(
                 elif isinstance(event, ToolCallSucceededEvent | ToolCallFailedEvent):
                     pending_tool_calls.pop(event.tool_call_id, None)
                 elif isinstance(event, RunSucceededEvent | RunFailedEvent):
+                    if isinstance(event, RunFailedEvent):
+                        failed_terminal = True
                     should_finalize = True
                 yield event
         except (asyncio.CancelledError, KeyboardInterrupt) as error:
             if run_appender is not None and active_run_id is not None:
-                cancelled_during_stream = True
                 error_type = type(error).__name__
                 message = str(error) or "run cancelled"
                 for pending_tool_call in pending_tool_calls.values():
@@ -210,6 +271,7 @@ async def stream_session_run_events(
                         message=message,
                     )
                 )
+                failed_terminal = True
                 should_finalize = True
             raise
         finally:
@@ -221,8 +283,8 @@ async def stream_session_run_events(
                         else list(messages)
                     )
                 )
-                if cancelled_during_stream:
-                    finalized_messages = _strip_unresolved_tool_calls_from_messages(
+                if failed_terminal:
+                    finalized_messages = _sanitize_failed_run_messages(
                         finalized_messages
                     )
                 run_appender.finalize(messages=finalized_messages)

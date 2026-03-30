@@ -440,6 +440,8 @@ Ordering rules for the session slice:
 - Session-backed runtime streaming must append `session_run` and `session_event` entries incrementally as the run streams and append `session_messages` only after terminal completion
 - If cancellation unwinds through `stream_session_run_events()`, the runtime must persist terminal `tool_call_failed` events for any still-pending tool calls and then persist terminal `run_failed` before finalization
 - Persisted `session_messages` for a terminal run must remain replay-safe; they must not contain unresolved tool calls
+- Persisted `session_messages` for a failed terminal run must also exclude unresolved failed-correction tails such as trailing `RetryPromptPart` repair prompts and the matching invalid `ToolCallPart` suffix that caused a provider-side abort; future resumed runs must continue only from the last known-good message boundary
+- Trimming poisoned failed-correction tails from persisted `session_messages` must not delete observability data: the original streamed `session_event` sequence and provider traces remain authoritative for failure forensics
 - If cancellation interrupts message capture mid-tool-call, finalization must strip those unresolved tool parts before writing `session_messages`
 - Persisted events for a run must satisfy the streamed run contract, including exactly one terminal outcome
 - Persisted `session_event` payloads must preserve any tool `activity` metadata unchanged

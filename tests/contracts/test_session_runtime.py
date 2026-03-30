@@ -8,6 +8,7 @@ from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
     ModelResponse,
+    RetryPromptPart,
     SystemPromptPart,
     ToolCallPart,
     ToolReturnPart,
@@ -16,6 +17,7 @@ from pydantic_ai.messages import (
 from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 from pydantic_ai.models.test import TestModel
 
+import just_another_coding_agent.runtime.session as runtime_session_module
 from just_another_coding_agent.contracts.run_events import (
     ReadActivityDetails,
     RunFailedEvent,
@@ -2106,3 +2108,275 @@ async def test_stream_session_run_events_sanitize_cancelled_run_messages(
         for part in _all_parts(loaded.message_history)
         if isinstance(part, ToolCallPart)
     ] == []
+
+
+async def test_stream_session_run_events_trim_failed_correction_tail_from_history(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    session_path = tmp_path / "session.jsonl"
+
+    poisoned_messages = [
+        ModelRequest(parts=[UserPromptPart(content="get familiar with repo!")]),
+        ModelResponse(
+            parts=[
+                ToolCallPart(
+                    tool_name="readread",
+                    args='{"path":"README.md"}{"path":"AGENTS.md"}',
+                    tool_call_id="call-readread",
+                )
+            ]
+        ),
+        ModelRequest(
+            parts=[
+                RetryPromptPart(
+                    "Unknown tool name: 'readread'. Available tools: 'read'",
+                    tool_name="readread",
+                    tool_call_id="call-readread",
+                )
+            ]
+        ),
+    ]
+
+    @contextmanager
+    def fake_capture_run_messages():
+        yield poisoned_messages
+
+    async def failed_correction_stream_run_events(
+        *,
+        agent,
+        prompt,
+        message_history=None,
+        thinking=None,
+        deps=None,
+        enable_server_history=False,
+        message_history_sink=None,
+    ):
+        del (
+            agent,
+            prompt,
+            message_history,
+            thinking,
+            deps,
+            enable_server_history,
+            message_history_sink,
+        )
+        yield RunStartedEvent(run_id="run-1")
+        yield ToolCallStartedEvent(
+            run_id="run-1",
+            tool_call_id="call-readread",
+            tool_name="readread",
+            args=None,
+            args_valid=False,
+        )
+        yield ToolCallSucceededEvent(
+            run_id="run-1",
+            tool_call_id="call-readread",
+            tool_name="readread",
+            result={
+                "ok": False,
+                "error_type": "RetryPromptPart",
+                "message": "Unknown tool name: 'readread'. Available tools: 'read'",
+            },
+        )
+        yield RunFailedEvent(
+            run_id="run-1",
+            error_type="ModelHTTPError",
+            message="status_code: 400, invalid tool call arguments",
+        )
+
+    monkeypatch.setattr(
+        "just_another_coding_agent.runtime.session.capture_run_messages",
+        fake_capture_run_messages,
+    )
+    monkeypatch.setattr(
+        "just_another_coding_agent.runtime.session.stream_run_events",
+        failed_correction_stream_run_events,
+    )
+
+    events = [
+        event
+        async for event in stream_session_run_events(
+            model=FunctionModel(stream_function=text_only_stream),
+            workspace_root=workspace_root,
+            session_path=session_path,
+            prompt="get familiar with repo!",
+        )
+    ]
+
+    assert [event.type for event in events] == [
+        "run_started",
+        "tool_call_started",
+        "tool_call_succeeded",
+        "run_failed",
+    ]
+
+    loaded = load_session(path=session_path, workspace_root=workspace_root)
+    assert [type(part).__name__ for part in _all_parts(loaded.message_history)] == [
+        "UserPromptPart"
+    ]
+    assert _last_user_prompt(loaded.message_history) == "get familiar with repo!"
+    assert [
+        part.tool_call_id
+        for part in _all_parts(loaded.message_history)
+        if isinstance(part, ToolCallPart)
+    ] == []
+    assert [
+        part.tool_call_id
+        for part in _all_parts(loaded.message_history)
+        if isinstance(part, RetryPromptPart)
+    ] == []
+    assert [event.type for event in loaded.runs[0].events] == [
+        "run_started",
+        "tool_call_started",
+        "tool_call_succeeded",
+        "run_failed",
+    ]
+
+
+async def test_stream_session_run_events_resume_after_failed_correction_is_clean(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    session_path = tmp_path / "session.jsonl"
+
+    poisoned_messages = [
+        ModelRequest(parts=[UserPromptPart(content="get familiar with repo!")]),
+        ModelResponse(
+            parts=[
+                ToolCallPart(
+                    tool_name="readread",
+                    args='{"path":"README.md"}{"path":"AGENTS.md"}',
+                    tool_call_id="call-readread",
+                )
+            ]
+        ),
+        ModelRequest(
+            parts=[
+                RetryPromptPart(
+                    "Unknown tool name: 'readread'. Available tools: 'read'",
+                    tool_name="readread",
+                    tool_call_id="call-readread",
+                )
+            ]
+        ),
+    ]
+
+    @contextmanager
+    def fake_capture_run_messages():
+        yield poisoned_messages
+
+    async def failed_correction_stream_run_events(
+        *,
+        agent,
+        prompt,
+        message_history=None,
+        thinking=None,
+        deps=None,
+        enable_server_history=False,
+        message_history_sink=None,
+    ):
+        del (
+            agent,
+            prompt,
+            message_history,
+            thinking,
+            deps,
+            enable_server_history,
+            message_history_sink,
+        )
+        yield RunStartedEvent(run_id="run-1")
+        yield ToolCallStartedEvent(
+            run_id="run-1",
+            tool_call_id="call-readread",
+            tool_name="readread",
+            args=None,
+            args_valid=False,
+        )
+        yield ToolCallSucceededEvent(
+            run_id="run-1",
+            tool_call_id="call-readread",
+            tool_name="readread",
+            result={
+                "ok": False,
+                "error_type": "RetryPromptPart",
+                "message": "Unknown tool name: 'readread'. Available tools: 'read'",
+            },
+        )
+        yield RunFailedEvent(
+            run_id="run-1",
+            error_type="ModelHTTPError",
+            message="status_code: 400, invalid tool call arguments",
+        )
+
+    original_capture_run_messages = runtime_session_module.capture_run_messages
+    original_stream_run_events = runtime_session_module.stream_run_events
+
+    monkeypatch.setattr(
+        "just_another_coding_agent.runtime.session.capture_run_messages",
+        fake_capture_run_messages,
+    )
+    monkeypatch.setattr(
+        "just_another_coding_agent.runtime.session.stream_run_events",
+        failed_correction_stream_run_events,
+    )
+
+    _ = [
+        event
+        async for event in stream_session_run_events(
+            model=FunctionModel(stream_function=text_only_stream),
+            workspace_root=workspace_root,
+            session_path=session_path,
+            prompt="get familiar with repo!",
+        )
+    ]
+
+    probe_observed: dict[str, list[str]] = {}
+
+    async def clean_resume_probe_stream(messages, _agent_info):
+        probe_observed["part_types"] = [
+            type(part).__name__ for part in _all_parts(messages)
+        ]
+        probe_observed["user_prompts"] = [
+            part.content
+            for part in _all_parts(messages)
+            if isinstance(part, UserPromptPart)
+        ]
+        assert not any(
+            isinstance(part, ToolCallPart) and part.tool_name == "readread"
+            for part in _all_parts(messages)
+        )
+        assert not any(
+            isinstance(part, RetryPromptPart) for part in _all_parts(messages)
+        )
+        yield "clean"
+
+    monkeypatch.setattr(
+        "just_another_coding_agent.runtime.session.capture_run_messages",
+        original_capture_run_messages,
+    )
+    monkeypatch.setattr(
+        "just_another_coding_agent.runtime.session.stream_run_events",
+        original_stream_run_events,
+    )
+
+    resumed_events = [
+        event
+        async for event in stream_session_run_events(
+            model=FunctionModel(stream_function=clean_resume_probe_stream),
+            workspace_root=workspace_root,
+            session_path=session_path,
+            prompt="hello",
+        )
+    ]
+
+    assert [event.type for event in resumed_events] == [
+        "run_started",
+        "assistant_text_delta",
+        "run_succeeded",
+    ]
+    assert probe_observed["user_prompts"] == ["get familiar with repo!", "hello"]
