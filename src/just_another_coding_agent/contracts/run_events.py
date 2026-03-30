@@ -96,7 +96,6 @@ class ToolActivity(BaseModel):
     duration_ms: int | None = None
     details: ToolActivityDetails | None = None
     group_kind: str | None = None
-    group_id: str | None = None
 
 
 class RunStartedEvent(_RunEventBase):

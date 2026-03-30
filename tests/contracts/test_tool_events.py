@@ -689,7 +689,6 @@ async def test_stream_run_events_recovers_from_missing_read_within_one_run(
     assert events[1].activity is not None
     assert events[1].activity.title == "read missing.txt"
     assert events[1].activity.group_kind == "exploration"
-    assert events[1].activity.group_id is not None
     assert isinstance(events[2], ToolCallSucceededEvent)
     assert events[2].result["ok"] is False
     assert events[2].result["error_type"] == "ToolPathError"
@@ -704,7 +703,6 @@ async def test_stream_run_events_recovers_from_missing_read_within_one_run(
     assert events[3].activity is not None
     assert events[3].activity.title == "read note.txt"
     assert events[3].activity.group_kind == "exploration"
-    assert events[3].activity.group_id is not None
     assert isinstance(events[4], ToolCallSucceededEvent)
     assert events[4].result == "hello\nworld\n"
     assert events[4].activity is not None

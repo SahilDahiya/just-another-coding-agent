@@ -43,7 +43,6 @@ from just_another_coding_agent.contracts.run_events import (
 )
 from just_another_coding_agent.contracts.thinking import ThinkingSetting
 from just_another_coding_agent.runtime.activity import (
-    _EXPLORATION_TOOL_NAMES,
     build_failed_tool_activity,
     build_started_tool_activity,
     build_succeeded_tool_activity,
@@ -67,7 +66,6 @@ class _PendingToolCall:
     args: JsonValue | None
     args_valid: bool | None
     started_at: float
-    group_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -132,8 +130,6 @@ async def stream_run_events(
         saw_streamed_event = False
         terminal_emitted = False
         deferred_continuation: _DeferredContinuation | None = None
-        current_exploration_group_id: str | None = None
-        in_tool_call_burst = False
         queue: asyncio.Queue[object] = asyncio.Queue()
 
         async def _queue_tool_update(
@@ -224,7 +220,6 @@ async def stream_run_events(
                                 if isinstance(queued_deps, WorkspaceDeps)
                                 else None
                             ),
-                            group_id=pending_tool_call.group_id,
                         ),
                     )
                     continue
@@ -244,21 +239,11 @@ async def stream_run_events(
                             )
                         continue
 
-                    is_exploration = event.part.tool_name in _EXPLORATION_TOOL_NAMES
-                    if is_exploration:
-                        if not in_tool_call_burst:
-                            current_exploration_group_id = uuid4().hex
-                            in_tool_call_burst = True
-                    else:
-                        in_tool_call_burst = False
-                        current_exploration_group_id = None
-
                     pending_tool_calls[event.tool_call_id] = _PendingToolCall(
                         tool_name=event.part.tool_name,
                         args=args,
                         args_valid=event.args_valid,
                         started_at=monotonic(),
-                        group_id=current_exploration_group_id if is_exploration else None,
                     )
                     yield ToolCallStartedEvent(
                         run_id=run_id,
@@ -275,12 +260,10 @@ async def stream_run_events(
                                 if isinstance(queued_deps, WorkspaceDeps)
                                 else None
                             ),
-                            group_id=current_exploration_group_id,
                         ),
                     )
                     continue
 
-                in_tool_call_burst = False
                 if isinstance(event, FunctionToolResultEvent):
                     if isinstance(event.result, RetryPromptPart):
                         pending_tool_call = _resolve_pending_tool_call(
@@ -311,7 +294,6 @@ async def stream_run_events(
                                     if isinstance(queued_deps, WorkspaceDeps)
                                     else None
                                 ),
-                                group_id=pending_tool_call.group_id,
                             ),
                         )
                         continue
@@ -342,7 +324,6 @@ async def stream_run_events(
                                 if isinstance(queued_deps, WorkspaceDeps)
                                 else None
                             ),
-                            group_id=pending_tool_call.group_id,
                         ),
                     )
                     continue
@@ -437,7 +418,6 @@ async def stream_run_events(
                             if isinstance(queued_deps, WorkspaceDeps)
                             else None
                         ),
-                        group_id=pending_tool_call.group_id,
                     ),
                 )
 
