@@ -27,14 +27,14 @@ def _ctx(tmp_path):
     )
 
 
-def test_read_returns_tool_owned_activity_metadata(tmp_path) -> None:
+async def test_read_returns_tool_owned_activity_metadata(tmp_path) -> None:
     ctx = _ctx(tmp_path)
     (ctx.deps.workspace_root / "note.txt").write_text(
         "hello\nworld\n",
         encoding="utf-8",
     )
 
-    result = read(ctx, "note.txt", offset=2, limit=3)
+    result = await read(ctx, "note.txt", offset=2, limit=3)
 
     assert isinstance(result, ToolReturn)
     assert result.return_value == "world\n"
@@ -50,10 +50,10 @@ def test_read_returns_tool_owned_activity_metadata(tmp_path) -> None:
     }
 
 
-def test_write_returns_tool_owned_activity_metadata(tmp_path) -> None:
+async def test_write_returns_tool_owned_activity_metadata(tmp_path) -> None:
     ctx = _ctx(tmp_path)
 
-    result = write(ctx, "note.txt", "hello")
+    result = await write(ctx, "note.txt", "hello")
 
     assert isinstance(result, ToolReturn)
     assert result.metadata == {
@@ -67,12 +67,12 @@ def test_write_returns_tool_owned_activity_metadata(tmp_path) -> None:
     }
 
 
-def test_edit_returns_tool_owned_activity_metadata(tmp_path) -> None:
+async def test_edit_returns_tool_owned_activity_metadata(tmp_path) -> None:
     ctx = _ctx(tmp_path)
     note = ctx.deps.workspace_root / "note.txt"
     note.write_text("hello\nworld\n", encoding="utf-8")
 
-    result = edit(ctx, "note.txt", "world", "agent")
+    result = await edit(ctx, "note.txt", "world", "agent")
 
     assert isinstance(result, ToolReturn)
     assert result.return_value == f"Edited {note}"
@@ -95,11 +95,11 @@ def test_edit_returns_tool_owned_activity_metadata(tmp_path) -> None:
 
 
 @pytest.mark.skipif(shutil.which("rg") is None, reason="rg required")
-def test_grep_returns_tool_owned_activity_metadata(tmp_path) -> None:
+async def test_grep_returns_tool_owned_activity_metadata(tmp_path) -> None:
     ctx = _ctx(tmp_path)
     (ctx.deps.workspace_root / "note.txt").write_text("hello\nTODO\n", encoding="utf-8")
 
-    result = grep(ctx, "TODO", path=".", glob="*.txt", limit=5)
+    result = await grep(ctx, "TODO", path=".", glob="*.txt", limit=5)
 
     assert isinstance(result, ToolReturn)
     assert result.metadata == {
@@ -117,11 +117,11 @@ def test_grep_returns_tool_owned_activity_metadata(tmp_path) -> None:
     }
 
 
-def test_ls_returns_tool_owned_activity_metadata(tmp_path) -> None:
+async def test_ls_returns_tool_owned_activity_metadata(tmp_path) -> None:
     ctx = _ctx(tmp_path)
     (ctx.deps.workspace_root / "note.txt").write_text("hello\n", encoding="utf-8")
 
-    result = ls(ctx, None, 7)
+    result = await ls(ctx, None, 7)
 
     assert isinstance(result, ToolReturn)
     assert result.metadata == {
@@ -136,11 +136,11 @@ def test_ls_returns_tool_owned_activity_metadata(tmp_path) -> None:
 
 
 @pytest.mark.skipif(shutil.which("rg") is None, reason="rg required")
-def test_find_returns_tool_owned_activity_metadata(tmp_path) -> None:
+async def test_find_returns_tool_owned_activity_metadata(tmp_path) -> None:
     ctx = _ctx(tmp_path)
     (ctx.deps.workspace_root / "note.py").write_text("print('ok')\n", encoding="utf-8")
 
-    result = find(ctx, "*.py", ".", 8)
+    result = await find(ctx, "*.py", ".", 8)
 
     assert isinstance(result, ToolReturn)
     assert result.metadata == {

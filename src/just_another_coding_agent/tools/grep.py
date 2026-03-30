@@ -14,6 +14,9 @@ from just_another_coding_agent.tools._activity import (
     make_tool_return,
     truncate_activity_label,
 )
+from just_another_coding_agent.tools._subprocess_worker import (
+    run_blocking_tool_in_subprocess,
+)
 from just_another_coding_agent.tools._workspace import resolve_workspace_path
 from just_another_coding_agent.tools.deps import WorkspaceDeps
 from just_another_coding_agent.tools.errors import (
@@ -28,6 +31,30 @@ from just_another_coding_agent.tools.truncation import (
 GREP_MAX_MATCHES = 100
 GREP_MAX_BYTES = 50 * 1024
 GREP_MAX_LINE_CHARS = 300
+
+
+async def _execute_grep_async(
+    *,
+    workspace_root: Path | str,
+    pattern: str,
+    path: str | None = None,
+    glob: str | None = None,
+    ignore_case: bool = False,
+    literal: bool = False,
+    limit: int = GREP_MAX_MATCHES,
+) -> str:
+    return await run_blocking_tool_in_subprocess(
+        operation="grep",
+        kwargs={
+            "workspace_root": str(workspace_root),
+            "pattern": pattern,
+            "path": path,
+            "glob": glob,
+            "ignore_case": ignore_case,
+            "literal": literal,
+            "limit": limit,
+        },
+    )
 
 
 def _format_match_path(*, file_path: Path, workspace_root: Path) -> str:
@@ -175,7 +202,7 @@ def execute_grep(
     return result
 
 
-def grep(
+async def grep(
     ctx: RunContext[WorkspaceDeps],
     pattern: Annotated[str, Field(min_length=1)],
     path: Annotated[str | None, Field(min_length=1)] = None,
@@ -198,7 +225,7 @@ def grep(
             ceiling is applied.
     """
 
-    result = execute_grep(
+    result = await _execute_grep_async(
         workspace_root=ctx.deps.workspace_root,
         pattern=pattern,
         path=path,

@@ -40,13 +40,13 @@ def _tool_history(content: str) -> list[ModelMessage]:
     ]
 
 
-def test_restore_in_run_compaction_round_trips_original_tool_output() -> None:
+async def test_restore_in_run_compaction_round_trips_original_tool_output() -> None:
     original = "\n".join(
         f"line-{index:04d} abcdefghijklmnopqrstuvwxyz" for index in range(80)
     )
     messages = _tool_history(original)
 
-    compacted = build_in_run_history_processor(soft_char_limit=120)(messages)
+    compacted = await build_in_run_history_processor(soft_char_limit=120)(messages)
     compacted_tool_return = compacted[2].parts[0]
 
     assert isinstance(compacted_tool_return, ToolReturnPart)

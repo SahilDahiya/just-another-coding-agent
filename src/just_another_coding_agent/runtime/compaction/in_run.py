@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from typing import Any
 
@@ -27,14 +27,16 @@ _MODEL_MESSAGES_ADAPTER = TypeAdapter(list[ModelMessage])
 def build_in_run_history_processor(
     *,
     soft_char_limit: int | None = None,
-) -> Callable[[list[ModelMessage]], list[ModelMessage]]:
+) -> Callable[[list[ModelMessage]], Awaitable[list[ModelMessage]]]:
     effective_soft_char_limit = (
         IN_RUN_COMPACTION_SOFT_CHAR_LIMIT
         if soft_char_limit is None
         else soft_char_limit
     )
 
-    def apply_in_run_compaction(messages: list[ModelMessage]) -> list[ModelMessage]:
+    async def apply_in_run_compaction(
+        messages: list[ModelMessage],
+    ) -> list[ModelMessage]:
         current_size = _estimate_message_history_size(messages)
         if current_size <= effective_soft_char_limit:
             return messages

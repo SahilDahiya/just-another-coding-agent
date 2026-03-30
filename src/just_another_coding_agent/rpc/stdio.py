@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import json
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -164,7 +163,7 @@ async def serve_rpc_stdio(
     sessions_root: Path | str,
 ) -> None:
     while True:
-        line = await asyncio.to_thread(input_stream.readline)
+        line = input_stream.readline()
         if line == "":
             return
 

@@ -13,6 +13,9 @@ from just_another_coding_agent.tools._activity import (
     make_tool_return,
     truncate_activity_label,
 )
+from just_another_coding_agent.tools._subprocess_worker import (
+    run_blocking_tool_in_subprocess,
+)
 from just_another_coding_agent.tools._workspace import resolve_workspace_path
 from just_another_coding_agent.tools.deps import WorkspaceDeps
 from just_another_coding_agent.tools.errors import (
@@ -26,6 +29,24 @@ from just_another_coding_agent.tools.truncation import (
 
 FIND_DEFAULT_LIMIT = 1000
 FIND_MAX_BYTES = 50 * 1024
+
+
+async def _execute_find_async(
+    *,
+    workspace_root: Path | str,
+    pattern: str,
+    path: str | None = None,
+    limit: int = FIND_DEFAULT_LIMIT,
+) -> str:
+    return await run_blocking_tool_in_subprocess(
+        operation="find",
+        kwargs={
+            "workspace_root": str(workspace_root),
+            "pattern": pattern,
+            "path": path,
+            "limit": limit,
+        },
+    )
 
 
 def _matches_pattern(path_text: str, pattern: str) -> bool:
@@ -119,7 +140,7 @@ def execute_find(
     return result
 
 
-def find(
+async def find(
     ctx: RunContext[WorkspaceDeps],
     pattern: Annotated[str, Field(min_length=1)],
     path: Annotated[str | None, Field(min_length=1)] = None,
@@ -135,7 +156,7 @@ def find(
             ceiling is applied.
     """
 
-    result = execute_find(
+    result = await _execute_find_async(
         workspace_root=ctx.deps.workspace_root,
         pattern=pattern,
         path=path,

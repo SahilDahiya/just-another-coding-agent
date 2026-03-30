@@ -25,8 +25,10 @@ def configure_observability() -> None:
         return
 
     logfire = _import_logfire()
+    scrubbing = logfire.ScrubbingOptions(callback=_scrub_only_api_keys)
     kwargs: dict[str, Any] = {
         "console": False,
+        "scrubbing": scrubbing,
         "service_name": os.environ.get(
             "LOGFIRE_SERVICE_NAME",
             _DEFAULT_SERVICE_NAME,
@@ -48,6 +50,32 @@ def configure_observability() -> None:
 
     logfire.configure(**kwargs)
     _configured = True
+
+
+_API_KEY_PATTERNS = frozenset({
+    "api_key",
+    "api-key",
+    "apikey",
+    "secret",
+    "secret_key",
+    "token",
+    "password",
+    "passwd",
+    "authorization",
+    "openai_api_key",
+    "anthropic_api_key",
+    "ollama_api_key",
+    "logfire_token",
+})
+
+
+def _scrub_only_api_keys(match: Any) -> Any:
+    path = match.path
+    if isinstance(path, str):
+        key = path.rsplit(".", 1)[-1].lower().replace("-", "_")
+        if key in _API_KEY_PATTERNS:
+            return "[Redacted]"
+    return None
 
 
 def _import_logfire() -> Any:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import threading
 import time
 from collections.abc import AsyncIterator
@@ -109,19 +110,23 @@ async def test_parallel_read_only_tool_calls_overlap(monkeypatch, tmp_path) -> N
     workspace_root.mkdir()
     active = 0
     max_active = 0
-    lock = threading.Lock()
 
-    def _fake_execute_read(*, workspace_root, path, offset=None, limit=None):
+    async def _fake_execute_read_async(
+        *,
+        workspace_root,
+        path,
+        offset=None,
+        limit=None,
+    ):
         nonlocal active, max_active
-        with lock:
-            active += 1
-            max_active = max(max_active, active)
-        time.sleep(0.05)
-        with lock:
-            active -= 1
+        del workspace_root, offset, limit
+        active += 1
+        max_active = max(max_active, active)
+        await asyncio.sleep(0.05)
+        active -= 1
         return f"contents for {path}"
 
-    monkeypatch.setattr(read_module, "execute_read", _fake_execute_read)
+    monkeypatch.setattr(read_module, "_execute_read_async", _fake_execute_read_async)
 
     agent = build_canonical_agent(
         model=FunctionModel(stream_function=_parallel_reads_stream),

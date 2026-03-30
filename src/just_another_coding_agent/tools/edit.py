@@ -198,7 +198,7 @@ def execute_edit(
     )
 
 
-def edit(
+async def edit(
     ctx: RunContext[WorkspaceDeps],
     path: Annotated[str, Field(min_length=1)],
     old_text: Annotated[str, Field(min_length=1)],

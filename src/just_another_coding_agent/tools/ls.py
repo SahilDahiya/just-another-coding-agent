@@ -11,6 +11,9 @@ from just_another_coding_agent.tools._activity import (
     make_tool_return,
     truncate_activity_label,
 )
+from just_another_coding_agent.tools._subprocess_worker import (
+    run_blocking_tool_in_subprocess,
+)
 from just_another_coding_agent.tools._workspace import resolve_workspace_path
 from just_another_coding_agent.tools.deps import WorkspaceDeps
 from just_another_coding_agent.tools.errors import reraise_path_error
@@ -21,6 +24,22 @@ from just_another_coding_agent.tools.truncation import (
 
 LS_MAX_BYTES = 50 * 1024
 LS_DEFAULT_LIMIT = 500
+
+
+async def _execute_ls_async(
+    *,
+    workspace_root: Path | str,
+    path: str | None = None,
+    limit: int = LS_DEFAULT_LIMIT,
+) -> str:
+    return await run_blocking_tool_in_subprocess(
+        operation="ls",
+        kwargs={
+            "workspace_root": str(workspace_root),
+            "path": path,
+            "limit": limit,
+        },
+    )
 
 
 def _format_entry(entry: Path) -> str:
@@ -77,7 +96,7 @@ def execute_ls(
     return result
 
 
-def ls(
+async def ls(
     ctx: RunContext[WorkspaceDeps],
     path: Annotated[str | None, Field(min_length=1)] = None,
     limit: Annotated[int, Field(ge=1)] = LS_DEFAULT_LIMIT,
@@ -91,7 +110,7 @@ def ls(
             ceiling is applied.
     """
 
-    result = execute_ls(
+    result = await _execute_ls_async(
         workspace_root=ctx.deps.workspace_root,
         path=path,
         limit=limit,

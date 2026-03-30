@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -91,13 +91,19 @@ def build_canonical_instructions(
 
     return "\n".join(sections)
 
+
 def build_canonical_agent(
     *,
     model: Any,
     workspace_root: Path | str,
     shell_family: ShellFamily | None = None,
     tool_names: Sequence[str] = CANONICAL_TOOL_NAMES,
-    history_processors: Sequence[Callable[[list[ModelMessage]], list[ModelMessage]]]
+    history_processors: Sequence[
+        Callable[
+            [list[ModelMessage]],
+            list[ModelMessage] | Awaitable[list[ModelMessage]],
+        ]
+    ]
     | None = None,
 ) -> Agent[WorkspaceDeps, str]:
     root = normalize_workspace_root(workspace_root)

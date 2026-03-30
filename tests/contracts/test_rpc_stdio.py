@@ -94,7 +94,7 @@ async def text_only_stream(
     yield "done"
 
 
-def compaction_summary_function(
+async def compaction_summary_function(
     messages: list[ModelMessage],
     _agent_info: object,
 ) -> ModelResponse:

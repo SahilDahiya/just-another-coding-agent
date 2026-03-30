@@ -15,6 +15,13 @@ from just_another_coding_agent.runtime.local_traces import (
 )
 
 
+def _fake_logfire_module(calls: list[dict[str, object]]) -> SimpleNamespace:
+    return SimpleNamespace(
+        configure=lambda **kwargs: calls.append(kwargs),
+        ScrubbingOptions=lambda **kwargs: {"_scrubbing": True, **kwargs},
+    )
+
+
 def test_configure_observability_configures_local_tracing_when_requested(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -24,7 +31,7 @@ def test_configure_observability_configures_local_tracing_when_requested(
     monkeypatch.setitem(
         sys.modules,
         "logfire",
-        SimpleNamespace(configure=lambda **kwargs: calls.append(kwargs)),
+        _fake_logfire_module(calls),
     )
     monkeypatch.setattr(
         observability,
@@ -40,6 +47,10 @@ def test_configure_observability_configures_local_tracing_when_requested(
             "send_to_logfire": False,
             "console": False,
             "service_name": "jaca",
+            "scrubbing": {
+                "_scrubbing": True,
+                "callback": observability._scrub_only_api_keys,
+            },
             "additional_span_processors": ["processor"],
         }
     ]
@@ -77,7 +88,7 @@ def test_configure_observability_fails_fast_without_logfire_credentials(
     monkeypatch.setitem(
         sys.modules,
         "logfire",
-        SimpleNamespace(configure=lambda **kwargs: None),
+        _fake_logfire_module([]),
     )
     monkeypatch.setattr(observability, "_configured", False)
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
@@ -113,7 +124,7 @@ def test_configure_observability_accepts_default_logfire_toml_credentials(
     monkeypatch.setitem(
         sys.modules,
         "logfire",
-        SimpleNamespace(configure=lambda **kwargs: calls.append(kwargs)),
+        _fake_logfire_module(calls),
     )
     monkeypatch.setattr(observability, "_configured", False)
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
@@ -125,6 +136,10 @@ def test_configure_observability_accepts_default_logfire_toml_credentials(
             "send_to_logfire": True,
             "console": False,
             "service_name": "jaca",
+            "scrubbing": {
+                "_scrubbing": True,
+                "callback": observability._scrub_only_api_keys,
+            },
         }
     ]
 

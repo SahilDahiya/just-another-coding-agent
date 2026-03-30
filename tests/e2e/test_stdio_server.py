@@ -71,7 +71,7 @@ async def resume_aware_write_stream(
     raise AssertionError(f"unexpected prompt: {latest_prompt!r}")
 
 
-def compaction_summary_function(
+async def compaction_summary_function(
     messages: list[ModelMessage],
     _agent_info: object,
 ) -> ModelResponse:

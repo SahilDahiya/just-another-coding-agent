@@ -34,7 +34,7 @@ def execute_write(
     return f"Wrote {resolved_path}"
 
 
-def write(
+async def write(
     ctx: RunContext[WorkspaceDeps],
     path: Annotated[str, Field(min_length=1)],
     content: str,
