@@ -45,6 +45,19 @@ canonical Python headless backend.
 - `esc` is the primary run-control key in the Go TUI: the first `esc` requests cancellation and the second `esc` loads the previous prompt back into the composer
 - single `ctrl+c` is copy-safe and non-destructive; when the shell receives it without an active selection, idle double-`ctrl+c` still exits the app
 
+## Release Packaging
+
+- Supported packaged wheel targets currently are:
+  - Linux `amd64`
+  - macOS `amd64`
+  - macOS `arm64`
+  - Windows `amd64`
+- Release wheels are built with `JACA_BUILD_TUI=1`, so packaged installs include both:
+  - `jaca-go`
+  - `jaca-read-only-worker`
+- CI now verifies that built wheel artifacts contain those bundled binaries and are not `none-any` pure-Python wheels
+- Tagged releases upload bundled wheel artifacts to GitHub Releases
+
 ## Environment
 
 - Copy `.env.example` to `.env` if you need local provider credentials.

@@ -41,3 +41,11 @@ jobs:
 
       - name: Run Go tests
         run: go test ./cmd/jaca ./internal/jaca/...
+
+      - name: Build bundled wheel
+        env:
+          JACA_BUILD_TUI: "1"
+        run: uv build --wheel
+
+      - name: Verify bundled wheel contents
+        run: python scripts/verify_bundled_wheel.py dist/*.whl
