@@ -1203,6 +1203,8 @@ async def test_stream_session_run_events_auto_compacts_stale_session_before_resu
         monkeypatch.undo()
 
     assert [event.type for event in events] == [
+        "session_compaction_started",
+        "session_compaction_completed",
         "run_started",
         "assistant_text_delta",
         "run_succeeded",

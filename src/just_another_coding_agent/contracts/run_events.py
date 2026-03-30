@@ -155,6 +155,23 @@ class RunFailedEvent(_RunEventBase):
     message: str
 
 
+class SessionCompactionStartedEvent(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    type: Literal["session_compaction_started"] = "session_compaction_started"
+
+
+class SessionCompactionCompletedEvent(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    type: Literal["session_compaction_completed"] = "session_compaction_completed"
+    compaction_id: str
+    summarized_through_run_id: str
+
+
+SessionLifecycleEvent = SessionCompactionStartedEvent | SessionCompactionCompletedEvent
+
+
 RunEvent = Annotated[
     RunStartedEvent
     | AssistantTextDeltaEvent
@@ -179,6 +196,9 @@ __all__ = [
     "RunFailedEvent",
     "RunStartedEvent",
     "RunSucceededEvent",
+    "SessionCompactionCompletedEvent",
+    "SessionCompactionStartedEvent",
+    "SessionLifecycleEvent",
     "ShellActivityDetails",
     "ToolActivity",
     "ToolActivityDetails",

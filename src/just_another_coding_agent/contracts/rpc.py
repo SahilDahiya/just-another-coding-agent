@@ -4,7 +4,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
-from .run_events import RunEvent
+from .run_events import RunEvent, SessionLifecycleEvent
 from .thinking import ThinkingSetting
 
 SessionId = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{32}$")]
@@ -81,7 +81,7 @@ class RpcResponseEnvelope(_RpcModel):
 class RpcEventEnvelope(_RpcModel):
     type: Literal["rpc_event"] = "rpc_event"
     id: str
-    event: RunEvent
+    event: RunEvent | SessionLifecycleEvent
 
 
 class RpcErrorEnvelope(_RpcModel):

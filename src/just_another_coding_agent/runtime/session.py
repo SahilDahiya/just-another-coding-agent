@@ -13,6 +13,9 @@ from just_another_coding_agent.contracts.run_events import (
     RunEvent,
     RunFailedEvent,
     RunSucceededEvent,
+    SessionCompactionCompletedEvent,
+    SessionCompactionStartedEvent,
+    SessionLifecycleEvent,
     ToolCallFailedEvent,
     ToolCallStartedEvent,
     ToolCallSucceededEvent,
@@ -45,7 +48,7 @@ async def stream_session_run_events(
     prompt: str,
     tool_names: Sequence[str] = CANONICAL_TOOL_NAMES,
     thinking: ThinkingSetting | None = None,
-) -> AsyncIterator[RunEvent]:
+) -> AsyncIterator[RunEvent | SessionLifecycleEvent]:
     """Stream one run and persist session entries incrementally.
 
     The canonical session format only becomes loadable after terminal
@@ -67,7 +70,8 @@ async def stream_session_run_events(
             # Auto-compaction is pre-run session maintenance, not part of the
             # streamed run event contract. Failures here surface as an
             # exception to the caller rather than as a run_failed event.
-            await summarize_and_append_compaction_to_session(
+            yield SessionCompactionStartedEvent()
+            compaction_entry = await summarize_and_append_compaction_to_session(
                 model=model,
                 path=session_path,
                 workspace_root=normalized_workspace_root,
@@ -75,6 +79,10 @@ async def stream_session_run_events(
             loaded_session = load_session(
                 path=session_path,
                 workspace_root=normalized_workspace_root,
+            )
+            yield SessionCompactionCompletedEvent(
+                compaction_id=compaction_entry.compaction_id,
+                summarized_through_run_id=compaction_entry.summarized_through_run_id,
             )
     resolved_thinking = (
         thinking
