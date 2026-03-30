@@ -100,6 +100,7 @@ def test_harbor_agent_supports_current_base_installed_agent_api(
     assert commands[0].env == {
         "OLLAMA_API_KEY": "test-key",
         "JUST_ANOTHER_CODING_AGENT_THINKING": "high",
+        "OLLAMA_BASE_URL": "https://ollama.com/v1",
     }
     assert "evaluations.bench.exec_prompt" in commands[0].command
     assert "--model ollama:kimi-k2:1t-cloud" in commands[0].command
