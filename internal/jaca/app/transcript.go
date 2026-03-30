@@ -487,6 +487,9 @@ func (t *Transcript) updateTool(event rpc.RunEvent) {
 	entry.message = buildToolSummary(event.Activity, "")
 	entry.duration = buildToolDuration(event.Activity)
 	entry.groupKind = buildToolGroupKind(event.Activity)
+	if event.Activity != nil {
+		entry.activity = event.Activity
+	}
 	entry.detailLines = nil
 	entry.resultLines, entry.resultTruncated, entry.resultOmittedLines, entry.resultHeadCount = extractToolResultLines(event.Partial)
 	t.rewriteToolGroup()
@@ -504,6 +507,9 @@ func (t *Transcript) failTool(event rpc.RunEvent) {
 	entry.message = buildToolSummary(event.Activity, event.Message)
 	entry.duration = buildToolDuration(event.Activity)
 	entry.groupKind = buildToolGroupKind(event.Activity)
+	if event.Activity != nil {
+		entry.activity = event.Activity
+	}
 	entry.detailLines = nil
 	entry.resultLines = nil
 	entry.resultTruncated = false
