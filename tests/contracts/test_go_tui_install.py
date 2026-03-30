@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 
 import just_another_coding_agent.go_tui as go_tui
@@ -18,6 +20,43 @@ def test_go_tui_install_command_is_explicit() -> None:
         == "JACA_BUILD_TUI=1 uv sync --reinstall-package just-another-coding-agent "
         "--extra dev --extra test"
     )
+
+
+def test_explicit_update_command_detects_uv_tool_install(monkeypatch, tmp_path) -> None:
+    scripts_dir = tmp_path / ".local" / "share" / "uv" / "tools" / "pkg" / "bin"
+    scripts_dir.mkdir(parents=True)
+    monkeypatch.setattr(go_tui.sysconfig, "get_path", lambda key: str(scripts_dir))
+    monkeypatch.setattr(go_tui, "_package_installer", lambda: "uv")
+
+    assert go_tui.explicit_update_command() == [
+        "uv",
+        "tool",
+        "upgrade",
+        "just-another-coding-agent",
+    ]
+    assert go_tui.explicit_update_command_json() == json.dumps(
+        ["uv", "tool", "upgrade", "just-another-coding-agent"]
+    )
+
+
+def test_explicit_update_command_is_disabled_in_repo_checkout(monkeypatch, tmp_path) -> None:
+    scripts_dir = tmp_path / ".local" / "share" / "uv" / "tools" / "pkg" / "bin"
+    scripts_dir.mkdir(parents=True)
+    monkeypatch.setattr(go_tui.sysconfig, "get_path", lambda key: str(scripts_dir))
+    monkeypatch.setattr(go_tui, "_package_installer", lambda: "uv")
+
+    assert go_tui.explicit_update_command(repo_root=tmp_path / "repo") is None
+
+
+def test_explicit_update_command_is_disabled_outside_uv_tool_layout(
+    monkeypatch, tmp_path
+) -> None:
+    scripts_dir = tmp_path / ".venv" / "bin"
+    scripts_dir.mkdir(parents=True)
+    monkeypatch.setattr(go_tui.sysconfig, "get_path", lambda key: str(scripts_dir))
+    monkeypatch.setattr(go_tui, "_package_installer", lambda: "uv")
+
+    assert go_tui.explicit_update_command() is None
 
 
 def test_resolve_go_tui_binary_reports_explicit_recovery_step(

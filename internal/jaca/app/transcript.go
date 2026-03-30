@@ -145,7 +145,7 @@ func (t *Transcript) markDirty(index int) {
 	}
 }
 
-func (t *Transcript) WriteStartupBanner(model string, workspaceRoot string, thinking string) {
+func (t *Transcript) WriteStartupBanner(appVersion string, model string, workspaceRoot string, thinking string) {
 	titleStyle := lipgloss.NewStyle().Foreground(defaultTheme.text).Bold(true)
 	labelStyle := lipgloss.NewStyle().Foreground(defaultTheme.textMuted)
 	valueStyle := lipgloss.NewStyle().Foreground(defaultTheme.textSoft)
@@ -154,8 +154,12 @@ func (t *Transcript) WriteStartupBanner(model string, workspaceRoot string, thin
 	var innerLines []string
 	var innerRendered []string
 
-	innerLines = append(innerLines, ">_ jaca (v0.1.0)", "")
-	innerRendered = append(innerRendered, titleStyle.Render(">_ jaca (v0.1.0)"), "")
+	title := ">_ jaca"
+	if appVersion != "" {
+		title = fmt.Sprintf(">_ jaca (v%s)", appVersion)
+	}
+	innerLines = append(innerLines, title, "")
+	innerRendered = append(innerRendered, titleStyle.Render(title), "")
 
 	innerLines = append(innerLines,
 		fmt.Sprintf("model:     %s    /model to change", model),

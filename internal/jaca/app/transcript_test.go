@@ -23,10 +23,10 @@ func TestWriteStartupBannerIncludesOllamaHintsInPlainText(t *testing.T) {
 	workspaceRoot := filepath.Join("workspace", "repo")
 
 	transcript := NewTranscript()
-	transcript.WriteStartupBanner("ollama:test", workspaceRoot, "medium")
+	transcript.WriteStartupBanner("0.1.0", "ollama:test", workspaceRoot, "medium")
 
 	plain := transcript.blocks[0].Plain()
-	if !strings.Contains(plain, ">_ jaca") {
+	if !strings.Contains(plain, ">_ jaca (v0.1.0)") {
 		t.Fatalf("plain banner missing title: %q", plain)
 	}
 	if !strings.Contains(plain, "model:     ollama:test") {
@@ -41,7 +41,7 @@ func TestWriteStartupBannerShowsProviderGuidanceForMissingOpenAIKey(t *testing.T
 	t.Setenv("OPENAI_API_KEY", "")
 
 	transcript := NewTranscript()
-	transcript.WriteStartupBanner("openai:gpt-5.4", "/workspace", "")
+	transcript.WriteStartupBanner("0.1.0", "openai:gpt-5.4", "/workspace", "")
 
 	plain := transcript.blocks[0].Plain()
 	if !strings.Contains(plain, "no OPENAI_API_KEY") {

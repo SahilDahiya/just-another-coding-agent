@@ -213,6 +213,61 @@ func TestCtrlCWhileStreamingShowsInterruptGuidanceInPromptFooter(t *testing.T) {
 	}
 }
 
+func TestUpdateCheckMsgShowsInstalledUpdatePrompt(t *testing.T) {
+	m := newTestModel()
+	m.appVersion = "0.1.0"
+
+	updated, _ := m.Update(updateCheckMsg{
+		LatestVersion: "0.1.1",
+		Command:       []string{"uv", "tool", "upgrade", "just-another-coding-agent"},
+	})
+	m = updated.(*model)
+
+	rendered := stripANSI(m.View())
+	for _, want := range []string{
+		"update available  0.1.0 -> 0.1.1",
+		"runs: uv tool upgrade just-another-coding-agent",
+		"Update now",
+		"Skip until 0.1.1",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("update prompt missing %q in %q", want, rendered)
+		}
+	}
+}
+
+func TestUpdatePromptSkipUntilNextReleasePersistsChoice(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	m := newTestModel()
+	m.updatePrompt = updatePromptState{
+		Active:         true,
+		CurrentVersion: "0.1.0",
+		LatestVersion:  "0.1.1",
+		Command:        []string{"uv", "tool", "upgrade", "just-another-coding-agent"},
+		Selected:       2,
+	}
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(*model)
+
+	if m.updatePrompt.Active {
+		t.Fatal("expected skip-until selection to close update prompt")
+	}
+	if m.skippedUpdateVersion != "0.1.1" {
+		t.Fatalf("skippedUpdateVersion = %q, want %q", m.skippedUpdateVersion, "0.1.1")
+	}
+
+	data, err := os.ReadFile(home + "/.jaca/config.json")
+	if err != nil {
+		t.Fatalf("reading config.json: %v", err)
+	}
+	if !strings.Contains(string(data), `"update_skip_version": "0.1.1"`) {
+		t.Fatalf("config.json missing update skip version: %q", string(data))
+	}
+}
+
 func TestCtrlCIsNonDestructiveWhenPromptHasText(t *testing.T) {
 	m := newTestModel()
 	m.textInput.SetValue("draft prompt")

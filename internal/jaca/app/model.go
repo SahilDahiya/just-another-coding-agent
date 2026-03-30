@@ -15,11 +15,14 @@ import (
 )
 
 type Options struct {
-	Model         string
-	WorkspaceRoot string
-	SessionsRoot  string
-	Thinking      string
-	Backend       *rpc.Manager
+	AppVersion           string
+	Model                string
+	WorkspaceRoot        string
+	SessionsRoot         string
+	Thinking             string
+	Backend              *rpc.Manager
+	UpdateCommand        []string
+	SkippedUpdateVersion string
 }
 
 type Phase string
@@ -66,39 +69,42 @@ type modelCatalogLoadedMsg struct {
 }
 
 type model struct {
-	options            Options
-	phase              Phase
-	sessionID          string
-	textInput          textinput.Model
-	viewport           viewport.Model
-	transcript         *Transcript
-	width              int
-	height             int
-	visibleZones       int
-	motionTick         int
-	streaming          bool
-	activeRunSucceeded bool
-	promptHistory      []string
-	historyIndex       int
-	historyDraft       string
-	lastInterrupt      time.Time
-	activeRunCancel    context.CancelFunc
-	editPreviousArmed  bool
-	promptFooterNotice string
-	runStartTime       time.Time
-	lastDeltaTime      time.Time
-	linePulse          int
-	pendingAssistant   string
-	liveFlushScheduled bool
-	asyncCh            chan tea.Msg
-	slashMenu          slashMenuState
-	auth               authState
-	configErrLogged    bool
-	lastInputTokens    *int
-	lastOutputTokens   *int
-	lastTotalTokens    *int
-	lastContextWindow  *float64
-	modelCatalog       *rpc.ModelCatalogResponse
+	options              Options
+	phase                Phase
+	sessionID            string
+	textInput            textinput.Model
+	viewport             viewport.Model
+	transcript           *Transcript
+	width                int
+	height               int
+	visibleZones         int
+	motionTick           int
+	streaming            bool
+	activeRunSucceeded   bool
+	promptHistory        []string
+	historyIndex         int
+	historyDraft         string
+	lastInterrupt        time.Time
+	activeRunCancel      context.CancelFunc
+	editPreviousArmed    bool
+	promptFooterNotice   string
+	runStartTime         time.Time
+	lastDeltaTime        time.Time
+	linePulse            int
+	pendingAssistant     string
+	liveFlushScheduled   bool
+	asyncCh              chan tea.Msg
+	slashMenu            slashMenuState
+	auth                 authState
+	configErrLogged      bool
+	lastInputTokens      *int
+	lastOutputTokens     *int
+	lastTotalTokens      *int
+	lastContextWindow    *float64
+	modelCatalog         *rpc.ModelCatalogResponse
+	appVersion           string
+	skippedUpdateVersion string
+	updatePrompt         updatePromptState
 }
 
 func New(options Options) tea.Model {
@@ -111,15 +117,17 @@ func New(options Options) tea.Model {
 	input.Cursor.SetMode(cursor.CursorStatic)
 
 	transcript := NewTranscript()
-	transcript.WriteStartupBanner(options.Model, options.WorkspaceRoot, options.Thinking)
+	transcript.WriteStartupBanner(options.AppVersion, options.Model, options.WorkspaceRoot, options.Thinking)
 
 	return &model{
-		options:      options,
-		phase:        PhaseIdle,
-		textInput:    input,
-		viewport:     newViewport(),
-		transcript:   transcript,
-		historyIndex: -1,
+		options:              options,
+		phase:                PhaseIdle,
+		textInput:            input,
+		viewport:             newViewport(),
+		transcript:           transcript,
+		historyIndex:         -1,
+		appVersion:           options.AppVersion,
+		skippedUpdateVersion: options.SkippedUpdateVersion,
 	}
 }
 
@@ -130,6 +138,9 @@ func (m *model) Init() tea.Cmd {
 	}
 	if m.options.Backend != nil {
 		cmds = append(cmds, fetchModelCatalog(m.options.Backend))
+	}
+	if len(m.options.UpdateCommand) > 0 && m.options.AppVersion != "" {
+		cmds = append(cmds, fetchUpdatePrompt(m.options.AppVersion, m.options.UpdateCommand))
 	}
 	return tea.Batch(cmds...)
 }
@@ -264,6 +275,33 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.syncSlashMenu()
 		m.refreshViewport()
 		return m, nil
+	case updateCheckMsg:
+		if msg.Err != nil || msg.LatestVersion == "" || msg.LatestVersion == m.skippedUpdateVersion {
+			return m, nil
+		}
+		m.updatePrompt = updatePromptState{
+			Active:         true,
+			CurrentVersion: m.appVersion,
+			LatestVersion:  msg.LatestVersion,
+			Command:        append([]string(nil), msg.Command...),
+		}
+		m.refreshViewport()
+		return m, nil
+	case updateRunMsg:
+		latestVersion := m.updatePrompt.LatestVersion
+		m.updatePrompt = updatePromptState{}
+		m.transcript.WriteNote("update", []string{fmt.Sprintf("ran: %s", strings.Join(msg.Command, " "))})
+		if msg.Err != nil {
+			m.transcript.WriteError(fmt.Sprintf("update failed: %v", msg.Err))
+		} else {
+			m.transcript.WriteLine(fmt.Sprintf("updated to %s", latestVersion))
+			m.transcript.WriteLine("restart jaca to use the new version")
+			if err := saveSkippedUpdateVersion(""); err == nil {
+				m.skippedUpdateVersion = ""
+			}
+		}
+		m.refreshViewport()
+		return m, nil
 	case tea.MouseMsg:
 		var cmd tea.Cmd
 		m.viewport, cmd = m.viewport.Update(msg)
@@ -311,10 +349,14 @@ func (m *model) currentViewModel() viewModel {
 		SinceLastDelta: sinceLastDelta,
 		VisibleZones:   m.visibleZones,
 		SlashMenu:      m.slashMenu,
+		UpdatePrompt:   m.updatePrompt,
 	}
 }
 
 func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.updatePrompt.Active {
+		return m.handleUpdatePromptKey(msg)
+	}
 	switch msg.String() {
 	case "ctrl+c":
 		return m.handleInterrupt()
@@ -391,6 +433,60 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.refreshViewport()
 	}
 	return m, cmd
+}
+
+func (m *model) handleUpdatePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.updatePrompt.Running {
+		return m, nil
+	}
+	switch msg.String() {
+	case "up":
+		if m.updatePrompt.Selected > 0 {
+			m.updatePrompt.Selected--
+			m.refreshViewport()
+		}
+		return m, nil
+	case "down", "tab":
+		if m.updatePrompt.Selected < len(m.updatePrompt.options())-1 {
+			m.updatePrompt.Selected++
+		} else {
+			m.updatePrompt.Selected = 0
+		}
+		m.refreshViewport()
+		return m, nil
+	case "esc":
+		m.updatePrompt.Active = false
+		m.refreshViewport()
+		return m, nil
+	case "enter":
+		return m.handleUpdatePromptSelection()
+	default:
+		return m, nil
+	}
+}
+
+func (m *model) handleUpdatePromptSelection() (tea.Model, tea.Cmd) {
+	switch m.updatePrompt.Selected {
+	case 0:
+		m.updatePrompt.Running = true
+		m.refreshViewport()
+		return m, runInstalledUpdate(m.updatePrompt.Command)
+	case 1:
+		m.updatePrompt.Active = false
+		m.refreshViewport()
+		return m, nil
+	case 2:
+		if err := saveSkippedUpdateVersion(m.updatePrompt.LatestVersion); err != nil {
+			m.transcript.WriteError(fmt.Sprintf("update preference: %v", err))
+		} else {
+			m.skippedUpdateVersion = m.updatePrompt.LatestVersion
+		}
+		m.updatePrompt.Active = false
+		m.refreshViewport()
+		return m, nil
+	default:
+		return m, nil
+	}
 }
 
 func (m *model) handleInterrupt() (tea.Model, tea.Cmd) {

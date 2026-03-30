@@ -39,12 +39,18 @@ func run() error {
 	sessionsRoot := flag.String("sessions-root", "", "Sessions storage directory")
 	thinking := flag.String("thinking", "", "Thinking level")
 	backendCommandJSON := flag.String("backend-command-json", "", "JSON array command used to start the canonical headless backend")
+	appVersion := flag.String("app-version", "", "Installed JACA package version")
+	updateCommandJSON := flag.String("update-command-json", "", "JSON array command used to update the installed package")
 	flag.Parse()
 	if *model == "" {
 		return fmt.Errorf("missing model; launch via the installed jaca wrapper or set JACA_MODEL/default_model")
 	}
 
 	backendCommand, err := parseBackendCommandJSON(*backendCommandJSON)
+	if err != nil {
+		return err
+	}
+	updateCommand, err := parseOptionalCommandJSON(*updateCommandJSON, "--update-command-json")
 	if err != nil {
 		return err
 	}
@@ -71,11 +77,14 @@ func run() error {
 
 	program := tea.NewProgram(
 		app.New(app.Options{
-			Model:         *model,
-			WorkspaceRoot: absWorkspace,
-			SessionsRoot:  resolvedSessionsRoot,
-			Thinking:      normalizeThinking(*thinking),
-			Backend:       manager,
+			AppVersion:           *appVersion,
+			Model:                *model,
+			WorkspaceRoot:        absWorkspace,
+			SessionsRoot:         resolvedSessionsRoot,
+			Thinking:             normalizeThinking(*thinking),
+			Backend:              manager,
+			UpdateCommand:        updateCommand,
+			SkippedUpdateVersion: cfg["update_skip_version"],
 		}),
 		tea.WithAltScreen(),
 		tea.WithMouseCellMotion(),
@@ -136,6 +145,25 @@ func parseBackendCommandJSON(raw string) ([]string, error) {
 	for _, part := range command {
 		if part == "" {
 			return nil, fmt.Errorf("invalid --backend-command-json: command parts cannot be empty")
+		}
+	}
+	return command, nil
+}
+
+func parseOptionalCommandJSON(raw string, flagName string) ([]string, error) {
+	if raw == "" {
+		return nil, nil
+	}
+	var command []string
+	if err := json.Unmarshal([]byte(raw), &command); err != nil {
+		return nil, fmt.Errorf("invalid %s: %w", flagName, err)
+	}
+	if len(command) == 0 {
+		return nil, fmt.Errorf("invalid %s: command cannot be empty", flagName)
+	}
+	for _, part := range command {
+		if part == "" {
+			return nil, fmt.Errorf("invalid %s: command parts cannot be empty", flagName)
 		}
 	}
 	return command, nil

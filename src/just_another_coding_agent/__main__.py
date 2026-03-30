@@ -19,6 +19,8 @@ from just_another_coding_agent.config import (
 )
 from just_another_coding_agent.go_tui import (
     default_backend_command,
+    explicit_update_command_json,
+    package_version,
     resolve_go_tui_launch,
 )
 from just_another_coding_agent.rpc import serve_rpc_stdio
@@ -120,10 +122,13 @@ def _run_tui(
     thinking: str | None,
 ) -> int:
     launch_command, launch_cwd = resolve_go_tui_launch()
+    app_version = package_version()
     command = [
         *launch_command,
         "--backend-command-json",
         json.dumps(default_backend_command()),
+        "--app-version",
+        app_version,
         "--model",
         model,
         "--workspace-root",
@@ -131,6 +136,9 @@ def _run_tui(
         "--sessions-root",
         str(sessions_root),
     ]
+    update_command_json = explicit_update_command_json(repo_root=launch_cwd)
+    if update_command_json is not None:
+        command.extend(["--update-command-json", update_command_json])
     if thinking is not None:
         command.extend(["--thinking", thinking])
     completed = subprocess.run(
