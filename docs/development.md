@@ -2,6 +2,9 @@
 
 read_when: you need environment setup, commands, CI, or test workflow
 
+This document is for repo contributors. For end-user install and update paths,
+see [../README.md](../README.md).
+
 ## Runtime
 
 - Python `3.12`
@@ -12,7 +15,7 @@ read_when: you need environment setup, commands, CI, or test workflow
 
 ## Commands
 
-- Install dependencies: `uv sync --extra dev --extra test`
+- Install repo dependencies: `uv sync --extra dev --extra test`
 - Install the Go TUI binary explicitly: `JACA_BUILD_TUI=1 uv sync --reinstall-package just-another-coding-agent --extra dev --extra test`
 - Lint: `uv run ruff check .`
 - Format: `uv run ruff format .`

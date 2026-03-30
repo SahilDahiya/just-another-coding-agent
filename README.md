@@ -36,7 +36,31 @@ It is intentionally narrow: coding-agent backend first, a thin first-party termi
 - `tests/` - unit tests first, e2e later
 - `docs/` - scope, architecture, contracts, ADRs, development
 
-## Setup
+## Install
+
+For normal use outside a repo checkout, prefer one of these published-package
+paths:
+
+```bash
+uv tool install just-another-coding-agent
+jaca
+```
+
+```bash
+uvx --from just-another-coding-agent jaca
+```
+
+- `uv tool install` is the persistent daily-use path
+- `uvx` is the ephemeral no-install path
+- installed builds update explicitly with:
+
+```bash
+uv tool upgrade just-another-coding-agent
+```
+
+JACA does not auto-upgrade or self-reinstall on startup.
+
+## Repo Setup
 
 ```bash
 uv sync --extra dev --extra test
@@ -73,12 +97,14 @@ Launch the first-party terminal UI:
 uv run jaca
 ```
 
-The interactive launcher talks to the Python backend over stdio RPC.
+In a repo checkout, `uv run jaca` is the canonical development launcher. The
+interactive launcher talks to the Python backend over stdio RPC.
 
 In a live repo checkout, `uv run jaca` prefers `go run ./cmd/jaca` when `go`
 is available so the TUI always reflects current source.
 
-Outside a repo checkout, `uv run jaca` launches the installed `jaca-go` binary.
+Outside a repo checkout, the installed `jaca` command launches the installed
+`jaca-go` binary.
 
 If `uv run jaca` says the Go TUI binary is missing, rebuild the environment with:
 
@@ -90,7 +116,7 @@ JACA_BUILD_TUI=1 uv sync --reinstall-package just-another-coding-agent --extra d
 
 The TUI keeps provider, model, and trace preferences in `~/.jaca/config.json`.
 
-Inside `uv run jaca`:
+Inside `jaca`:
 
 - `/provider ollama` selects local Ollama and requires no key
 - `/provider openai` selects OpenAI and starts masked auth if `OPENAI_API_KEY` is missing
