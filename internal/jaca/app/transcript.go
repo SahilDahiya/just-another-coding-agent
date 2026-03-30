@@ -10,21 +10,51 @@ import (
 	"jaca/internal/jaca/rpc"
 )
 
-type transcriptBlock struct {
-	plain    string
-	rendered string
-	kind     transcriptBlockKind
+// Cell is the interface for all transcript block types.
+type Cell interface {
+	Plain() string
+	Render() string
+	IsMarkdown() bool
 }
 
-type transcriptBlockKind uint8
+// rawCell holds pre-computed plain and rendered text (banners, notes, user turns, errors, gaps).
+type rawCell struct {
+	plain    string
+	rendered string
+}
 
-const (
-	transcriptBlockRaw transcriptBlockKind = iota
-	transcriptBlockAssistantMarkdown
-)
+func (c *rawCell) Plain() string    { return c.plain }
+func (c *rawCell) Render() string   { return c.rendered }
+func (c *rawCell) IsMarkdown() bool { return false }
+
+// assistantCell holds completed assistant markdown with lazy, evictable rendering.
+type assistantCell struct {
+	plain       string
+	cachedRender string
+}
+
+func (c *assistantCell) Plain() string { return c.plain }
+func (c *assistantCell) Render() string {
+	if c.cachedRender != "" {
+		return c.cachedRender
+	}
+	c.cachedRender = renderCompletedAssistantMarkdown(strings.TrimSuffix(c.plain, "\n")) + "\n"
+	return c.cachedRender
+}
+func (c *assistantCell) IsMarkdown() bool { return true }
+
+// toolGroupCell holds pre-computed tool group text, rebuilt by rewriteToolGroup.
+type toolGroupCell struct {
+	plain    string
+	rendered string
+}
+
+func (c *toolGroupCell) Plain() string    { return c.plain }
+func (c *toolGroupCell) Render() string   { return c.rendered }
+func (c *toolGroupCell) IsMarkdown() bool { return false }
 
 type Transcript struct {
-	blocks           []transcriptBlock
+	blocks           []Cell
 	liveAssistantIdx int
 	liveDeltaBuf     strings.Builder
 	toolGroup        *toolGroup
@@ -63,11 +93,7 @@ func (t *Transcript) Render() string {
 	currentOffset := len(prefix)
 	for i := startIndex; i < len(t.blocks); i++ {
 		offsets[i] = currentOffset
-		blockRendered := t.blocks[i].rendered
-		if blockRendered == "" {
-			blockRendered = renderTranscriptBlock(t.blocks[i])
-			t.blocks[i].rendered = blockRendered
-		}
+		blockRendered := t.blocks[i].Render()
 		if t.Width > 0 {
 			blockRendered = wrapLines(blockRendered, t.Width)
 		}
@@ -91,20 +117,20 @@ func (t *Transcript) discardImmutableRenderedBlocks() {
 		if t.toolGroup != nil && i == t.toolGroup.index {
 			continue
 		}
-		if t.blocks[i].kind == transcriptBlockAssistantMarkdown {
-			t.blocks[i].rendered = ""
+		if ac, ok := t.blocks[i].(*assistantCell); ok {
+			ac.cachedRender = ""
 		}
 	}
 }
 
-func (t *Transcript) appendBlock(block transcriptBlock) int {
+func (t *Transcript) appendBlock(block Cell) int {
 	t.blocks = append(t.blocks, block)
 	index := len(t.blocks) - 1
 	t.markDirty(index)
 	return index
 }
 
-func (t *Transcript) replaceBlock(index int, block transcriptBlock) {
+func (t *Transcript) replaceBlock(index int, block Cell) {
 	t.blocks[index] = block
 	t.markDirty(index)
 }
@@ -166,7 +192,7 @@ func (t *Transcript) WriteStartupBanner(model string, workspaceRoot string, thin
 			hintStyle.Render("use /provider anthropic")
 	}
 
-	t.appendBlock(transcriptBlock{
+	t.appendBlock(&rawCell{
 		plain:    plainBox + extraPlain + "\n\n",
 		rendered: renderedBox + extraRendered + "\n\n",
 	})
@@ -223,7 +249,7 @@ func (t *Transcript) WriteNote(title string, lines []string) {
 		rendered += "\n"
 		plain += "\n"
 	}
-	t.appendBlock(transcriptBlock{plain: plain, rendered: rendered})
+	t.appendBlock(&rawCell{plain: plain, rendered: rendered})
 }
 
 func (t *Transcript) WriteUserTurn(prompt string) {
@@ -241,7 +267,7 @@ func (t *Transcript) WriteUserTurn(prompt string) {
 		Background(defaultTheme.border).
 		Width(width).
 		Render(plainLine)
-	t.appendBlock(transcriptBlock{
+	t.appendBlock(&rawCell{
 		plain:    plainLine + "\n",
 		rendered: rendered + "\n",
 	})
@@ -250,7 +276,7 @@ func (t *Transcript) WriteUserTurn(prompt string) {
 func (t *Transcript) WriteLine(line string) {
 	t.endToolGroup()
 	t.endLiveAssistant()
-	t.appendBlock(transcriptBlock{plain: line + "\n", rendered: line + "\n"})
+	t.appendBlock(&rawCell{plain: line + "\n", rendered: line + "\n"})
 }
 
 func (t *Transcript) WriteError(message string) {
@@ -271,7 +297,7 @@ func (t *Transcript) ApplyRunEvent(event rpc.RunEvent) {
 		t.failTool(event)
 	case "run_failed":
 		t.endLiveAssistant()
-		t.appendBlock(transcriptBlock{
+		t.appendBlock(&rawCell{
 			plain:    "error  " + event.Message + "\n",
 			rendered: "error  " + event.Message + "\n",
 		})
@@ -286,45 +312,39 @@ func (t *Transcript) appendAssistantDelta(delta string) {
 		t.ensureBlockGap()
 		t.liveDeltaBuf.Reset()
 		t.liveDeltaBuf.WriteString(delta)
-		t.liveAssistantIdx = t.appendBlock(transcriptBlock{
+		t.liveAssistantIdx = t.appendBlock(&rawCell{
 			plain: delta,
 		})
 		t.rebuildLiveAssistantRendered()
 		return
 	}
 	t.liveDeltaBuf.WriteString(delta)
-	t.blocks[t.liveAssistantIdx].plain = t.liveDeltaBuf.String()
+	t.blocks[t.liveAssistantIdx].(*rawCell).plain = t.liveDeltaBuf.String()
 	t.rebuildLiveAssistantRendered()
 }
 
 func (t *Transcript) completeAssistant(markdown string) {
 	t.endToolGroup()
 	rendered := renderCompletedAssistantMarkdown(markdown)
+	cell := &assistantCell{
+		plain:        markdown + "\n",
+		cachedRender: rendered + "\n",
+	}
 	if t.liveAssistantIdx != -1 {
-		t.replaceBlock(t.liveAssistantIdx, transcriptBlock{
-			plain:    markdown + "\n",
-			rendered: rendered + "\n",
-			kind:     transcriptBlockAssistantMarkdown,
-		})
+		t.replaceBlock(t.liveAssistantIdx, cell)
 		t.liveAssistantIdx = -1
 		return
 	}
-	t.appendBlock(transcriptBlock{
-		plain:    markdown + "\n",
-		rendered: rendered + "\n",
-		kind:     transcriptBlockAssistantMarkdown,
-	})
+	t.appendBlock(cell)
 }
 
 func (t *Transcript) endLiveAssistant() {
 	if t.liveAssistantIdx >= 0 {
-		block := &t.blocks[t.liveAssistantIdx]
-		markdown := strings.TrimRight(block.plain, "\n")
+		markdown := strings.TrimRight(t.blocks[t.liveAssistantIdx].Plain(), "\n")
 		rendered := renderCompletedAssistantMarkdown(markdown)
-		t.replaceBlock(t.liveAssistantIdx, transcriptBlock{
-			plain:    markdown + "\n",
-			rendered: rendered + "\n",
-			kind:     transcriptBlockAssistantMarkdown,
+		t.replaceBlock(t.liveAssistantIdx, &assistantCell{
+			plain:        markdown + "\n",
+			cachedRender: rendered + "\n",
 		})
 	}
 	t.liveAssistantIdx = -1
@@ -335,11 +355,11 @@ func (t *Transcript) rebuildLiveAssistantRendered() {
 	if t.liveAssistantIdx < 0 {
 		return
 	}
-	block := &t.blocks[t.liveAssistantIdx]
+	rc := t.blocks[t.liveAssistantIdx].(*rawCell)
 	idx := t.MotionTick % len(livePulseGradient)
 	markerColor := livePulseGradient[idx]
-	block.rendered = lipgloss.NewStyle().Foreground(markerColor).Render("● ") +
-		lipgloss.NewStyle().Foreground(defaultTheme.textSoft).Render(block.plain)
+	rc.rendered = lipgloss.NewStyle().Foreground(markerColor).Render("● ") +
+		lipgloss.NewStyle().Foreground(defaultTheme.textSoft).Render(rc.plain)
 	t.markDirty(t.liveAssistantIdx)
 }
 
@@ -354,21 +374,21 @@ func (t *Transcript) ensureBlockGap() {
 	if len(t.blocks) == 0 {
 		return
 	}
-	last := t.blocks[len(t.blocks)-1].plain
+	last := t.blocks[len(t.blocks)-1].Plain()
 	if strings.HasSuffix(last, "\n\n") {
 		return
 	}
 	if strings.HasSuffix(last, "\n") {
-		t.appendBlock(transcriptBlock{plain: "\n", rendered: "\n"})
+		t.appendBlock(&rawCell{plain: "\n", rendered: "\n"})
 		return
 	}
-	t.appendBlock(transcriptBlock{plain: "\n\n", rendered: "\n\n"})
+	t.appendBlock(&rawCell{plain: "\n\n", rendered: "\n\n"})
 }
 
 func (t *Transcript) startTool(event rpc.RunEvent) {
 	t.endLiveAssistant()
 	if t.toolGroup == nil {
-		index := t.appendBlock(transcriptBlock{})
+		index := t.appendBlock(&toolGroupCell{})
 		t.toolGroup = &toolGroup{
 			index:   index,
 			entries: map[string]*toolEntry{},
@@ -498,7 +518,7 @@ func (t *Transcript) rewriteToolGroup() {
 		}
 		prevHadDetail = len(entry.detailLines) > 0 || len(entry.resultLines) > 0 || entry.resultTruncated
 	}
-	t.replaceBlock(t.toolGroup.index, transcriptBlock{
+	t.replaceBlock(t.toolGroup.index, &toolGroupCell{
 		plain:    plain.String(),
 		rendered: rendered.String(),
 	})
@@ -517,11 +537,3 @@ func atoiSafe(raw string) int {
 	return n
 }
 
-func renderTranscriptBlock(block transcriptBlock) string {
-	switch block.kind {
-	case transcriptBlockAssistantMarkdown:
-		return renderCompletedAssistantMarkdown(strings.TrimSuffix(block.plain, "\n"))
-	default:
-		return block.plain
-	}
-}

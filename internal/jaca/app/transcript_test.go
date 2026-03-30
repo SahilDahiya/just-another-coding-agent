@@ -25,7 +25,7 @@ func TestWriteStartupBannerIncludesOllamaHintsInPlainText(t *testing.T) {
 	transcript := NewTranscript()
 	transcript.WriteStartupBanner("ollama:test", workspaceRoot, "medium")
 
-	plain := transcript.blocks[0].plain
+	plain := transcript.blocks[0].Plain()
 	if !strings.Contains(plain, ">_ jaca") {
 		t.Fatalf("plain banner missing title: %q", plain)
 	}
@@ -43,7 +43,7 @@ func TestWriteStartupBannerShowsProviderGuidanceForMissingOpenAIKey(t *testing.T
 	transcript := NewTranscript()
 	transcript.WriteStartupBanner("openai:gpt-5.4", "/workspace", "")
 
-	plain := transcript.blocks[0].plain
+	plain := transcript.blocks[0].Plain()
 	if !strings.Contains(plain, "no OPENAI_API_KEY") {
 		t.Fatalf("plain banner missing missing-key warning: %q", plain)
 	}
@@ -62,7 +62,7 @@ func TestCompletedAssistantMarkdownAvoidsBackgroundFills(t *testing.T) {
 	transcript.ApplyRunEvent(rpc.RunEvent{Type: "assistant_text_delta", Delta: markdown})
 	transcript.ApplyRunEvent(rpc.RunEvent{Type: "run_succeeded", OutputText: markdown})
 
-	rendered := transcript.blocks[len(transcript.blocks)-1].rendered
+	rendered := transcript.blocks[len(transcript.blocks)-1].Render()
 	if strings.Contains(rendered, "[48;") {
 		t.Fatalf("rendered markdown contains background ANSI codes: %q", rendered)
 	}
@@ -99,7 +99,7 @@ func TestToolSuccessDoesNotTreatResultMapWithoutOkAsError(t *testing.T) {
 		Activity:   &rpc.ToolActivity{DurationMS: &duration},
 	})
 
-	plain := transcript.blocks[len(transcript.blocks)-1].plain
+	plain := transcript.blocks[len(transcript.blocks)-1].Plain()
 	if strings.Contains(plain, "error") {
 		t.Fatalf("tool row incorrectly rendered as error: %q", plain)
 	}
@@ -133,7 +133,7 @@ func TestOperationalToolResultRendersAsNeutralOutput(t *testing.T) {
 		},
 	})
 
-	plain := transcript.blocks[len(transcript.blocks)-1].plain
+	plain := transcript.blocks[len(transcript.blocks)-1].Plain()
 	if strings.Contains(plain, "error") {
 		t.Fatalf("operational tool result rendered as error: %q", plain)
 	}
@@ -211,7 +211,7 @@ func TestEditToolRowsRenderStructuredDiffPreview(t *testing.T) {
 		},
 	})
 
-	plain := transcript.blocks[len(transcript.blocks)-1].plain
+	plain := transcript.blocks[len(transcript.blocks)-1].Plain()
 	for _, want := range []string{
 		"edit  src/app.go  ok 83ms",
 		"  Update(src/app.go)",
@@ -249,7 +249,7 @@ func TestToolUpdateRendersLivePartialOutputAndFinalResult(t *testing.T) {
 		},
 	})
 
-	plain := transcript.blocks[len(transcript.blocks)-1].plain
+	plain := transcript.blocks[len(transcript.blocks)-1].Plain()
 	for _, want := range []string{
 		"● shell  python - <<'PY'  running  command still running  250ms",
 		"  └ one",
@@ -273,7 +273,7 @@ func TestToolUpdateRendersLivePartialOutputAndFinalResult(t *testing.T) {
 		},
 	})
 
-	plain = transcript.blocks[len(transcript.blocks)-1].plain
+	plain = transcript.blocks[len(transcript.blocks)-1].Plain()
 	if strings.Contains(plain, "command still running") || strings.Contains(plain, "  └ one") {
 		t.Fatalf("final tool row kept live partial output: %q", plain)
 	}
@@ -313,7 +313,7 @@ func TestRenderOnlyInvalidatesFromFirstDirtyRow(t *testing.T) {
 		t.Fatalf("renderOffsets[2] = %d, want %d", transcript.renderOffsets[2], len(initial))
 	}
 
-	transcript.replaceBlock(1, transcriptBlock{
+	transcript.replaceBlock(1, &rawCell{
 		plain:    "SECOND\n",
 		rendered: "SECOND\n",
 	})
@@ -333,7 +333,8 @@ func TestRenderEvictsRenderedCacheForImmutableCompletedAssistantBlocks(t *testin
 	transcript.ApplyRunEvent(rpc.RunEvent{Type: "assistant_text_delta", Delta: markdown})
 	transcript.ApplyRunEvent(rpc.RunEvent{Type: "run_succeeded", OutputText: markdown})
 
-	if transcript.blocks[0].rendered == "" {
+	ac := transcript.blocks[0].(*assistantCell)
+	if ac.cachedRender == "" {
 		t.Fatal("completed assistant block rendered cache unexpectedly empty before render")
 	}
 
@@ -341,8 +342,8 @@ func TestRenderEvictsRenderedCacheForImmutableCompletedAssistantBlocks(t *testin
 	if !strings.Contains(stripANSI(rendered), "This is a long completed assistant message.") {
 		t.Fatalf("Render() missing completed assistant text: %q", rendered)
 	}
-	if transcript.blocks[0].rendered != "" {
-		t.Fatalf("completed assistant block kept rendered cache after render: %q", transcript.blocks[0].rendered)
+	if ac.cachedRender != "" {
+		t.Fatalf("completed assistant block kept rendered cache after render: %q", ac.cachedRender)
 	}
 
 	transcript.WriteLine("tail")
@@ -351,8 +352,8 @@ func TestRenderEvictsRenderedCacheForImmutableCompletedAssistantBlocks(t *testin
 	if !strings.Contains(plainRendered, "This is a long completed assistant message.") || !strings.Contains(plainRendered, "tail") {
 		t.Fatalf("Render() after append lost cached transcript prefix: %q", plainRendered)
 	}
-	if transcript.blocks[0].rendered != "" {
-		t.Fatalf("completed assistant block rendered cache should stay evicted after append: %q", transcript.blocks[0].rendered)
+	if ac.cachedRender != "" {
+		t.Fatalf("completed assistant block rendered cache should stay evicted after append: %q", ac.cachedRender)
 	}
 }
 
@@ -373,7 +374,7 @@ func TestToolResultLinesTruncateVeryLongDisplayLines(t *testing.T) {
 		Result:     map[string]any{"output": longLine},
 	})
 
-	plain := transcript.blocks[len(transcript.blocks)-1].plain
+	plain := transcript.blocks[len(transcript.blocks)-1].Plain()
 	if strings.Contains(plain, longLine) {
 		t.Fatalf("tool row kept unbounded long output line: %q", plain)
 	}
@@ -405,7 +406,7 @@ func TestToolResultTruncationKeepsHeadAndTail(t *testing.T) {
 		Result:     map[string]any{"output": output},
 	})
 
-	plain := transcript.blocks[len(transcript.blocks)-1].plain
+	plain := transcript.blocks[len(transcript.blocks)-1].Plain()
 
 	// Head lines must be present.
 	for _, want := range []string{"line-1", "line-2", "line-3"} {
@@ -458,7 +459,7 @@ func TestToolResultNoTruncationWhenWithinLimit(t *testing.T) {
 		Result:     map[string]any{"output": output},
 	})
 
-	plain := transcript.blocks[len(transcript.blocks)-1].plain
+	plain := transcript.blocks[len(transcript.blocks)-1].Plain()
 	for _, want := range lines {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("line %q missing from non-truncated output: %q", want, plain)
@@ -519,7 +520,7 @@ func TestCodeBlockLanguageLabelRendered(t *testing.T) {
 	transcript.ApplyRunEvent(rpc.RunEvent{Type: "assistant_text_delta", Delta: markdown})
 	transcript.ApplyRunEvent(rpc.RunEvent{Type: "run_succeeded", OutputText: markdown})
 
-	rendered := transcript.blocks[len(transcript.blocks)-1].rendered
+	rendered := transcript.blocks[len(transcript.blocks)-1].Render()
 	plain := stripANSI(rendered)
 	if !strings.Contains(plain, "python") {
 		t.Fatalf("rendered code block missing language label: %q", plain)
@@ -536,7 +537,7 @@ func TestBlockquoteRendered(t *testing.T) {
 	transcript.ApplyRunEvent(rpc.RunEvent{Type: "assistant_text_delta", Delta: markdown})
 	transcript.ApplyRunEvent(rpc.RunEvent{Type: "run_succeeded", OutputText: markdown})
 
-	rendered := transcript.blocks[len(transcript.blocks)-1].rendered
+	rendered := transcript.blocks[len(transcript.blocks)-1].Render()
 	plain := stripANSI(rendered)
 	if !strings.Contains(plain, "│") {
 		t.Fatalf("rendered blockquote missing bar prefix: %q", plain)
@@ -568,7 +569,7 @@ func TestStrikethroughRendered(t *testing.T) {
 	transcript.ApplyRunEvent(rpc.RunEvent{Type: "assistant_text_delta", Delta: markdown})
 	transcript.ApplyRunEvent(rpc.RunEvent{Type: "run_succeeded", OutputText: markdown})
 
-	rendered := transcript.blocks[len(transcript.blocks)-1].rendered
+	rendered := transcript.blocks[len(transcript.blocks)-1].Render()
 	plain := stripANSI(rendered)
 	if !strings.Contains(plain, "deleted text") {
 		t.Fatalf("rendered strikethrough missing content: %q", plain)
@@ -586,7 +587,7 @@ func TestHorizontalRuleRendered(t *testing.T) {
 	transcript.ApplyRunEvent(rpc.RunEvent{Type: "assistant_text_delta", Delta: markdown})
 	transcript.ApplyRunEvent(rpc.RunEvent{Type: "run_succeeded", OutputText: markdown})
 
-	rendered := transcript.blocks[len(transcript.blocks)-1].rendered
+	rendered := transcript.blocks[len(transcript.blocks)-1].Render()
 	plain := stripANSI(rendered)
 	if !strings.Contains(plain, "─") {
 		t.Fatalf("rendered horizontal rule missing rule character: %q", plain)
@@ -603,7 +604,7 @@ func TestCodeBlockWithoutLanguageHasNoLabel(t *testing.T) {
 	transcript.ApplyRunEvent(rpc.RunEvent{Type: "assistant_text_delta", Delta: markdown})
 	transcript.ApplyRunEvent(rpc.RunEvent{Type: "run_succeeded", OutputText: markdown})
 
-	rendered := transcript.blocks[len(transcript.blocks)-1].rendered
+	rendered := transcript.blocks[len(transcript.blocks)-1].Render()
 	plain := stripANSI(rendered)
 	if !strings.Contains(plain, "plain code") {
 		t.Fatalf("rendered code block missing content: %q", plain)
