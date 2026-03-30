@@ -250,6 +250,7 @@ Initial executable tool slice:
 
 Initial canonical event families:
 
+- session lifecycle
 - run lifecycle
 - assistant text streaming
 - tool execution lifecycle
@@ -262,9 +263,16 @@ Rules:
 - Event names and payloads should be simple, typed, and versionable.
 - The runtime must not emit alternate fallback event shapes for older clients.
 - The public event stream should represent the phases of a coding-agent run, not every internal PydanticAI event verbatim.
+- Session lifecycle events may appear before `run_started` when the runtime
+  performs work such as automatic session compaction at the resumed-run
+  boundary.
 
 Initial executable run slice:
 
+- `session_compaction_started`
+  - fields: `type`
+- `session_compaction_completed`
+  - fields: `type`, `compaction_id`, `summarized_through_run_id`
 - `run_started`
   - fields: `type`, `run_id`
 - `assistant_text_delta`
@@ -312,24 +320,24 @@ Initial tool lifecycle slice:
 - `summary` is optional and should stay trustworthy rather than aspirational
 - `duration_ms` belongs on finished tool events and may also appear on `tool_call_updated`
 - `details` is optional and, when present, must use typed per-tool metadata rather than an untyped bag
-- `group_kind` is optional coarse presentation metadata from the backend; it is for frontend grouping hints, not a second event family
+- `group_kind` is optional coarse presentation metadata from the backend; it may drive grouped transcript rendering in clients, but it is not a second event family and does not imply a public group identifier
 
 Initial typed `details` slice for tool success activity:
 
 - `shell`
-  - `kind`, `command_preview`, `timeout`, `exit_code`
+  - `kind`, `command_preview`, `shell_family`, `timeout`, `exit_code`
 - `read`
-  - `kind`, `path`, `offset`, `limit`
+  - `kind`, `path`, `short_path`, `offset`, `limit`
 - `write`
   - `kind`, `path`, `bytes_written`
 - `edit`
   - `kind`, `path`, `diff`, `added_lines`, `removed_lines`
 - `grep`
-  - `kind`, `pattern`, `path`, `glob`, `ignore_case`, `literal`, `limit`
+  - `kind`, `pattern`, `path`, `short_path`, `glob`, `ignore_case`, `literal`, `limit`
 - `ls`
-  - `kind`, `path`, `limit`
+  - `kind`, `path`, `short_path`, `limit`
 - `find`
-  - `kind`, `pattern`, `path`, `limit`
+  - `kind`, `pattern`, `path`, `short_path`, `limit`
 
 Rules for the initial activity slice:
 
@@ -340,6 +348,9 @@ Rules for the initial activity slice:
 - the runtime should not re-parse typed tool args into structured `details` for started, updated, or failed/error-result activity
 - `group_kind` is the only current coarse grouping hint in the public contract; the backend does not expose a public `group_id`
 - the current canonical `group_kind` value is `exploration` for exploration-style tools
+- the shipped Go TUI may render consecutive exploration-tagged tool calls as a
+  grouped `Exploring` / `Explored` transcript block while still consuming the
+  underlying per-tool lifecycle events
 - no untyped `artifacts` bag
 - no absolute timestamps in the persisted public event contract
 - existing consumers that ignore `activity` must continue to work unchanged
@@ -457,7 +468,7 @@ Initial executable RPC slice:
     - `{"compaction_id": <opaque-lowercase-hex-string>, "summarized_through_run_id": <run_id>, "first_kept_run_id": <optional-run_id>, "summary": <structured-compaction-summary>}`
 - `rpc_event`
   - fields: `type`, `id`, `event`
-  - `event` must be one canonical streamed run event payload
+  - `event` must be one canonical streamed run event payload or session lifecycle event payload
 - `rpc_error`
   - fields: `type`, `id`, `error_type`, `message`
 
@@ -467,6 +478,7 @@ Ordering rules for the RPC slice:
 - A valid `session.compact` request must reference an existing `session_id` and yields exactly one `rpc_response` describing the newly appended compaction entry
 - If model-driven compaction summary generation fails, `session.compact` fails hard; it does not append a placeholder summary
 - A valid `run.start` request must reference an existing `session_id` and yields zero or more `rpc_event` lines whose embedded events satisfy the streamed run contract
+- Session lifecycle `rpc_event` payloads such as `session_compaction_started` and `session_compaction_completed` may appear before `run_started`
 - `run.start` on an existing session is the canonical continue operation; there is no separate `session.continue` command
 - A valid `run.start` request may include `thinking`; when omitted, session-backed execution inherits the latest persisted thinking setting for that session when present
 - A valid request that ends in run failure still yields `rpc_event` lines ending in `run_failed`; it does not switch to `rpc_error`

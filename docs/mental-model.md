@@ -75,7 +75,8 @@ Example flow:
 Three response types:
 
 - `rpc_response` -- synchronous result (e.g., session creation or compaction)
-- `rpc_event` -- wraps a run event (including failures; a tool crash is still an `rpc_event`)
+- `rpc_event` -- wraps a streamed backend event, including run events and
+  session lifecycle events such as automatic compaction
 - `rpc_error` -- protocol-level problems only (bad JSON, unknown command, unknown session, invalid session state)
 
 Clients never see filesystem paths or workspace identifiers. Session identity is an opaque hex string.

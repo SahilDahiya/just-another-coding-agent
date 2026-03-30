@@ -75,7 +75,9 @@ The core architectural risk is semantic drift between the Go shell and the Pytho
 - Tool rows should prefer one row per action with a short preview and outcome, not anonymous repeated tool labels.
 - Tool rows should treat backend `activity.title` and `activity.summary` as the authoritative label/summary when those fields are present.
 - Finished tool rows may show backend `activity.duration_ms` when it adds timing context without crowding the transcript.
-- Backend `activity.group_kind` may drive light per-row presentation hints, but it should not create new frontend-owned grouping semantics.
+- Backend `activity.group_kind` may drive transcript grouping and calmer grouped
+  presentation, but the grouping semantics still come from backend fields
+  rather than TUI-side inference.
 - Non-terminal operational misses returned through `tool_call_succeeded` should render as normal tool output, not the same red alarm treatment reserved for terminal `tool_call_failed` paths.
 - Tool rows should read left-to-right as action first, then status/timing in the tail.
 - Successful `edit` activity should expand into structured `Update(path)` blocks with typed diff previews rather than dumping raw unified diff text.
@@ -84,6 +86,10 @@ The core architectural risk is semantic drift between the Go shell and the Pytho
 - The transcript should use stable row units and reuse unchanged prefix content when only later rows change; do not rebuild the whole visible transcript from the top for every live update.
 - Transcript memory should stay bounded by keeping heavy row bodies disciplined: cap tool/detail preview width, keep live tool output to bounded previews, and allow immutable assistant rows to drop row-local rendered caches once their content has been incorporated into the transcript buffer.
 - Exploratory misses that are clearly resolved later in the same turn should be muted or downgraded instead of rendered with the same red emphasis as unresolved failures.
+- Consecutive exploration-tagged read/search rows may settle into a grouped
+  `Exploring` / `Explored` transcript block with coalesced file/search labels,
+  while still preserving the underlying per-tool lifecycle as the source of
+  truth.
 - Completed assistant turns should settle into readable prose/Markdown instead of remaining raw streamed text.
 - The prompt is the single input surface for chat and slash commands.
 - The prompt zone should behave like a compact two-line shell composer: one input line, one low-salience footer line for state and recall hints.
