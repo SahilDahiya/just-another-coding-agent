@@ -199,7 +199,10 @@ async def stream_run_events(
 
                 saw_streamed_event = True
                 if isinstance(event, FunctionToolCallEvent):
-                    args = _normalize_tool_args(event.part.args)
+                    args = _normalize_tool_args(
+                        event.part.args,
+                        args_valid=event.args_valid,
+                    )
                     existing_tool_call = pending_tool_calls.get(event.tool_call_id)
                     if existing_tool_call is not None:
                         if (
@@ -427,7 +430,11 @@ def _peek_pending_tool_call(
     return pending_tool_call
 
 
-def _normalize_tool_args(value: str | dict[str, Any] | None) -> JsonValue | None:
+def _normalize_tool_args(
+    value: str | dict[str, Any] | None,
+    *,
+    args_valid: bool | None,
+) -> JsonValue | None:
     if value is None:
         return None
 
@@ -435,6 +442,8 @@ def _normalize_tool_args(value: str | dict[str, Any] | None) -> JsonValue | None
         try:
             parsed = json.loads(value)
         except json.JSONDecodeError as error:
+            if args_valid is False:
+                return None
             raise ValueError("Tool args must be valid JSON") from error
 
         return _normalize_json_value(parsed)

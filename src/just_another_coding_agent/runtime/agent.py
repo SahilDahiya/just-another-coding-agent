@@ -23,6 +23,7 @@ from just_another_coding_agent.tools.deps import WorkspaceDeps
 from just_another_coding_agent.tools.registry import build_canonical_toolset
 
 CANONICAL_AGENT_OUTPUT_RETRIES = 1_000_000
+CANONICAL_AGENT_TOOL_CORRECTION_RETRIES = 2
 
 CANONICAL_AGENT_INSTRUCTIONS = "\n".join(
     [
@@ -124,9 +125,15 @@ def build_canonical_agent(
     # the effective stop condition for this plain-string agent. If this agent
     # ever stops being `output_type=str`, this policy should be revisited rather
     # than silently inherited by a structured-output path.
+    #
+    # Tool-call correction is different. Recoverable model mistakes like
+    # invented tool names or malformed tool args should get a small explicit
+    # correction budget, not an implicit framework default and not an unbounded
+    # hidden loop.
     agent = Agent(
         resolved_model,
         output_type=str,
+        retries=CANONICAL_AGENT_TOOL_CORRECTION_RETRIES,
         output_retries=CANONICAL_AGENT_OUTPUT_RETRIES,
         instructions=build_canonical_instructions(
             workspace_root=root,
@@ -146,6 +153,7 @@ def build_canonical_agent(
 
 __all__ = [
     "CANONICAL_AGENT_OUTPUT_RETRIES",
+    "CANONICAL_AGENT_TOOL_CORRECTION_RETRIES",
     "CANONICAL_AGENT_INSTRUCTIONS",
     "build_canonical_agent",
     "build_canonical_instructions",

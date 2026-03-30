@@ -154,6 +154,10 @@ Those high-frequency read-only tools now execute through one persistent per-run 
 ### Canonical Agent
 
 `build_canonical_agent()` in `runtime/agent.py` is the single official way to assemble a coding agent. It takes a model and workspace root, builds the canonical toolset, enforces `output_type=str`, and sets a concise system prompt via PydanticAI's `instructions` parameter. It also keeps a deliberately high PydanticAI output-validation retry budget so a framework output ceiling does not become the stop condition for the plain-text coding agent.
+Separately, it keeps a small explicit tool-correction retry budget so
+recoverable model mistakes like invented tool names or malformed tool args get
+one or two visible correction turns inside the run instead of relying on an
+implicit framework default.
 
 The system prompt tells the model what tools it has, how to approach coding tasks, and that read/write/edit are workspace-scoped while shell is not sandboxed. The runtime also appends dynamic context at build time: the current date and the resolved workspace root.
 That prompt layer also carries two behavioral rules that matter for benchmark and real coding tasks alike: do not claim a file was created or changed without tool evidence, and verify code changes or required file outputs before concluding.
@@ -179,7 +183,10 @@ This is the only place where PydanticAI internals are touched. Everything else w
 
 Across the entire codebase:
 
-- Invalid tool args crash, not warn
+- Invalid caller input and invalid runtime state crash, not warn
+- Recoverable model-generated tool-call validation errors stay model-visible and
+  consume the bounded tool-correction budget instead of becoming silent runtime
+  failure
 - Malformed session files crash, not auto-repair
 - Bad RPC requests get an error response, not a guess at intent
 - Missing tool implementations crash, not no-op

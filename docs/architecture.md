@@ -57,6 +57,12 @@ run retry policy; it is an explicit choice to avoid a framework output ceiling
 becoming the stop condition for the plain-text coding agent. If the canonical
 agent ever moves to structured output or output validators, this retry policy
 must be revisited rather than silently inherited.
+The canonical agent also sets a small explicit tool-correction retry budget for
+recoverable model mistakes such as invented tool names or malformed tool args.
+That budget is intentionally separate from both output-validation retries and
+the hidden pre-stream run retry. The short-term goal is reliable bounded
+correction; the longer-term direction is to make tool-call correction fully
+runtime-owned rather than relying on framework defaults.
 The canonical tool concurrency policy should also be explicit rather than left to framework defaults: read-only tools may run in parallel, mutating tools remain serialized, and provider-side `parallel_tool_calls` should be enabled by default for the canonical provider paths unless the backend explicitly carves out a known-bad model path.
 Opt-in tracing should stay in one place too: `JACA_TRACE_MODE` controls whether the backend stays untraced, stores spans locally, or exports them to Logfire. `local` turns on PydanticAI/OpenTelemetry instrumentation plus a local JSONL span exporter under `~/.jaca/traces/`. `logfire` enables the same instrumentation but exports to Logfire and fails hard unless Logfire credentials are already configured.
 Internal tool executors should also depend only on the execution context they actually use. If an executor only needs `deps`, `tool_call_id`, and `tool_name`, that narrower structural contract should be explicit instead of pretending to require a full PydanticAI `RunContext`.
@@ -143,6 +149,9 @@ The important boundary is:
   content before `session_messages` are written
 - `run.start` on an existing session is the canonical continue operation; there is no second continue command today
 - `stream_run_events()` may hide one retryable transient failure before any public stream event escapes, but once assistant text or tool lifecycle events have been emitted the runtime does not retry automatically
+- recoverable tool-call validation failures inside one run remain model-visible
+  and consume the canonical bounded tool-correction budget instead of becoming
+  hidden stream-boundary retries
 
 ## Canonical Package Layout
 

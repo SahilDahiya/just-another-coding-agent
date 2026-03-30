@@ -194,6 +194,87 @@ async def recovering_read_stream(
     yield "done"
 
 
+async def recovering_unknown_tool_stream(
+    messages: list[ModelMessage],
+    _agent_info: object,
+) -> AsyncIterator[str | dict[int, DeltaToolCall]]:
+    if len(messages) == 1:
+        yield {
+            0: DeltaToolCall(
+                name="lsshell",
+                json_args="{}",
+                tool_call_id="call-unknown-1",
+            )
+        }
+        return
+
+    if len(messages) == 3:
+        yield {
+            0: DeltaToolCall(
+                name="lsshell",
+                json_args="{}",
+                tool_call_id="call-unknown-2",
+            )
+        }
+        return
+
+    if len(messages) == 5:
+        yield {
+            0: DeltaToolCall(
+                name="ls",
+                json_args='{"path":"."}',
+                tool_call_id="call-ls-1",
+            )
+        }
+        return
+
+    yield "done"
+
+
+async def exhausting_unknown_tool_stream(
+    messages: list[ModelMessage],
+    _agent_info: object,
+) -> AsyncIterator[str | dict[int, DeltaToolCall]]:
+    if len(messages) in {1, 3, 5}:
+        yield {
+            0: DeltaToolCall(
+                name="lsshell",
+                json_args="{}",
+                tool_call_id=f"call-unknown-{len(messages)}",
+            )
+        }
+        return
+
+    yield "done"
+
+
+async def recovering_invalid_tool_args_stream(
+    messages: list[ModelMessage],
+    _agent_info: object,
+) -> AsyncIterator[str | dict[int, DeltaToolCall]]:
+    if len(messages) == 1:
+        yield {
+            0: DeltaToolCall(
+                name="ls",
+                json_args='{"path":".","ignore":[".git"]}{"command":"pwd"}',
+                tool_call_id="call-ls-invalid-1",
+            )
+        }
+        return
+
+    if len(messages) == 3:
+        yield {
+            0: DeltaToolCall(
+                name="ls",
+                json_args='{"path":"."}',
+                tool_call_id="call-ls-valid-1",
+            )
+        }
+        return
+
+    yield "done"
+
+
 async def recovering_write_stream(
     messages: list[ModelMessage],
     _agent_info: object,
@@ -680,6 +761,148 @@ async def test_stream_run_events_recovers_from_missing_read_within_one_run(
         "offset": None,
         "limit": None,
     }
+    assert events[6].output_text == "done"
+
+
+async def test_stream_run_events_recovers_from_unknown_tool_name_within_one_run(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    agent = build_canonical_agent(
+        model=FunctionModel(stream_function=recovering_unknown_tool_stream),
+        workspace_root=workspace_root,
+        tool_names=("ls",),
+    )
+
+    events = [
+        event
+        async for event in stream_run_events(
+            agent=agent,
+            prompt="go",
+            deps=WorkspaceDeps.from_workspace_root(workspace_root),
+        )
+    ]
+
+    assert [event.type for event in events] == [
+        "run_started",
+        "tool_call_started",
+        "tool_call_succeeded",
+        "tool_call_started",
+        "tool_call_succeeded",
+        "tool_call_started",
+        "tool_call_succeeded",
+        "assistant_text_delta",
+        "run_succeeded",
+    ]
+    assert isinstance(events[1], ToolCallStartedEvent)
+    assert events[1].tool_name == "lsshell"
+    assert isinstance(events[2], ToolCallSucceededEvent)
+    assert events[2].result == {
+        "ok": False,
+        "error_type": "RetryPromptPart",
+        "message": "Unknown tool name: 'lsshell'. Available tools: 'ls'",
+    }
+    assert isinstance(events[3], ToolCallStartedEvent)
+    assert events[3].tool_name == "lsshell"
+    assert isinstance(events[4], ToolCallSucceededEvent)
+    assert events[4].result == {
+        "ok": False,
+        "error_type": "RetryPromptPart",
+        "message": "Unknown tool name: 'lsshell'. Available tools: 'ls'",
+    }
+    assert isinstance(events[5], ToolCallStartedEvent)
+    assert events[5].tool_name == "ls"
+    assert events[6].result == "(empty directory)"
+    assert events[8].output_text == "done"
+
+
+async def test_stream_run_events_fails_cleanly_when_unknown_tool_budget_is_exhausted(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    agent = build_canonical_agent(
+        model=FunctionModel(stream_function=exhausting_unknown_tool_stream),
+        workspace_root=workspace_root,
+        tool_names=("ls",),
+    )
+
+    events = [
+        event
+        async for event in stream_run_events(
+            agent=agent,
+            prompt="go",
+            deps=WorkspaceDeps.from_workspace_root(workspace_root),
+        )
+    ]
+
+    assert [event.type for event in events] == [
+        "run_started",
+        "tool_call_started",
+        "tool_call_succeeded",
+        "tool_call_started",
+        "tool_call_succeeded",
+        "tool_call_started",
+        "tool_call_failed",
+        "run_failed",
+    ]
+    assert isinstance(events[6], ToolCallFailedEvent)
+    assert events[6].tool_name == "lsshell"
+    assert events[6].message == "Tool 'lsshell' exceeded max retries count of 2"
+    assert isinstance(events[7], RunFailedEvent)
+    assert events[7].message == "Tool 'lsshell' exceeded max retries count of 2"
+
+
+async def test_stream_run_events_recovers_from_invalid_tool_args_within_one_run(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    agent = build_canonical_agent(
+        model=FunctionModel(stream_function=recovering_invalid_tool_args_stream),
+        workspace_root=workspace_root,
+        tool_names=("ls",),
+    )
+
+    events = [
+        event
+        async for event in stream_run_events(
+            agent=agent,
+            prompt="go",
+            deps=WorkspaceDeps.from_workspace_root(workspace_root),
+        )
+    ]
+
+    assert [event.type for event in events] == [
+        "run_started",
+        "tool_call_started",
+        "tool_call_succeeded",
+        "tool_call_started",
+        "tool_call_succeeded",
+        "assistant_text_delta",
+        "run_succeeded",
+    ]
+    assert isinstance(events[1], ToolCallStartedEvent)
+    assert events[1].tool_name == "ls"
+    assert events[1].args is None
+    assert events[1].args_valid is False
+    assert events[1].activity is not None
+    assert events[1].activity.title == "ls"
+    assert isinstance(events[2], ToolCallSucceededEvent)
+    assert events[2].result["ok"] is False
+    assert events[2].result["error_type"] == "RetryPromptPart"
+    assert "Invalid JSON" in events[2].result["message"]
+    assert isinstance(events[3], ToolCallStartedEvent)
+    assert events[3].tool_name == "ls"
+    assert events[3].args == {"path": "."}
+    assert events[3].args_valid is True
+    assert isinstance(events[4], ToolCallSucceededEvent)
+    assert events[4].result == "(empty directory)"
+    assert isinstance(events[6], RunSucceededEvent)
     assert events[6].output_text == "done"
 
 
