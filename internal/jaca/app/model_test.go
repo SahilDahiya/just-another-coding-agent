@@ -91,6 +91,27 @@ func TestRefreshViewportPreservesManualScrollPosition(t *testing.T) {
 	}
 }
 
+func TestRefreshViewportDoesNotForceFollowWhileStreamingAfterManualScroll(t *testing.T) {
+	m := newTestModel()
+	for i := 0; i < 30; i++ {
+		m.transcript.WriteLine(fmt.Sprintf("line %02d", i))
+	}
+	m.refreshViewport()
+	m.viewport.GotoTop()
+	m.streaming = true
+
+	if m.viewport.YOffset != 0 {
+		t.Fatalf("YOffset before refresh = %d, want 0", m.viewport.YOffset)
+	}
+
+	m.transcript.WriteLine("new streamed line")
+	m.refreshViewport()
+
+	if m.viewport.YOffset != 0 {
+		t.Fatalf("refreshViewport() moved manual scroll position during streaming to %d", m.viewport.YOffset)
+	}
+}
+
 func TestMouseWheelScrollsViewport(t *testing.T) {
 	m := newTestModel()
 	for i := 0; i < 30; i++ {

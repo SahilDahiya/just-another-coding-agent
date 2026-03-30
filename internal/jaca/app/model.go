@@ -578,7 +578,7 @@ func (m *model) compactSession(sessionID string, backend *rpc.Manager, ch chan t
 }
 
 func (m *model) refreshViewport() {
-	shouldFollow := m.streaming || m.viewport.AtBottom()
+	shouldFollow := m.viewport.AtBottom()
 	m.viewport.SetContent(m.transcript.Render())
 	if shouldFollow {
 		m.viewport.GotoBottom()
