@@ -119,7 +119,7 @@ def build_canonical_agent(
     return Agent(
         resolved_model,
         output_type=str,
-        retries=50,
+        output_retries=1_000_000,
         instructions=build_canonical_instructions(
             workspace_root=root,
             shell_family=effective_shell_family,
