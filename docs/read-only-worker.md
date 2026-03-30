@@ -1,0 +1,137 @@
+# Read-Only Worker
+
+read_when: you are designing, implementing, or benchmarking the future persistent read-only worker
+
+## Purpose
+
+The read-only worker is a future internal execution seam for high-frequency
+read-only tools:
+
+- `read`
+- `ls`
+- `find`
+- `grep`
+
+It exists to replace per-call Python subprocess execution with one persistent
+helper process while preserving the same Python-owned public contract.
+
+This is not a public API and not a second backend runtime.
+
+## Boundary
+
+Python remains the owner of:
+
+- tool schemas and validation
+- model-facing result shaping
+- activity semantics
+- session and RPC meaning
+- contract tests
+
+The worker only executes narrow internal requests and returns structured
+internal payloads.
+
+The worker must not:
+
+- invent alternate tool semantics
+- invent different notices or result strings
+- own session or RPC behavior
+- become a silent fallback path
+
+## Transport
+
+The protocol is UTF-8 JSON Lines over stdio.
+
+Rules:
+
+- one JSON object per line
+- every message has a non-empty `request_id`
+- the client sends an initial `hello`
+- operation responses may arrive out of order, so `request_id` is the routing key
+- each operation request must end in exactly one terminal response
+- cancellation is best-effort and targets a prior `request_id`
+- shutdown is explicit
+
+The current internal protocol version is `1`.
+
+## Message Types
+
+Requests:
+
+- `hello`
+- `call_read`
+- `call_ls`
+- `call_find`
+- `call_grep`
+- `cancel`
+- `shutdown`
+
+Responses:
+
+- `hello_ok`
+- `read_result`
+- `ls_result`
+- `find_result`
+- `grep_result`
+- `error`
+
+## Structured Results
+
+The worker returns structured internal payloads rather than final model-facing
+tool strings.
+
+Examples:
+
+- `read_result` returns a bounded `window_text` plus line metadata such as
+  `total_lines`, `start_line`, `end_line`, `truncated`, and `next_offset`
+- `ls_result` returns structured entries with `name` and `is_dir`
+- `find_result` returns matched relative paths plus limit/byte-limit flags
+- `grep_result` returns structured matches with `path`, `line_number`, `text`,
+  and truncation flags
+
+Python is responsible for turning those payloads into the final tool-visible
+strings and notices.
+
+## Error Codes
+
+Tool-domain worker errors:
+
+- `command_error`
+- `encoding_error`
+- `operational_error`
+- `path_error`
+
+Worker/protocol failures:
+
+- `invalid_request`
+- `unsupported_operation`
+- `protocol_error`
+- `cancelled`
+
+Only the first group maps back into canonical tool-domain failures. The second
+group is a hard runtime failure path.
+
+## Lifecycle
+
+Expected client flow:
+
+1. Start the helper process.
+2. Send `hello`.
+3. Verify protocol version, worker kind, operations, and capabilities.
+4. Send operation requests.
+5. On client-side timeout or abandonment, send `cancel` for the in-flight
+   request, then kill the worker if it does not terminate the request cleanly.
+6. On normal shutdown, send `shutdown` and wait briefly before force-killing if
+   needed.
+
+## Design Intent
+
+This contract is intentionally language-neutral.
+
+The same Python caller and the same internal protocol should be usable for:
+
+- a Go helper prototype
+- a Rust helper prototype
+- the eventual chosen implementation
+
+That keeps the language decision evidence-driven instead of forcing semantic
+rewrites for each prototype.

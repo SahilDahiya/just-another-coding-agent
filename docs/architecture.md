@@ -149,6 +149,8 @@ The important boundary is:
   - tool execution policy
   - Python-owned tool semantics even when a future internal helper executes a
     narrow read-only path
+  - `read_only_worker/` for the future internal helper protocol and client
+    transport for read-only execution
 - `src/just_another_coding_agent/session/`
   - session persistence
   - session load/save helpers
