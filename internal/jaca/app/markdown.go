@@ -144,6 +144,68 @@ func renderCompletedAssistantMarkdown(markdown string) string {
 	return b.String()
 }
 
+// StreamCollector processes markdown incrementally during streaming,
+// committing only completed lines (up to last \n) through the markdown renderer.
+type StreamCollector struct {
+	buf            strings.Builder
+	committedLines int    // number of rendered output lines already emitted
+	rendered       string // accumulated rendered output so far
+}
+
+// PushDelta appends new streaming text to the internal buffer.
+func (sc *StreamCollector) PushDelta(delta string) {
+	sc.buf.WriteString(delta)
+}
+
+// CommitCompleteLines renders all complete lines (up to the last \n) through
+// renderCompletedAssistantMarkdown and returns the accumulated rendered output.
+func (sc *StreamCollector) CommitCompleteLines() string {
+	text := sc.buf.String()
+	lastNL := strings.LastIndex(text, "\n")
+	if lastNL < 0 {
+		return sc.rendered
+	}
+	committed := text[:lastNL+1]
+	rendered := renderCompletedAssistantMarkdown(strings.TrimSuffix(committed, "\n"))
+	newLines := strings.Count(rendered, "\n")
+	if newLines > sc.committedLines {
+		sc.rendered = rendered
+		sc.committedLines = newLines
+	}
+	return sc.rendered
+}
+
+// FinalizeAndDrain renders the full buffer (including any partial trailing line)
+// through the markdown renderer, resets state, and returns the result.
+func (sc *StreamCollector) FinalizeAndDrain() string {
+	text := strings.TrimSuffix(sc.buf.String(), "\n")
+	result := renderCompletedAssistantMarkdown(text)
+	sc.Reset()
+	return result
+}
+
+// Reset clears the collector state.
+func (sc *StreamCollector) Reset() {
+	sc.buf.Reset()
+	sc.committedLines = 0
+	sc.rendered = ""
+}
+
+// PlainText returns the full accumulated buffer contents.
+func (sc *StreamCollector) PlainText() string {
+	return sc.buf.String()
+}
+
+// PartialTail returns the uncommitted text after the last newline.
+func (sc *StreamCollector) PartialTail() string {
+	text := sc.buf.String()
+	lastNL := strings.LastIndex(text, "\n")
+	if lastNL < 0 {
+		return text
+	}
+	return text[lastNL+1:]
+}
+
 func renderAssistantInline(content string, baseStyle lipgloss.Style) string {
 	var b strings.Builder
 	cursor := 0

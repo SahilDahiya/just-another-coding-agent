@@ -57,6 +57,7 @@ type Transcript struct {
 	blocks           []Cell
 	liveAssistantIdx int
 	liveDeltaBuf     strings.Builder
+	streamCollector  *StreamCollector
 	toolGroup        *toolGroup
 	renderedCache    string
 	renderOffsets    []int
@@ -308,10 +309,15 @@ func (t *Transcript) ApplyRunEvent(event rpc.RunEvent) {
 
 func (t *Transcript) appendAssistantDelta(delta string) {
 	t.endToolGroup()
+	if t.streamCollector == nil {
+		t.streamCollector = &StreamCollector{}
+	}
 	if t.liveAssistantIdx == -1 {
 		t.ensureBlockGap()
 		t.liveDeltaBuf.Reset()
+		t.streamCollector.Reset()
 		t.liveDeltaBuf.WriteString(delta)
+		t.streamCollector.PushDelta(delta)
 		t.liveAssistantIdx = t.appendBlock(&rawCell{
 			plain: delta,
 		})
@@ -319,6 +325,7 @@ func (t *Transcript) appendAssistantDelta(delta string) {
 		return
 	}
 	t.liveDeltaBuf.WriteString(delta)
+	t.streamCollector.PushDelta(delta)
 	t.blocks[t.liveAssistantIdx].(*rawCell).plain = t.liveDeltaBuf.String()
 	t.rebuildLiveAssistantRendered()
 }
@@ -329,6 +336,9 @@ func (t *Transcript) completeAssistant(markdown string) {
 	cell := &assistantCell{
 		plain:        markdown + "\n",
 		cachedRender: rendered + "\n",
+	}
+	if t.streamCollector != nil {
+		t.streamCollector.Reset()
 	}
 	if t.liveAssistantIdx != -1 {
 		t.replaceBlock(t.liveAssistantIdx, cell)
@@ -349,6 +359,9 @@ func (t *Transcript) endLiveAssistant() {
 	}
 	t.liveAssistantIdx = -1
 	t.liveDeltaBuf.Reset()
+	if t.streamCollector != nil {
+		t.streamCollector.Reset()
+	}
 }
 
 func (t *Transcript) rebuildLiveAssistantRendered() {
@@ -358,8 +371,24 @@ func (t *Transcript) rebuildLiveAssistantRendered() {
 	rc := t.blocks[t.liveAssistantIdx].(*rawCell)
 	idx := t.MotionTick % len(livePulseGradient)
 	markerColor := livePulseGradient[idx]
-	rc.rendered = lipgloss.NewStyle().Foreground(markerColor).Render("● ") +
-		lipgloss.NewStyle().Foreground(defaultTheme.textSoft).Render(rc.plain)
+	marker := lipgloss.NewStyle().Foreground(markerColor).Render("● ")
+
+	if t.streamCollector != nil {
+		committed := t.streamCollector.CommitCompleteLines()
+		partial := t.streamCollector.PartialTail()
+		if committed != "" {
+			// Strip the leading "● " from committed markdown since we prepend our own animated marker
+			committedNoMarker := stripLeadingRenderedMarker(committed)
+			rc.rendered = marker + committedNoMarker +
+				lipgloss.NewStyle().Foreground(defaultTheme.textSoft).Render(partial)
+		} else {
+			rc.rendered = marker +
+				lipgloss.NewStyle().Foreground(defaultTheme.textSoft).Render(partial)
+		}
+	} else {
+		rc.rendered = marker +
+			lipgloss.NewStyle().Foreground(defaultTheme.textSoft).Render(rc.plain)
+	}
 	t.markDirty(t.liveAssistantIdx)
 }
 
@@ -529,6 +558,20 @@ func buildToolGroupKind(activity *rpc.ToolActivity) string {
 		return ""
 	}
 	return *activity.GroupKind
+}
+
+// stripLeadingRenderedMarker removes the "● " prefix that renderCompletedAssistantMarkdown
+// prepends to the first content line. The prefix includes ANSI styling, so we strip
+// everything up to and including the "● " visible text at the start.
+func stripLeadingRenderedMarker(rendered string) string {
+	// The marker is rendered with ANSI codes: \x1b[...m● \x1b[0m (or similar).
+	// We look for the "● " in the string and strip everything up to and including it.
+	const marker = "● "
+	idx := strings.Index(rendered, marker)
+	if idx < 0 {
+		return rendered
+	}
+	return rendered[idx+len(marker):]
 }
 
 func atoiSafe(raw string) int {

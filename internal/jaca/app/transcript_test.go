@@ -699,6 +699,129 @@ func TestRenderNoWrapWhenWidthZero(t *testing.T) {
 	}
 }
 
+func TestStreamCollectorCommitsOnNewline(t *testing.T) {
+	sc := &StreamCollector{}
+
+	// Push text without newline — nothing should be committed.
+	sc.PushDelta("## Hello")
+	result := sc.CommitCompleteLines()
+	if result != "" {
+		t.Fatalf("expected empty rendered before any newline, got %q", result)
+	}
+
+	// Push a newline — the complete line should now be markdown-rendered.
+	sc.PushDelta("\n")
+	result = sc.CommitCompleteLines()
+	if result == "" {
+		t.Fatal("expected non-empty rendered after newline")
+	}
+	plain := stripANSI(result)
+	if !strings.Contains(plain, "Hello") {
+		t.Fatalf("committed output missing heading text: %q", plain)
+	}
+
+	// Push more text with embedded newline.
+	sc.PushDelta("**bold text**\npartial")
+	result = sc.CommitCompleteLines()
+	plain = stripANSI(result)
+	if !strings.Contains(plain, "bold text") {
+		t.Fatalf("committed output missing bold text: %q", plain)
+	}
+	// "partial" has no trailing newline, so it should NOT appear in committed output.
+	// But note: the committed portion includes everything up to last \n, which is
+	// "## Hello\n**bold text**\n". The partial "partial" is uncommitted.
+	tail := sc.PartialTail()
+	if tail != "partial" {
+		t.Fatalf("expected partial tail 'partial', got %q", tail)
+	}
+}
+
+func TestStreamCollectorFinalizeDrainsPartial(t *testing.T) {
+	sc := &StreamCollector{}
+	sc.PushDelta("some **partial** line")
+
+	// CommitCompleteLines should return nothing (no newline).
+	result := sc.CommitCompleteLines()
+	if result != "" {
+		t.Fatalf("expected empty before finalize, got %q", result)
+	}
+
+	// FinalizeAndDrain should render the partial line.
+	result = sc.FinalizeAndDrain()
+	if result == "" {
+		t.Fatal("FinalizeAndDrain returned empty")
+	}
+	plain := stripANSI(result)
+	if !strings.Contains(plain, "partial") {
+		t.Fatalf("finalized output missing content: %q", plain)
+	}
+
+	// After finalize, state should be reset.
+	if sc.PlainText() != "" {
+		t.Fatalf("buffer not reset after FinalizeAndDrain: %q", sc.PlainText())
+	}
+}
+
+func TestStreamingAssistantShowsMarkdown(t *testing.T) {
+	original := lipgloss.ColorProfile()
+	t.Cleanup(func() {
+		lipgloss.SetColorProfile(original)
+	})
+	lipgloss.SetColorProfile(termenv.TrueColor)
+
+	transcript := NewTranscript()
+
+	// Simulate streaming deltas that include markdown formatting.
+	transcript.ApplyRunEvent(rpc.RunEvent{Type: "assistant_text_delta", Delta: "## Title\n"})
+	transcript.ApplyRunEvent(rpc.RunEvent{Type: "assistant_text_delta", Delta: "**bold** and "})
+	transcript.ApplyRunEvent(rpc.RunEvent{Type: "assistant_text_delta", Delta: "`code`\n"})
+	transcript.ApplyRunEvent(rpc.RunEvent{Type: "assistant_text_delta", Delta: "partial tail"})
+
+	// During streaming (before run_succeeded), the live block should contain
+	// markdown-rendered content for committed lines.
+	liveBlock := transcript.blocks[transcript.liveAssistantIdx]
+	rendered := liveBlock.Render()
+	plain := stripANSI(rendered)
+
+	// The heading "Title" should be present (rendered from committed line).
+	if !strings.Contains(plain, "Title") {
+		t.Fatalf("streaming rendered missing heading: %q", plain)
+	}
+
+	// "bold" and "code" should be present (from committed second line).
+	if !strings.Contains(plain, "bold") {
+		t.Fatalf("streaming rendered missing bold text: %q", plain)
+	}
+	if !strings.Contains(plain, "code") {
+		t.Fatalf("streaming rendered missing code text: %q", plain)
+	}
+
+	// The partial tail should also be present (as raw text).
+	if !strings.Contains(plain, "partial tail") {
+		t.Fatalf("streaming rendered missing partial tail: %q", plain)
+	}
+
+	// The markdown markers (## and **) should be stripped, proving markdown
+	// processing happened during streaming, not just raw text display.
+	if strings.Contains(plain, "##") {
+		t.Fatalf("streaming rendered still contains raw heading markers: %q", plain)
+	}
+	if strings.Contains(plain, "**") {
+		t.Fatalf("streaming rendered still contains raw bold markers: %q", plain)
+	}
+
+	// The rendered output should contain ANSI formatting codes.
+	if !strings.Contains(rendered, "\x1b[") {
+		t.Fatalf("streaming rendered has no ANSI codes, markdown not processed: %q", rendered)
+	}
+
+	// The "● " marker should appear exactly once.
+	markerCount := strings.Count(plain, "●")
+	if markerCount != 1 {
+		t.Fatalf("expected exactly 1 marker, got %d in: %q", markerCount, plain)
+	}
+}
+
 func strPtr(value string) *string {
 	return &value
 }
