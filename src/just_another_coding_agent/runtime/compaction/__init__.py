@@ -10,18 +10,20 @@ from .resume import (
     strip_compaction_summary_from_messages,
 )
 from .session_summary import (
-    AUTO_COMPACTION_RUN_THRESHOLD,
     COMPACTION_SUMMARY_INSTRUCTIONS,
+    SESSION_AUTO_COMPACTION_CONTEXT_WINDOW_UTILIZATION,
+    SESSION_AUTO_COMPACTION_PROMPT_RESERVE_TOKENS,
     should_auto_compact_session,
     summarize_and_append_compaction_to_session,
     summarize_session_for_compaction,
 )
 
 __all__ = [
-    "AUTO_COMPACTION_RUN_THRESHOLD",
     "COMPACTION_SUMMARY_DYNAMIC_REF",
     "COMPACTION_SUMMARY_INSTRUCTIONS",
     "IN_RUN_COMPACTION_SOFT_CHAR_LIMIT",
+    "SESSION_AUTO_COMPACTION_CONTEXT_WINDOW_UTILIZATION",
+    "SESSION_AUTO_COMPACTION_PROMPT_RESERVE_TOKENS",
     "build_compaction_summary_message",
     "build_in_run_history_processor",
     "build_resume_message_history",

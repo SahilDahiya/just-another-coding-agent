@@ -94,13 +94,12 @@ Current responsibilities:
 - centralize OpenAI-compatible retry policy at the client transport layer
 - centralize opt-in model instrumentation
 - centralize model-setting policy such as `thinking`
-- enable OpenAI Responses server-side history only for uncompacted resumed sessions
 
 Important boundary:
 
-- durable JSONL session history remains the backend-owned source of truth
-- OpenAI Responses server-side history is only a runtime optimization
-- compacted sessions do not enable server-side history, because compaction must control the replayed context explicitly
+- durable JSONL session history is the authoritative source of truth for resumed runs
+- the canonical session runtime does not rely on provider-side server history during resume
+- provider-native history settings may still exist inside the lower-level model seam, but they are not part of canonical session continuation semantics
 
 ## Compaction Direction
 
@@ -115,7 +114,7 @@ Current sequence:
 1. Add manual session compaction first.
 2. Persist a compaction entry alongside existing session entries.
 3. Rebuild resumed `message_history` from a compaction summary plus retained recent native messages.
-4. Add deterministic automatic compaction before resumed runs when at least five completed runs have accumulated since the latest compaction boundary.
+4. Add deterministic automatic compaction before resumed runs when measured local resume history plus reserve crosses a fraction of the active model context window.
 5. Keep live-run recovery at the canonical streamed-run boundary when it must preserve a clean public event contract.
 
 The important boundary is:

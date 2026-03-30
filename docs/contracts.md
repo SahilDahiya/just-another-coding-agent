@@ -47,12 +47,11 @@ Rules:
 - string values request an explicit thinking effort level
 - the canonical runtime passes `thinking` through PydanticAI model settings instead of encoding it in instructions
 
-OpenAI Responses runtime optimization:
+Canonical session resume authority:
 
-- for resumed uncompacted sessions on `openai-responses:*`, the runtime may set `openai_previous_response_id='auto'`
-- this is an internal optimization, not a public caller-controlled setting
-- durable JSONL message history remains authoritative and must continue to exist even when this optimization is active
-- compacted sessions must not enable this optimization
+- resumed runs use durable local `message_history` materialized from session state
+- the canonical session runtime does not rely on provider-side server history for continuation
+- provider-native history settings remain an internal model-seam capability, not part of the public session contract
 
 ## Tool Contract
 
@@ -434,7 +433,7 @@ Ordering rules for the session slice:
 - Persisted `session_event` payloads must preserve any tool `activity` metadata unchanged
 - Appending a new run must preserve all existing lines and write the header only once
 - Synthetic compaction-summary messages used at runtime must not be persisted back into `session_messages`
-- Before a resumed run starts, the runtime may append one automatic `session_compaction` entry when at least five completed runs have accumulated since the latest compaction boundary
+- Before a resumed run starts, the runtime may append one automatic `session_compaction` entry when measured local resume history plus reserve crosses the configured fraction of the active model context window
 
 ## RPC Contract
 

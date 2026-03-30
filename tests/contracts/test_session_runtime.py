@@ -594,10 +594,76 @@ async def test_stream_session_run_events_inherits_last_persisted_thinking_when_o
     assert captured["prompt"] == "second"
     assert captured["thinking"] == "high"
     assert captured["deps"] == WorkspaceDeps.from_workspace_root(workspace_root)
-    assert captured["enable_server_history"] is True
+    assert captured["enable_server_history"] is False
     loaded = load_session(path=session_path, workspace_root=workspace_root)
     assert [run.thinking for run in loaded.runs] == ["high", "high"]
     assert loaded.thinking == "high"
+
+
+def test_should_auto_compact_session_when_resume_history_exceeds_model_budget(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    session_path = tmp_path / "session.jsonl"
+    large_prompt = "x" * 400_000
+
+    for index in range(2):
+        run_id = f"run-{index + 1}"
+        append_run_to_session(
+            path=session_path,
+            workspace_root=workspace_root,
+            prompt=large_prompt,
+            thinking=None,
+            messages=[ModelRequest(parts=[UserPromptPart(content=large_prompt)])],
+            events=[
+                RunStartedEvent(run_id=run_id),
+                RunSucceededEvent(run_id=run_id, output_text="done"),
+            ],
+        )
+
+    loaded = load_session(path=session_path, workspace_root=workspace_root)
+
+    assert (
+        session_summary_module.should_auto_compact_session(
+            loaded,
+            model="ollama:glm-5:cloud",
+        )
+        is True
+    )
+
+
+def test_should_not_auto_compact_tiny_history_only_because_five_runs_exist(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    session_path = tmp_path / "session.jsonl"
+
+    for index in range(5):
+        run_id = f"run-{index + 1}"
+        prompt = f"prompt-{index + 1}"
+        append_run_to_session(
+            path=session_path,
+            workspace_root=workspace_root,
+            prompt=prompt,
+            thinking=None,
+            messages=[ModelRequest(parts=[UserPromptPart(content=prompt)])],
+            events=[
+                RunStartedEvent(run_id=run_id),
+                RunSucceededEvent(run_id=run_id, output_text="done"),
+            ],
+        )
+
+    loaded = load_session(path=session_path, workspace_root=workspace_root)
+
+    assert (
+        session_summary_module.should_auto_compact_session(
+            loaded,
+            model="ollama:glm-5:cloud",
+        )
+        is False
+    )
 
 
 async def test_stream_session_run_events_replays_compacted_history_keeps_messages_raw(
@@ -1135,15 +1201,17 @@ async def test_stream_session_run_events_auto_compacts_stale_session_before_resu
     workspace_root.mkdir()
     session_path = tmp_path / "session.jsonl"
 
-    for index in range(5):
+    large_prompt = "y" * 400_000
+
+    for index in range(2):
         run_id = f"run-{index + 1}"
         append_run_to_session(
             path=session_path,
             workspace_root=workspace_root,
-            prompt=f"prompt-{index + 1}",
+            prompt=large_prompt,
             thinking=None,
             messages=[
-                ModelRequest(parts=[UserPromptPart(content=f"prompt-{index + 1}")])
+                ModelRequest(parts=[UserPromptPart(content=large_prompt)])
             ],
             events=[
                 RunStartedEvent(run_id=run_id),
@@ -1163,13 +1231,13 @@ async def test_stream_session_run_events_auto_compacts_stale_session_before_resu
             loaded,
             max_chars=10_000,
         )
-        assert "Run run-5" in source
+        assert "Run run-2" in source
         return append_compaction_to_session(
             path=path,
             workspace_root=workspace_root,
             summary=SessionCompactionSummary(
                 current_objective="continue after auto compaction",
-                established_facts=["Five runs were summarized."],
+                established_facts=["The oversized runs were summarized."],
                 user_preferences=[],
                 important_paths=["note.txt"],
                 open_questions=[],
@@ -1181,6 +1249,10 @@ async def test_stream_session_run_events_auto_compacts_stale_session_before_resu
     monkeypatch.setattr(
         "just_another_coding_agent.runtime.session.summarize_and_append_compaction_to_session",
         fake_summarize_and_append_compaction_to_session,
+    )
+    monkeypatch.setattr(
+        "just_another_coding_agent.runtime.compaction.session_summary.get_model_context_window_tokens",
+        lambda model: 198_000,
     )
     try:
         events = [
@@ -1206,7 +1278,7 @@ async def test_stream_session_run_events_auto_compacts_stale_session_before_resu
     loaded = load_session(path=session_path, workspace_root=workspace_root)
     assert len(loaded.compactions) == 1
     assert loaded.latest_compaction is not None
-    assert loaded.latest_compaction.summarized_through_run_id == "run-5"
+    assert loaded.latest_compaction.summarized_through_run_id == "run-2"
     assert loaded.latest_compaction.first_kept_run_id is None
     assert (
         loaded.latest_compaction.summary.current_objective

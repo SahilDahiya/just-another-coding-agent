@@ -125,9 +125,13 @@ inheritance continue to evolve underneath it.
 
 The current automatic trigger is intentionally narrow and deterministic:
 
-- before a resumed run starts, append one automatic compaction entry when at
-  least five completed runs have accumulated since the latest compaction
-  boundary
+- before a resumed run starts, estimate tokens for the exact local resume
+  history that will be replayed
+- add a conservative reserve for the next prompt and wrapper overhead
+- append one automatic compaction entry when that total crosses the configured
+  fraction of the active model context window
+- require at least one completed run after the latest compaction boundary so a
+  freshly compacted session does not immediately compact again
 
 This is cross-run session management, not live-run recovery. It happens before
 the next run starts so the streamed event contract does not need to hide failed

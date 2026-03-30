@@ -27,6 +27,16 @@ Responsibilities:
 
 This is cross-run state management. It is not a live-run `history_processor`.
 
+The current automatic trigger is pre-run and token-budget-aware:
+
+- it estimates tokens for the exact local resume history built from durable
+  session state
+- it adds a conservative reserve for the next prompt and wrapper overhead
+- it compacts when that total crosses the configured fraction of the active
+  model context window
+- it requires at least one completed run after the latest compaction boundary
+  so a just-compacted session does not immediately compact again
+
 The compaction source is intentionally not a raw transcript dump. It uses:
 
 - the latest durable compaction summary, when present
@@ -58,6 +68,9 @@ Responsibilities:
 - strip synthetic summary messages back out before persistence
 
 This is deterministic replay, not prefix matching or message-history surgery.
+The canonical session runtime now treats this local materialized history as the
+authoritative source of truth for resumed runs instead of relying on
+provider-side server history.
 
 ### 3. In-run compaction
 

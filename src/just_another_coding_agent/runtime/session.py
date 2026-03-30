@@ -102,7 +102,7 @@ async def stream_session_run_events(
             path=session_path,
             workspace_root=normalized_workspace_root,
         )
-        if should_auto_compact_session(loaded_session):
+        if should_auto_compact_session(loaded_session, model=model):
             # Auto-compaction is pre-run session maintenance, not part of the
             # streamed run event contract. Failures here surface as an
             # exception to the caller rather than as a run_failed event.
@@ -125,9 +125,7 @@ async def stream_session_run_events(
         if thinking is not None
         else (loaded_session.thinking if loaded_session is not None else None)
     )
-    enable_server_history = (
-        loaded_session is not None and loaded_session.latest_compaction is None
-    )
+    enable_server_history = False
 
     agent = build_canonical_agent(
         model=model,

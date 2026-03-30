@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import json
+import math
 from typing import Any
 
+from pydantic import TypeAdapter
 from pydantic_ai import Agent
+from pydantic_ai.messages import ModelMessage
 
 from just_another_coding_agent.contracts.platform import detect_default_shell_family
 from just_another_coding_agent.contracts.run_events import (
@@ -17,6 +21,9 @@ from just_another_coding_agent.contracts.session import (
     SessionCompactionSummary,
     SessionRunRecord,
 )
+from just_another_coding_agent.runtime.compaction.resume import (
+    build_resume_message_history,
+)
 from just_another_coding_agent.runtime.models import (
     get_model_context_window_tokens,
     resolve_canonical_model,
@@ -27,12 +34,14 @@ from just_another_coding_agent.session.jsonl import (
     load_session,
 )
 
-AUTO_COMPACTION_RUN_THRESHOLD = 5
+SESSION_AUTO_COMPACTION_CONTEXT_WINDOW_UTILIZATION = 0.7
+SESSION_AUTO_COMPACTION_PROMPT_RESERVE_TOKENS = 24_000
 SESSION_COMPACTION_CONTEXT_WINDOW_UTILIZATION = 0.8
 SESSION_COMPACTION_CHARS_PER_TOKEN_HEURISTIC = 4
 DEFAULT_SESSION_COMPACTION_SOURCE_CHAR_LIMIT = 120_000
 MAX_COMPACTION_TEXT_FIELD_CHARS = 1_200
 MAX_COMPACTION_TOOL_ACTIVITY_LINES = 8
+_MODEL_MESSAGES_ADAPTER = TypeAdapter(list[ModelMessage])
 COMPACTION_SUMMARY_INSTRUCTIONS = "\n".join(
     [
         "You summarize coding-agent session state into a structured compaction record.",
@@ -111,12 +120,36 @@ async def summarize_and_append_compaction_to_session(
     )
 
 
-def should_auto_compact_session(loaded_session: LoadedSession) -> bool:
+def should_auto_compact_session(
+    loaded_session: LoadedSession,
+    *,
+    model: Any,
+) -> bool:
     if not loaded_session.runs:
         return False
 
+    if _runs_since_latest_compaction(loaded_session) == 0:
+        return False
+
+    context_window_tokens = get_model_context_window_tokens(model)
+    if context_window_tokens is None:
+        return False
+
+    estimated_resume_history_tokens = estimate_resume_history_tokens(loaded_session)
+    compaction_trigger_budget_tokens = int(
+        context_window_tokens * SESSION_AUTO_COMPACTION_CONTEXT_WINDOW_UTILIZATION
+    )
     return (
-        _runs_since_latest_compaction(loaded_session) >= AUTO_COMPACTION_RUN_THRESHOLD
+        estimated_resume_history_tokens + SESSION_AUTO_COMPACTION_PROMPT_RESERVE_TOKENS
+        >= compaction_trigger_budget_tokens
+    )
+
+
+def estimate_resume_history_tokens(loaded_session: LoadedSession) -> int:
+    resume_history = build_resume_message_history(loaded_session)
+    return math.ceil(
+        _estimate_message_history_chars(resume_history)
+        / SESSION_COMPACTION_CHARS_PER_TOKEN_HEURISTIC
     )
 
 
@@ -130,6 +163,15 @@ def _runs_since_latest_compaction(loaded_session: LoadedSession) -> int:
         latest_compaction.summarized_through_run_id,
     )
     return len(loaded_session.runs[summary_run_index + 1 :])
+
+
+def _estimate_message_history_chars(messages: list[ModelMessage]) -> int:
+    return len(
+        json.dumps(
+            _MODEL_MESSAGES_ADAPTER.dump_python(messages, mode="json"),
+            ensure_ascii=False,
+        )
+    )
 
 
 def _build_compaction_source(loaded_session: LoadedSession, *, model: Any) -> str:
