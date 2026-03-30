@@ -117,35 +117,49 @@ func TestBuildTopRailIndicatorHiddenWhenIdle(t *testing.T) {
 }
 
 func TestRenderPromptRuleShowsTopRailIndicatorDuringStreaming(t *testing.T) {
-	rendered := stripANSI(renderPromptRule(viewModel{
+	rendered := stripANSI(renderTopRail(viewModel{
 		Phase:      PhaseStreaming,
 		MotionTick: 4,
 		RunElapsed: 37 * time.Second,
-	}, 32, defaultTheme.accent))
+	}))
 
 	if !strings.Contains(rendered, "00:37") {
-		t.Fatalf("renderPromptRule() missing elapsed indicator: %q", rendered)
+		t.Fatalf("renderTopRail() missing elapsed indicator: %q", rendered)
 	}
 	if !strings.Contains(rendered, topRailFrames[4]) {
-		t.Fatalf("renderPromptRule() missing braille indicator: %q", rendered)
+		t.Fatalf("renderTopRail() missing braille indicator: %q", rendered)
 	}
 	if !strings.HasPrefix(rendered, topRailFrames[4]+" 00:37") {
-		t.Fatalf("renderPromptRule() should place indicator on the left: %q", rendered)
+		t.Fatalf("renderTopRail() should place indicator on the left: %q", rendered)
 	}
 }
 
 func TestRenderPromptRuleStaysPlainWhenIdle(t *testing.T) {
-	rendered := stripANSI(renderPromptRule(viewModel{
-		Phase:      PhaseIdle,
-		MotionTick: 4,
-		RunElapsed: 37 * time.Second,
-	}, 12, defaultTheme.border))
+	rendered := stripANSI(renderPromptRule(12, defaultTheme.border))
 
-	if strings.Contains(rendered, "00:37") {
-		t.Fatalf("idle rule should not show elapsed indicator: %q", rendered)
-	}
 	if rendered != strings.Repeat("─", 12) {
 		t.Fatalf("idle rule = %q, want plain rule", rendered)
+	}
+}
+
+func TestRenderPromptShowsSingleTopRailIndicator(t *testing.T) {
+	rendered := stripANSI(renderPrompt(viewModel{
+		Phase:         PhaseStreaming,
+		MotionTick:    4,
+		RunElapsed:    8 * time.Second,
+		Transcript:    "hello",
+		PromptValue:   "",
+		PromptFooter:  "",
+		Thinking:      "medium",
+		WorkspaceRoot: "/workspace",
+		Model:         "ollama:test",
+	}))
+
+	if count := strings.Count(rendered, "00:08"); count != 1 {
+		t.Fatalf("renderPrompt() elapsed indicator count = %d, want 1 in %q", count, rendered)
+	}
+	if !strings.Contains(rendered, topRailFrames[4]+" 00:08") {
+		t.Fatalf("renderPrompt() missing top rail indicator: %q", rendered)
 	}
 }
 

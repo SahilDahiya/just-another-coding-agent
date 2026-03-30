@@ -156,10 +156,16 @@ func renderPrompt(vm viewModel) string {
 	if ruleWidth < 10 {
 		ruleWidth = 10
 	}
-	rule := renderPromptRule(vm, ruleWidth, rowBorder)
+	topRail := renderTopRail(vm)
+	topRule := renderPromptRule(ruleWidth, rowBorder)
+	bottomRule := renderPromptRule(ruleWidth, rowBorder)
 
 	promptParts := make([]string, 0, 8)
-	promptParts = append(promptParts, "", "", rule)
+	promptParts = append(promptParts, "", "")
+	if topRail != "" {
+		promptParts = append(promptParts, topRail)
+	}
+	promptParts = append(promptParts, topRule)
 	if vm.SlashMenu.Mode != slashMenuHidden && len(vm.SlashMenu.Rows) > 0 {
 		promptParts = append(promptParts, renderSlashMenu(vm.SlashMenu))
 	}
@@ -169,7 +175,7 @@ func renderPrompt(vm viewModel) string {
 			lipgloss.NewStyle().Foreground(markerColor).Bold(true).Render(buildPromptMarkerText(vm.Phase, vm.MotionTick)),
 			vm.PromptValue,
 		),
-		rule,
+		bottomRule,
 		lipgloss.NewStyle().Foreground(footerColor).Render(
 			buildPromptFooterText(vm),
 		),
@@ -187,7 +193,17 @@ func renderPrompt(vm viewModel) string {
 	return lipgloss.JoinVertical(lipgloss.Left, promptParts...)
 }
 
-func renderPromptRule(vm viewModel, width int, rowBorder lipgloss.TerminalColor) string {
+func renderTopRail(vm viewModel) string {
+	indicator := buildTopRailIndicator(vm)
+	if indicator == "" {
+		return ""
+	}
+	return lipgloss.NewStyle().
+		Foreground(defaultTheme.accentSoft).
+		Render(indicator)
+}
+
+func renderPromptRule(width int, rowBorder lipgloss.TerminalColor) string {
 	if width <= 0 {
 		return ""
 	}
@@ -197,27 +213,7 @@ func renderPromptRule(vm viewModel, width int, rowBorder lipgloss.TerminalColor)
 		ruleColor = rowBorder
 	}
 
-	if vm.Phase != PhaseStreaming && vm.Phase != PhaseCompacting {
-		return lipgloss.NewStyle().Foreground(ruleColor).Render(strings.Repeat("─", width))
-	}
-
-	indicator := buildTopRailIndicator(vm)
-	if indicator == "" {
-		return lipgloss.NewStyle().Foreground(ruleColor).Render(strings.Repeat("─", width))
-	}
-
-	indicatorWidth := lipgloss.Width(indicator)
-	rightWidth := width - indicatorWidth - 2
-	if rightWidth < 0 {
-		rightWidth = 0
-	}
-	left := lipgloss.NewStyle().
-		Foreground(defaultTheme.accentSoft).
-		Render(indicator)
-	right := lipgloss.NewStyle().
-		Foreground(ruleColor).
-		Render(strings.Repeat("─", rightWidth))
-	return left + strings.Repeat(" ", width-rightWidth-indicatorWidth) + right
+	return lipgloss.NewStyle().Foreground(ruleColor).Render(strings.Repeat("─", width))
 }
 
 func buildTopRailIndicator(vm viewModel) string {
