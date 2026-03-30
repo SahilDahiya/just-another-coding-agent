@@ -8,11 +8,11 @@ The architecture is intentionally thin. PydanticAI is the engine. This repo owns
 
 The main architectural risk in the current shape is split-brain product logic between Python and Go. The mitigation is explicit: Python owns backend semantics and public contracts; Go owns terminal presentation, input handling, and RPC client behavior. If the shell needs richer semantics, the backend contract should grow rather than teaching Go to infer or reinvent backend meaning locally.
 
-The same risk exists if a future non-Python execution helper is introduced for
-performance. A Rust helper for read-only tools may be a good internal
-execution engine, but it does not change semantic ownership. Python still owns
-tool schemas, validation, result shaping, activity metadata, session meaning,
-RPC meaning, and recovery policy.
+The same risk exists when a non-Python execution helper is introduced for
+performance. The current read-only worker is a separate Go helper for
+`read`, `ls`, `find`, and `grep`, but it does not change semantic ownership.
+Python still owns tool schemas, validation, result shaping, activity metadata,
+session meaning, RPC meaning, and recovery policy.
 
 For Go TUI refactors, optimize first for module boundaries, testability, and reduced semantic drift. Treat LOC reduction as a guardrail rather than a target, and sequence extractions before new interface layers so the same transcript subsystem is not refactored twice without learning anything.
 
@@ -149,8 +149,8 @@ The important boundary is:
   - tool execution policy
   - Python-owned tool semantics even when a future internal helper executes a
     narrow read-only path
-  - `read_only_worker/` for the future internal helper protocol and client
-    transport for read-only execution
+  - `read_only_worker/` for the internal helper protocol, launcher, and
+    client/runtime transport for read-only execution
 - `src/just_another_coding_agent/session/`
   - session persistence
   - session load/save helpers
@@ -159,6 +159,8 @@ The important boundary is:
   - command handlers
 - `cmd/jaca/`
   - canonical interactive TUI entrypoint
+- `cmd/jaca-read-only-worker/`
+  - persistent internal Go helper for read-only workspace operations
 - `internal/jaca/`
   - first-party Go terminal UI
   - presentation, input handling, shell state, and RPC client bridge

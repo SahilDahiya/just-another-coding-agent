@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import json
 import sys
 from collections.abc import Callable
@@ -39,44 +38,6 @@ def _resolve_operation(name: str) -> Callable[..., Any] | None:
 
         return execute_read
     return None
-
-
-async def run_blocking_tool_in_subprocess(
-    *,
-    operation: str,
-    kwargs: dict[str, Any],
-) -> Any:
-    payload = json.dumps(kwargs, sort_keys=True)
-    process = await asyncio.create_subprocess_exec(
-        sys.executable,
-        "-m",
-        "just_another_coding_agent.tools._subprocess_worker",
-        operation,
-        payload,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    stdout, stderr = await process.communicate()
-    if process.returncode != 0:
-        error_output = stderr.decode("utf-8", errors="replace").strip()
-        raise RuntimeError(
-            "Blocking tool subprocess failed: "
-            f"{error_output or f'exit code {process.returncode}'}"
-        )
-    response = json.loads(stdout.decode("utf-8"))
-    if response.get("ok") is not True:
-        error_type = response.get("error_type")
-        message = response.get("message", "")
-        error_cls = _KNOWN_ERROR_TYPES.get(str(error_type))
-        if error_cls is None:
-            raise RuntimeError(
-                "Blocking tool subprocess returned unknown error type: "
-                f"{error_type!r}: {message}"
-            )
-        raise error_cls(str(message))
-    return response["result"]
-
-
 def _main(argv: list[str]) -> int:
     if len(argv) != 3:
         print(

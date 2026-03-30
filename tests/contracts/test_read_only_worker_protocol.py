@@ -260,3 +260,11 @@ def test_read_only_worker_unions_accept_all_supported_operations() -> None:
         message="request cancelled",
     )
     assert isinstance(response, ReadOnlyWorkerErrorResponse)
+
+
+def test_tools_errors_imports_without_read_only_worker_cycle() -> None:
+    import importlib
+
+    module = importlib.import_module("just_another_coding_agent.tools.errors")
+
+    assert module.ToolCommandError.__name__ == "ToolCommandError"

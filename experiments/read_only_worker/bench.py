@@ -7,6 +7,7 @@ import json
 import os
 import statistics
 import subprocess
+import sys
 import tempfile
 import time
 from collections.abc import Awaitable, Callable
@@ -14,8 +15,6 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from just_another_coding_agent.tools.ls import _execute_ls_async
-from just_another_coding_agent.tools.read import _execute_read_async
 from just_another_coding_agent.tools.read_only_worker.protocol import (
     HelloWorkerRequest,
     HelloWorkerResponse,
@@ -27,6 +26,37 @@ from just_another_coding_agent.tools.read_only_worker.protocol import (
     encode_worker_message,
     parse_worker_response_line,
 )
+
+
+async def _run_blocking_tool_in_subprocess(
+    *,
+    operation: str,
+    kwargs: dict[str, Any],
+) -> Any:
+    payload = json.dumps(kwargs, sort_keys=True)
+    worker_script = Path(__file__).with_name("python_subprocess_worker.py")
+    process = await asyncio.create_subprocess_exec(
+        sys.executable,
+        str(worker_script),
+        operation,
+        payload,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await process.communicate()
+    if process.returncode != 0:
+        error_output = stderr.decode("utf-8", errors="replace").strip()
+        raise RuntimeError(
+            "Blocking tool subprocess failed: "
+            f"{error_output or f'exit code {process.returncode}'}"
+        )
+    response = json.loads(stdout.decode("utf-8"))
+    if response.get("ok") is not True:
+        raise RuntimeError(
+            "Blocking tool subprocess returned an error: "
+            f"{response.get('error_type')!r}: {response.get('message', '')}"
+        )
+    return response["result"]
 
 
 def _build_corpus(workspace_root: Path) -> None:
@@ -182,30 +212,39 @@ def _run_python_subprocess_baseline(
 ) -> dict[str, Any]:
     read_samples = _timed_sync_iterations(
         iterations=iterations,
-        runner=lambda: _execute_read_async(
-            workspace_root=workspace_root,
-            path="large.txt",
-            offset=1,
-            limit=400,
+        runner=lambda: _run_blocking_tool_in_subprocess(
+            operation="read",
+            kwargs={
+                "workspace_root": str(workspace_root),
+                "path": "large.txt",
+                "offset": 1,
+                "limit": 400,
+            },
         ),
     )
     ls_samples = _timed_sync_iterations(
         iterations=iterations,
-        runner=lambda: _execute_ls_async(
-            workspace_root=workspace_root,
-            path="src",
-            limit=500,
+        runner=lambda: _run_blocking_tool_in_subprocess(
+            operation="ls",
+            kwargs={
+                "workspace_root": str(workspace_root),
+                "path": "src",
+                "limit": 500,
+            },
         ),
     )
 
     async def _concurrent_read() -> None:
         await asyncio.gather(
             *[
-                _execute_read_async(
-                    workspace_root=workspace_root,
-                    path="large.txt",
-                    offset=1 + (index * 20),
-                    limit=200,
+                _run_blocking_tool_in_subprocess(
+                    operation="read",
+                    kwargs={
+                        "workspace_root": str(workspace_root),
+                        "path": "large.txt",
+                        "offset": 1 + (index * 20),
+                        "limit": 200,
+                    },
                 )
                 for index in range(concurrency)
             ]

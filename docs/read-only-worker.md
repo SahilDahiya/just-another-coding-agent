@@ -1,10 +1,10 @@
 # Read-Only Worker
 
-read_when: you are designing, implementing, or benchmarking the future persistent read-only worker
+read_when: you are designing, implementing, or benchmarking the persistent read-only worker
 
 ## Purpose
 
-The read-only worker is a future internal execution seam for high-frequency
+The read-only worker is the internal execution seam for high-frequency
 read-only tools:
 
 - `read`
@@ -16,6 +16,11 @@ It exists to replace per-call Python subprocess execution with one persistent
 helper process while preserving the same Python-owned public contract.
 
 This is not a public API and not a second backend runtime.
+
+The current implementation ships as a separate Go helper binary:
+
+- `cmd/jaca-read-only-worker`
+- installed as `jaca-read-only-worker`
 
 ## Boundary
 
@@ -127,11 +132,6 @@ Expected client flow:
 
 This contract is intentionally language-neutral.
 
-The same Python caller and the same internal protocol should be usable for:
-
-- a Go helper prototype
-- a Rust helper prototype
-- the eventual chosen implementation
-
-That keeps the language decision evidence-driven instead of forcing semantic
-rewrites for each prototype.
+The same Python caller and the same internal protocol were intentionally used
+for the Go and Rust spikes before the repo chose the separate Go helper as the
+current implementation.

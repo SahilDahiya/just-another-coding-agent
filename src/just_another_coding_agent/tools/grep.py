@@ -5,6 +5,7 @@ import shutil
 import subprocess
 from pathlib import Path
 from typing import Annotated
+from uuid import uuid4
 
 from pydantic import Field
 from pydantic_ai import RunContext, Tool
@@ -14,14 +15,18 @@ from just_another_coding_agent.tools._activity import (
     make_tool_return,
     truncate_activity_label,
 )
-from just_another_coding_agent.tools._subprocess_worker import (
-    run_blocking_tool_in_subprocess,
-)
 from just_another_coding_agent.tools._workspace import resolve_workspace_path
 from just_another_coding_agent.tools.deps import WorkspaceDeps
 from just_another_coding_agent.tools.errors import (
     ToolCommandError,
     reraise_path_error,
+)
+from just_another_coding_agent.tools.read_only_worker.protocol import (
+    GrepCallResult,
+    GrepWorkerRequest,
+)
+from just_another_coding_agent.tools.read_only_worker.runtime import (
+    ReadOnlyWorkerRuntime,
 )
 from just_another_coding_agent.tools.truncation import (
     append_tool_note,
@@ -35,6 +40,7 @@ GREP_MAX_LINE_CHARS = 300
 
 async def _execute_grep_async(
     *,
+    read_only_worker: ReadOnlyWorkerRuntime,
     workspace_root: Path | str,
     pattern: str,
     path: str | None = None,
@@ -43,18 +49,57 @@ async def _execute_grep_async(
     literal: bool = False,
     limit: int = GREP_MAX_MATCHES,
 ) -> str:
-    return await run_blocking_tool_in_subprocess(
-        operation="grep",
-        kwargs={
-            "workspace_root": str(workspace_root),
-            "pattern": pattern,
-            "path": path,
-            "glob": glob,
-            "ignore_case": ignore_case,
-            "literal": literal,
-            "limit": limit,
-        },
+    response = await read_only_worker.send(
+        GrepWorkerRequest(
+            request_id=uuid4().hex,
+            workspace_root=str(workspace_root),
+            pattern=pattern,
+            path=path,
+            glob=glob,
+            ignore_case=ignore_case,
+            literal=literal,
+            limit=limit,
+            max_bytes=GREP_MAX_BYTES,
+            max_line_chars=GREP_MAX_LINE_CHARS,
+        )
     )
+    if not isinstance(response, GrepCallResult):
+        raise RuntimeError(
+            "Read-only worker returned the wrong response type for grep: "
+            f"{type(response).__name__}"
+        )
+    return _render_grep_call_result(response)
+
+
+def _render_grep_call_result(result: GrepCallResult) -> str:
+    if not result.matches:
+        if result.byte_limit_hit:
+            return (
+                f"[Search output exceeded {GREP_MAX_BYTES} bytes before a full "
+                "match could be returned. Narrow the pattern or path.]"
+            )
+        return "No matches found."
+
+    output = "\n".join(
+        f"{match.path}:{match.line_number}:{match.text}" for match in result.matches
+    )
+    notices: list[str] = []
+    if result.limit_hit:
+        notices.append(
+            f"Showing first {len(result.matches)} matches. "
+            "Refine pattern or path to narrow results."
+        )
+    if result.byte_limit_hit:
+        notices.append(
+            f"Search output exceeded {GREP_MAX_BYTES} bytes. Refine pattern or path."
+        )
+    if result.truncated_lines:
+        notices.append(
+            f"Some match lines were truncated to {GREP_MAX_LINE_CHARS} characters."
+        )
+    if notices:
+        output = append_tool_note(output, f"[{' '.join(notices)}]")
+    return output
 
 
 def _format_match_path(*, file_path: Path, workspace_root: Path) -> str:
@@ -226,6 +271,7 @@ async def grep(
     """
 
     result = await _execute_grep_async(
+        read_only_worker=ctx.deps.read_only_worker,
         workspace_root=ctx.deps.workspace_root,
         pattern=pattern,
         path=path,

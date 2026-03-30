@@ -113,13 +113,14 @@ async def test_parallel_read_only_tool_calls_overlap(monkeypatch, tmp_path) -> N
 
     async def _fake_execute_read_async(
         *,
+        read_only_worker,
         workspace_root,
         path,
         offset=None,
         limit=None,
     ):
         nonlocal active, max_active
-        del workspace_root, offset, limit
+        del read_only_worker, workspace_root, offset, limit
         active += 1
         max_active = max(max_active, active)
         await asyncio.sleep(0.05)

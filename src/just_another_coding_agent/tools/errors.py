@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from pydantic_ai.toolsets import WrapperToolset
 
 from just_another_coding_agent.contracts.tools import make_tool_error_result
-from just_another_coding_agent.tools.deps import WorkspaceDeps
 
 
 class ToolOperationalError(Exception):
@@ -44,7 +44,7 @@ def reraise_encoding_error(
 
 
 @dataclass
-class ErrorWrappingToolset(WrapperToolset[WorkspaceDeps]):
+class ErrorWrappingToolset(WrapperToolset[Any]):
     async def call_tool(self, name, tool_args, ctx, tool):
         try:
             return await super().call_tool(name, tool_args, ctx, tool)

@@ -4,6 +4,7 @@ import shutil
 import subprocess
 from pathlib import Path, PurePosixPath
 from typing import Annotated
+from uuid import uuid4
 
 from pydantic import Field
 from pydantic_ai import RunContext, Tool
@@ -13,14 +14,18 @@ from just_another_coding_agent.tools._activity import (
     make_tool_return,
     truncate_activity_label,
 )
-from just_another_coding_agent.tools._subprocess_worker import (
-    run_blocking_tool_in_subprocess,
-)
 from just_another_coding_agent.tools._workspace import resolve_workspace_path
 from just_another_coding_agent.tools.deps import WorkspaceDeps
 from just_another_coding_agent.tools.errors import (
     ToolCommandError,
     reraise_path_error,
+)
+from just_another_coding_agent.tools.read_only_worker.protocol import (
+    FindCallResult,
+    FindWorkerRequest,
+)
+from just_another_coding_agent.tools.read_only_worker.runtime import (
+    ReadOnlyWorkerRuntime,
 )
 from just_another_coding_agent.tools.truncation import (
     append_tool_note,
@@ -33,20 +38,49 @@ FIND_MAX_BYTES = 50 * 1024
 
 async def _execute_find_async(
     *,
+    read_only_worker: ReadOnlyWorkerRuntime,
     workspace_root: Path | str,
     pattern: str,
     path: str | None = None,
     limit: int = FIND_DEFAULT_LIMIT,
 ) -> str:
-    return await run_blocking_tool_in_subprocess(
-        operation="find",
-        kwargs={
-            "workspace_root": str(workspace_root),
-            "pattern": pattern,
-            "path": path,
-            "limit": limit,
-        },
+    response = await read_only_worker.send(
+        FindWorkerRequest(
+            request_id=uuid4().hex,
+            workspace_root=str(workspace_root),
+            pattern=pattern,
+            path=path,
+            limit=limit,
+            max_bytes=FIND_MAX_BYTES,
+        )
     )
+    if not isinstance(response, FindCallResult):
+        raise RuntimeError(
+            "Read-only worker returned the wrong response type for find: "
+            f"{type(response).__name__}"
+        )
+    return _render_find_call_result(response)
+
+
+def _render_find_call_result(result: FindCallResult) -> str:
+    if not result.matches:
+        return "No files found matching pattern."
+
+    output = "\n".join(result.matches)
+    notices: list[str] = []
+    if result.limit_hit:
+        notices.append(
+            "Showing first "
+            f"{len(result.matches)} results. Use limit={len(result.matches) * 2} "
+            "for more or refine the pattern."
+        )
+    if result.byte_limit_hit:
+        notices.append(
+            f"Find output exceeded {FIND_MAX_BYTES} bytes. Refine the pattern or path."
+        )
+    if notices:
+        output = append_tool_note(output, f"[{' '.join(notices)}]")
+    return output
 
 
 def _matches_pattern(path_text: str, pattern: str) -> bool:
@@ -157,6 +191,7 @@ async def find(
     """
 
     result = await _execute_find_async(
+        read_only_worker=ctx.deps.read_only_worker,
         workspace_root=ctx.deps.workspace_root,
         pattern=pattern,
         path=path,

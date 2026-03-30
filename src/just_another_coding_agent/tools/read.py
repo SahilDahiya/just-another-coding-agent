@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Annotated
+from uuid import uuid4
 
 from pydantic import Field
 from pydantic_ai import RunContext, Tool
@@ -11,15 +12,19 @@ from just_another_coding_agent.tools._activity import (
     make_tool_return,
     truncate_activity_label,
 )
-from just_another_coding_agent.tools._subprocess_worker import (
-    run_blocking_tool_in_subprocess,
-)
 from just_another_coding_agent.tools._workspace import resolve_workspace_path
 from just_another_coding_agent.tools.deps import WorkspaceDeps
 from just_another_coding_agent.tools.errors import (
     ToolEncodingError,
     ToolOperationalError,
     reraise_path_error,
+)
+from just_another_coding_agent.tools.read_only_worker.protocol import (
+    ReadCallResult,
+    ReadWorkerRequest,
+)
+from just_another_coding_agent.tools.read_only_worker.runtime import (
+    ReadOnlyWorkerRuntime,
 )
 from just_another_coding_agent.tools.truncation import (
     append_tool_note,
@@ -32,20 +37,61 @@ READ_MAX_BYTES = 50 * 1024
 
 async def _execute_read_async(
     *,
+    read_only_worker: ReadOnlyWorkerRuntime,
     workspace_root: Path | str,
     path: str,
     offset: int | None = None,
     limit: int | None = None,
 ) -> str:
-    return await run_blocking_tool_in_subprocess(
-        operation="read",
-        kwargs={
-            "workspace_root": str(workspace_root),
-            "path": path,
-            "offset": offset,
-            "limit": limit,
-        },
+    response = await read_only_worker.send(
+        ReadWorkerRequest(
+            request_id=uuid4().hex,
+            workspace_root=str(workspace_root),
+            path=path,
+            offset=offset,
+            limit=limit,
+            max_lines=READ_MAX_LINES,
+            max_bytes=READ_MAX_BYTES,
+        )
     )
+    if not isinstance(response, ReadCallResult):
+        raise RuntimeError(
+            "Read-only worker returned the wrong response type for read: "
+            f"{type(response).__name__}"
+        )
+    return _render_read_call_result(response)
+
+
+def _render_read_call_result(result: ReadCallResult) -> str:
+    if result.total_lines == 0:
+        return ""
+
+    if result.first_line_exceeds_max_bytes:
+        return (
+            f"[Line {result.start_line} exceeds {READ_MAX_BYTES} byte limit. "
+            "Use shell to read a narrower slice.]"
+        )
+
+    if result.truncated:
+        return append_tool_note(
+            result.window_text,
+            (
+                f"[Showing lines {result.start_line}-{result.end_line} of "
+                f"{result.total_lines}. Use offset={result.next_offset} to continue.]"
+            ),
+        )
+
+    if result.next_offset is not None and result.end_line < result.total_lines:
+        remaining_lines = result.total_lines - result.end_line
+        return append_tool_note(
+            result.window_text,
+            (
+                f"[{remaining_lines} more lines in file. "
+                f"Use offset={result.next_offset} to continue.]"
+            ),
+        )
+
+    return result.window_text
 
 
 def execute_read(
@@ -135,6 +181,7 @@ async def read(
     """
 
     result = await _execute_read_async(
+        read_only_worker=ctx.deps.read_only_worker,
         workspace_root=ctx.deps.workspace_root,
         path=path,
         offset=offset,

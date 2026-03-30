@@ -4,13 +4,6 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
-from just_another_coding_agent.tools.errors import (
-    ToolCommandError,
-    ToolEncodingError,
-    ToolOperationalError,
-    ToolPathError,
-)
-
 READ_ONLY_WORKER_PROTOCOL_VERSION = 1
 READ_ONLY_WORKER_KIND = "read_only"
 READ_ONLY_WORKER_OPERATIONS = ("read", "ls", "find", "grep")
@@ -198,6 +191,13 @@ def parse_worker_response_line(line: str) -> WorkerResponse:
 
 
 def worker_error_to_exception(error: ReadOnlyWorkerErrorResponse) -> Exception:
+    from just_another_coding_agent.tools.errors import (
+        ToolCommandError,
+        ToolEncodingError,
+        ToolOperationalError,
+        ToolPathError,
+    )
+
     if error.error_code == "command_error":
         return ToolCommandError(error.message)
     if error.error_code == "encoding_error":

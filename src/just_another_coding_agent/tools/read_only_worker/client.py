@@ -36,6 +36,16 @@ class ReadOnlyWorkerClient:
         self._fatal_error: Exception | None = None
 
     async def __aenter__(self) -> ReadOnlyWorkerClient:
+        return await self.start()
+
+    async def __aexit__(self, exc_type, exc, tb) -> None:
+        del exc_type, exc, tb
+        await self.close()
+
+    async def start(self) -> ReadOnlyWorkerClient:
+        if self._process is not None:
+            return self
+
         try:
             self._process = await asyncio.create_subprocess_exec(
                 *self._command,
@@ -65,8 +75,7 @@ class ReadOnlyWorkerClient:
             await self._close()
             raise
 
-    async def __aexit__(self, exc_type, exc, tb) -> None:
-        del exc_type, exc, tb
+    async def close(self) -> None:
         await self._close()
 
     async def send(self, message: Any) -> WorkerResponse:

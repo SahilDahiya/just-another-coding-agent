@@ -396,6 +396,8 @@ async def stream_run_events(
                 pump_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await pump_task
+            if isinstance(queued_deps, WorkspaceDeps):
+                await queued_deps.read_only_worker.close()
 
 
 def _extract_text_delta(event: object) -> str | None:

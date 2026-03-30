@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Annotated
+from uuid import uuid4
 
 from pydantic import Field
 from pydantic_ai import RunContext, Tool
@@ -11,12 +12,16 @@ from just_another_coding_agent.tools._activity import (
     make_tool_return,
     truncate_activity_label,
 )
-from just_another_coding_agent.tools._subprocess_worker import (
-    run_blocking_tool_in_subprocess,
-)
 from just_another_coding_agent.tools._workspace import resolve_workspace_path
 from just_another_coding_agent.tools.deps import WorkspaceDeps
 from just_another_coding_agent.tools.errors import reraise_path_error
+from just_another_coding_agent.tools.read_only_worker.protocol import (
+    LsCallResult,
+    LsWorkerRequest,
+)
+from just_another_coding_agent.tools.read_only_worker.runtime import (
+    ReadOnlyWorkerRuntime,
+)
 from just_another_coding_agent.tools.truncation import (
     append_tool_note,
     collect_bounded_items,
@@ -28,18 +33,50 @@ LS_DEFAULT_LIMIT = 500
 
 async def _execute_ls_async(
     *,
+    read_only_worker: ReadOnlyWorkerRuntime,
     workspace_root: Path | str,
     path: str | None = None,
     limit: int = LS_DEFAULT_LIMIT,
 ) -> str:
-    return await run_blocking_tool_in_subprocess(
-        operation="ls",
-        kwargs={
-            "workspace_root": str(workspace_root),
-            "path": path,
-            "limit": limit,
-        },
+    response = await read_only_worker.send(
+        LsWorkerRequest(
+            request_id=uuid4().hex,
+            workspace_root=str(workspace_root),
+            path=path,
+            limit=limit,
+            max_bytes=LS_MAX_BYTES,
+        )
     )
+    if not isinstance(response, LsCallResult):
+        raise RuntimeError(
+            "Read-only worker returned the wrong response type for ls: "
+            f"{type(response).__name__}"
+        )
+    return _render_ls_call_result(response)
+
+
+def _render_ls_call_result(result: LsCallResult) -> str:
+    if not result.entries:
+        return "(empty directory)"
+
+    output = "\n".join(
+        f"{entry.name}/" if entry.is_dir else entry.name for entry in result.entries
+    )
+    notices: list[str] = []
+    if result.limit_hit:
+        notices.append(
+            "Showing first "
+            f"{len(result.entries)} entries. Use limit={len(result.entries) * 2} "
+            "for more."
+        )
+    if result.byte_limit_hit:
+        notices.append(
+            f"Listing exceeded {LS_MAX_BYTES} bytes. Narrow the path or use "
+            "a smaller limit."
+        )
+    if notices:
+        output = append_tool_note(output, f"[{' '.join(notices)}]")
+    return output
 
 
 def _format_entry(entry: Path) -> str:
@@ -111,6 +148,7 @@ async def ls(
     """
 
     result = await _execute_ls_async(
+        read_only_worker=ctx.deps.read_only_worker,
         workspace_root=ctx.deps.workspace_root,
         path=path,
         limit=limit,
