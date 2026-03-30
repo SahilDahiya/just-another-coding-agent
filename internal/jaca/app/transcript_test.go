@@ -382,6 +382,136 @@ func TestToolResultLinesTruncateVeryLongDisplayLines(t *testing.T) {
 	}
 }
 
+func TestToolResultTruncationKeepsHeadAndTail(t *testing.T) {
+	// 10 lines exceeds maxToolResultLines (6), so should be truncated
+	// to 3 head + 2 tail with an ellipsis in between.
+	lines := []string{
+		"line-1", "line-2", "line-3", "line-4", "line-5",
+		"line-6", "line-7", "line-8", "line-9", "line-10",
+	}
+	output := strings.Join(lines, "\n")
+
+	transcript := NewTranscript()
+	transcript.ApplyRunEvent(rpc.RunEvent{
+		Type:       "tool_call_started",
+		ToolName:   "shell",
+		ToolCallID: "call-trunc",
+		Args:       map[string]any{"command": "seq 10"},
+	})
+	transcript.ApplyRunEvent(rpc.RunEvent{
+		Type:       "tool_call_succeeded",
+		ToolName:   "shell",
+		ToolCallID: "call-trunc",
+		Result:     map[string]any{"output": output},
+	})
+
+	plain := transcript.blocks[len(transcript.blocks)-1].plain
+
+	// Head lines must be present.
+	for _, want := range []string{"line-1", "line-2", "line-3"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("head line %q missing from truncated output: %q", want, plain)
+		}
+	}
+	// Tail lines must be present.
+	for _, want := range []string{"line-9", "line-10"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("tail line %q missing from truncated output: %q", want, plain)
+		}
+	}
+	// Middle lines must NOT be present.
+	for _, absent := range []string{"line-4", "line-5", "line-6", "line-7", "line-8"} {
+		if strings.Contains(plain, absent) {
+			t.Fatalf("middle line %q should be omitted from truncated output: %q", absent, plain)
+		}
+	}
+	// Ellipsis with omitted count must appear between head and tail.
+	if !strings.Contains(plain, "... +5 more lines") {
+		t.Fatalf("truncated output missing ellipsis with count: %q", plain)
+	}
+
+	// Verify ordering: head lines, then ellipsis, then tail lines.
+	idxHead3 := strings.Index(plain, "line-3")
+	idxEllipsis := strings.Index(plain, "... +5 more lines")
+	idxTail9 := strings.Index(plain, "line-9")
+	if idxHead3 >= idxEllipsis || idxEllipsis >= idxTail9 {
+		t.Fatalf("unexpected ordering: head3@%d ellipsis@%d tail9@%d in %q",
+			idxHead3, idxEllipsis, idxTail9, plain)
+	}
+}
+
+func TestToolResultNoTruncationWhenWithinLimit(t *testing.T) {
+	lines := []string{"alpha", "bravo", "charlie", "delta", "echo", "foxtrot"}
+	output := strings.Join(lines, "\n")
+
+	transcript := NewTranscript()
+	transcript.ApplyRunEvent(rpc.RunEvent{
+		Type:       "tool_call_started",
+		ToolName:   "shell",
+		ToolCallID: "call-short",
+		Args:       map[string]any{"command": "echo"},
+	})
+	transcript.ApplyRunEvent(rpc.RunEvent{
+		Type:       "tool_call_succeeded",
+		ToolName:   "shell",
+		ToolCallID: "call-short",
+		Result:     map[string]any{"output": output},
+	})
+
+	plain := transcript.blocks[len(transcript.blocks)-1].plain
+	for _, want := range lines {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("line %q missing from non-truncated output: %q", want, plain)
+		}
+	}
+	if strings.Contains(plain, "...") {
+		t.Fatalf("non-truncated output should not contain ellipsis: %q", plain)
+	}
+}
+
+func TestTruncateLinesUnitHeadTail(t *testing.T) {
+	input := []string{"a", "b", "c", "d", "e", "f", "g", "h", "i", "j"}
+	result, truncated, omitted, headCount := truncateLines(input, 6)
+	if !truncated {
+		t.Fatal("expected truncated=true")
+	}
+	if omitted != 5 {
+		t.Fatalf("omitted = %d, want 5", omitted)
+	}
+	if headCount != 3 {
+		t.Fatalf("headCount = %d, want 3", headCount)
+	}
+	if len(result) != 5 {
+		t.Fatalf("len(result) = %d, want 5 (3 head + 2 tail)", len(result))
+	}
+	// First 3 are head.
+	for i, want := range []string{"a", "b", "c"} {
+		if result[i] != want {
+			t.Fatalf("result[%d] = %q, want %q", i, result[i], want)
+		}
+	}
+	// Last 2 are tail.
+	for i, want := range []string{"i", "j"} {
+		if result[3+i] != want {
+			t.Fatalf("result[%d] = %q, want %q", 3+i, result[3+i], want)
+		}
+	}
+}
+
+func TestTruncateLinesNoTruncation(t *testing.T) {
+	input := []string{"a", "b", "c"}
+	result, truncated, omitted, headCount := truncateLines(input, 6)
+	if truncated {
+		t.Fatal("expected truncated=false")
+	}
+	if omitted != 0 || headCount != 0 {
+		t.Fatalf("omitted=%d headCount=%d, want 0, 0", omitted, headCount)
+	}
+	if len(result) != 3 {
+		t.Fatalf("len(result) = %d, want 3", len(result))
+	}
+}
+
 func TestCodeBlockLanguageLabelRendered(t *testing.T) {
 	markdown := "Here is code:\n\n```python\nprint('hello')\n```\n"
 
