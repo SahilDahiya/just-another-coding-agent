@@ -371,7 +371,7 @@ func (m *model) currentViewModel() viewModel {
 		MotionTick:     m.motionTick,
 		Transcript:     m.viewport.View(),
 		PromptValue:    m.promptView(),
-		PromptFooter:   m.promptFooterNotice,
+		PromptFooter:   m.currentPromptFooter(),
 		RunElapsed:     elapsed,
 		InputTokens:    m.lastInputTokens,
 		OutputTokens:   m.lastOutputTokens,
@@ -383,6 +383,16 @@ func (m *model) currentViewModel() viewModel {
 		SlashMenu:      m.slashMenu,
 		UpdatePrompt:   m.updatePrompt,
 	}
+}
+
+func (m *model) currentPromptFooter() string {
+	if m.promptFooterNotice != "" {
+		return m.promptFooterNotice
+	}
+	if m.shouldShowFirstRunPromptAssist() {
+		return "first-time setup: tab to choose a provider, or /model ollama:<local-model> for local Ollama"
+	}
+	return ""
 }
 
 func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -441,6 +451,13 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "tab":
 		if m.slashMenuVisible() {
 			m.commitSlashSuggestion()
+			m.refreshViewport()
+			return m, nil
+		}
+		if m.shouldShowFirstRunPromptAssist() && strings.TrimSpace(m.textInput.Value()) == "" {
+			m.textInput.SetValue("/provider ")
+			m.textInput.CursorEnd()
+			m.syncSlashMenu()
 			m.refreshViewport()
 			return m, nil
 		}

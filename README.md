@@ -140,6 +140,8 @@ masked auth immediately at startup instead of waiting for the first
 When auth starts, JACA switches the composer into an explicit secure setup
 mode: provider-specific prompt text, masked input, no transcript/history
 capture for the secret, and OS-keychain storage on save.
+On first run, the prompt footer also tells the user to press `Tab` to choose a
+provider directly from the prompt zone.
 
 Inside `jaca`:
 

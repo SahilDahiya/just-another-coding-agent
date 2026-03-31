@@ -63,6 +63,20 @@ func (m *model) maybeStartOnboarding() {
 	}
 }
 
+func (m *model) shouldShowFirstRunPromptAssist() bool {
+	if !m.startupOnboardingSet || m.auth.Active || m.streaming {
+		return false
+	}
+	if strings.TrimSpace(m.textInput.Value()) != "" {
+		return false
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(cfg["default_provider"]) == ""
+}
+
 func (m *model) firstRunOnboardingLines(statuses rpc.AuthStatusResponse) []string {
 	lines := []string{
 		"choose a provider to get started:",

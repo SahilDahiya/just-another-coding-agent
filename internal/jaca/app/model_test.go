@@ -718,6 +718,38 @@ func TestStartupAuthStatusShowsFirstRunOnboarding(t *testing.T) {
 	if m.auth.Active {
 		t.Fatal("first-run onboarding should not auto-start auth")
 	}
+	if got := m.currentPromptFooter(); !strings.Contains(got, "tab to choose a provider") {
+		t.Fatalf("currentPromptFooter() = %q, want first-run prompt assist", got)
+	}
+}
+
+func TestFirstRunTabOpensProviderSuggestions(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	backend := newStubBackend()
+	status, err := backend.AuthStatus(context.Background())
+	if err != nil {
+		t.Fatalf("AuthStatus() returned error: %v", err)
+	}
+
+	m := newTestModel()
+	m.options.Backend = backend
+
+	updated, _ := m.Update(authStatusLoadedMsg{Status: status})
+	m = updated.(*model)
+
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyTab})
+
+	if got := m.textInput.Value(); got != "/provider " {
+		t.Fatalf("textInput.Value() = %q, want %q", got, "/provider ")
+	}
+	rendered := stripANSI(m.View())
+	for _, want := range []string{"ollama", "github", "openai", "anthropic"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("provider suggestion %q missing in %q", want, rendered)
+		}
+	}
 }
 
 func TestStartupAuthStatusAutoStartsAuthForPersistedProviderWithoutCredentials(t *testing.T) {
