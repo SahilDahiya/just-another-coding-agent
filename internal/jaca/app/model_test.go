@@ -787,8 +787,9 @@ func TestStartupAuthStatusAutoStartsAuthForPersistedProviderWithoutCredentials(t
 	if !strings.Contains(rendered, "note  provider setup") {
 		t.Fatalf("startup transcript missing provider setup note: %q", rendered)
 	}
-	if !strings.Contains(stripANSI(m.View()), "auth openai") {
-		t.Fatalf("view missing openai auth footer: %q", stripANSI(m.View()))
+	view := stripANSI(m.View())
+	if !strings.Contains(view, "Secure Setup") || !strings.Contains(view, "OpenAI API key") {
+		t.Fatalf("view missing openai secure setup panel: %q", view)
 	}
 }
 
@@ -829,8 +830,9 @@ func TestStartupAuthStatusAutoStartsAuthForPersistedHostedOllamaSelection(t *tes
 	if !strings.Contains(rendered, "the shipped Ollama provider path uses hosted Ollama models") {
 		t.Fatalf("startup transcript missing hosted ollama setup note: %q", rendered)
 	}
-	if !strings.Contains(stripANSI(m.View()), "secure auth ollama") {
-		t.Fatalf("view missing ollama auth footer: %q", stripANSI(m.View()))
+	view := stripANSI(m.View())
+	if !strings.Contains(view, "Secure Setup") || !strings.Contains(view, "Ollama cloud API key") {
+		t.Fatalf("view missing ollama secure setup panel: %q", view)
 	}
 }
 
@@ -888,8 +890,8 @@ func TestProviderWithoutCredentialsStartsMaskedAuthFlow(t *testing.T) {
 	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
 
 	rendered := stripANSI(m.View())
-	if !strings.Contains(rendered, "auth openai") {
-		t.Fatalf("view missing auth footer after provider selection: %q", rendered)
+	if !strings.Contains(rendered, "Secure Setup") || !strings.Contains(rendered, "OpenAI API key") {
+		t.Fatalf("view missing secure setup panel after provider selection: %q", rendered)
 	}
 	masked := sendRunes(m, "super-secret")
 	rendered = stripANSI(masked.View())
@@ -913,16 +915,16 @@ func TestOllamaProviderWithoutCredentialsStartsMaskedAuthFlow(t *testing.T) {
 	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
 
 	rendered := stripANSI(m.View())
-	if !strings.Contains(rendered, "secure auth ollama") {
-		t.Fatalf("view missing ollama auth footer after provider selection: %q", rendered)
+	if !strings.Contains(rendered, "Secure Setup") || !strings.Contains(rendered, "Ollama cloud API key") {
+		t.Fatalf("view missing ollama secure setup panel after provider selection: %q", rendered)
 	}
 	transcript := stripANSI(m.transcript.Render())
-	if !strings.Contains(transcript, "Ollama cloud API key") {
-		t.Fatalf("transcript missing ollama cloud secure setup note: %q", transcript)
+	if strings.Contains(transcript, "Ollama cloud API key") || strings.Contains(transcript, "note  secure setup") {
+		t.Fatalf("secure setup should not be written into transcript: %q", transcript)
 	}
 }
 
-func TestProviderWithoutCredentialsWritesSecureSetupNote(t *testing.T) {
+func TestProviderWithoutCredentialsShowsSecureSetupPanel(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("OPENAI_API_KEY", "")
@@ -933,21 +935,21 @@ func TestProviderWithoutCredentialsWritesSecureSetupNote(t *testing.T) {
 	m = sendRunes(m, "/provider openai")
 	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
 
-	rendered := stripANSI(m.transcript.Render())
+	rendered := stripANSI(m.View())
 	for _, want := range []string{
-		"note  secure setup",
+		"Secure Setup",
 		"OpenAI API key",
-		"paste it into the prompt now",
-		"input is masked",
-		"not saved to transcript or prompt history",
-		"stored in the OS keychain",
+		"Enter your OpenAI API key",
+		"Stored in the OS keychain",
+		"Not added to transcript or prompt history",
+		"Enter saves. Esc cancels.",
 	} {
 		if !strings.Contains(rendered, want) {
-			t.Fatalf("secure setup note missing %q in %q", want, rendered)
+			t.Fatalf("secure setup panel missing %q in %q", want, rendered)
 		}
 	}
-	if !strings.Contains(stripANSI(m.View()), "secure auth openai") {
-		t.Fatalf("view missing secure auth footer: %q", stripANSI(m.View()))
+	if transcript := stripANSI(m.transcript.Render()); strings.Contains(transcript, "note  secure setup") {
+		t.Fatalf("secure setup panel should not write transcript note: %q", transcript)
 	}
 }
 
@@ -963,8 +965,8 @@ func TestGitHubProviderWithoutCredentialsStartsMaskedAuthFlow(t *testing.T) {
 	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
 
 	rendered := stripANSI(m.View())
-	if !strings.Contains(rendered, "auth github") {
-		t.Fatalf("view missing auth footer after provider selection: %q", rendered)
+	if !strings.Contains(rendered, "Secure Setup") || !strings.Contains(rendered, "GitHub Models token") {
+		t.Fatalf("view missing github secure setup panel after provider selection: %q", rendered)
 	}
 	masked := sendRunes(m, "super-secret")
 	rendered = stripANSI(masked.View())
@@ -983,9 +985,9 @@ func TestAuthOllamaUsesCloudSpecificSecretLabel(t *testing.T) {
 	m = sendRunes(m, "/auth ollama")
 	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
 
-	rendered := stripANSI(m.transcript.Render())
+	rendered := stripANSI(m.View())
 	if !strings.Contains(rendered, "Ollama cloud API key") {
-		t.Fatalf("secure setup note missing ollama cloud label: %q", rendered)
+		t.Fatalf("secure setup panel missing ollama cloud label: %q", rendered)
 	}
 }
 
@@ -1041,8 +1043,8 @@ func TestModelWithoutCredentialsStartsMaskedAuthFlow(t *testing.T) {
 	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
 
 	rendered := stripANSI(m.View())
-	if !strings.Contains(rendered, "auth openai") {
-		t.Fatalf("view missing auth footer after model selection: %q", rendered)
+	if !strings.Contains(rendered, "Secure Setup") || !strings.Contains(rendered, "OpenAI API key") {
+		t.Fatalf("view missing secure setup panel after model selection: %q", rendered)
 	}
 	if got := m.promptHistory; len(got) != 1 || got[0] != "/model openai:gpt-5.4" {
 		t.Fatalf("promptHistory = %#v, want only the non-secret model command", got)

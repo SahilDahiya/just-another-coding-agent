@@ -137,15 +137,14 @@ the shipped provider choices. Ollama is split explicitly:
 If a saved cloud-provider selection is still missing credentials, JACA starts
 masked auth immediately at startup instead of waiting for the first
 `/provider` or `/model` command.
-When auth starts, JACA switches the composer into an explicit secure setup
-mode: provider-specific prompt text, masked input, no transcript/history
-capture for the secret, and OS-keychain storage on save.
+When auth starts, JACA opens a centered secure setup panel: provider-specific
+labeling, masked input, no transcript/history capture for the secret, and
+OS-keychain storage on save.
 On first run, the prompt footer also tells the user to press `Tab` to choose a
 provider directly from the prompt zone.
 
 Inside `jaca`:
 
-- `/provider ollama` selects local Ollama and requires no key
 - `/provider github` selects GitHub Models and starts masked auth if no GitHub token is configured
 - `/provider openai` selects OpenAI and starts masked auth if no OpenAI key is configured
 - `/provider anthropic` selects Anthropic and starts masked auth if no Anthropic key is configured

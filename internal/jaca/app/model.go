@@ -364,6 +364,7 @@ func (m *model) currentViewModel() viewModel {
 	return viewModel{
 		Phase:          m.phase,
 		Width:          m.width,
+		Height:         m.height,
 		Model:          m.options.Model,
 		WorkspaceRoot:  m.options.WorkspaceRoot,
 		Thinking:       m.options.Thinking,
@@ -382,6 +383,13 @@ func (m *model) currentViewModel() viewModel {
 		VisibleZones:   m.visibleZones,
 		SlashMenu:      m.slashMenu,
 		UpdatePrompt:   m.updatePrompt,
+		Auth: authOverlayView{
+			Active:      m.auth.Active,
+			Provider:    m.auth.Provider,
+			SecretLabel: authSecretLabel(m.auth.Provider),
+			InputValue:  m.textInput.View(),
+			HelpLines:   authSetupLines(m.auth.Provider),
+		},
 	}
 }
 

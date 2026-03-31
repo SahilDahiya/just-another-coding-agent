@@ -104,8 +104,8 @@ The core architectural risk is semantic drift between the Go shell and the Pytho
   `/model ollama:<local-model>` for local no-auth use, and `/provider ollama`
   for the shipped hosted Ollama catalog that may require auth.
 - Masked auth should feel explicitly secure, not like ordinary chat input:
-  provider-specific labeling, a short `secure setup` note, masked composer
-  input, and clear copy that the secret is not written into transcript or
+  provider-specific labeling, a centered secure setup panel, a masked input
+  field, and clear copy that the secret is not written into transcript or
   prompt history.
 - The prompt zone should behave like a compact two-line shell composer: one input line, one low-salience footer line for state and recall hints.
 - Backend token and context-window usage should appear as restrained footer context after a completed run, not as a new panel or heavy stats surface.

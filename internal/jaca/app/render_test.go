@@ -260,3 +260,34 @@ func TestRenderStatusDropsColorInAsciiProfile(t *testing.T) {
 		t.Fatalf("renderStatus() kept ANSI escapes under Ascii profile: %q", rendered)
 	}
 }
+
+func TestRenderViewShowsCenteredSecureSetupPanel(t *testing.T) {
+	rendered := stripANSI(renderView(viewModel{
+		Width:  80,
+		Height: 24,
+		Auth: authOverlayView{
+			Active:      true,
+			Provider:    "github",
+			SecretLabel: "GitHub Models token",
+			InputValue:  "********",
+			HelpLines: []string{
+				"Enter your github models token",
+				"Stored in the OS keychain",
+				"Not added to transcript or prompt history",
+				"Enter saves. Esc cancels.",
+			},
+		},
+	}))
+
+	for _, want := range []string{
+		"Secure Setup",
+		"GitHub Models token",
+		"********",
+		"Stored in the OS keychain",
+		"Enter saves. Esc cancels.",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("renderView() missing %q in %q", want, rendered)
+		}
+	}
+}

@@ -10,11 +10,10 @@ import (
 )
 
 type authState struct {
-	Active               bool
-	Provider             string
-	PendingProvider      string
-	PendingModel         string
-	PreviousPromptFooter string
+	Active          bool
+	Provider        string
+	PendingProvider string
+	PendingModel    string
 }
 
 func (m *model) startAuthFlow(
@@ -22,23 +21,17 @@ func (m *model) startAuthFlow(
 	pendingProvider string,
 	pendingModel string,
 ) {
-	m.transcript.WriteNote("secure setup", authSetupLines(provider))
 	m.auth = authState{
-		Active:               true,
-		Provider:             provider,
-		PendingProvider:      pendingProvider,
-		PendingModel:         pendingModel,
-		PreviousPromptFooter: m.promptFooterNotice,
+		Active:          true,
+		Provider:        provider,
+		PendingProvider: pendingProvider,
+		PendingModel:    pendingModel,
 	}
 	m.textInput.SetValue("")
 	m.textInput.EchoMode = textinput.EchoPassword
 	m.textInput.EchoCharacter = '*'
 	m.clearSlashMenu()
-	m.promptFooterNotice = fmt.Sprintf(
-		"secure auth %s  paste %s here, enter saves to keychain, esc cancels",
-		provider,
-		strings.ToLower(authSecretLabel(provider)),
-	)
+	m.promptFooterNotice = ""
 }
 
 func (m *model) endAuthFlow() {
@@ -150,12 +143,11 @@ func (m *model) handleAuthEnter() (tea.Model, tea.Cmd) {
 
 func authSetupLines(provider string) []string {
 	return []string{
-		authSecretLabel(provider),
-		"paste it into the prompt now",
-		"input is masked",
-		"not saved to transcript or prompt history",
-		"stored in the OS keychain",
-		"env vars override keychain values in headless and CI runs",
+		fmt.Sprintf("Enter your %s", authSecretLabel(provider)),
+		"Stored in the OS keychain",
+		"Not added to transcript or prompt history",
+		"Enter saves. Esc cancels.",
+		"Env vars override keychain in headless and CI runs",
 	}
 }
 
