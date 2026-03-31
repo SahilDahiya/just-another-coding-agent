@@ -114,6 +114,43 @@ func (m *Manager) ModelCatalog(ctx context.Context) (ModelCatalogResponse, error
 	return client.ModelCatalog(ctx)
 }
 
+func (m *Manager) AuthStatus(ctx context.Context) (AuthStatusResponse, error) {
+	m.mu.Lock()
+	client, err := m.ensureStartedLocked()
+	m.mu.Unlock()
+	if err != nil {
+		return AuthStatusResponse{}, err
+	}
+	return client.AuthStatus(ctx)
+}
+
+func (m *Manager) SetProviderSecret(
+	ctx context.Context,
+	provider string,
+	secret string,
+) (AuthSetResponse, error) {
+	m.mu.Lock()
+	client, err := m.ensureStartedLocked()
+	m.mu.Unlock()
+	if err != nil {
+		return AuthSetResponse{}, err
+	}
+	return client.SetProviderSecret(ctx, provider, secret)
+}
+
+func (m *Manager) ClearProviderSecret(
+	ctx context.Context,
+	provider string,
+) (AuthClearResponse, error) {
+	m.mu.Lock()
+	client, err := m.ensureStartedLocked()
+	m.mu.Unlock()
+	if err != nil {
+		return AuthClearResponse{}, err
+	}
+	return client.ClearProviderSecret(ctx, provider)
+}
+
 func (m *Manager) StreamRun(
 	ctx context.Context,
 	sessionID string,
@@ -352,6 +389,103 @@ func (c *Client) ModelCatalog(ctx context.Context) (ModelCatalogResponse, error)
 		return ModelCatalogResponse{}, fmt.Errorf("%s: %s", envelope.ErrorType, envelope.Message)
 	default:
 		return ModelCatalogResponse{}, fmt.Errorf("unexpected envelope for model.catalog: %T", line)
+	}
+}
+
+func (c *Client) AuthStatus(ctx context.Context) (AuthStatusResponse, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	requestID := c.nextRequestID()
+	if err := c.writeRequest(Request{
+		ID:      requestID,
+		Command: "auth.status",
+		Payload: AuthStatusPayload{},
+	}); err != nil {
+		return AuthStatusResponse{}, err
+	}
+	line, err := c.readEnvelope(ctx, requestID)
+	if err != nil {
+		return AuthStatusResponse{}, err
+	}
+	switch envelope := line.(type) {
+	case ResponseEnvelope:
+		var response AuthStatusResponse
+		if err := json.Unmarshal(envelope.Response, &response); err != nil {
+			return AuthStatusResponse{}, err
+		}
+		return response, nil
+	case ErrorEnvelope:
+		return AuthStatusResponse{}, fmt.Errorf("%s: %s", envelope.ErrorType, envelope.Message)
+	default:
+		return AuthStatusResponse{}, fmt.Errorf("unexpected envelope for auth.status: %T", line)
+	}
+}
+
+func (c *Client) SetProviderSecret(
+	ctx context.Context,
+	provider string,
+	secret string,
+) (AuthSetResponse, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	requestID := c.nextRequestID()
+	if err := c.writeRequest(Request{
+		ID:      requestID,
+		Command: "auth.set",
+		Payload: AuthSetPayload{
+			Provider: provider,
+			Secret:   secret,
+		},
+	}); err != nil {
+		return AuthSetResponse{}, err
+	}
+	line, err := c.readEnvelope(ctx, requestID)
+	if err != nil {
+		return AuthSetResponse{}, err
+	}
+	switch envelope := line.(type) {
+	case ResponseEnvelope:
+		var response AuthSetResponse
+		if err := json.Unmarshal(envelope.Response, &response); err != nil {
+			return AuthSetResponse{}, err
+		}
+		return response, nil
+	case ErrorEnvelope:
+		return AuthSetResponse{}, fmt.Errorf("%s: %s", envelope.ErrorType, envelope.Message)
+	default:
+		return AuthSetResponse{}, fmt.Errorf("unexpected envelope for auth.set: %T", line)
+	}
+}
+
+func (c *Client) ClearProviderSecret(
+	ctx context.Context,
+	provider string,
+) (AuthClearResponse, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	requestID := c.nextRequestID()
+	if err := c.writeRequest(Request{
+		ID:      requestID,
+		Command: "auth.clear",
+		Payload: AuthClearPayload{Provider: provider},
+	}); err != nil {
+		return AuthClearResponse{}, err
+	}
+	line, err := c.readEnvelope(ctx, requestID)
+	if err != nil {
+		return AuthClearResponse{}, err
+	}
+	switch envelope := line.(type) {
+	case ResponseEnvelope:
+		var response AuthClearResponse
+		if err := json.Unmarshal(envelope.Response, &response); err != nil {
+			return AuthClearResponse{}, err
+		}
+		return response, nil
+	case ErrorEnvelope:
+		return AuthClearResponse{}, fmt.Errorf("%s: %s", envelope.ErrorType, envelope.Message)
+	default:
+		return AuthClearResponse{}, fmt.Errorf("unexpected envelope for auth.clear: %T", line)
 	}
 }
 

@@ -4,6 +4,8 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
+from just_another_coding_agent.auth import AuthSource
+
 from .model_catalog import ProviderName
 from .run_events import RunEvent, SessionLifecycleEvent
 from .thinking import ThinkingSetting
@@ -45,6 +47,37 @@ class ModelCatalogRequest(_RpcModel):
     payload: ModelCatalogPayload
 
 
+class AuthStatusPayload(_RpcModel):
+    pass
+
+
+class AuthStatusRequest(_RpcModel):
+    id: str
+    command: Literal["auth.status"]
+    payload: AuthStatusPayload
+
+
+class AuthSetPayload(_RpcModel):
+    provider: ProviderName
+    secret: str
+
+
+class AuthSetRequest(_RpcModel):
+    id: str
+    command: Literal["auth.set"]
+    payload: AuthSetPayload
+
+
+class AuthClearPayload(_RpcModel):
+    provider: ProviderName
+
+
+class AuthClearRequest(_RpcModel):
+    id: str
+    command: Literal["auth.clear"]
+    payload: AuthClearPayload
+
+
 class RunStartPayload(_RpcModel):
     session_id: SessionId
     prompt: str
@@ -61,6 +94,9 @@ RpcRequest = Annotated[
     SessionCreateRequest
     | SessionCompactRequest
     | ModelCatalogRequest
+    | AuthStatusRequest
+    | AuthSetRequest
+    | AuthClearRequest
     | RunStartRequest,
     Field(discriminator="command"),
 ]
@@ -103,10 +139,35 @@ class ModelCatalogResponse(_RpcModel):
     providers: list[ModelCatalogProvider]
 
 
+class AuthProviderStatus(_RpcModel):
+    provider: ProviderName
+    configured: bool
+    source: AuthSource
+
+
+class AuthStatusResponse(_RpcModel):
+    providers: list[AuthProviderStatus]
+
+
+class AuthSetResponse(_RpcModel):
+    status: AuthProviderStatus
+
+
+class AuthClearResponse(_RpcModel):
+    status: AuthProviderStatus
+
+
 class RpcResponseEnvelope(_RpcModel):
     type: Literal["rpc_response"] = "rpc_response"
     id: str
-    response: SessionCreateResponse | SessionCompactResponse | ModelCatalogResponse
+    response: (
+        SessionCreateResponse
+        | SessionCompactResponse
+        | ModelCatalogResponse
+        | AuthStatusResponse
+        | AuthSetResponse
+        | AuthClearResponse
+    )
 
 
 class RpcEventEnvelope(_RpcModel):
@@ -123,6 +184,17 @@ class RpcErrorEnvelope(_RpcModel):
 
 
 __all__ = [
+    "AuthClearPayload",
+    "AuthClearRequest",
+    "AuthClearResponse",
+    "AuthProviderStatus",
+    "AuthSetPayload",
+    "AuthSetRequest",
+    "AuthSetResponse",
+    "AuthSource",
+    "AuthStatusPayload",
+    "AuthStatusRequest",
+    "AuthStatusResponse",
     "RpcErrorEnvelope",
     "RpcEventEnvelope",
     "RpcRequest",

@@ -21,7 +21,7 @@ type Options struct {
 	WorkspaceRoot        string
 	SessionsRoot         string
 	Thinking             string
-	Backend              *rpc.Manager
+	Backend              Backend
 	UpdateCommand        []string
 	SkippedUpdateVersion string
 }
@@ -687,7 +687,7 @@ func (m *model) runPrompt(
 	prompt string,
 	sessionID string,
 	thinking string,
-	backend *rpc.Manager,
+	backend Backend,
 	ch chan tea.Msg,
 ) {
 	defer close(ch)
@@ -720,7 +720,7 @@ func (m *model) runPrompt(
 	ch <- runEventMsg{Done: true}
 }
 
-func (m *model) compactSession(sessionID string, backend *rpc.Manager, ch chan tea.Msg) {
+func (m *model) compactSession(sessionID string, backend Backend, ch chan tea.Msg) {
 	defer close(ch)
 	_, err := backend.CompactSession(context.Background(), sessionID)
 	ch <- compactDoneMsg{Err: err}
@@ -806,7 +806,7 @@ func (m *model) requestModelCatalog() tea.Cmd {
 	return fetchModelCatalog(m.options.Backend)
 }
 
-func fetchModelCatalog(backend *rpc.Manager) tea.Cmd {
+func fetchModelCatalog(backend Backend) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), modelCatalogTimeout)
 		defer cancel()

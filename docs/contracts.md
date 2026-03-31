@@ -47,6 +47,11 @@ Rules:
 - The shipped provider surface currently includes `ollama`, `github`,
   `openai`, and `anthropic`, and new picker-visible providers must be added in
   the backend-owned catalog before the TUI can render them.
+- Local provider-secret resolution is backend-owned and uses this precedence:
+  environment, then OS keychain, then hard failure.
+- `~/.jaca/config.json` is not a secret store. It may persist only non-secret
+  preferences such as provider selection, model selection, trace mode, and
+  base URLs.
 
 `thinking` contract:
 
@@ -474,12 +479,18 @@ Initial executable RPC slice:
 - request line
   - fields: `id`, `command`, `payload`
   - initial commands:
+    - `auth.status` with payload `{}`
+    - `auth.set` with payload `{"provider": <provider-name>, "secret": <string>}`
+    - `auth.clear` with payload `{"provider": <provider-name>}`
     - `session.create` with payload `{}`
     - `session.compact` with payload `{"session_id": <opaque-lowercase-hex-string>}`
     - `run.start` with payload `{"session_id": <opaque-lowercase-hex-string>, "prompt": <string>, "thinking": <optional-thinking-setting>}`
 - `rpc_response`
   - fields: `type`, `id`, `response`
   - initial response payloads:
+    - `{"providers": [{"provider": <provider-name>, "configured": <bool>, "source": "env" | "keychain" | "none"}, ...]}`
+    - `{"status": {"provider": <provider-name>, "configured": <bool>, "source": "env" | "keychain" | "none"}}` for `auth.set`
+    - `{"status": {"provider": <provider-name>, "configured": <bool>, "source": "env" | "keychain" | "none"}}` for `auth.clear`
     - `{"session_id": <opaque-lowercase-hex-string>}`
     - `{"compaction_id": <opaque-lowercase-hex-string>, "summarized_through_run_id": <run_id>, "first_kept_run_id": <optional-run_id>, "summary": <structured-compaction-summary>}`
 - `rpc_event`
@@ -490,6 +501,12 @@ Initial executable RPC slice:
 
 Ordering rules for the RPC slice:
 
+- A valid `auth.status` request yields exactly one `rpc_response` with one
+  backend-authored status object per shipped provider
+- A valid `auth.set` request yields exactly one `rpc_response` and stores the
+  secret in the canonical local secret store without echoing the secret back
+- A valid `auth.clear` request yields exactly one `rpc_response` and removes
+  the stored local secret for that provider
 - A valid `session.create` request yields exactly one `rpc_response` containing a server-generated opaque `session_id`
 - A valid `session.compact` request must reference an existing `session_id` and yields exactly one `rpc_response` describing the newly appended compaction entry
 - `session.compact` responses must include the durable summary's structured working-set path fields (`read_paths` and `modified_paths`) alongside the existing prose sections

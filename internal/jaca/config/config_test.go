@@ -16,7 +16,6 @@ func TestSaveProviderClearsStaleOllamaConfigAndEnv(t *testing.T) {
 	if err := SaveProvider(ProviderUpdate{
 		Provider: "ollama",
 		BaseURL:  "https://ollama.example/v1",
-		APIKey:   "secret",
 	}); err != nil {
 		t.Fatalf("SaveProvider(set) returned error: %v", err)
 	}
@@ -32,9 +31,6 @@ func TestSaveProviderClearsStaleOllamaConfigAndEnv(t *testing.T) {
 
 	if _, ok := got["OLLAMA_BASE_URL"]; ok {
 		t.Fatalf("expected OLLAMA_BASE_URL to be removed, config=%v", got)
-	}
-	if _, ok := got["OLLAMA_API_KEY"]; ok {
-		t.Fatalf("expected OLLAMA_API_KEY to be removed, config=%v", got)
 	}
 	if got["default_provider"] != "ollama" {
 		t.Fatalf("default_provider = %q, want %q", got["default_provider"], "ollama")
@@ -114,31 +110,33 @@ func TestSaveTraceModeRejectsUnknownMode(t *testing.T) {
 	}
 }
 
-func TestHasProviderCredentialsAcceptsEnvironmentCredential(t *testing.T) {
+func TestApplyToEnvDoesNotExposeSecretKeysFromConfig(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("OPENAI_API_KEY", "from-env")
-
-	got, err := HasProviderCredentials("openai")
-	if err != nil {
-		t.Fatalf("HasProviderCredentials() returned error: %v", err)
+	if err := os.Unsetenv("OPENAI_BASE_URL"); err != nil {
+		t.Fatalf("Unsetenv(OPENAI_BASE_URL) returned error: %v", err)
 	}
-	if !got {
-		t.Fatal("HasProviderCredentials() = false, want true")
+	if err := os.Unsetenv("OPENAI_API_KEY"); err != nil {
+		t.Fatalf("Unsetenv(OPENAI_API_KEY) returned error: %v", err)
 	}
-}
-
-func TestHasProviderCredentialsAcceptsGitHubEnvironmentCredential(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("GITHUB_API_KEY", "from-env")
-
-	got, err := HasProviderCredentials("github")
-	if err != nil {
-		t.Fatalf("HasProviderCredentials() returned error: %v", err)
+	if err := os.Unsetenv("GITHUB_API_KEY"); err != nil {
+		t.Fatalf("Unsetenv(GITHUB_API_KEY) returned error: %v", err)
 	}
-	if !got {
-		t.Fatal("HasProviderCredentials() = false, want true")
+
+	ApplyToEnv(map[string]string{
+		"OPENAI_BASE_URL": "https://example.test/v1",
+		"OPENAI_API_KEY":  "should-not-apply",
+		"GITHUB_API_KEY":  "should-not-apply",
+	})
+
+	if got := os.Getenv("OPENAI_BASE_URL"); got != "https://example.test/v1" {
+		t.Fatalf("OPENAI_BASE_URL = %q, want %q", got, "https://example.test/v1")
+	}
+	if got := os.Getenv("OPENAI_API_KEY"); got != "" {
+		t.Fatalf("OPENAI_API_KEY = %q, want empty", got)
+	}
+	if got := os.Getenv("GITHUB_API_KEY"); got != "" {
+		t.Fatalf("GITHUB_API_KEY = %q, want empty", got)
 	}
 }
 

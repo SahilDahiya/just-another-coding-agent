@@ -4,13 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
 	"jaca/internal/jaca/config"
+	"jaca/internal/jaca/rpc"
 )
+
+const authStatusTimeout = 2 * time.Second
 
 func canonicalProviderName(raw string) string {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
@@ -56,7 +59,7 @@ func (m *model) handleModelCommand(arg string) (tea.Model, tea.Cmd) {
 		m.refreshViewport()
 		return m, cmd
 	}
-	hasCreds, err := config.HasProviderCredentials(provider)
+	hasCreds, err := m.providerHasCredentials(provider)
 	if err != nil {
 		m.transcript.WriteError(err.Error())
 		m.refreshViewport()
@@ -77,7 +80,6 @@ func (m *model) handleModelCommand(arg string) (tea.Model, tea.Cmd) {
 		m.transcript.WriteLine(line)
 	}
 	if restart && m.options.Backend != nil {
-		m.options.Backend.SetEnv(os.Environ())
 		_ = m.options.Backend.Restart(context.Background())
 		cmd = tea.Batch(cmd, m.requestModelCatalog())
 	}
@@ -111,22 +113,33 @@ func (m *model) handleTraceCommand(arg string) {
 			m.transcript.WriteError(err.Error())
 			return
 		}
-		m.options.Backend.SetEnv(os.Environ())
 		_ = m.options.Backend.Restart(context.Background())
 	}
 }
 
 func (m *model) handleAuthCommand(arg string) {
-	provider := canonicalProviderName(arg)
-	switch provider {
-	case "openai", "anthropic", "github":
-		m.startAuthFlow(provider, "", "")
-	case "ollama":
+	value := strings.TrimSpace(arg)
+	if value == "" {
 		m.transcript.WriteNote("auth", nil)
-		m.transcript.WriteError("manual ollama auth is not supported yet")
+		m.transcript.WriteError("usage: /auth <provider>|status|clear <provider>")
+		return
+	}
+	if strings.EqualFold(value, "status") {
+		m.writeAuthStatus()
+		return
+	}
+	if provider, ok := parseClearAuthProvider(value); ok {
+		m.clearProviderSecret(provider)
+		return
+	}
+
+	provider := canonicalProviderName(value)
+	switch provider {
+	case "openai", "anthropic", "github", "ollama":
+		m.startAuthFlow(provider, "", "")
 	default:
 		m.transcript.WriteNote("auth", nil)
-		m.transcript.WriteError("usage: /auth openai|anthropic|github")
+		m.transcript.WriteError("usage: /auth <provider>|status|clear <provider>")
 	}
 }
 
@@ -144,7 +157,6 @@ func (m *model) handleProviderCommand(arg string) {
 		m.transcript.WriteLine(line)
 	}
 	if restart && m.options.Backend != nil {
-		m.options.Backend.SetEnv(os.Environ())
 		_ = m.options.Backend.Restart(context.Background())
 	}
 }
@@ -163,9 +175,12 @@ func (m *model) handleProvider(arg string) (
 			"  /provider github                  select GitHub Models",
 			"  /provider openai                  select OpenAI",
 			"  /provider anthropic               select Anthropic",
+			"  /auth ollama                      save Ollama API key",
 			"  /auth github                      save GitHub Models token",
 			"  /auth openai                      save OpenAI API key",
 			"  /auth anthropic                   save Anthropic API key",
+			"  /auth status                      show auth source per provider",
+			"  /auth clear <provider>            clear stored keychain secret",
 			"",
 			"provider selection is saved to ~/.jaca/config.json",
 		}, false, "", nil
@@ -176,7 +191,7 @@ func (m *model) handleProvider(arg string) (
 		lines, restart, err := m.applyProviderSelection(provider)
 		return lines, restart, "", err
 	case "openai", "anthropic", "github":
-		hasCreds, err := config.HasProviderCredentials(provider)
+		hasCreds, err := m.providerHasCredentials(provider)
 		if err != nil {
 			return nil, false, "", err
 		}
@@ -248,4 +263,82 @@ func (m *model) applyModelSelection(model string, provider string) ([]string, bo
 	}
 	lines = append(lines, fmt.Sprintf("model set to %s", model))
 	return lines, true, nil
+}
+
+func (m *model) providerHasCredentials(provider string) (bool, error) {
+	if provider == "ollama" {
+		return true, nil
+	}
+	statuses, err := m.fetchAuthStatus()
+	if err != nil {
+		return false, err
+	}
+	for _, status := range statuses.Providers {
+		if status.Provider == provider {
+			return status.Configured, nil
+		}
+	}
+	return false, fmt.Errorf("unknown provider: %s", provider)
+}
+
+func (m *model) fetchAuthStatus() (rpc.AuthStatusResponse, error) {
+	if m.options.Backend == nil {
+		return rpc.AuthStatusResponse{}, errors.New("backend unavailable")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), authStatusTimeout)
+	defer cancel()
+	return m.options.Backend.AuthStatus(ctx)
+}
+
+func (m *model) writeAuthStatus() {
+	m.transcript.WriteNote("auth", nil)
+	statuses, err := m.fetchAuthStatus()
+	if err != nil {
+		m.transcript.WriteError(err.Error())
+		return
+	}
+	for _, status := range statuses.Providers {
+		state := "missing"
+		if status.Configured {
+			state = "configured"
+		}
+		m.transcript.WriteLine(
+			fmt.Sprintf("%s: %s (%s)", status.Provider, state, status.Source),
+		)
+	}
+}
+
+func (m *model) clearProviderSecret(provider string) {
+	m.transcript.WriteNote("auth", nil)
+	if m.options.Backend == nil {
+		m.transcript.WriteError("backend unavailable")
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), authStatusTimeout)
+	defer cancel()
+	response, err := m.options.Backend.ClearProviderSecret(ctx, provider)
+	if err != nil {
+		m.transcript.WriteError(err.Error())
+		return
+	}
+	state := "missing"
+	if response.Status.Configured {
+		state = "configured"
+	}
+	m.transcript.WriteLine(
+		fmt.Sprintf(
+			"%s auth cleared; current source: %s (%s)",
+			response.Status.Provider,
+			state,
+			response.Status.Source,
+		),
+	)
+}
+
+func parseClearAuthProvider(arg string) (string, bool) {
+	parts := strings.Fields(strings.TrimSpace(arg))
+	if len(parts) != 2 || strings.ToLower(parts[0]) != "clear" {
+		return "", false
+	}
+	return canonicalProviderName(parts[1]), true
 }

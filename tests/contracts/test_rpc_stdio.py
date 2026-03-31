@@ -11,6 +11,7 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 
+from just_another_coding_agent.auth import ProviderAuthStatus
 from just_another_coding_agent.rpc.session_store import session_path_for_id
 from just_another_coding_agent.rpc.stdio import handle_rpc_json_line
 from just_another_coding_agent.session import load_session
@@ -334,6 +335,165 @@ async def test_handle_rpc_json_line_returns_backend_owned_model_catalog(
                         ],
                     },
                 ]
+            },
+        }
+    ]
+
+
+async def test_handle_rpc_json_line_returns_auth_status(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    monkeypatch.setattr(
+        "just_another_coding_agent.rpc.stdio.list_provider_auth_statuses",
+        lambda: [
+            ProviderAuthStatus(provider="ollama", configured=False, source="none"),
+            ProviderAuthStatus(provider="github", configured=True, source="keychain"),
+            ProviderAuthStatus(provider="openai", configured=True, source="env"),
+            ProviderAuthStatus(provider="anthropic", configured=False, source="none"),
+        ],
+    )
+
+    messages = await _rpc_messages(
+        request_payload={
+            "id": "req-auth-status",
+            "command": "auth.status",
+            "payload": {},
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    assert messages == [
+        {
+            "type": "rpc_response",
+            "id": "req-auth-status",
+            "response": {
+                "providers": [
+                    {
+                        "provider": "ollama",
+                        "configured": False,
+                        "source": "none",
+                    },
+                    {
+                        "provider": "github",
+                        "configured": True,
+                        "source": "keychain",
+                    },
+                    {
+                        "provider": "openai",
+                        "configured": True,
+                        "source": "env",
+                    },
+                    {
+                        "provider": "anthropic",
+                        "configured": False,
+                        "source": "none",
+                    },
+                ]
+            },
+        }
+    ]
+
+
+async def test_handle_rpc_json_line_sets_provider_secret(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    captured: dict[str, str] = {}
+    monkeypatch.setattr(
+        "just_another_coding_agent.rpc.stdio.set_provider_secret",
+        lambda provider, secret: (
+            captured.update({"provider": provider, "secret": secret})
+            or ProviderAuthStatus(
+                provider=provider,
+                configured=True,
+                source="keychain",
+            )
+        ),
+    )
+
+    messages = await _rpc_messages(
+        request_payload={
+            "id": "req-auth-set",
+            "command": "auth.set",
+            "payload": {
+                "provider": "github",
+                "secret": "test-token",
+            },
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    assert captured == {"provider": "github", "secret": "test-token"}
+    assert messages == [
+        {
+            "type": "rpc_response",
+            "id": "req-auth-set",
+            "response": {
+                "status": {
+                    "provider": "github",
+                    "configured": True,
+                    "source": "keychain",
+                }
+            },
+        }
+    ]
+
+
+async def test_handle_rpc_json_line_clears_provider_secret(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    captured: dict[str, str] = {}
+    monkeypatch.setattr(
+        "just_another_coding_agent.rpc.stdio.clear_provider_secret",
+        lambda provider: (
+            captured.update({"provider": provider})
+            or ProviderAuthStatus(
+                provider=provider,
+                configured=False,
+                source="none",
+            )
+        ),
+    )
+
+    messages = await _rpc_messages(
+        request_payload={
+            "id": "req-auth-clear",
+            "command": "auth.clear",
+            "payload": {
+                "provider": "openai",
+            },
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    assert captured == {"provider": "openai"}
+    assert messages == [
+        {
+            "type": "rpc_response",
+            "id": "req-auth-clear",
+            "response": {
+                "status": {
+                    "provider": "openai",
+                    "configured": False,
+                    "source": "none",
+                }
             },
         }
     ]

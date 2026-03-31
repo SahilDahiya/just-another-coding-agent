@@ -10,11 +10,7 @@ import (
 )
 
 var envKeys = []string{
-	"OPENAI_API_KEY",
 	"OPENAI_BASE_URL",
-	"ANTHROPIC_API_KEY",
-	"GITHUB_API_KEY",
-	"OLLAMA_API_KEY",
 	"OLLAMA_BASE_URL",
 }
 
@@ -81,7 +77,6 @@ func ApplyToEnv(config map[string]string) {
 
 type ProviderUpdate struct {
 	Provider string
-	APIKey   string
 	BaseURL  string
 }
 
@@ -134,40 +129,7 @@ func SaveDefaultProvider(provider string) error {
 	return Save(config)
 }
 
-func HasProviderCredentials(provider string) (bool, error) {
-	config, err := Load()
-	if err != nil {
-		return false, err
-	}
-	switch provider {
-	case "ollama":
-		return true, nil
-	case "openai":
-		return hasConfiguredOrEnvValue(config, "OPENAI_API_KEY"), nil
-	case "anthropic":
-		return hasConfiguredOrEnvValue(config, "ANTHROPIC_API_KEY"), nil
-	case "github":
-		return hasConfiguredOrEnvValue(config, "GITHUB_API_KEY"), nil
-	default:
-		return false, errors.New("unknown provider")
-	}
-}
-
-func hasConfiguredOrEnvValue(config map[string]string, key string) bool {
-	if strings.TrimSpace(config[key]) != "" {
-		return true
-	}
-	return strings.TrimSpace(os.Getenv(key)) != ""
-}
-
 func SaveProvider(update ProviderUpdate) error {
-	if err := SaveProviderCredentials(update); err != nil {
-		return err
-	}
-	return SaveDefaultProvider(update.Provider)
-}
-
-func SaveProviderCredentials(update ProviderUpdate) error {
 	config, err := Load()
 	if err != nil {
 		return err
@@ -181,34 +143,18 @@ func SaveProviderCredentials(update ProviderUpdate) error {
 			config["OLLAMA_BASE_URL"] = update.BaseURL
 			_ = os.Setenv("OLLAMA_BASE_URL", update.BaseURL)
 		}
-		if update.APIKey == "" {
-			delete(config, "OLLAMA_API_KEY")
-			_ = os.Unsetenv("OLLAMA_API_KEY")
-		} else {
-			config["OLLAMA_API_KEY"] = update.APIKey
-			_ = os.Setenv("OLLAMA_API_KEY", update.APIKey)
-		}
 	case "openai":
-		if update.APIKey != "" {
-			config["OPENAI_API_KEY"] = update.APIKey
-			_ = os.Setenv("OPENAI_API_KEY", update.APIKey)
-		}
 		if update.BaseURL != "" {
 			config["OPENAI_BASE_URL"] = update.BaseURL
 			_ = os.Setenv("OPENAI_BASE_URL", update.BaseURL)
 		}
 	case "anthropic":
-		if update.APIKey != "" {
-			config["ANTHROPIC_API_KEY"] = update.APIKey
-			_ = os.Setenv("ANTHROPIC_API_KEY", update.APIKey)
-		}
 	case "github":
-		if update.APIKey != "" {
-			config["GITHUB_API_KEY"] = update.APIKey
-			_ = os.Setenv("GITHUB_API_KEY", update.APIKey)
-		}
 	default:
 		return errors.New("unknown provider")
 	}
-	return Save(config)
+	if err := Save(config); err != nil {
+		return err
+	}
+	return SaveDefaultProvider(update.Provider)
 }

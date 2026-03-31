@@ -45,14 +45,23 @@ Successful runs may also carry additive usage metadata such as `input_tokens`, `
 
 RPC (Remote Procedure Call) is how non-Python programs talk to this backend. The protocol is JSON-over-stdio: one JSON object per line, read from stdin, written to stdout. The server runs as a long-lived process via `python -m just_another_coding_agent`.
 
-Two commands:
+Core RPC commands:
 
+- `auth.status` -- reports backend-owned auth status per shipped provider
+- `auth.set` -- stores one provider secret in the canonical local secret store
+- `auth.clear` -- removes one stored local provider secret
 - `session.create` -- creates a new session, returns a server-generated opaque `session_id`
 - `run.start` -- runs a prompt against an existing session, streams run events back, and may carry an optional `thinking` setting
 - `session.compact` -- appends one model-generated durable compaction summary entry for an existing session
 
 Example flow:
 
+```json
+{"id": "req-0", "command": "auth.status", "payload": {}}
+```
+```json
+{"type": "rpc_response", "id": "req-0", "response": {"providers": [{"provider": "openai", "configured": false, "source": "none"}]}}
+```
 ```json
 {"id": "req-1", "command": "session.create", "payload": {}}
 ```
@@ -79,7 +88,7 @@ Three response types:
   session lifecycle events such as automatic compaction
 - `rpc_error` -- protocol-level problems only (bad JSON, unknown command, unknown session, invalid session state)
 
-Clients never see filesystem paths or workspace identifiers. Session identity is an opaque hex string.
+Clients never see filesystem paths or workspace identifiers. Session identity is an opaque hex string. Provider auth is backend-owned too: interactive local secrets resolve from the OS keychain unless an explicit environment-variable override is present, and the config file is not a secret store.
 
 ### Session
 

@@ -122,15 +122,21 @@ JACA_BUILD_TUI=1 uv sync --reinstall-package just-another-coding-agent --extra d
 
 ## First Run
 
-The TUI keeps provider, model, and trace preferences in `~/.jaca/config.json`.
+The TUI keeps non-secret provider, model, and trace preferences in
+`~/.jaca/config.json`.
+Provider secrets are backend-owned and stored in the local OS keychain.
+Environment variables remain the explicit override for headless, CI, and
+evaluation flows.
 
 Inside `jaca`:
 
 - `/provider ollama` selects local Ollama and requires no key
-- `/provider github` selects GitHub Models and starts masked auth if `GITHUB_API_KEY` is missing
-- `/provider openai` selects OpenAI and starts masked auth if `OPENAI_API_KEY` is missing
-- `/provider anthropic` selects Anthropic and starts masked auth if `ANTHROPIC_API_KEY` is missing
-- `/auth github`, `/auth openai`, and `/auth anthropic` store credentials without echoing the secret into the transcript
+- `/provider github` selects GitHub Models and starts masked auth if no GitHub token is configured
+- `/provider openai` selects OpenAI and starts masked auth if no OpenAI key is configured
+- `/provider anthropic` selects Anthropic and starts masked auth if no Anthropic key is configured
+- `/auth ollama`, `/auth github`, `/auth openai`, and `/auth anthropic` store secrets without echoing them into the transcript
+- `/auth status` shows whether each provider is configured from env, keychain, or neither
+- `/auth clear <provider>` removes the stored local keychain secret for that provider
 - `/model <provider:model>` switches the active model and aligns provider state to that model
 - `/trace off` disables tracing
 - `/trace local` stores spans locally under `~/.jaca/traces/`

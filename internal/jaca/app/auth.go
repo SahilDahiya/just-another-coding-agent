@@ -3,13 +3,10 @@ package app
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
-
-	"jaca/internal/jaca/config"
 )
 
 type authState struct {
@@ -36,7 +33,10 @@ func (m *model) startAuthFlow(
 	m.textInput.EchoMode = textinput.EchoPassword
 	m.textInput.EchoCharacter = '*'
 	m.clearSlashMenu()
-	m.promptFooterNotice = fmt.Sprintf("auth %s  enter API key to save  esc to cancel", provider)
+	m.promptFooterNotice = fmt.Sprintf(
+		"auth %s  enter secret to save securely  esc to cancel",
+		provider,
+	)
 }
 
 func (m *model) endAuthFlow() {
@@ -71,17 +71,29 @@ func (m *model) handleAuthEnter() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	if err := config.SaveProviderCredentials(config.ProviderUpdate{
-		Provider: m.auth.Provider,
-		APIKey:   secret,
-	}); err != nil {
+	if m.options.Backend == nil {
+		m.endAuthFlow()
+		m.transcript.WriteError("backend unavailable")
+		m.refreshViewport()
+		return m, nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), authStatusTimeout)
+	defer cancel()
+	response, err := m.options.Backend.SetProviderSecret(ctx, m.auth.Provider, secret)
+	if err != nil {
 		m.endAuthFlow()
 		m.transcript.WriteError(err.Error())
 		m.refreshViewport()
 		return m, nil
 	}
 
-	lines := []string{fmt.Sprintf("%s credentials saved", strings.ToUpper(m.auth.Provider))}
+	lines := []string{
+		fmt.Sprintf(
+			"%s credentials saved (%s)",
+			strings.ToUpper(m.auth.Provider),
+			response.Status.Source,
+		),
+	}
 	restart := false
 	if m.auth.PendingModel != "" {
 		selectedLines, selectedRestart, err := m.applyModelSelection(
@@ -113,7 +125,6 @@ func (m *model) handleAuthEnter() (tea.Model, tea.Cmd) {
 		m.transcript.WriteLine(line)
 	}
 	if restart && m.options.Backend != nil {
-		m.options.Backend.SetEnv(os.Environ())
 		_ = m.options.Backend.Restart(context.Background())
 	}
 	m.refreshViewport()

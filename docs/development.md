@@ -73,6 +73,10 @@ canonical Python headless backend.
 ## Environment
 
 - Copy `.env.example` to `.env` if you need local provider credentials.
+- For interactive local use, provider secrets now belong in the OS keychain,
+  not in `~/.jaca/config.json`.
+- Environment variables remain the canonical override for headless,
+  evaluation, and CI flows.
 - Current foundation expects:
   - `GITHUB_API_KEY`
   - `OPENAI_API_KEY`
@@ -91,6 +95,15 @@ The shipped provider surface currently includes:
 - `github`
 - `openai`
 - `anthropic`
+
+Inside the TUI:
+
+- `/auth <provider>` stores the provider secret in the local OS keychain
+- `/auth status` reports `env`, `keychain`, or `none` per provider
+- `/auth clear <provider>` removes the stored local keychain secret
+
+`~/.jaca/config.json` now stores only non-secret preferences such as
+`default_provider`, `default_model`, `trace_mode`, and provider base URLs.
 
 Tracing defaults to `local` (JSONL files under `~/.jaca/traces/`). Set `JACA_TRACE_MODE=off` to disable.
 

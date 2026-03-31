@@ -7,12 +7,24 @@ from typing import Any, TextIO
 
 from pydantic import TypeAdapter, ValidationError
 
+from just_another_coding_agent.auth import (
+    clear_provider_secret,
+    list_provider_auth_statuses,
+    set_provider_secret,
+)
 from just_another_coding_agent.contracts.model_catalog import (
     CANONICAL_PROVIDER_ORDER,
     default_model_for_provider,
     shipped_models_for_provider,
 )
 from just_another_coding_agent.contracts.rpc import (
+    AuthClearRequest,
+    AuthClearResponse,
+    AuthProviderStatus,
+    AuthSetRequest,
+    AuthSetResponse,
+    AuthStatusRequest,
+    AuthStatusResponse,
     ModelCatalogModel,
     ModelCatalogProvider,
     ModelCatalogRequest,
@@ -100,6 +112,59 @@ async def handle_rpc_json_line(
                     )
                     for provider in CANONICAL_PROVIDER_ORDER
                 ]
+            ),
+        ).model_dump_json()
+        return
+
+    if isinstance(request, AuthStatusRequest):
+        yield RpcResponseEnvelope(
+            id=request.id,
+            response=AuthStatusResponse(
+                providers=[
+                    AuthProviderStatus(**status.model_dump())
+                    for status in list_provider_auth_statuses()
+                ]
+            ),
+        ).model_dump_json()
+        return
+
+    if isinstance(request, AuthSetRequest):
+        try:
+            status = set_provider_secret(
+                request.payload.provider,
+                request.payload.secret,
+            )
+        except Exception as error:
+            yield RpcErrorEnvelope(
+                id=request.id,
+                error_type="InternalError",
+                message=str(error),
+            ).model_dump_json()
+            return
+
+        yield RpcResponseEnvelope(
+            id=request.id,
+            response=AuthSetResponse(
+                status=AuthProviderStatus(**status.model_dump())
+            ),
+        ).model_dump_json()
+        return
+
+    if isinstance(request, AuthClearRequest):
+        try:
+            status = clear_provider_secret(request.payload.provider)
+        except Exception as error:
+            yield RpcErrorEnvelope(
+                id=request.id,
+                error_type="InternalError",
+                message=str(error),
+            ).model_dump_json()
+            return
+
+        yield RpcResponseEnvelope(
+            id=request.id,
+            response=AuthClearResponse(
+                status=AuthProviderStatus(**status.model_dump())
             ),
         ).model_dump_json()
         return

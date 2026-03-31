@@ -14,6 +14,7 @@ from pydantic_ai.models.openai import (
     OpenAIResponsesModelSettings,
 )
 from pydantic_ai.models.wrapper import WrapperModel
+from pydantic_ai.providers.anthropic import AnthropicProvider
 from pydantic_ai.providers.github import GitHubProvider
 from pydantic_ai.providers.ollama import OllamaProvider
 from pydantic_ai.providers.openai import OpenAIProvider
@@ -21,6 +22,7 @@ from pydantic_ai.retries import AsyncTenacityTransport, RetryConfig, wait_retry_
 from pydantic_ai.settings import ModelSettings
 from tenacity import retry_if_exception_type, stop_after_attempt
 
+from just_another_coding_agent.auth import resolve_provider_secret
 from just_another_coding_agent.contracts.thinking import ThinkingSetting
 from just_another_coding_agent.runtime.env import trace_mode
 
@@ -66,6 +68,8 @@ def resolve_canonical_model(model: Any) -> Model:
             return _maybe_instrument_model(_build_openai_responses_model(model))
         if model.startswith("openai:") or model.startswith("openai-chat:"):
             return _maybe_instrument_model(_build_openai_chat_model(model))
+        if model.startswith("anthropic:"):
+            return _maybe_instrument_model(_build_anthropic_model(model))
         if model.startswith("github:"):
             return _maybe_instrument_model(_build_github_chat_model(model))
         if model.startswith("ollama:"):
@@ -92,7 +96,7 @@ def _build_openai_chat_model(model_id: str) -> OpenAIChatModel:
 
 def _build_openai_provider() -> OpenAIProvider:
     base_url = os.environ.get("OPENAI_BASE_URL")
-    api_key = os.environ.get("OPENAI_API_KEY")
+    api_key = resolve_provider_secret("openai")
     if api_key is None and "OPENAI_API_KEY" not in os.environ and base_url is not None:
         api_key = "api-key-not-set"
 
@@ -102,6 +106,18 @@ def _build_openai_provider() -> OpenAIProvider:
             api_key=api_key,
         )
     )
+
+
+def _build_anthropic_model(model_id: str) -> AnthropicModel:
+    _, model_name = model_id.split(":", 1)
+    return AnthropicModel(
+        model_name,
+        provider=_build_anthropic_provider(),
+    )
+
+
+def _build_anthropic_provider() -> AnthropicProvider:
+    return AnthropicProvider(api_key=resolve_provider_secret("anthropic"))
 
 
 def _build_ollama_chat_model(model_id: str) -> OpenAIChatModel:
@@ -114,7 +130,10 @@ def _build_ollama_chat_model(model_id: str) -> OpenAIChatModel:
 
 def _build_ollama_provider() -> OllamaProvider:
     base_url = os.environ.get("OLLAMA_BASE_URL") or DEFAULT_OLLAMA_BASE_URL
-    api_key = os.environ.get("OLLAMA_API_KEY") or "api-key-not-set"
+    api_key = (
+        resolve_provider_secret("ollama", allow_missing_keychain=True)
+        or "api-key-not-set"
+    )
     return OllamaProvider(
         openai_client=_build_openai_compatible_client(
             base_url=base_url,
@@ -132,7 +151,7 @@ def _build_github_chat_model(model_id: str) -> OpenAIChatModel:
 
 
 def _build_github_provider() -> GitHubProvider:
-    api_key = os.environ.get("GITHUB_API_KEY")
+    api_key = resolve_provider_secret("github")
     return GitHubProvider(
         openai_client=_build_openai_compatible_client(
             base_url="https://models.github.ai/inference",

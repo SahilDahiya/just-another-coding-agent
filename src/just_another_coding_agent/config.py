@@ -34,11 +34,7 @@ def save_config(config: dict[str, str]) -> None:
 
 def apply_config_to_env(config: dict[str, str]) -> None:
     env_keys = {
-        "OPENAI_API_KEY",
         "OPENAI_BASE_URL",
-        "ANTHROPIC_API_KEY",
-        "GITHUB_API_KEY",
-        "OLLAMA_API_KEY",
         "OLLAMA_BASE_URL",
     }
     for key in env_keys:
@@ -79,19 +75,11 @@ def save_provider_config(
     if provider == "ollama":
         if base_url:
             config["OLLAMA_BASE_URL"] = base_url
-        if api_key:
-            config["OLLAMA_API_KEY"] = api_key
     elif provider == "openai":
-        if api_key:
-            config["OPENAI_API_KEY"] = api_key
         if base_url:
             config["OPENAI_BASE_URL"] = base_url
-    elif provider == "anthropic":
-        if api_key:
-            config["ANTHROPIC_API_KEY"] = api_key
-    elif provider == "github":
-        if api_key:
-            config["GITHUB_API_KEY"] = api_key
+    elif provider in {"anthropic", "github"}:
+        pass
     config["default_provider"] = provider
     save_config(config)
 

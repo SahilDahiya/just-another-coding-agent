@@ -37,36 +37,13 @@ func TestWriteStartupBannerIncludesOllamaHintsInPlainText(t *testing.T) {
 	}
 }
 
-func TestWriteStartupBannerShowsProviderGuidanceForMissingOpenAIKey(t *testing.T) {
-	t.Setenv("OPENAI_API_KEY", "")
-
+func TestWriteStartupBannerDoesNotGuessCredentialStateFromEnvironment(t *testing.T) {
 	transcript := NewTranscript()
 	transcript.WriteStartupBanner("0.1.0", "openai:gpt-5.4", "/workspace", "")
 
 	plain := transcript.blocks[0].Plain()
-	if !strings.Contains(plain, "no OPENAI_API_KEY") {
-		t.Fatalf("plain banner missing missing-key warning: %q", plain)
-	}
-	if !strings.Contains(plain, "use /provider openai") {
-		t.Fatalf("plain banner missing provider guidance: %q", plain)
-	}
-	if strings.Contains(plain, "<key>") {
-		t.Fatalf("plain banner still teaches secret-on-command guidance: %q", plain)
-	}
-}
-
-func TestWriteStartupBannerShowsProviderGuidanceForMissingGitHubKey(t *testing.T) {
-	t.Setenv("GITHUB_API_KEY", "")
-
-	transcript := NewTranscript()
-	transcript.WriteStartupBanner("0.1.0", "github:openai/gpt-5", "/workspace", "")
-
-	plain := transcript.blocks[0].Plain()
-	if !strings.Contains(plain, "no GITHUB_API_KEY") {
-		t.Fatalf("plain banner missing missing-key warning: %q", plain)
-	}
-	if !strings.Contains(plain, "use /provider github") {
-		t.Fatalf("plain banner missing provider guidance: %q", plain)
+	if strings.Contains(plain, "API_KEY") {
+		t.Fatalf("startup banner should not guess secret state from env: %q", plain)
 	}
 }
 

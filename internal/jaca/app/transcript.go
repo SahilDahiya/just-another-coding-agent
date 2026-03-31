@@ -2,7 +2,6 @@ package app
 
 import (
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -184,27 +183,9 @@ func (t *Transcript) WriteStartupBanner(appVersion string, model string, workspa
 	plainBox := boxStyle.Render(strings.Join(innerLines, "\n"))
 	renderedBox := boxStyle.Render(strings.Join(innerRendered, "\n"))
 
-	var extraPlain, extraRendered string
-	if strings.HasPrefix(model, "github") && os.Getenv("GITHUB_API_KEY") == "" {
-		extraPlain = "\nno GITHUB_API_KEY\nuse /provider github"
-		extraRendered = "\n" +
-			lipgloss.NewStyle().Foreground(defaultTheme.err).Render("no GITHUB_API_KEY") + "\n" +
-			hintStyle.Render("use /provider github")
-	} else if strings.HasPrefix(model, "openai") && os.Getenv("OPENAI_API_KEY") == "" {
-		extraPlain = "\nno OPENAI_API_KEY\nuse /provider openai"
-		extraRendered = "\n" +
-			lipgloss.NewStyle().Foreground(defaultTheme.err).Render("no OPENAI_API_KEY") + "\n" +
-			hintStyle.Render("use /provider openai")
-	} else if strings.HasPrefix(model, "anthropic") && os.Getenv("ANTHROPIC_API_KEY") == "" {
-		extraPlain = "\nno ANTHROPIC_API_KEY\nuse /provider anthropic"
-		extraRendered = "\n" +
-			lipgloss.NewStyle().Foreground(defaultTheme.err).Render("no ANTHROPIC_API_KEY") + "\n" +
-			hintStyle.Render("use /provider anthropic")
-	}
-
 	t.appendBlock(&rawCell{
-		plain:    plainBox + extraPlain + "\n\n",
-		rendered: renderedBox + extraRendered + "\n\n",
+		plain:    plainBox + "\n\n",
+		rendered: renderedBox + "\n\n",
 	})
 }
 
@@ -234,9 +215,12 @@ func (t *Transcript) WriteHelp() {
 		"  /provider github                     select GitHub Models, auth starts if needed",
 		"  /provider openai                     select OpenAI, auth starts if needed",
 		"  /provider anthropic                  select Anthropic, auth starts if needed",
-		"  /auth github                         save GITHUB_API_KEY",
-		"  /auth openai                         save OPENAI_API_KEY",
-		"  /auth anthropic                      save ANTHROPIC_API_KEY",
+		"  /auth ollama                         save OLLAMA_API_KEY securely",
+		"  /auth github                         save GitHub token securely",
+		"  /auth openai                         save OpenAI API key securely",
+		"  /auth anthropic                      save Anthropic API key securely",
+		"  /auth status                         show auth source per provider",
+		"  /auth clear <provider>               clear stored keychain secret",
 		"",
 		"tracing",
 		"  /trace off                           disable tracing",

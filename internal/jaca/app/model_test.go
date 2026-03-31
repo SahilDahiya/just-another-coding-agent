@@ -16,6 +16,122 @@ func intPtr(v int) *int { return &v }
 
 func floatPtr(v float64) *float64 { return &v }
 
+type stubBackend struct {
+	model           string
+	modelCatalog    rpc.ModelCatalogResponse
+	modelCatalogErr error
+	authStatuses    map[string]rpc.AuthProviderStatus
+	authStatusErr   error
+	setSecretErr    error
+	clearSecretErr error
+	restarts        int
+	lastSetSecret   rpc.AuthSetPayload
+	lastCleared     string
+}
+
+func newStubBackend() *stubBackend {
+	return &stubBackend{
+		modelCatalog: *testModelCatalog(),
+		authStatuses: map[string]rpc.AuthProviderStatus{},
+	}
+}
+
+func (b *stubBackend) SetModel(model string) { b.model = model }
+func (b *stubBackend) SetEnv(_ []string)     {}
+func (b *stubBackend) Restart(_ context.Context) error {
+	b.restarts++
+	return nil
+}
+func (b *stubBackend) Shutdown(_ context.Context) error  { return nil }
+func (b *stubBackend) Interrupt(_ context.Context) error { return nil }
+func (b *stubBackend) CreateSession(_ context.Context) (string, error) {
+	return "session", nil
+}
+func (b *stubBackend) CompactSession(_ context.Context, _ string) (rpc.SessionCompactResponse, error) {
+	return rpc.SessionCompactResponse{}, nil
+}
+func (b *stubBackend) ModelCatalog(_ context.Context) (rpc.ModelCatalogResponse, error) {
+	return b.modelCatalog, b.modelCatalogErr
+}
+func (b *stubBackend) AuthStatus(_ context.Context) (rpc.AuthStatusResponse, error) {
+	if b.authStatusErr != nil {
+		return rpc.AuthStatusResponse{}, b.authStatusErr
+	}
+	providers := []string{"ollama", "github", "openai", "anthropic"}
+	statuses := make([]rpc.AuthProviderStatus, 0, len(providers))
+	for _, provider := range providers {
+		if status, ok := b.authStatuses[provider]; ok {
+			statuses = append(statuses, status)
+			continue
+		}
+		statuses = append(statuses, envDerivedAuthStatus(provider))
+	}
+	return rpc.AuthStatusResponse{Providers: statuses}, nil
+}
+func (b *stubBackend) SetProviderSecret(
+	_ context.Context,
+	provider string,
+	secret string,
+) (rpc.AuthSetResponse, error) {
+	if b.setSecretErr != nil {
+		return rpc.AuthSetResponse{}, b.setSecretErr
+	}
+	b.lastSetSecret = rpc.AuthSetPayload{Provider: provider, Secret: secret}
+	status := rpc.AuthProviderStatus{
+		Provider:   provider,
+		Configured: true,
+		Source:     "keychain",
+	}
+	b.authStatuses[provider] = status
+	return rpc.AuthSetResponse{Status: status}, nil
+}
+func (b *stubBackend) ClearProviderSecret(
+	_ context.Context,
+	provider string,
+) (rpc.AuthClearResponse, error) {
+	if b.clearSecretErr != nil {
+		return rpc.AuthClearResponse{}, b.clearSecretErr
+	}
+	b.lastCleared = provider
+	status := envDerivedAuthStatus(provider)
+	b.authStatuses[provider] = status
+	return rpc.AuthClearResponse{Status: status}, nil
+}
+func (b *stubBackend) StreamRun(
+	_ context.Context,
+	_ string,
+	_ string,
+	_ string,
+	_ func(rpc.RunEvent) error,
+) error {
+	return nil
+}
+
+func envDerivedAuthStatus(provider string) rpc.AuthProviderStatus {
+	envKey := ""
+	switch provider {
+	case "ollama":
+		envKey = "OLLAMA_API_KEY"
+	case "github":
+		envKey = "GITHUB_API_KEY"
+	case "openai":
+		envKey = "OPENAI_API_KEY"
+	case "anthropic":
+		envKey = "ANTHROPIC_API_KEY"
+	}
+	source := "none"
+	configured := false
+	if envKey != "" && strings.TrimSpace(os.Getenv(envKey)) != "" {
+		source = "env"
+		configured = true
+	}
+	return rpc.AuthProviderStatus{
+		Provider:   provider,
+		Configured: configured,
+		Source:     source,
+	}
+}
+
 func newTestModel() *model {
 	m := New(Options{
 		Model:         "ollama:test",
@@ -521,7 +637,7 @@ func TestModelCommandPersistsSelection(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "test-key")
 
 	m := newTestModel()
-	m.options.Backend = rpc.NewManager(rpc.BackendConfig{})
+	m.options.Backend = newStubBackend()
 
 	m = sendRunes(m, "/model openai:gpt-5.4")
 	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
@@ -564,7 +680,7 @@ func TestModelCommandRequestsCatalogWhenMissing(t *testing.T) {
 
 	m := newTestModel()
 	m.modelCatalog = nil
-	m.options.Backend = rpc.NewManager(rpc.BackendConfig{})
+	m.options.Backend = newStubBackend()
 
 	updated, cmd := m.handleModelCommand("openai:gpt-5.4")
 	m = updated.(*model)
@@ -585,7 +701,7 @@ func TestTraceCommandPersistsMode(t *testing.T) {
 	t.Setenv("HOME", home)
 
 	m := newTestModel()
-	m.options.Backend = rpc.NewManager(rpc.BackendConfig{})
+	m.options.Backend = newStubBackend()
 
 	m = sendRunes(m, "/trace local")
 	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
@@ -605,7 +721,7 @@ func TestProviderWithoutCredentialsStartsMaskedAuthFlow(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "")
 
 	m := newTestModel()
-	m.options.Backend = rpc.NewManager(rpc.BackendConfig{})
+	m.options.Backend = newStubBackend()
 
 	m = sendRunes(m, "/provider openai")
 	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
@@ -630,7 +746,7 @@ func TestGitHubProviderWithoutCredentialsStartsMaskedAuthFlow(t *testing.T) {
 	t.Setenv("GITHUB_API_KEY", "")
 
 	m := newTestModel()
-	m.options.Backend = rpc.NewManager(rpc.BackendConfig{})
+	m.options.Backend = newStubBackend()
 
 	m = sendRunes(m, "/provider github")
 	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
@@ -654,8 +770,9 @@ func TestGitHubAuthSubmissionAppliesPendingModelSelection(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("GITHUB_API_KEY", "")
 
+	backend := newStubBackend()
 	m := newTestModel()
-	m.options.Backend = rpc.NewManager(rpc.BackendConfig{})
+	m.options.Backend = backend
 
 	m = sendRunes(m, "/model github:openai/gpt-5")
 	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
@@ -676,11 +793,14 @@ func TestGitHubAuthSubmissionAppliesPendingModelSelection(t *testing.T) {
 	if !strings.Contains(configText, `"default_model": "github:openai/gpt-5"`) {
 		t.Fatalf("config.json missing model selection: %q", configText)
 	}
-	if !strings.Contains(configText, `"GITHUB_API_KEY": "gh-token"`) {
-		t.Fatalf("config.json missing saved github credential: %q", configText)
+	if strings.Contains(configText, `"GITHUB_API_KEY"`) {
+		t.Fatalf("config.json should not store github credential: %q", configText)
 	}
 	if strings.Contains(stripANSI(m.transcript.Render()), "gh-token") {
 		t.Fatalf("secret leaked into transcript: %q", stripANSI(m.transcript.Render()))
+	}
+	if backend.lastSetSecret.Provider != "github" || backend.lastSetSecret.Secret != "gh-token" {
+		t.Fatalf("backend lastSetSecret = %#v", backend.lastSetSecret)
 	}
 }
 
@@ -689,8 +809,9 @@ func TestModelWithoutCredentialsStartsMaskedAuthFlow(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("OPENAI_API_KEY", "")
 
+	backend := newStubBackend()
 	m := newTestModel()
-	m.options.Backend = rpc.NewManager(rpc.BackendConfig{})
+	m.options.Backend = backend
 
 	m = sendRunes(m, "/model openai:gpt-5.4")
 	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
@@ -704,13 +825,57 @@ func TestModelWithoutCredentialsStartsMaskedAuthFlow(t *testing.T) {
 	}
 }
 
+func TestAuthStatusCommandRendersProviderSources(t *testing.T) {
+	backend := newStubBackend()
+	backend.authStatuses["github"] = rpc.AuthProviderStatus{
+		Provider:   "github",
+		Configured: true,
+		Source:     "keychain",
+	}
+
+	m := newTestModel()
+	m.options.Backend = backend
+
+	m = sendRunes(m, "/auth status")
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	rendered := stripANSI(m.transcript.Render())
+	if !strings.Contains(rendered, "github: configured (keychain)") {
+		t.Fatalf("transcript missing github auth status: %q", rendered)
+	}
+}
+
+func TestAuthClearCommandCallsBackend(t *testing.T) {
+	backend := newStubBackend()
+	backend.authStatuses["openai"] = rpc.AuthProviderStatus{
+		Provider:   "openai",
+		Configured: true,
+		Source:     "keychain",
+	}
+
+	m := newTestModel()
+	m.options.Backend = backend
+
+	m = sendRunes(m, "/auth clear openai")
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	if backend.lastCleared != "openai" {
+		t.Fatalf("backend.lastCleared = %q, want %q", backend.lastCleared, "openai")
+	}
+	rendered := stripANSI(m.transcript.Render())
+	if !strings.Contains(rendered, "openai auth cleared; current source: missing (none)") {
+		t.Fatalf("transcript missing clear confirmation: %q", rendered)
+	}
+}
+
 func TestAuthSubmissionStoresCredentialWithoutLeakingSecret(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("OPENAI_API_KEY", "")
 
+	backend := newStubBackend()
 	m := newTestModel()
-	m.options.Backend = rpc.NewManager(rpc.BackendConfig{})
+	m.options.Backend = backend
 
 	m = sendRunes(m, "/provider openai")
 	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
@@ -722,11 +887,14 @@ func TestAuthSubmissionStoresCredentialWithoutLeakingSecret(t *testing.T) {
 		t.Fatalf("ReadFile() returned error: %v", err)
 	}
 	configText := string(data)
-	if !strings.Contains(configText, `"OPENAI_API_KEY": "super-secret"`) {
-		t.Fatalf("config.json missing saved credential: %q", configText)
+	if strings.Contains(configText, `"OPENAI_API_KEY"`) {
+		t.Fatalf("config.json should not store openai credential: %q", configText)
 	}
 	if !strings.Contains(configText, `"default_provider": "openai"`) {
 		t.Fatalf("config.json missing provider selection: %q", configText)
+	}
+	if !strings.Contains(configText, `"default_model": "openai:gpt-5.4"`) {
+		t.Fatalf("config.json missing default model selection: %q", configText)
 	}
 	transcript := stripANSI(m.transcript.Render())
 	if strings.Contains(transcript, "super-secret") {
@@ -735,6 +903,9 @@ func TestAuthSubmissionStoresCredentialWithoutLeakingSecret(t *testing.T) {
 	if len(m.promptHistory) != 1 || m.promptHistory[0] != "/provider openai" {
 		t.Fatalf("promptHistory = %#v, want only the provider command", m.promptHistory)
 	}
+	if backend.lastSetSecret.Provider != "openai" || backend.lastSetSecret.Secret != "super-secret" {
+		t.Fatalf("backend lastSetSecret = %#v", backend.lastSetSecret)
+	}
 }
 
 func TestAuthSubmissionAppliesPendingModelSelection(t *testing.T) {
@@ -742,8 +913,9 @@ func TestAuthSubmissionAppliesPendingModelSelection(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("OPENAI_API_KEY", "")
 
+	backend := newStubBackend()
 	m := newTestModel()
-	m.options.Backend = rpc.NewManager(rpc.BackendConfig{})
+	m.options.Backend = backend
 
 	m = sendRunes(m, "/model openai:gpt-5.4")
 	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
@@ -764,7 +936,13 @@ func TestAuthSubmissionAppliesPendingModelSelection(t *testing.T) {
 	if !strings.Contains(configText, `"default_model": "openai:gpt-5.4"`) {
 		t.Fatalf("config.json missing model selection: %q", configText)
 	}
+	if strings.Contains(configText, `"OPENAI_API_KEY"`) {
+		t.Fatalf("config.json should not store openai credential: %q", configText)
+	}
 	if strings.Contains(stripANSI(m.transcript.Render()), "super-secret") {
 		t.Fatalf("secret leaked into transcript: %q", stripANSI(m.transcript.Render()))
+	}
+	if backend.lastSetSecret.Provider != "openai" || backend.lastSetSecret.Secret != "super-secret" {
+		t.Fatalf("backend lastSetSecret = %#v", backend.lastSetSecret)
 	}
 }

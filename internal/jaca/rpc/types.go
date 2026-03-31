@@ -15,6 +15,17 @@ type SessionCreatePayload struct{}
 
 type ModelCatalogPayload struct{}
 
+type AuthStatusPayload struct{}
+
+type AuthSetPayload struct {
+	Provider string `json:"provider"`
+	Secret   string `json:"secret"`
+}
+
+type AuthClearPayload struct {
+	Provider string `json:"provider"`
+}
+
 type SessionCompactPayload struct {
 	SessionID string `json:"session_id"`
 }
@@ -62,6 +73,24 @@ type ModelCatalogProvider struct {
 
 type ModelCatalogResponse struct {
 	Providers []ModelCatalogProvider `json:"providers"`
+}
+
+type AuthProviderStatus struct {
+	Provider   string `json:"provider"`
+	Configured bool   `json:"configured"`
+	Source     string `json:"source"`
+}
+
+type AuthStatusResponse struct {
+	Providers []AuthProviderStatus `json:"providers"`
+}
+
+type AuthSetResponse struct {
+	Status AuthProviderStatus `json:"status"`
+}
+
+type AuthClearResponse struct {
+	Status AuthProviderStatus `json:"status"`
 }
 
 type SessionCompactSummary struct {
