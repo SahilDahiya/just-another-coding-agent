@@ -48,7 +48,7 @@ RPC (Remote Procedure Call) is how non-Python programs talk to this backend. The
 Core RPC commands:
 
 - `auth.status` -- reports backend-owned auth status per shipped provider
-- `auth.set` -- stores one provider secret in the canonical local secret store
+- `auth.set` -- stores one provider secret in the canonical local secret store, with an explicit storage mode
 - `auth.clear` -- removes one stored local provider secret
 - `session.create` -- creates a new session, returns a server-generated opaque `session_id`
 - `run.start` -- runs a prompt against an existing session, streams run events back, and may carry an optional `thinking` setting
@@ -60,7 +60,7 @@ Example flow:
 {"id": "req-0", "command": "auth.status", "payload": {}}
 ```
 ```json
-{"type": "rpc_response", "id": "req-0", "response": {"providers": [{"provider": "openai", "configured": false, "source": "none", "env_key": "OPENAI_API_KEY"}], "local_secret_store": {"available": true, "message": null}}}
+{"type": "rpc_response", "id": "req-0", "response": {"providers": [{"provider": "openai", "configured": false, "source": "none", "env_key": "OPENAI_API_KEY"}], "local_secret_store": {"available": true, "message": null, "file_store_path": "/home/user/.jaca/secrets.json"}}}
 ```
 ```json
 {"id": "req-1", "command": "session.create", "payload": {}}
@@ -88,7 +88,7 @@ Three response types:
   session lifecycle events such as automatic compaction
 - `rpc_error` -- protocol-level problems only (bad JSON, unknown command, unknown session, invalid session state)
 
-Clients never see filesystem paths or workspace identifiers. Session identity is an opaque hex string. Provider auth is backend-owned too: interactive local secrets resolve from the OS keychain unless an explicit environment-variable override is present, the config file is not a secret store, and `auth.status` tells clients whether interactive local secret storage is available before they prompt for a secret.
+Clients never see filesystem paths or workspace identifiers. Session identity is an opaque hex string. Provider auth is backend-owned too: provider secrets resolve from environment first, then OS keychain, then an explicitly chosen local secret file if one exists. The config file is not a secret store, and `auth.status` tells clients whether interactive local secret storage is available before they prompt for a secret.
 
 ### Session
 

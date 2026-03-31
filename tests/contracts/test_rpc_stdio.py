@@ -378,7 +378,11 @@ async def test_handle_rpc_json_line_returns_auth_status(
     )
     monkeypatch.setattr(
         "just_another_coding_agent.rpc.stdio.get_local_secret_store_status",
-        lambda: {"available": True, "message": None},
+        lambda: {
+            "available": True,
+            "message": None,
+            "file_store_path": "/tmp/jaca-secrets.json",
+        },
     )
 
     messages = await _rpc_messages(
@@ -423,7 +427,11 @@ async def test_handle_rpc_json_line_returns_auth_status(
                         "env_key": "ANTHROPIC_API_KEY",
                     },
                 ],
-                "local_secret_store": {"available": True, "message": None},
+                "local_secret_store": {
+                    "available": True,
+                    "message": None,
+                    "file_store_path": "/tmp/jaca-secrets.json",
+                },
             },
         }
     ]
@@ -439,8 +447,10 @@ async def test_handle_rpc_json_line_sets_provider_secret(
     captured: dict[str, str] = {}
     monkeypatch.setattr(
         "just_another_coding_agent.rpc.stdio.set_provider_secret",
-        lambda provider, secret: (
-            captured.update({"provider": provider, "secret": secret})
+        lambda provider, secret, storage: (
+            captured.update(
+                {"provider": provider, "secret": secret, "storage": storage}
+            )
             or ProviderAuthStatus(
                 provider=provider,
                 configured=True,
@@ -457,6 +467,7 @@ async def test_handle_rpc_json_line_sets_provider_secret(
             "payload": {
                 "provider": "github",
                 "secret": "test-token",
+                "storage": "keychain",
             },
         },
         model=FunctionModel(stream_function=text_only_stream),
@@ -464,7 +475,11 @@ async def test_handle_rpc_json_line_sets_provider_secret(
         sessions_root=sessions_root,
     )
 
-    assert captured == {"provider": "github", "secret": "test-token"}
+    assert captured == {
+        "provider": "github",
+        "secret": "test-token",
+        "storage": "keychain",
+    }
     assert messages == [
         {
             "type": "rpc_response",

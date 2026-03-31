@@ -128,6 +128,7 @@ func (m *Manager) SetProviderSecret(
 	ctx context.Context,
 	provider string,
 	secret string,
+	storage string,
 ) (AuthSetResponse, error) {
 	m.mu.Lock()
 	client, err := m.ensureStartedLocked()
@@ -135,7 +136,7 @@ func (m *Manager) SetProviderSecret(
 	if err != nil {
 		return AuthSetResponse{}, err
 	}
-	return client.SetProviderSecret(ctx, provider, secret)
+	return client.SetProviderSecret(ctx, provider, secret, storage)
 }
 
 func (m *Manager) ClearProviderSecret(
@@ -425,6 +426,7 @@ func (c *Client) SetProviderSecret(
 	ctx context.Context,
 	provider string,
 	secret string,
+	storage string,
 ) (AuthSetResponse, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -435,6 +437,7 @@ func (c *Client) SetProviderSecret(
 		Payload: AuthSetPayload{
 			Provider: provider,
 			Secret:   secret,
+			Storage:  storage,
 		},
 	}); err != nil {
 		return AuthSetResponse{}, err

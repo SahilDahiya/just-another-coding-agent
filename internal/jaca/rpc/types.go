@@ -20,6 +20,7 @@ type AuthStatusPayload struct{}
 type AuthSetPayload struct {
 	Provider string `json:"provider"`
 	Secret   string `json:"secret"`
+	Storage  string `json:"storage"`
 }
 
 type AuthClearPayload struct {
@@ -83,8 +84,9 @@ type AuthProviderStatus struct {
 }
 
 type LocalSecretStoreStatus struct {
-	Available bool    `json:"available"`
-	Message   *string `json:"message"`
+	Available     bool    `json:"available"`
+	Message       *string `json:"message"`
+	FileStorePath string  `json:"file_store_path"`
 }
 
 type AuthStatusResponse struct {

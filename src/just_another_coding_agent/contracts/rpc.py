@@ -65,6 +65,7 @@ class AuthStatusRequest(_RpcModel):
 class AuthSetPayload(_RpcModel):
     provider: ProviderName
     secret: str
+    storage: Literal["keychain", "file"] = "keychain"
 
 
 class AuthSetRequest(_RpcModel):

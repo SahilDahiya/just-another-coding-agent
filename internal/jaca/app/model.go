@@ -417,14 +417,20 @@ func (m *model) currentViewModel() viewModel {
 			Active:    m.authUnavailable.Active,
 			Provider:  m.authUnavailable.Provider,
 			Title:     "Interactive Auth Unavailable",
-			HelpLines: authUnavailableLines(m.authUnavailable.Provider, m.authUnavailable.EnvKey, m.authUnavailable.Message),
+			HelpLines: authUnavailableLines(
+				m.authUnavailable.Provider,
+				m.authUnavailable.EnvKey,
+				m.authUnavailable.FileStorePath,
+				m.authUnavailable.Message,
+			),
 		},
 		Auth: authOverlayView{
 			Active:      m.auth.Active,
+			Title:       authOverlayTitle(m.auth.Storage),
 			Provider:    m.auth.Provider,
 			SecretLabel: authSecretLabel(m.auth.Provider),
 			InputValue:  m.textInput.View(),
-			HelpLines:   authSetupLines(m.auth.Provider),
+			HelpLines:   authSetupLinesForStorage(m.auth.Provider, m.auth.Storage, m.auth.FileStorePath),
 		},
 	}
 }

@@ -316,12 +316,15 @@ func (m *model) startCredentialSetup(
 			m.startAuthUnavailableFlow(
 				provider,
 				status.EnvKey,
+				statuses.LocalSecretStore.FileStorePath,
 				stringOrEmpty(statuses.LocalSecretStore.Message),
+				pendingProvider,
+				pendingModel,
 				returnToOnboardingKind,
 			)
 			return nil
 		}
-		m.startAuthFlow(provider, pendingProvider, pendingModel, returnToOnboardingKind)
+		m.startAuthFlow(provider, "keychain", "", pendingProvider, pendingModel, returnToOnboardingKind)
 		return nil
 	}
 	return fmt.Errorf("unknown provider: %s", provider)

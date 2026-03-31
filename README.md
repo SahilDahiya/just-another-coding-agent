@@ -124,7 +124,9 @@ JACA_BUILD_TUI=1 uv sync --reinstall-package just-another-coding-agent --extra d
 
 The TUI keeps non-secret provider, model, and trace preferences in
 `~/.jaca/config.json`.
-Provider secrets are backend-owned and stored in the local OS keychain.
+Provider secrets are backend-owned and stored in the local OS keychain by
+default. When keychain storage is unavailable, JACA can also store them in an
+explicitly chosen local file at `~/.jaca/secrets.json`.
 Environment variables remain the explicit override for headless, CI, and
 evaluation flows.
 On Linux/WSL, interactive `/auth` requires a supported OS keychain backend
@@ -141,7 +143,7 @@ masked auth immediately at startup instead of waiting for the first
 `/provider` or `/model` command.
 When auth starts, JACA opens a centered secure setup panel: provider-specific
 labeling, masked input, no transcript/history capture for the secret, and
-OS-keychain storage on save.
+backend-owned storage on save.
 On first run, the prompt footer also tells the user to press `Tab` to choose a
 provider directly from the prompt zone.
 
@@ -153,8 +155,8 @@ Inside `jaca`:
 - `/model ollama:<local-model>` uses local Ollama at the default localhost endpoint with no key
 - `/provider ollama` selects the shipped Ollama cloud catalog and starts masked auth if needed
 - `/auth ollama`, `/auth github`, `/auth openai`, and `/auth anthropic` store secrets without echoing them into the transcript
-- `/auth status` shows whether each provider is configured from env, keychain, or neither, and whether interactive local secret storage is available at all
-- `/auth clear <provider>` removes the stored local keychain secret for that provider
+- `/auth status` shows whether each provider is configured from env, keychain, local file, or neither, and whether interactive local secret storage is available at all
+- `/auth clear <provider>` removes the stored local secret for that provider from both keychain and local file storage
 - `/model <provider:model>` switches the active model and aligns provider state to that model
 - `/trace off` disables tracing
 - `/trace local` stores spans locally under `~/.jaca/traces/`
@@ -176,8 +178,11 @@ uv run logfire projects use <project>
 
 If interactive auth is unavailable because the machine has no supported OS
 keychain backend, JACA shows a centered recovery panel before secret entry.
-That panel tells the user to either configure the system keychain or set the
-provider env var and relaunch.
+That panel lets the user either:
+
+- choose the explicit second-best local file store at `~/.jaca/secrets.json`
+- set the provider env var and relaunch
+- or configure the system keychain and retry
 
 For direct Go TUI development, pass the backend command explicitly:
 

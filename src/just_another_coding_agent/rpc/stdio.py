@@ -143,6 +143,7 @@ async def handle_rpc_json_line(
             status = set_provider_secret(
                 request.payload.provider,
                 request.payload.secret,
+                storage=request.payload.storage,
             )
         except ProviderSecretValidationError as error:
             yield RpcErrorEnvelope(

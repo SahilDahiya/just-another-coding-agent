@@ -16,7 +16,7 @@ type Backend interface {
 	CompactSession(ctx context.Context, sessionID string) (rpc.SessionCompactResponse, error)
 	ModelCatalog(ctx context.Context) (rpc.ModelCatalogResponse, error)
 	AuthStatus(ctx context.Context) (rpc.AuthStatusResponse, error)
-	SetProviderSecret(ctx context.Context, provider string, secret string) (rpc.AuthSetResponse, error)
+	SetProviderSecret(ctx context.Context, provider string, secret string, storage string) (rpc.AuthSetResponse, error)
 	ClearProviderSecret(ctx context.Context, provider string) (rpc.AuthClearResponse, error)
 	StreamRun(
 		ctx context.Context,

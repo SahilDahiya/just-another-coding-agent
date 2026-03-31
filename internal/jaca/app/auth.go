@@ -12,6 +12,8 @@ import (
 type authState struct {
 	Active                 bool
 	Provider               string
+	Storage                string
+	FileStorePath          string
 	PendingProvider        string
 	PendingModel           string
 	ReturnToOnboardingKind string
@@ -21,12 +23,17 @@ type authUnavailableState struct {
 	Active                 bool
 	Provider               string
 	EnvKey                 string
+	FileStorePath          string
 	Message                string
+	PendingProvider        string
+	PendingModel           string
 	ReturnToOnboardingKind string
 }
 
 func (m *model) startAuthFlow(
 	provider string,
+	storage string,
+	fileStorePath string,
 	pendingProvider string,
 	pendingModel string,
 	returnToOnboardingKind string,
@@ -35,6 +42,8 @@ func (m *model) startAuthFlow(
 	m.auth = authState{
 		Active:                 true,
 		Provider:               provider,
+		Storage:                storage,
+		FileStorePath:          fileStorePath,
 		PendingProvider:        pendingProvider,
 		PendingModel:           pendingModel,
 		ReturnToOnboardingKind: returnToOnboardingKind,
@@ -49,7 +58,10 @@ func (m *model) startAuthFlow(
 func (m *model) startAuthUnavailableFlow(
 	provider string,
 	envKey string,
+	fileStorePath string,
 	message string,
+	pendingProvider string,
+	pendingModel string,
 	returnToOnboardingKind string,
 ) {
 	m.endAuthFlow()
@@ -57,7 +69,10 @@ func (m *model) startAuthUnavailableFlow(
 		Active:                 true,
 		Provider:               provider,
 		EnvKey:                 envKey,
+		FileStorePath:          fileStorePath,
 		Message:                message,
+		PendingProvider:        pendingProvider,
+		PendingModel:           pendingModel,
 		ReturnToOnboardingKind: returnToOnboardingKind,
 	}
 	m.clearSlashMenu()
@@ -110,7 +125,12 @@ func (m *model) handleAuthEnter() (tea.Model, tea.Cmd) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), authStatusTimeout)
 	defer cancel()
-	response, err := m.options.Backend.SetProviderSecret(ctx, m.auth.Provider, secret)
+	response, err := m.options.Backend.SetProviderSecret(
+		ctx,
+		m.auth.Provider,
+		secret,
+		m.auth.Storage,
+	)
 	if err != nil {
 		m.endAuthFlow()
 		m.transcript.WriteError(err.Error())
@@ -179,6 +199,23 @@ func (m *model) handleAuthEnter() (tea.Model, tea.Cmd) {
 
 func (m *model) handleAuthUnavailableKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
+	case "1":
+		provider := m.authUnavailable.Provider
+		storage := "file"
+		pendingProvider := m.authUnavailable.PendingProvider
+		pendingModel := m.authUnavailable.PendingModel
+		returnKind := m.authUnavailable.ReturnToOnboardingKind
+		m.endAuthUnavailableFlow()
+		m.startAuthFlow(
+			provider,
+			storage,
+			m.authUnavailable.FileStorePath,
+			pendingProvider,
+			pendingModel,
+			returnKind,
+		)
+		m.refreshViewport()
+		return m, nil
 	case "esc", "enter":
 		returnKind := m.authUnavailable.ReturnToOnboardingKind
 		provider := m.authUnavailable.Provider
@@ -198,6 +235,26 @@ func (m *model) handleAuthUnavailableKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func authSetupLines(provider string) []string {
+	return authSetupLinesForStorage(provider, "keychain", "")
+}
+
+func authOverlayTitle(storage string) string {
+	if storage == "file" {
+		return "Local Secret File"
+	}
+	return "Secure Setup"
+}
+
+func authSetupLinesForStorage(provider string, storage string, fileStorePath string) []string {
+	if storage == "file" {
+		return []string{
+			fmt.Sprintf("Enter your %s", authSecretLabel(provider)),
+			fmt.Sprintf("Stored in %s", fileStorePath),
+			"Less secure than the OS keychain",
+			"Not added to transcript or prompt history",
+			"Enter saves. Esc cancels.",
+		}
+	}
 	return []string{
 		fmt.Sprintf("Enter your %s", authSecretLabel(provider)),
 		"Stored in the OS keychain",
@@ -206,15 +263,18 @@ func authSetupLines(provider string) []string {
 	}
 }
 
-func authUnavailableLines(provider string, envKey string, message string) []string {
+func authUnavailableLines(provider string, envKey string, fileStorePath string, message string) []string {
 	lines := []string{
 		fmt.Sprintf("Interactive secure setup is unavailable for %s.", authProviderLabel(provider)),
 	}
 	if strings.TrimSpace(message) != "" {
 		lines = append(lines, message)
 	}
+	if strings.TrimSpace(fileStorePath) != "" {
+		lines = append(lines, fmt.Sprintf("Press 1 to store it in %s instead.", fileStorePath))
+	}
 	if strings.TrimSpace(envKey) != "" {
-		lines = append(lines, fmt.Sprintf("Set %s in your environment and relaunch JACA.", envKey))
+		lines = append(lines, fmt.Sprintf("Or set %s in your environment and relaunch JACA.", envKey))
 	}
 	lines = append(lines, fmt.Sprintf("Or configure a system keychain and retry /auth %s.", provider))
 	lines = append(lines, "Enter closes. Esc goes back.")

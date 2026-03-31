@@ -267,6 +267,7 @@ func TestRenderViewShowsCenteredSecureSetupPanel(t *testing.T) {
 		Height: 24,
 		Auth: authOverlayView{
 			Active:      true,
+			Title:       "Secure Setup",
 			Provider:    "github",
 			SecretLabel: "GitHub Models token",
 			InputValue:  "********",

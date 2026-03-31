@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -36,7 +37,8 @@ func newStubBackend() *stubBackend {
 		modelCatalog: *testModelCatalog(),
 		authStatuses: map[string]rpc.AuthProviderStatus{},
 		localSecretStore: rpc.LocalSecretStoreStatus{
-			Available: true,
+			Available:     true,
+			FileStorePath: filepath.Join(os.TempDir(), "jaca-secrets.json"),
 		},
 	}
 }
@@ -80,11 +82,16 @@ func (b *stubBackend) SetProviderSecret(
 	_ context.Context,
 	provider string,
 	secret string,
+	storage string,
 ) (rpc.AuthSetResponse, error) {
 	if b.setSecretErr != nil {
 		return rpc.AuthSetResponse{}, b.setSecretErr
 	}
-	b.lastSetSecret = rpc.AuthSetPayload{Provider: provider, Secret: secret}
+	b.lastSetSecret = rpc.AuthSetPayload{
+		Provider: provider,
+		Secret:   secret,
+		Storage:  storage,
+	}
 	status := rpc.AuthProviderStatus{
 		Provider:   provider,
 		Configured: true,
@@ -1134,8 +1141,9 @@ func TestProviderWithoutKeychainShowsRecoveryPanel(t *testing.T) {
 	backend := newStubBackend()
 	message := "No supported OS keychain backend is available for local provider secret storage."
 	backend.localSecretStore = rpc.LocalSecretStoreStatus{
-		Available: false,
-		Message:   &message,
+		Available:     false,
+		Message:       &message,
+		FileStorePath: filepath.Join(home, ".jaca", "secrets.json"),
 	}
 	m := newTestModel()
 	m.options.Backend = backend
@@ -1147,8 +1155,14 @@ func TestProviderWithoutKeychainShowsRecoveryPanel(t *testing.T) {
 	if !strings.Contains(rendered, "Interactive Auth Unavailable") {
 		t.Fatalf("view missing auth-unavailable panel: %q", rendered)
 	}
-	if !strings.Contains(rendered, "Set OPENAI_API_KEY in your environment and relaunch JACA.") {
+	if !strings.Contains(rendered, "OPENAI_API_KEY") {
 		t.Fatalf("view missing env guidance: %q", rendered)
+	}
+	if !strings.Contains(rendered, "Press 1 to store it in") {
+		t.Fatalf("view missing file-store option: %q", rendered)
+	}
+	if !strings.Contains(rendered, "secrets.json") {
+		t.Fatalf("view missing file-store path: %q", rendered)
 	}
 	if strings.Contains(rendered, "Secure Setup") {
 		t.Fatalf("secure setup should not open when keychain is unavailable: %q", rendered)
@@ -1158,6 +1172,40 @@ func TestProviderWithoutKeychainShowsRecoveryPanel(t *testing.T) {
 	}
 	if m.auth.Active {
 		t.Fatal("auth flow should not be active")
+	}
+}
+
+func TestAuthUnavailablePanelCanSwitchToExplicitFileStore(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("OPENAI_API_KEY", "")
+
+	backend := newStubBackend()
+	message := "No supported OS keychain backend is available for local provider secret storage."
+	backend.localSecretStore = rpc.LocalSecretStoreStatus{
+		Available:     false,
+		Message:       &message,
+		FileStorePath: filepath.Join(home, ".jaca", "secrets.json"),
+	}
+	m := newTestModel()
+	m.options.Backend = backend
+
+	m = sendRunes(m, "/provider openai")
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+	m = sendKey(m, tea.KeyMsg{Runes: []rune("1"), Type: tea.KeyRunes})
+
+	rendered := stripANSI(m.View())
+	if !strings.Contains(rendered, "Local Secret File") {
+		t.Fatalf("view missing local-secret-file panel: %q", rendered)
+	}
+	if !strings.Contains(rendered, "Less secure than the OS keychain") {
+		t.Fatalf("view missing file-store warning: %q", rendered)
+	}
+	if !m.auth.Active {
+		t.Fatal("choosing file store should open auth panel")
+	}
+	if got := m.auth.Storage; got != "file" {
+		t.Fatalf("auth.Storage = %q, want %q", got, "file")
 	}
 }
 
@@ -1194,8 +1242,9 @@ func TestEscapeFromAuthUnavailableReturnsToProviderChooser(t *testing.T) {
 	backend := newStubBackend()
 	message := "No supported OS keychain backend is available for local provider secret storage."
 	backend.localSecretStore = rpc.LocalSecretStoreStatus{
-		Available: false,
-		Message:   &message,
+		Available:     false,
+		Message:       &message,
+		FileStorePath: filepath.Join(home, ".jaca", "secrets.json"),
 	}
 	status, err := backend.AuthStatus(context.Background())
 	if err != nil {
@@ -1273,7 +1322,7 @@ func TestGitHubAuthSubmissionAppliesPendingModelSelection(t *testing.T) {
 	if strings.Contains(stripANSI(m.transcript.Render()), "gh-token") {
 		t.Fatalf("secret leaked into transcript: %q", stripANSI(m.transcript.Render()))
 	}
-	if backend.lastSetSecret.Provider != "github" || backend.lastSetSecret.Secret != "gh-token" {
+	if backend.lastSetSecret.Provider != "github" || backend.lastSetSecret.Secret != "gh-token" || backend.lastSetSecret.Storage != "keychain" {
 		t.Fatalf("backend lastSetSecret = %#v", backend.lastSetSecret)
 	}
 }
@@ -1398,7 +1447,7 @@ func TestAuthSubmissionStoresCredentialWithoutLeakingSecret(t *testing.T) {
 	if len(m.promptHistory) != 1 || m.promptHistory[0] != "/provider openai" {
 		t.Fatalf("promptHistory = %#v, want only the provider command", m.promptHistory)
 	}
-	if backend.lastSetSecret.Provider != "openai" || backend.lastSetSecret.Secret != "super-secret" {
+	if backend.lastSetSecret.Provider != "openai" || backend.lastSetSecret.Secret != "super-secret" || backend.lastSetSecret.Storage != "keychain" {
 		t.Fatalf("backend lastSetSecret = %#v", backend.lastSetSecret)
 	}
 }
@@ -1437,7 +1486,7 @@ func TestAuthSubmissionAppliesPendingModelSelection(t *testing.T) {
 	if strings.Contains(stripANSI(m.transcript.Render()), "super-secret") {
 		t.Fatalf("secret leaked into transcript: %q", stripANSI(m.transcript.Render()))
 	}
-	if backend.lastSetSecret.Provider != "openai" || backend.lastSetSecret.Secret != "super-secret" {
+	if backend.lastSetSecret.Provider != "openai" || backend.lastSetSecret.Secret != "super-secret" || backend.lastSetSecret.Storage != "keychain" {
 		t.Fatalf("backend lastSetSecret = %#v", backend.lastSetSecret)
 	}
 }

@@ -73,10 +73,13 @@ canonical Python headless backend.
 ## Environment
 
 - Copy `.env.example` to `.env` if you need local provider credentials.
-- For interactive local use, provider secrets now belong in the OS keychain,
-  not in `~/.jaca/config.json`.
+- For interactive local use, provider secrets now belong in the OS keychain by
+  default, not in `~/.jaca/config.json`.
 - On Linux/WSL, interactive `/auth` also requires a supported OS keychain
   backend such as Secret Service via `gnome-keyring`.
+- If interactive keychain storage is unavailable, JACA can explicitly store
+  provider secrets in `~/.jaca/secrets.json` instead. That path is opt-in and
+  less secure than the OS keychain.
 - Environment variables remain the canonical override for headless,
   evaluation, and CI flows.
 - Current foundation expects:
@@ -100,12 +103,13 @@ The shipped provider surface currently includes:
 
 Inside the TUI:
 
-- `/auth <provider>` stores the provider secret in the local OS keychain
-- `/auth status` reports `env`, `keychain`, or `none` per provider
-- `/auth clear <provider>` removes the stored local keychain secret
+- `/auth <provider>` stores the provider secret in the local OS keychain by default
+- `/auth status` reports `env`, `keychain`, `file`, or `none` per provider
+- `/auth clear <provider>` removes the stored local secret from both keychain and file storage
 
-`~/.jaca/config.json` now stores only non-secret preferences such as
+`~/.jaca/config.json` stores only non-secret preferences such as
 `default_provider`, `default_model`, `trace_mode`, and provider base URLs.
+The explicit second-best secret file, when chosen, is `~/.jaca/secrets.json`.
 
 Tracing defaults to `local` (JSONL files under `~/.jaca/traces/`). Set `JACA_TRACE_MODE=off` to disable.
 

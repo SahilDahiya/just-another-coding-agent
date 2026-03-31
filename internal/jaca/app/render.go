@@ -95,6 +95,7 @@ type authUnavailableOverlayView struct {
 
 type authOverlayView struct {
 	Active      bool
+	Title       string
 	Provider    string
 	SecretLabel string
 	InputValue  string
@@ -242,7 +243,7 @@ func renderAuthOverlay(vm viewModel) string {
 	title := lipgloss.NewStyle().
 		Foreground(defaultTheme.accentSoft).
 		Bold(true).
-		Render("Secure Setup")
+		Render(vm.Auth.Title)
 	subtitle := lipgloss.NewStyle().
 		Foreground(defaultTheme.textSoft).
 		Render(vm.Auth.SecretLabel)

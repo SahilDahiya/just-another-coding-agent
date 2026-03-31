@@ -146,6 +146,7 @@ def test_local_secret_store_status_reports_missing_backend(monkeypatch) -> None:
 
     assert status.available is False
     assert status.message is not None
+    assert status.file_store_path.endswith(".jaca/secrets.json")
     assert "No supported OS keychain backend is available" in status.message
 
 
@@ -177,3 +178,43 @@ def test_set_provider_secret_reports_missing_keyring_backend_actionably(
         match="No supported OS keychain backend is available",
     ):
         set_provider_secret("openai", "test-key")
+
+
+def test_set_provider_secret_can_use_file_store_explicitly(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    secret_path = tmp_path / "secrets.json"
+    monkeypatch.setattr(
+        "just_another_coding_agent.auth.SECRET_FILE_PATH",
+        secret_path,
+    )
+
+    status = set_provider_secret("github", "file-token", storage="file")
+
+    assert status.provider == "github"
+    assert status.configured is True
+    assert status.source == "file"
+    assert status.env_key == "GITHUB_API_KEY"
+    assert resolve_provider_secret("github") == "file-token"
+    assert secret_path.exists()
+
+
+def test_clear_provider_secret_removes_file_store_value(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    secret_path = tmp_path / "secrets.json"
+    monkeypatch.setattr(
+        "just_another_coding_agent.auth.SECRET_FILE_PATH",
+        secret_path,
+    )
+    set_provider_secret("openai", "file-token", storage="file")
+
+    status = clear_provider_secret("openai")
+
+    assert status.provider == "openai"
+    assert status.configured is False
+    assert status.source == "none"
+    assert resolve_provider_secret("openai", allow_missing_keychain=True) is None
+    assert not secret_path.exists()
