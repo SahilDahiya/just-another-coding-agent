@@ -52,12 +52,19 @@ canonical Python headless backend.
   - macOS `amd64`
   - macOS `arm64`
   - Windows `amd64`
+- Tagged releases also publish one source distribution alongside the platform wheels
 - Release wheels are built with `JACA_BUILD_TUI=1`, so packaged installs include both:
   - `jaca-go`
   - `jaca-read-only-worker`
 - CI now verifies that built wheel artifacts contain those bundled binaries and are not `none-any` pure-Python wheels
+- Release CI now verifies the full publish manifest before upload:
+  - Linux `amd64` wheel
+  - macOS `amd64` wheel
+  - macOS `arm64` wheel
+  - Windows `amd64` wheel
+  - one matching source distribution
 - Tagged releases upload bundled wheel artifacts to GitHub Releases
-- Tagged releases also publish those bundled wheels to PyPI via GitHub Actions trusted publishing
+- Tagged releases also publish those bundled wheels plus the source distribution to PyPI via GitHub Actions trusted publishing
 - One-time external setup still required before the first real release:
   - create the PyPI project `just-another-coding-agent`
   - add this GitHub repo/workflow as a trusted publisher on PyPI
