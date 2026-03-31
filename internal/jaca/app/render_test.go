@@ -307,8 +307,6 @@ func TestRenderViewShowsLocalSecretFilePanel(t *testing.T) {
 				"Enter your OpenAI API key",
 				"OS keychain unavailable; using local secret file instead",
 				"Stored in /tmp/jaca-secrets.json",
-				"Less secure than the OS keychain or env vars",
-				"Not added to transcript or prompt history",
 				"Enter saves. Esc cancels.",
 			},
 		},
@@ -317,7 +315,6 @@ func TestRenderViewShowsLocalSecretFilePanel(t *testing.T) {
 	for _, want := range []string{
 		"Local Secret File",
 		"Stored in /tmp/jaca-secrets.json",
-		"Less secure than the OS keychain or env vars",
 		"Enter saves. Esc cancels.",
 	} {
 		if !strings.Contains(rendered, want) {

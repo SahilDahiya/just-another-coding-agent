@@ -1161,9 +1161,6 @@ func TestProviderWithoutKeychainStartsLocalFileAuthFlow(t *testing.T) {
 	if !strings.Contains(rendered, "secrets.json") {
 		t.Fatalf("view missing file-store path: %q", rendered)
 	}
-	if !strings.Contains(rendered, "Less secure than the OS keychain or env vars") {
-		t.Fatalf("view missing file-store warning: %q", rendered)
-	}
 	if !m.auth.Active {
 		t.Fatal("file auth should be active")
 	}

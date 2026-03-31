@@ -172,8 +172,6 @@ func authSetupLinesForStorage(provider string, storage string, fileStorePath str
 			fmt.Sprintf("Enter your %s", authSecretLabel(provider)),
 			"OS keychain unavailable; using local secret file instead",
 			fmt.Sprintf("Stored in %s", fileStorePath),
-			"Less secure than the OS keychain or env vars",
-			"Not added to transcript or prompt history",
 			"Enter saves. Esc cancels.",
 		}
 	}
