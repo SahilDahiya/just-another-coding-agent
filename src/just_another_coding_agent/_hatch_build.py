@@ -7,12 +7,14 @@ from hatchling.builders.hooks.plugin.interface import BuildHookInterface
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from just_another_coding_agent.go_binaries import build_go_binary
+from just_another_coding_agent.go_binaries import (
+    build_go_binary,
+    explicit_release_wheel_tag,
+)
 from just_another_coding_agent.go_tui import GO_TUI_BINARY, go_tui_build_requested
 from just_another_coding_agent.tools.read_only_worker.launcher import (
     READ_ONLY_WORKER_BINARY,
 )
-
 
 class build_hook(BuildHookInterface):  # noqa: N801
     def initialize(self, version: str, build_data: dict[str, object]) -> None:
@@ -29,6 +31,9 @@ class build_hook(BuildHookInterface):  # noqa: N801
         )
         build_data["pure_python"] = False
         build_data["infer_tag"] = True
+        explicit_tag = explicit_release_wheel_tag()
+        if explicit_tag is not None:
+            build_data["tag"] = explicit_tag
         shared_scripts[str(helper_binary_path)] = helper_binary_path.name
 
         if go_tui_build_requested():

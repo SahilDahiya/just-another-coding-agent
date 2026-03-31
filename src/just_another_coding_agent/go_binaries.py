@@ -1,9 +1,24 @@
 from __future__ import annotations
 
 import os
+import platform
 import shutil
 import subprocess
+import sys
 from pathlib import Path
+
+
+def explicit_release_wheel_tag() -> str | None:
+    if sys.platform != "linux":
+        return None
+
+    machine = platform.machine().lower()
+    if machine in {"x86_64", "amd64"}:
+        return "py3-none-manylinux_2_17_x86_64"
+    if machine in {"aarch64", "arm64"}:
+        return "py3-none-manylinux_2_17_aarch64"
+
+    raise RuntimeError(f"unsupported Linux wheel architecture for release build: {machine}")
 
 
 def build_go_binary(

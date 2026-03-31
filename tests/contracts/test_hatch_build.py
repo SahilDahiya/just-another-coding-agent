@@ -29,3 +29,19 @@ def test_build_go_binary_uses_explicit_prebuilt_worker(
     )
 
     assert output.read_text(encoding="utf-8") == "worker-binary"
+
+
+def test_explicit_wheel_tag_uses_manylinux_on_linux_x86_64(monkeypatch) -> None:
+    monkeypatch.setattr(go_binaries.sys, "platform", "linux")
+    monkeypatch.setattr(go_binaries.platform, "machine", lambda: "x86_64")
+
+    assert (
+        go_binaries.explicit_release_wheel_tag()
+        == "py3-none-manylinux_2_17_x86_64"
+    )
+
+
+def test_explicit_wheel_tag_is_none_off_linux(monkeypatch) -> None:
+    monkeypatch.setattr(go_binaries.sys, "platform", "darwin")
+
+    assert go_binaries.explicit_release_wheel_tag() is None
