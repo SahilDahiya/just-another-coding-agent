@@ -97,6 +97,10 @@ The core architectural risk is semantic drift between the Go shell and the Pytho
 - Startup should surface a calm first-run setup note when no provider has been
   selected yet, and saved cloud-provider selections missing auth should enter
   masked auth immediately instead of failing later in the first real prompt.
+- Masked auth should feel explicitly secure, not like ordinary chat input:
+  provider-specific labeling, a short `secure setup` note, masked composer
+  input, and clear copy that the secret is not written into transcript or
+  prompt history.
 - The prompt zone should behave like a compact two-line shell composer: one input line, one low-salience footer line for state and recall hints.
 - Backend token and context-window usage should appear as restrained footer context after a completed run, not as a new panel or heavy stats surface.
 - Session lifecycle events such as `session_compaction_started` and `session_compaction_completed` may appear before `run_started`; the TUI should surface them in the transcript and switch to the compacting state instead of silently dropping them.

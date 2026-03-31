@@ -132,6 +132,9 @@ On first launch without a saved provider, JACA writes a startup setup note with
 the shipped provider choices. If a saved cloud provider is selected but still
 missing credentials, JACA starts masked auth immediately at startup instead of
 waiting for the first `/provider` or `/model` command.
+When auth starts, JACA switches the composer into an explicit secure setup
+mode: provider-specific prompt text, masked input, no transcript/history
+capture for the secret, and OS-keychain storage on save.
 
 Inside `jaca`:
 

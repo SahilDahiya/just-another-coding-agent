@@ -826,6 +826,35 @@ func TestProviderWithoutCredentialsStartsMaskedAuthFlow(t *testing.T) {
 	}
 }
 
+func TestProviderWithoutCredentialsWritesSecureSetupNote(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("OPENAI_API_KEY", "")
+
+	m := newTestModel()
+	m.options.Backend = newStubBackend()
+
+	m = sendRunes(m, "/provider openai")
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	rendered := stripANSI(m.transcript.Render())
+	for _, want := range []string{
+		"note  secure setup",
+		"OpenAI API key",
+		"paste it into the prompt now",
+		"input is masked",
+		"not saved to transcript or prompt history",
+		"stored in the OS keychain",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("secure setup note missing %q in %q", want, rendered)
+		}
+	}
+	if !strings.Contains(stripANSI(m.View()), "secure auth openai") {
+		t.Fatalf("view missing secure auth footer: %q", stripANSI(m.View()))
+	}
+}
+
 func TestGitHubProviderWithoutCredentialsStartsMaskedAuthFlow(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -848,6 +877,19 @@ func TestGitHubProviderWithoutCredentialsStartsMaskedAuthFlow(t *testing.T) {
 	}
 	if got := masked.promptHistory; len(got) != 1 || got[0] != "/provider github" {
 		t.Fatalf("promptHistory = %#v, want only the non-secret provider command", got)
+	}
+}
+
+func TestAuthOllamaUsesCloudSpecificSecretLabel(t *testing.T) {
+	m := newTestModel()
+	m.options.Backend = newStubBackend()
+
+	m = sendRunes(m, "/auth ollama")
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	rendered := stripANSI(m.transcript.Render())
+	if !strings.Contains(rendered, "Ollama cloud API key") {
+		t.Fatalf("secure setup note missing ollama cloud label: %q", rendered)
 	}
 }
 

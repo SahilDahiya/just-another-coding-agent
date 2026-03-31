@@ -22,6 +22,7 @@ func (m *model) startAuthFlow(
 	pendingProvider string,
 	pendingModel string,
 ) {
+	m.transcript.WriteNote("secure setup", authSetupLines(provider))
 	m.auth = authState{
 		Active:               true,
 		Provider:             provider,
@@ -34,8 +35,9 @@ func (m *model) startAuthFlow(
 	m.textInput.EchoCharacter = '*'
 	m.clearSlashMenu()
 	m.promptFooterNotice = fmt.Sprintf(
-		"auth %s  enter secret to save securely  esc to cancel",
+		"secure auth %s  paste %s here, enter saves to keychain, esc cancels",
 		provider,
+		strings.ToLower(authSecretLabel(provider)),
 	)
 }
 
@@ -104,8 +106,8 @@ func (m *model) handleAuthEnter() (tea.Model, tea.Cmd) {
 
 	lines := []string{
 		fmt.Sprintf(
-			"%s credentials saved (%s)",
-			strings.ToUpper(m.auth.Provider),
+			"%s configured (%s)",
+			authProviderLabel(m.auth.Provider),
 			response.Status.Source,
 		),
 	}
@@ -144,4 +146,45 @@ func (m *model) handleAuthEnter() (tea.Model, tea.Cmd) {
 	}
 	m.refreshViewport()
 	return m, nil
+}
+
+func authSetupLines(provider string) []string {
+	return []string{
+		authSecretLabel(provider),
+		"paste it into the prompt now",
+		"input is masked",
+		"not saved to transcript or prompt history",
+		"stored in the OS keychain",
+		"env vars override keychain values in headless and CI runs",
+	}
+}
+
+func authProviderLabel(provider string) string {
+	switch provider {
+	case "ollama":
+		return "Ollama"
+	case "github":
+		return "GitHub"
+	case "openai":
+		return "OpenAI"
+	case "anthropic":
+		return "Anthropic"
+	default:
+		return strings.ToUpper(provider)
+	}
+}
+
+func authSecretLabel(provider string) string {
+	switch provider {
+	case "ollama":
+		return "Ollama cloud API key"
+	case "github":
+		return "GitHub Models token"
+	case "openai":
+		return "OpenAI API key"
+	case "anthropic":
+		return "Anthropic API key"
+	default:
+		return "provider secret"
+	}
 }
