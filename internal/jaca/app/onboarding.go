@@ -34,6 +34,18 @@ func (m *model) maybeStartOnboarding() {
 	}
 
 	if selectedProvider == "ollama" {
+		if m.modelCatalog != nil && m.ollamaCloudSelectionRequiresAuth() && !providerConfigured(*statuses, "ollama") {
+			m.startupOnboardingSet = true
+			m.transcript.WriteNote(
+				"provider setup",
+				[]string{
+					"the shipped Ollama provider path uses hosted Ollama models",
+					"paste your Ollama cloud API key now, or press esc to cancel",
+					"for local Ollama instead, cancel and run /model ollama:<installed-model>",
+				},
+			)
+			m.startAuthFlow("ollama", "", "")
+		}
 		return
 	}
 
@@ -54,10 +66,11 @@ func (m *model) maybeStartOnboarding() {
 func (m *model) firstRunOnboardingLines(statuses rpc.AuthStatusResponse) []string {
 	lines := []string{
 		"choose a provider to get started:",
-		"  1. /provider ollama      local or configured Ollama endpoint, no key for local",
-		"  2. /provider github      GitHub Models, auth starts if needed",
-		"  3. /provider openai      OpenAI, auth starts if needed",
-		"  4. /provider anthropic   Anthropic, auth starts if needed",
+		"  1. /model ollama:<local-model>   local Ollama, no key, default localhost",
+		"  2. /provider ollama              shipped Ollama cloud models, auth starts if needed",
+		"  3. /provider github              GitHub Models, auth starts if needed",
+		"  4. /provider openai              OpenAI, auth starts if needed",
+		"  5. /provider anthropic           Anthropic, auth starts if needed",
 		"",
 		"local secrets are stored in the OS keychain",
 		"env vars override keychain values for headless and CI runs",
@@ -91,6 +104,24 @@ func providerConfigured(statuses rpc.AuthStatusResponse, provider string) bool {
 		if status.Provider == provider {
 			return status.Configured
 		}
+	}
+	return false
+}
+
+func (m *model) ollamaCloudSelectionRequiresAuth() bool {
+	if m.modelCatalog == nil {
+		return false
+	}
+	for _, provider := range m.modelCatalog.Providers {
+		if provider.Provider != "ollama" {
+			continue
+		}
+		for _, model := range provider.Models {
+			if model.ModelID == m.options.Model {
+				return true
+			}
+		}
+		return false
 	}
 	return false
 }

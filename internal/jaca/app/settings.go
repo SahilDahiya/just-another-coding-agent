@@ -171,11 +171,12 @@ func (m *model) handleProvider(arg string) (
 	if strings.TrimSpace(arg) == "" {
 		return []string{
 			"usage",
-			"  /provider ollama                  select Ollama",
+			"  /provider ollama                  select shipped Ollama cloud models",
+			"  /model ollama:<local-model>       use local Ollama with no key",
 			"  /provider github                  select GitHub Models",
 			"  /provider openai                  select OpenAI",
 			"  /provider anthropic               select Anthropic",
-			"  /auth ollama                      save Ollama API key",
+			"  /auth ollama                      save Ollama cloud API key",
 			"  /auth github                      save GitHub Models token",
 			"  /auth openai                      save OpenAI API key",
 			"  /auth anthropic                   save Anthropic API key",
@@ -188,6 +189,13 @@ func (m *model) handleProvider(arg string) (
 	provider := canonicalProviderName(arg)
 	switch provider {
 	case "ollama":
+		hasCreds, err := m.ollamaCloudConfigured()
+		if err != nil {
+			return nil, false, "", err
+		}
+		if !hasCreds {
+			return nil, false, provider, nil
+		}
 		lines, restart, err := m.applyProviderSelection(provider)
 		return lines, restart, "", err
 	case "openai", "anthropic", "github":
@@ -279,6 +287,19 @@ func (m *model) providerHasCredentials(provider string) (bool, error) {
 		}
 	}
 	return false, fmt.Errorf("unknown provider: %s", provider)
+}
+
+func (m *model) ollamaCloudConfigured() (bool, error) {
+	statuses, err := m.availableAuthStatus()
+	if err != nil {
+		return false, err
+	}
+	for _, status := range statuses.Providers {
+		if status.Provider == "ollama" {
+			return status.Configured, nil
+		}
+	}
+	return false, errors.New("missing ollama auth status")
 }
 
 func (m *model) fetchAuthStatus() (rpc.AuthStatusResponse, error) {

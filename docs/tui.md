@@ -97,6 +97,9 @@ The core architectural risk is semantic drift between the Go shell and the Pytho
 - Startup should surface a calm first-run setup note when no provider has been
   selected yet, and saved cloud-provider selections missing auth should enter
   masked auth immediately instead of failing later in the first real prompt.
+- Ollama onboarding must be truthful about the two real paths:
+  `/model ollama:<local-model>` for local no-auth use, and `/provider ollama`
+  for the shipped hosted Ollama catalog that may require auth.
 - Masked auth should feel explicitly secure, not like ordinary chat input:
   provider-specific labeling, a short `secure setup` note, masked composer
   input, and clear copy that the secret is not written into transcript or

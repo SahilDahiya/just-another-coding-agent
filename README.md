@@ -129,9 +129,14 @@ Environment variables remain the explicit override for headless, CI, and
 evaluation flows.
 
 On first launch without a saved provider, JACA writes a startup setup note with
-the shipped provider choices. If a saved cloud provider is selected but still
-missing credentials, JACA starts masked auth immediately at startup instead of
-waiting for the first `/provider` or `/model` command.
+the shipped provider choices. Ollama is split explicitly:
+
+- local Ollama: use `/model ollama:<local-model>` with no key
+- shipped Ollama cloud path: use `/provider ollama`, which starts masked auth if needed
+
+If a saved cloud-provider selection is still missing credentials, JACA starts
+masked auth immediately at startup instead of waiting for the first
+`/provider` or `/model` command.
 When auth starts, JACA switches the composer into an explicit secure setup
 mode: provider-specific prompt text, masked input, no transcript/history
 capture for the secret, and OS-keychain storage on save.
@@ -142,6 +147,8 @@ Inside `jaca`:
 - `/provider github` selects GitHub Models and starts masked auth if no GitHub token is configured
 - `/provider openai` selects OpenAI and starts masked auth if no OpenAI key is configured
 - `/provider anthropic` selects Anthropic and starts masked auth if no Anthropic key is configured
+- `/model ollama:<local-model>` uses local Ollama at the default localhost endpoint with no key
+- `/provider ollama` selects the shipped Ollama cloud catalog and starts masked auth if needed
 - `/auth ollama`, `/auth github`, `/auth openai`, and `/auth anthropic` store secrets without echoing them into the transcript
 - `/auth status` shows whether each provider is configured from env, keychain, or neither
 - `/auth clear <provider>` removes the stored local keychain secret for that provider

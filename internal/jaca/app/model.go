@@ -289,6 +289,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		catalog := msg.Catalog
 		m.modelCatalog = &catalog
+		m.maybeStartOnboarding()
 		m.syncSlashMenu()
 		m.refreshViewport()
 		return m, nil
