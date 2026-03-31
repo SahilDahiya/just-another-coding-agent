@@ -30,6 +30,9 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
       - name: Install dependencies
         run: uv sync --extra dev --extra test
 
