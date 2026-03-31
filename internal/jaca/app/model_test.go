@@ -727,6 +727,30 @@ func TestStartupAuthStatusShowsFirstRunOnboarding(t *testing.T) {
 	}
 }
 
+func TestFirstRunChooserDoesNotDependOnAuthStatus(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	m := newTestModel()
+	m.maybeStartOnboarding()
+
+	if !m.onboarding.Active {
+		t.Fatal("first-run chooser should open without auth status")
+	}
+	rendered := stripANSI(m.View())
+	for _, want := range []string{
+		"Get Started",
+		"1. Ollama",
+		"2. GitHub Models",
+		"3. OpenAI",
+		"4. Anthropic",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("first-run chooser missing %q in %q", want, rendered)
+		}
+	}
+}
+
 func TestFirstRunEscapeThenTabOpensProviderSuggestions(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

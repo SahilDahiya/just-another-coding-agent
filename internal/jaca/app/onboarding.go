@@ -17,17 +17,11 @@ func (m *model) maybeStartOnboarding() {
 	if strings.TrimSpace(m.textInput.Value()) != "" {
 		return
 	}
-	statuses := m.authStatus
-	if statuses == nil {
-		return
-	}
-
 	cfg, err := config.Load()
 	if err != nil {
 		return
 	}
 
-	selectedProvider := m.currentProvider()
 	hasPersistedProvider := strings.TrimSpace(cfg["default_provider"]) != ""
 	if !hasPersistedProvider {
 		m.startupOnboardingSet = true
@@ -35,6 +29,12 @@ func (m *model) maybeStartOnboarding() {
 		return
 	}
 
+	statuses := m.authStatus
+	if statuses == nil {
+		return
+	}
+
+	selectedProvider := m.currentProvider()
 	if selectedProvider == "ollama" {
 		if m.modelCatalog != nil && m.ollamaCloudSelectionRequiresAuth() && !providerConfigured(*statuses, "ollama") {
 			m.startupOnboardingSet = true
