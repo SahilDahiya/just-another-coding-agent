@@ -24,6 +24,14 @@ class ProviderAuthStatus(BaseModel):
     provider: ProviderName
     configured: bool
     source: AuthSource
+    env_key: str
+
+
+class LocalSecretStoreStatus(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    available: bool
+    message: str | None = None
 
 
 class AuthStoreError(RuntimeError):
@@ -75,6 +83,7 @@ def get_provider_auth_status(provider: ProviderName) -> ProviderAuthStatus:
             provider=provider,
             configured=True,
             source="env",
+            env_key=env_key,
         )
 
     keychain_value = _get_keychain_secret(provider, allow_missing_keychain=True)
@@ -83,17 +92,35 @@ def get_provider_auth_status(provider: ProviderName) -> ProviderAuthStatus:
             provider=provider,
             configured=True,
             source="keychain",
+            env_key=env_key,
         )
 
     return ProviderAuthStatus(
         provider=provider,
         configured=False,
         source="none",
+        env_key=env_key,
     )
 
 
 def list_provider_auth_statuses() -> list[ProviderAuthStatus]:
     return [get_provider_auth_status(provider) for provider in PROVIDER_SECRET_ENV_KEYS]
+
+
+def get_local_secret_store_status() -> LocalSecretStoreStatus:
+    try:
+        keyring = _load_keyring()
+    except AuthStoreError as error:
+        return LocalSecretStoreStatus(available=False, message=str(error))
+
+    backend = keyring.get_keyring()
+    priority = getattr(backend, "priority", 0)
+    if priority <= 0:
+        return LocalSecretStoreStatus(
+            available=False,
+            message=_missing_keyring_backend_message(),
+        )
+    return LocalSecretStoreStatus(available=True)
 
 
 def set_provider_secret(provider: ProviderName, secret: str) -> ProviderAuthStatus:
@@ -175,12 +202,14 @@ def _load_keyring():
 __all__ = [
     "AuthStoreError",
     "AuthSource",
+    "LocalSecretStoreStatus",
     "PROVIDER_SECRET_ENV_KEYS",
     "ProviderAuthStatus",
     "ProviderName",
     "ProviderSecretValidationError",
     "clear_provider_secret",
     "get_provider_auth_status",
+    "get_local_secret_store_status",
     "list_provider_auth_statuses",
     "resolve_provider_secret",
     "set_provider_secret",

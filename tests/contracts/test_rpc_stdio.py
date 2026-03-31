@@ -350,11 +350,35 @@ async def test_handle_rpc_json_line_returns_auth_status(
     monkeypatch.setattr(
         "just_another_coding_agent.rpc.stdio.list_provider_auth_statuses",
         lambda: [
-            ProviderAuthStatus(provider="ollama", configured=False, source="none"),
-            ProviderAuthStatus(provider="github", configured=True, source="keychain"),
-            ProviderAuthStatus(provider="openai", configured=True, source="env"),
-            ProviderAuthStatus(provider="anthropic", configured=False, source="none"),
+            ProviderAuthStatus(
+                provider="ollama",
+                configured=False,
+                source="none",
+                env_key="OLLAMA_API_KEY",
+            ),
+            ProviderAuthStatus(
+                provider="github",
+                configured=True,
+                source="keychain",
+                env_key="GITHUB_API_KEY",
+            ),
+            ProviderAuthStatus(
+                provider="openai",
+                configured=True,
+                source="env",
+                env_key="OPENAI_API_KEY",
+            ),
+            ProviderAuthStatus(
+                provider="anthropic",
+                configured=False,
+                source="none",
+                env_key="ANTHROPIC_API_KEY",
+            ),
         ],
+    )
+    monkeypatch.setattr(
+        "just_another_coding_agent.rpc.stdio.get_local_secret_store_status",
+        lambda: {"available": True, "message": None},
     )
 
     messages = await _rpc_messages(
@@ -378,23 +402,28 @@ async def test_handle_rpc_json_line_returns_auth_status(
                         "provider": "ollama",
                         "configured": False,
                         "source": "none",
+                        "env_key": "OLLAMA_API_KEY",
                     },
                     {
                         "provider": "github",
                         "configured": True,
                         "source": "keychain",
+                        "env_key": "GITHUB_API_KEY",
                     },
                     {
                         "provider": "openai",
                         "configured": True,
                         "source": "env",
+                        "env_key": "OPENAI_API_KEY",
                     },
                     {
                         "provider": "anthropic",
                         "configured": False,
                         "source": "none",
+                        "env_key": "ANTHROPIC_API_KEY",
                     },
-                ]
+                ],
+                "local_secret_store": {"available": True, "message": None},
             },
         }
     ]
@@ -416,6 +445,7 @@ async def test_handle_rpc_json_line_sets_provider_secret(
                 provider=provider,
                 configured=True,
                 source="keychain",
+                env_key="GITHUB_API_KEY",
             )
         ),
     )
@@ -444,6 +474,7 @@ async def test_handle_rpc_json_line_sets_provider_secret(
                     "provider": "github",
                     "configured": True,
                     "source": "keychain",
+                    "env_key": "GITHUB_API_KEY",
                 }
             },
         }
@@ -466,6 +497,7 @@ async def test_handle_rpc_json_line_clears_provider_secret(
                 provider=provider,
                 configured=False,
                 source="none",
+                env_key="OPENAI_API_KEY",
             )
         ),
     )
@@ -493,6 +525,7 @@ async def test_handle_rpc_json_line_clears_provider_secret(
                     "provider": "openai",
                     "configured": False,
                     "source": "none",
+                    "env_key": "OPENAI_API_KEY",
                 }
             },
         }

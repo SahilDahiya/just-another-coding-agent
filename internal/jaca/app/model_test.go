@@ -22,6 +22,7 @@ type stubBackend struct {
 	modelCatalog    rpc.ModelCatalogResponse
 	modelCatalogErr error
 	authStatuses    map[string]rpc.AuthProviderStatus
+	localSecretStore rpc.LocalSecretStoreStatus
 	authStatusErr   error
 	setSecretErr    error
 	clearSecretErr  error
@@ -34,6 +35,9 @@ func newStubBackend() *stubBackend {
 	return &stubBackend{
 		modelCatalog: *testModelCatalog(),
 		authStatuses: map[string]rpc.AuthProviderStatus{},
+		localSecretStore: rpc.LocalSecretStoreStatus{
+			Available: true,
+		},
 	}
 }
 
@@ -67,7 +71,10 @@ func (b *stubBackend) AuthStatus(_ context.Context) (rpc.AuthStatusResponse, err
 		}
 		statuses = append(statuses, envDerivedAuthStatus(provider))
 	}
-	return rpc.AuthStatusResponse{Providers: statuses}, nil
+	return rpc.AuthStatusResponse{
+		Providers:        statuses,
+		LocalSecretStore: b.localSecretStore,
+	}, nil
 }
 func (b *stubBackend) SetProviderSecret(
 	_ context.Context,
@@ -82,6 +89,7 @@ func (b *stubBackend) SetProviderSecret(
 		Provider:   provider,
 		Configured: true,
 		Source:     "keychain",
+		EnvKey:     envKeyForProvider(provider),
 	}
 	b.authStatuses[provider] = status
 	return rpc.AuthSetResponse{Status: status}, nil
@@ -130,6 +138,22 @@ func envDerivedAuthStatus(provider string) rpc.AuthProviderStatus {
 		Provider:   provider,
 		Configured: configured,
 		Source:     source,
+		EnvKey:     envKey,
+	}
+}
+
+func envKeyForProvider(provider string) string {
+	switch provider {
+	case "ollama":
+		return "OLLAMA_API_KEY"
+	case "github":
+		return "GITHUB_API_KEY"
+	case "openai":
+		return "OPENAI_API_KEY"
+	case "anthropic":
+		return "ANTHROPIC_API_KEY"
+	default:
+		return ""
 	}
 }
 
@@ -933,8 +957,8 @@ func TestStartupAuthStatusAutoStartsAuthForPersistedProviderWithoutCredentials(t
 		t.Fatalf("auth.Provider = %q, want %q", m.auth.Provider, "openai")
 	}
 	rendered := stripANSI(m.transcript.Render())
-	if !strings.Contains(rendered, "note  provider setup") {
-		t.Fatalf("startup transcript missing provider setup note: %q", rendered)
+	if strings.Contains(rendered, "note  provider setup") {
+		t.Fatalf("startup should not write provider setup note: %q", rendered)
 	}
 	view := stripANSI(m.View())
 	if !strings.Contains(view, "Secure Setup") || !strings.Contains(view, "OpenAI API key") {
@@ -976,8 +1000,8 @@ func TestStartupAuthStatusAutoStartsAuthForPersistedHostedOllamaSelection(t *tes
 		t.Fatalf("auth.Provider = %q, want %q", m.auth.Provider, "ollama")
 	}
 	rendered := stripANSI(m.transcript.Render())
-	if !strings.Contains(rendered, "the shipped Ollama provider path uses hosted Ollama models") {
-		t.Fatalf("startup transcript missing hosted ollama setup note: %q", rendered)
+	if strings.Contains(rendered, "the shipped Ollama provider path uses hosted Ollama models") {
+		t.Fatalf("startup should not write hosted ollama setup note: %q", rendered)
 	}
 	view := stripANSI(m.View())
 	if !strings.Contains(view, "Secure Setup") || !strings.Contains(view, "Ollama cloud API key") {
@@ -1102,6 +1126,41 @@ func TestProviderWithoutCredentialsShowsSecureSetupPanel(t *testing.T) {
 	}
 }
 
+func TestProviderWithoutKeychainShowsRecoveryPanel(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("OPENAI_API_KEY", "")
+
+	backend := newStubBackend()
+	message := "No supported OS keychain backend is available for local provider secret storage."
+	backend.localSecretStore = rpc.LocalSecretStoreStatus{
+		Available: false,
+		Message:   &message,
+	}
+	m := newTestModel()
+	m.options.Backend = backend
+
+	m = sendRunes(m, "/provider openai")
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	rendered := stripANSI(m.View())
+	if !strings.Contains(rendered, "Interactive Auth Unavailable") {
+		t.Fatalf("view missing auth-unavailable panel: %q", rendered)
+	}
+	if !strings.Contains(rendered, "Set OPENAI_API_KEY in your environment and relaunch JACA.") {
+		t.Fatalf("view missing env guidance: %q", rendered)
+	}
+	if strings.Contains(rendered, "Secure Setup") {
+		t.Fatalf("secure setup should not open when keychain is unavailable: %q", rendered)
+	}
+	if !m.authUnavailable.Active {
+		t.Fatal("authUnavailable should be active")
+	}
+	if m.auth.Active {
+		t.Fatal("auth flow should not be active")
+	}
+}
+
 func TestGitHubProviderWithoutCredentialsStartsMaskedAuthFlow(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -1124,6 +1183,46 @@ func TestGitHubProviderWithoutCredentialsStartsMaskedAuthFlow(t *testing.T) {
 	}
 	if got := masked.promptHistory; len(got) != 1 || got[0] != "/provider github" {
 		t.Fatalf("promptHistory = %#v, want only the non-secret provider command", got)
+	}
+}
+
+func TestEscapeFromAuthUnavailableReturnsToProviderChooser(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("OPENAI_API_KEY", "")
+
+	backend := newStubBackend()
+	message := "No supported OS keychain backend is available for local provider secret storage."
+	backend.localSecretStore = rpc.LocalSecretStoreStatus{
+		Available: false,
+		Message:   &message,
+	}
+	status, err := backend.AuthStatus(context.Background())
+	if err != nil {
+		t.Fatalf("AuthStatus() returned error: %v", err)
+	}
+
+	m := newTestModel()
+	m.options.Backend = backend
+
+	updated, _ := m.Update(authStatusLoadedMsg{Status: status})
+	m = updated.(*model)
+	m = sendKey(m, tea.KeyMsg{Runes: []rune("3"), Type: tea.KeyRunes})
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if !m.authUnavailable.Active {
+		t.Fatal("openai selection should open auth-unavailable panel")
+	}
+
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEsc})
+
+	if m.authUnavailable.Active {
+		t.Fatal("esc should close auth-unavailable panel")
+	}
+	if !m.onboarding.Active || m.onboarding.Kind != "provider" {
+		t.Fatalf("onboarding state = %#v, want provider chooser", m.onboarding)
+	}
+	if m.onboarding.Selected != 2 {
+		t.Fatalf("onboarding.Selected = %d, want 2 for openai", m.onboarding.Selected)
 	}
 }
 
@@ -1225,6 +1324,7 @@ func TestAuthStatusCommandRendersProviderSources(t *testing.T) {
 		Provider:   "github",
 		Configured: true,
 		Source:     "keychain",
+		EnvKey:     "GITHUB_API_KEY",
 	}
 
 	m := newTestModel()
@@ -1245,6 +1345,7 @@ func TestAuthClearCommandCallsBackend(t *testing.T) {
 		Provider:   "openai",
 		Configured: true,
 		Source:     "keychain",
+		EnvKey:     "OPENAI_API_KEY",
 	}
 
 	m := newTestModel()

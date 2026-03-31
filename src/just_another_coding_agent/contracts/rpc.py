@@ -5,6 +5,9 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from just_another_coding_agent.auth import (
+    LocalSecretStoreStatus as RpcLocalSecretStoreStatus,
+)
+from just_another_coding_agent.auth import (
     ProviderAuthStatus as AuthProviderStatus,
 )
 
@@ -143,6 +146,7 @@ class ModelCatalogResponse(_RpcModel):
 
 class AuthStatusResponse(_RpcModel):
     providers: list[AuthProviderStatus]
+    local_secret_store: RpcLocalSecretStoreStatus
 
 
 class AuthSetResponse(_RpcModel):
@@ -190,6 +194,7 @@ __all__ = [
     "AuthStatusPayload",
     "AuthStatusRequest",
     "AuthStatusResponse",
+    "RpcLocalSecretStoreStatus",
     "RpcErrorEnvelope",
     "RpcEventEnvelope",
     "RpcRequest",

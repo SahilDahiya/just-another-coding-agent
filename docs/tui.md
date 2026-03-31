@@ -108,6 +108,10 @@ The core architectural risk is semantic drift between the Go shell and the Pytho
   provider-specific labeling, a centered secure setup panel, a masked input
   field, and clear copy that the secret is not written into transcript or
   prompt history.
+- If the backend reports that interactive local secret storage is unavailable,
+  the TUI should not open the masked input panel at all. It should show a
+  centered recovery panel with the backend-authored reason plus the explicit
+  env-var recovery path instead.
 - The prompt zone should behave like a compact two-line shell composer: one input line, one low-salience footer line for state and recall hints.
 - Backend token and context-window usage should appear as restrained footer context after a completed run, not as a new panel or heavy stats surface.
 - Session lifecycle events such as `session_compaction_started` and `session_compaction_completed` may appear before `run_started`; the TUI should surface them in the transcript and switch to the compacting state instead of silently dropping them.

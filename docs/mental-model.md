@@ -60,7 +60,7 @@ Example flow:
 {"id": "req-0", "command": "auth.status", "payload": {}}
 ```
 ```json
-{"type": "rpc_response", "id": "req-0", "response": {"providers": [{"provider": "openai", "configured": false, "source": "none"}]}}
+{"type": "rpc_response", "id": "req-0", "response": {"providers": [{"provider": "openai", "configured": false, "source": "none", "env_key": "OPENAI_API_KEY"}], "local_secret_store": {"available": true, "message": null}}}
 ```
 ```json
 {"id": "req-1", "command": "session.create", "payload": {}}
@@ -88,7 +88,7 @@ Three response types:
   session lifecycle events such as automatic compaction
 - `rpc_error` -- protocol-level problems only (bad JSON, unknown command, unknown session, invalid session state)
 
-Clients never see filesystem paths or workspace identifiers. Session identity is an opaque hex string. Provider auth is backend-owned too: interactive local secrets resolve from the OS keychain unless an explicit environment-variable override is present, and the config file is not a secret store.
+Clients never see filesystem paths or workspace identifiers. Session identity is an opaque hex string. Provider auth is backend-owned too: interactive local secrets resolve from the OS keychain unless an explicit environment-variable override is present, the config file is not a secret store, and `auth.status` tells clients whether interactive local secret storage is available before they prompt for a secret.
 
 ### Session
 

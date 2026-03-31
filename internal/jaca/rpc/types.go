@@ -79,10 +79,17 @@ type AuthProviderStatus struct {
 	Provider   string `json:"provider"`
 	Configured bool   `json:"configured"`
 	Source     string `json:"source"`
+	EnvKey     string `json:"env_key"`
+}
+
+type LocalSecretStoreStatus struct {
+	Available bool    `json:"available"`
+	Message   *string `json:"message"`
 }
 
 type AuthStatusResponse struct {
-	Providers []AuthProviderStatus `json:"providers"`
+	Providers        []AuthProviderStatus   `json:"providers"`
+	LocalSecretStore LocalSecretStoreStatus `json:"local_secret_store"`
 }
 
 type AuthSetResponse struct {

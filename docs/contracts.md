@@ -488,9 +488,9 @@ Initial executable RPC slice:
 - `rpc_response`
   - fields: `type`, `id`, `response`
   - initial response payloads:
-    - `{"providers": [{"provider": <provider-name>, "configured": <bool>, "source": "env" | "keychain" | "none"}, ...]}`
-    - `{"status": {"provider": <provider-name>, "configured": <bool>, "source": "env" | "keychain" | "none"}}` for `auth.set`
-    - `{"status": {"provider": <provider-name>, "configured": <bool>, "source": "env" | "keychain" | "none"}}` for `auth.clear`
+    - `{"providers": [{"provider": <provider-name>, "configured": <bool>, "source": "env" | "keychain" | "none", "env_key": <provider-env-var>}, ...], "local_secret_store": {"available": <bool>, "message": <optional-string>}}`
+    - `{"status": {"provider": <provider-name>, "configured": <bool>, "source": "env" | "keychain" | "none", "env_key": <provider-env-var>}}` for `auth.set`
+    - `{"status": {"provider": <provider-name>, "configured": <bool>, "source": "env" | "keychain" | "none", "env_key": <provider-env-var>}}` for `auth.clear`
     - `{"session_id": <opaque-lowercase-hex-string>}`
     - `{"compaction_id": <opaque-lowercase-hex-string>, "summarized_through_run_id": <run_id>, "first_kept_run_id": <optional-run_id>, "summary": <structured-compaction-summary>}`
 - `rpc_event`
@@ -502,7 +502,9 @@ Initial executable RPC slice:
 Ordering rules for the RPC slice:
 
 - A valid `auth.status` request yields exactly one `rpc_response` with one
-  backend-authored status object per shipped provider
+  backend-authored status object per shipped provider plus one backend-authored
+  `local_secret_store` object describing whether interactive local secret
+  storage is available on this machine
 - A valid `auth.set` request yields exactly one `rpc_response` and stores the
   secret in the canonical local secret store without echoing the secret back
 - A valid `auth.clear` request yields exactly one `rpc_response` and removes

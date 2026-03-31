@@ -110,6 +110,7 @@ type model struct {
 	asyncCh              chan tea.Msg
 	slashMenu            slashMenuState
 	auth                 authState
+	authUnavailable      authUnavailableState
 	configErrLogged      bool
 	lastInputTokens      *int
 	lastOutputTokens     *int
@@ -412,6 +413,12 @@ func (m *model) currentViewModel() viewModel {
 			OptionLines: m.onboardingOptionLines(),
 			HelpLines:   m.onboardingHelpLines(),
 		},
+		AuthUnavailable: authUnavailableOverlayView{
+			Active:    m.authUnavailable.Active,
+			Provider:  m.authUnavailable.Provider,
+			Title:     "Interactive Auth Unavailable",
+			HelpLines: authUnavailableLines(m.authUnavailable.Provider, m.authUnavailable.EnvKey, m.authUnavailable.Message),
+		},
 		Auth: authOverlayView{
 			Active:      m.auth.Active,
 			Provider:    m.auth.Provider,
@@ -426,7 +433,7 @@ func (m *model) currentPromptFooter() string {
 	if m.promptFooterNotice != "" {
 		return m.promptFooterNotice
 	}
-	if m.onboarding.Active {
+	if m.onboarding.Active || m.authUnavailable.Active {
 		return ""
 	}
 	if m.shouldShowFirstRunPromptAssist() {
@@ -438,6 +445,9 @@ func (m *model) currentPromptFooter() string {
 func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.onboarding.Active {
 		return m.handleOnboardingKey(msg)
+	}
+	if m.authUnavailable.Active {
+		return m.handleAuthUnavailableKey(msg)
 	}
 	if m.updatePrompt.Active {
 		return m.handleUpdatePromptKey(msg)
@@ -607,6 +617,20 @@ func (m *model) handleEscape() (tea.Model, tea.Cmd) {
 		returnKind := m.auth.ReturnToOnboardingKind
 		provider := m.auth.Provider
 		m.endAuthFlow()
+		if returnKind != "" {
+			m.onboarding = onboardingState{
+				Active:   true,
+				Kind:     returnKind,
+				Selected: onboardingSelectionForProvider(provider),
+			}
+		}
+		m.refreshViewport()
+		return m, nil
+	}
+	if m.authUnavailable.Active {
+		returnKind := m.authUnavailable.ReturnToOnboardingKind
+		provider := m.authUnavailable.Provider
+		m.endAuthUnavailableFlow()
 		if returnKind != "" {
 			m.onboarding = onboardingState{
 				Active:   true,

@@ -11,6 +11,7 @@ from just_another_coding_agent.auth import (
     AuthStoreError,
     ProviderSecretValidationError,
     clear_provider_secret,
+    get_local_secret_store_status,
     list_provider_auth_statuses,
     set_provider_secret,
 )
@@ -130,7 +131,10 @@ async def handle_rpc_json_line(
 
         yield RpcResponseEnvelope(
             id=request.id,
-            response=AuthStatusResponse(providers=providers),
+            response=AuthStatusResponse(
+                providers=providers,
+                local_secret_store=get_local_secret_store_status(),
+            ),
         ).model_dump_json()
         return
 

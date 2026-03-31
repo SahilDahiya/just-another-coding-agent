@@ -1,7 +1,6 @@
 package app
 
 import (
-	"fmt"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -11,7 +10,7 @@ import (
 )
 
 func (m *model) maybeStartOnboarding() {
-	if m.startupOnboardingSet || m.onboarding.Active || m.auth.Active || m.streaming {
+	if m.startupOnboardingSet || m.onboarding.Active || m.auth.Active || m.authUnavailable.Active || m.streaming {
 		return
 	}
 	if strings.TrimSpace(m.textInput.Value()) != "" {
@@ -38,35 +37,23 @@ func (m *model) maybeStartOnboarding() {
 	if selectedProvider == "ollama" {
 		if m.modelCatalog != nil && m.ollamaCloudSelectionRequiresAuth() && !providerConfigured(*statuses, "ollama") {
 			m.startupOnboardingSet = true
-			m.transcript.WriteNote(
-				"provider setup",
-				[]string{
-					"the shipped Ollama provider path uses hosted Ollama models",
-					"paste your Ollama cloud API key now, or press esc to cancel",
-					"for local Ollama instead, cancel and run /model ollama:<installed-model>",
-				},
-			)
-			m.startAuthFlow("ollama", "", "", "")
+			if err := m.startCredentialSetup("ollama", "", "", ""); err != nil {
+				m.transcript.WriteError(err.Error())
+			}
 		}
 		return
 	}
 
 	if !providerConfigured(*statuses, selectedProvider) {
 		m.startupOnboardingSet = true
-		m.transcript.WriteNote(
-			"provider setup",
-			[]string{
-				fmt.Sprintf("%s is selected but not configured yet.", selectedProvider),
-				"enter the provider secret now, or press esc to cancel",
-				"local secrets are stored in the OS keychain",
-			},
-		)
-		m.startAuthFlow(selectedProvider, "", "", "")
+		if err := m.startCredentialSetup(selectedProvider, "", "", ""); err != nil {
+			m.transcript.WriteError(err.Error())
+		}
 	}
 }
 
 func (m *model) shouldShowFirstRunPromptAssist() bool {
-	if !m.startupOnboardingSet || m.onboarding.Active || m.auth.Active || m.streaming {
+	if !m.startupOnboardingSet || m.onboarding.Active || m.auth.Active || m.authUnavailable.Active || m.streaming {
 		return false
 	}
 	if strings.TrimSpace(m.textInput.Value()) != "" {
@@ -207,18 +194,26 @@ func (m *model) completeOnboardingSelection() (tea.Model, tea.Cmd) {
 	case 1:
 		if kind == "ollama" {
 			m.onboarding = onboardingState{}
-			m.startAuthFlow("ollama", "ollama", "", "provider")
+			if err := m.startCredentialSetup("ollama", "ollama", "", "provider"); err != nil {
+				m.transcript.WriteError(err.Error())
+			}
 			m.refreshViewport()
 			return m, nil
 		}
 		m.onboarding = onboardingState{}
-		m.startAuthFlow("github", "github", "", "provider")
+		if err := m.startCredentialSetup("github", "github", "", "provider"); err != nil {
+			m.transcript.WriteError(err.Error())
+		}
 	case 2:
 		m.onboarding = onboardingState{}
-		m.startAuthFlow("openai", "openai", "", "provider")
+		if err := m.startCredentialSetup("openai", "openai", "", "provider"); err != nil {
+			m.transcript.WriteError(err.Error())
+		}
 	case 3:
 		m.onboarding = onboardingState{}
-		m.startAuthFlow("anthropic", "anthropic", "", "provider")
+		if err := m.startCredentialSetup("anthropic", "anthropic", "", "provider"); err != nil {
+			m.transcript.WriteError(err.Error())
+		}
 	}
 	m.refreshViewport()
 	return m, nil

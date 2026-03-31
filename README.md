@@ -153,7 +153,7 @@ Inside `jaca`:
 - `/model ollama:<local-model>` uses local Ollama at the default localhost endpoint with no key
 - `/provider ollama` selects the shipped Ollama cloud catalog and starts masked auth if needed
 - `/auth ollama`, `/auth github`, `/auth openai`, and `/auth anthropic` store secrets without echoing them into the transcript
-- `/auth status` shows whether each provider is configured from env, keychain, or neither
+- `/auth status` shows whether each provider is configured from env, keychain, or neither, and whether interactive local secret storage is available at all
 - `/auth clear <provider>` removes the stored local keychain secret for that provider
 - `/model <provider:model>` switches the active model and aligns provider state to that model
 - `/trace off` disables tracing
@@ -173,6 +173,11 @@ For `logfire` mode, authenticate first:
 uv run logfire auth
 uv run logfire projects use <project>
 ```
+
+If interactive auth is unavailable because the machine has no supported OS
+keychain backend, JACA shows a centered recovery panel before secret entry.
+That panel tells the user to either configure the system keychain or set the
+provider env var and relaunch.
 
 For direct Go TUI development, pass the backend command explicitly:
 

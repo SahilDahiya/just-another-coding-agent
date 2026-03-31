@@ -66,7 +66,11 @@ func (m *model) handleModelCommand(arg string) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 	if !hasCreds {
-		m.startAuthFlow(provider, provider, value, "")
+		if err := m.startCredentialSetup(provider, provider, value, ""); err != nil {
+			m.transcript.WriteError(err.Error())
+			m.refreshViewport()
+			return m, cmd
+		}
 		m.refreshViewport()
 		return m, cmd
 	}
@@ -136,7 +140,10 @@ func (m *model) handleAuthCommand(arg string) {
 	provider := canonicalProviderName(value)
 	switch provider {
 	case "openai", "anthropic", "github", "ollama":
-		m.startAuthFlow(provider, "", "", "")
+		if err := m.startCredentialSetup(provider, "", "", ""); err != nil {
+			m.transcript.WriteNote("auth", nil)
+			m.transcript.WriteError(err.Error())
+		}
 	default:
 		m.transcript.WriteNote("auth", nil)
 		m.transcript.WriteError("usage: /auth <provider>|status|clear <provider>")
@@ -150,7 +157,9 @@ func (m *model) handleProviderCommand(arg string) {
 		return
 	}
 	if startAuth != "" {
-		m.startAuthFlow(startAuth, startAuth, "", "")
+		if err := m.startCredentialSetup(startAuth, startAuth, "", ""); err != nil {
+			m.transcript.WriteError(err.Error())
+		}
 		return
 	}
 	for _, line := range lines {
@@ -289,6 +298,42 @@ func (m *model) providerHasCredentials(provider string) (bool, error) {
 	return false, fmt.Errorf("unknown provider: %s", provider)
 }
 
+func (m *model) startCredentialSetup(
+	provider string,
+	pendingProvider string,
+	pendingModel string,
+	returnToOnboardingKind string,
+) error {
+	statuses, err := m.availableAuthStatus()
+	if err != nil {
+		return err
+	}
+	for _, status := range statuses.Providers {
+		if status.Provider != provider {
+			continue
+		}
+		if !statuses.LocalSecretStore.Available {
+			m.startAuthUnavailableFlow(
+				provider,
+				status.EnvKey,
+				stringOrEmpty(statuses.LocalSecretStore.Message),
+				returnToOnboardingKind,
+			)
+			return nil
+		}
+		m.startAuthFlow(provider, pendingProvider, pendingModel, returnToOnboardingKind)
+		return nil
+	}
+	return fmt.Errorf("unknown provider: %s", provider)
+}
+
+func stringOrEmpty(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
+}
+
 func (m *model) ollamaCloudConfigured() (bool, error) {
 	statuses, err := m.availableAuthStatus()
 	if err != nil {
@@ -339,6 +384,12 @@ func (m *model) writeAuthStatus() {
 		m.transcript.WriteLine(
 			fmt.Sprintf("%s: %s (%s)", status.Provider, state, status.Source),
 		)
+	}
+	if !statuses.LocalSecretStore.Available {
+		m.transcript.WriteLine("interactive auth unavailable")
+		if statuses.LocalSecretStore.Message != nil && *statuses.LocalSecretStore.Message != "" {
+			m.transcript.WriteLine(*statuses.LocalSecretStore.Message)
+		}
 	}
 }
 

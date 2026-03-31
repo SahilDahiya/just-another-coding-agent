@@ -292,6 +292,36 @@ func TestRenderViewShowsCenteredSecureSetupPanel(t *testing.T) {
 	}
 }
 
+func TestRenderViewShowsAuthUnavailablePanel(t *testing.T) {
+	rendered := stripANSI(renderView(viewModel{
+		Width:  80,
+		Height: 24,
+		AuthUnavailable: authUnavailableOverlayView{
+			Active:   true,
+			Provider: "openai",
+			Title:    "Interactive Auth Unavailable",
+			HelpLines: []string{
+				"Interactive secure setup is unavailable for OpenAI.",
+				"No supported OS keychain backend is available for local provider secret storage.",
+				"Set OPENAI_API_KEY in your environment and relaunch JACA.",
+				"Or configure a system keychain and retry /auth openai.",
+				"Enter closes. Esc goes back.",
+			},
+		},
+	}))
+
+	for _, want := range []string{
+		"Interactive Auth Unavailable",
+		"Set OPENAI_API_KEY in your environment and relaunch JACA.",
+		"retry /auth openai",
+		"Enter closes. Esc goes back.",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("renderView() missing %q in %q", want, rendered)
+		}
+	}
+}
+
 func TestRenderViewShowsFirstRunChooserPanel(t *testing.T) {
 	rendered := stripANSI(renderView(viewModel{
 		Width:  80,
