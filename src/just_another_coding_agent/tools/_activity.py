@@ -19,11 +19,11 @@ def shorten_path(path: str | None, workspace_root: str) -> str | None:
         abs_path = os.path.abspath(os.path.join(workspace_root, path))
     abs_root = os.path.abspath(workspace_root)
     if abs_path.startswith(abs_root + os.sep):
-        return abs_path[len(abs_root) + 1 :]
+        return abs_path[len(abs_root) + 1 :].replace("\\", "/")
     if abs_path == abs_root:
         return "."
     # Outside workspace — return basename
-    return os.path.basename(abs_path) or path
+    return (os.path.basename(abs_path) or path).replace("\\", "/")
 
 
 def truncate_activity_label(text: str, *, limit: int = 56) -> str:

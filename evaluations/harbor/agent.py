@@ -29,6 +29,7 @@ except ModuleNotFoundError as error:  # pragma: no cover
             ) from _HARBOR_IMPORT_ERROR
 
 else:
+    _HARBOR_TARGET_READ_ONLY_WORKER = "jaca-read-only-worker"
 
     def _build_harbor_read_only_worker(repo_root: Path) -> Path:
         build_root = Path(tempfile.mkdtemp(prefix="jaca-harbor-read-only-worker-"))
@@ -68,7 +69,7 @@ else:
                 )
                 await environment.upload_file(
                     source_path=read_only_worker_binary,
-                    target_path=f"{target_prebuilt_dir}/{READ_ONLY_WORKER_BINARY}",
+                    target_path=f"{target_prebuilt_dir}/{_HARBOR_TARGET_READ_ONLY_WORKER}",
                 )
                 await environment.upload_dir(
                     source_dir=repo_root / "src",

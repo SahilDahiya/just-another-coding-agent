@@ -247,6 +247,8 @@ func splitLinesKeepEnds(text string) []string {
 	if text == "" {
 		return nil
 	}
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	text = strings.ReplaceAll(text, "\r", "\n")
 	lines := strings.SplitAfter(text, "\n")
 	if lines[len(lines)-1] == "" {
 		return lines[:len(lines)-1]

@@ -55,7 +55,7 @@ def _resolve_logfire_token(source: Mapping[str, str]) -> str:
     if explicit:
         return explicit
 
-    config_path = Path.home() / ".logfire" / "default.toml"
+    config_path = _resolve_home_dir(source) / ".logfire" / "default.toml"
     if not config_path.exists():
         raise ValueError(
             "Harbor tasks always export traces to Logfire and require host "
@@ -92,6 +92,17 @@ def _resolve_logfire_token(source: Mapping[str, str]) -> str:
         "Logfire credentials. Run `uv run logfire auth` and `uv run "
         "logfire projects use <project>` or set `LOGFIRE_TOKEN`."
     )
+
+
+def _resolve_home_dir(source: Mapping[str, str]) -> Path:
+    for key in ("HOME", "USERPROFILE"):
+        value = source.get(key, "").strip()
+        if value:
+            return Path(value)
+        env_value = os.environ.get(key, "").strip()
+        if env_value:
+            return Path(env_value)
+    return Path.home()
 
 
 def build_harbor_exec_command(

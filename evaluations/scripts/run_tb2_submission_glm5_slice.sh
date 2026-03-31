@@ -38,7 +38,10 @@ if [[ ! -f "$TASK_FILE" ]]; then
   exit 1
 fi
 
-mapfile -t SLICE_TASKS < <(grep -v '^[[:space:]]*$' "$TASK_FILE" | grep -v '^[[:space:]]*#')
+SLICE_TASKS=()
+while IFS= read -r task || [[ -n "$task" ]]; do
+  SLICE_TASKS+=("$task")
+done < <(grep -v '^[[:space:]]*$' "$TASK_FILE" | grep -v '^[[:space:]]*#')
 if (( ${#SLICE_TASKS[@]} == 0 )); then
   echo "Task file is empty after removing blank lines/comments: $TASK_FILE" >&2
   exit 1
