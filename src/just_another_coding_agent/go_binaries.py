@@ -18,7 +18,9 @@ def explicit_release_wheel_tag() -> str | None:
     if machine in {"aarch64", "arm64"}:
         return "py3-none-manylinux_2_17_aarch64"
 
-    raise RuntimeError(f"unsupported Linux wheel architecture for release build: {machine}")
+    raise RuntimeError(
+        f"unsupported Linux wheel architecture for release build: {machine}"
+    )
 
 
 def build_go_binary(

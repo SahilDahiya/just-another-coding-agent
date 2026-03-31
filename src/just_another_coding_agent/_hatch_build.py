@@ -16,6 +16,7 @@ from just_another_coding_agent.tools.read_only_worker.launcher import (
     READ_ONLY_WORKER_BINARY,
 )
 
+
 class build_hook(BuildHookInterface):  # noqa: N801
     def initialize(self, version: str, build_data: dict[str, object]) -> None:
         del version
