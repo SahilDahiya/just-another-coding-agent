@@ -225,6 +225,7 @@ func providerSuggestions() []slashSuggestion {
 
 func authSuggestions() []slashSuggestion {
 	return []slashSuggestion{
+		{Value: "ollama", Description: "Store Ollama cloud API key"},
 		{Value: "github", Description: "Store GitHub Models token"},
 		{Value: "openai", Description: "Store OpenAI API key"},
 		{Value: "anthropic", Description: "Store Anthropic API key"},

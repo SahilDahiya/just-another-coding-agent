@@ -128,6 +128,11 @@ Provider secrets are backend-owned and stored in the local OS keychain.
 Environment variables remain the explicit override for headless, CI, and
 evaluation flows.
 
+On first launch without a saved provider, JACA writes a startup setup note with
+the shipped provider choices. If a saved cloud provider is selected but still
+missing credentials, JACA starts masked auth immediately at startup instead of
+waiting for the first `/provider` or `/model` command.
+
 Inside `jaca`:
 
 - `/provider ollama` selects local Ollama and requires no key

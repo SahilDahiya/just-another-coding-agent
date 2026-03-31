@@ -269,7 +269,7 @@ func (m *model) providerHasCredentials(provider string) (bool, error) {
 	if provider == "ollama" {
 		return true, nil
 	}
-	statuses, err := m.fetchAuthStatus()
+	statuses, err := m.availableAuthStatus()
 	if err != nil {
 		return false, err
 	}
@@ -290,6 +290,18 @@ func (m *model) fetchAuthStatus() (rpc.AuthStatusResponse, error) {
 	return m.options.Backend.AuthStatus(ctx)
 }
 
+func (m *model) availableAuthStatus() (rpc.AuthStatusResponse, error) {
+	if m.authStatus != nil {
+		return *m.authStatus, nil
+	}
+	statuses, err := m.fetchAuthStatus()
+	if err != nil {
+		return rpc.AuthStatusResponse{}, err
+	}
+	m.authStatus = &statuses
+	return statuses, nil
+}
+
 func (m *model) writeAuthStatus() {
 	m.transcript.WriteNote("auth", nil)
 	statuses, err := m.fetchAuthStatus()
@@ -297,6 +309,7 @@ func (m *model) writeAuthStatus() {
 		m.transcript.WriteError(err.Error())
 		return
 	}
+	m.authStatus = &statuses
 	for _, status := range statuses.Providers {
 		state := "missing"
 		if status.Configured {
@@ -320,6 +333,16 @@ func (m *model) clearProviderSecret(provider string) {
 	if err != nil {
 		m.transcript.WriteError(err.Error())
 		return
+	}
+	statuses, statusErr := m.availableAuthStatus()
+	if statusErr == nil {
+		for i := range statuses.Providers {
+			if statuses.Providers[i].Provider == response.Status.Provider {
+				statuses.Providers[i] = response.Status
+				m.authStatus = &statuses
+				break
+			}
+		}
 	}
 	state := "missing"
 	if response.Status.Configured {

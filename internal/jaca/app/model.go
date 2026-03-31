@@ -70,6 +70,11 @@ type modelCatalogLoadedMsg struct {
 	Err     error
 }
 
+type authStatusLoadedMsg struct {
+	Status rpc.AuthStatusResponse
+	Err    error
+}
+
 type model struct {
 	options              Options
 	phase                Phase
@@ -105,6 +110,9 @@ type model struct {
 	lastContextWindow    *float64
 	modelCatalog         *rpc.ModelCatalogResponse
 	modelCatalogLoading  bool
+	authStatus           *rpc.AuthStatusResponse
+	authStatusLoading    bool
+	startupOnboardingSet bool
 	appVersion           string
 	skippedUpdateVersion string
 	updatePrompt         updatePromptState
@@ -140,6 +148,9 @@ func (m *model) Init() tea.Cmd {
 		waitForMotionTick(),
 	}
 	if cmd := m.requestModelCatalog(); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	if cmd := m.requestAuthStatus(); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
 	if len(m.options.UpdateCommand) > 0 && m.options.AppVersion != "" {
@@ -279,6 +290,20 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		catalog := msg.Catalog
 		m.modelCatalog = &catalog
 		m.syncSlashMenu()
+		m.refreshViewport()
+		return m, nil
+	case authStatusLoadedMsg:
+		m.authStatusLoading = false
+		if msg.Err != nil {
+			if !errors.Is(msg.Err, context.DeadlineExceeded) && !errors.Is(msg.Err, context.Canceled) {
+				m.transcript.WriteError(fmt.Sprintf("auth status: %v", msg.Err))
+				m.refreshViewport()
+			}
+			return m, nil
+		}
+		status := msg.Status
+		m.authStatus = &status
+		m.maybeStartOnboarding()
 		m.refreshViewport()
 		return m, nil
 	case updateCheckMsg:
@@ -806,12 +831,29 @@ func (m *model) requestModelCatalog() tea.Cmd {
 	return fetchModelCatalog(m.options.Backend)
 }
 
+func (m *model) requestAuthStatus() tea.Cmd {
+	if m.authStatus != nil || m.authStatusLoading || m.options.Backend == nil {
+		return nil
+	}
+	m.authStatusLoading = true
+	return fetchAuthStatus(m.options.Backend)
+}
+
 func fetchModelCatalog(backend Backend) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), modelCatalogTimeout)
 		defer cancel()
 		catalog, err := backend.ModelCatalog(ctx)
 		return modelCatalogLoadedMsg{Catalog: catalog, Err: err}
+	}
+}
+
+func fetchAuthStatus(backend Backend) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), authStatusTimeout)
+		defer cancel()
+		status, err := backend.AuthStatus(ctx)
+		return authStatusLoadedMsg{Status: status, Err: err}
 	}
 }
 

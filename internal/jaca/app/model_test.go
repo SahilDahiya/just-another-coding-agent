@@ -9,6 +9,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"jaca/internal/jaca/config"
 	"jaca/internal/jaca/rpc"
 )
 
@@ -23,7 +24,7 @@ type stubBackend struct {
 	authStatuses    map[string]rpc.AuthProviderStatus
 	authStatusErr   error
 	setSecretErr    error
-	clearSecretErr error
+	clearSecretErr  error
 	restarts        int
 	lastSetSecret   rpc.AuthSetPayload
 	lastCleared     string
@@ -604,6 +605,17 @@ func TestSelectingTraceSuggestionCommitsOnlyToPrompt(t *testing.T) {
 	}
 }
 
+func TestAuthSlashSuggestionsIncludeOllama(t *testing.T) {
+	m := newTestModel()
+
+	m = sendRunes(m, "/auth ")
+
+	rendered := stripANSI(m.View())
+	if !strings.Contains(rendered, "ollama") {
+		t.Fatalf("view missing ollama auth suggestion in %q", rendered)
+	}
+}
+
 func TestEscClosesSlashSuggestionsWithoutClearingPrompt(t *testing.T) {
 	m := newTestModel()
 
@@ -670,6 +682,80 @@ func TestModelCatalogDeadlineExceededDoesNotWriteStartupError(t *testing.T) {
 	}
 	if got := stripANSI(m.transcript.Render()); strings.Contains(got, "model catalog:") {
 		t.Fatalf("transcript should not surface startup catalog timeout: %q", got)
+	}
+}
+
+func TestStartupAuthStatusShowsFirstRunOnboarding(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	backend := newStubBackend()
+	status, err := backend.AuthStatus(context.Background())
+	if err != nil {
+		t.Fatalf("AuthStatus() returned error: %v", err)
+	}
+
+	m := newTestModel()
+	m.options.Backend = backend
+
+	updated, _ := m.Update(authStatusLoadedMsg{Status: status})
+	m = updated.(*model)
+
+	rendered := stripANSI(m.transcript.Render())
+	for _, want := range []string{
+		"note  first-time setup",
+		"/provider ollama",
+		"/provider github",
+		"/provider openai",
+		"/provider anthropic",
+		"/auth status",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("startup onboarding missing %q in %q", want, rendered)
+		}
+	}
+	if m.auth.Active {
+		t.Fatal("first-run onboarding should not auto-start auth")
+	}
+}
+
+func TestStartupAuthStatusAutoStartsAuthForPersistedProviderWithoutCredentials(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("OPENAI_API_KEY", "")
+
+	if err := config.SaveDefaultProvider("openai"); err != nil {
+		t.Fatalf("SaveDefaultProvider() returned error: %v", err)
+	}
+	if err := config.SaveDefaultModel("openai:gpt-5.4"); err != nil {
+		t.Fatalf("SaveDefaultModel() returned error: %v", err)
+	}
+
+	backend := newStubBackend()
+	status, err := backend.AuthStatus(context.Background())
+	if err != nil {
+		t.Fatalf("AuthStatus() returned error: %v", err)
+	}
+
+	m := newTestModel()
+	m.options.Model = "openai:gpt-5.4"
+	m.options.Backend = backend
+
+	updated, _ := m.Update(authStatusLoadedMsg{Status: status})
+	m = updated.(*model)
+
+	if !m.auth.Active {
+		t.Fatal("startup auth should start masked auth flow for missing openai credentials")
+	}
+	if m.auth.Provider != "openai" {
+		t.Fatalf("auth.Provider = %q, want %q", m.auth.Provider, "openai")
+	}
+	rendered := stripANSI(m.transcript.Render())
+	if !strings.Contains(rendered, "note  provider setup") {
+		t.Fatalf("startup transcript missing provider setup note: %q", rendered)
+	}
+	if !strings.Contains(stripANSI(m.View()), "auth openai") {
+		t.Fatalf("view missing openai auth footer: %q", stripANSI(m.View()))
 	}
 }
 

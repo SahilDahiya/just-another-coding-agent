@@ -86,6 +86,21 @@ func (m *model) handleAuthEnter() (tea.Model, tea.Cmd) {
 		m.refreshViewport()
 		return m, nil
 	}
+	statuses, statusErr := m.availableAuthStatus()
+	if statusErr == nil {
+		updated := false
+		for i := range statuses.Providers {
+			if statuses.Providers[i].Provider == response.Status.Provider {
+				statuses.Providers[i] = response.Status
+				updated = true
+				break
+			}
+		}
+		if !updated {
+			statuses.Providers = append(statuses.Providers, response.Status)
+		}
+		m.authStatus = &statuses
+	}
 
 	lines := []string{
 		fmt.Sprintf(
