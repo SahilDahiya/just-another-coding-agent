@@ -8,6 +8,8 @@ from typing import Any, TextIO
 from pydantic import TypeAdapter, ValidationError
 
 from just_another_coding_agent.auth import (
+    AuthStoreError,
+    ProviderSecretValidationError,
     clear_provider_secret,
     list_provider_auth_statuses,
     set_provider_secret,
@@ -20,7 +22,6 @@ from just_another_coding_agent.contracts.model_catalog import (
 from just_another_coding_agent.contracts.rpc import (
     AuthClearRequest,
     AuthClearResponse,
-    AuthProviderStatus,
     AuthSetRequest,
     AuthSetResponse,
     AuthStatusRequest,
@@ -117,14 +118,19 @@ async def handle_rpc_json_line(
         return
 
     if isinstance(request, AuthStatusRequest):
+        try:
+            providers = list_provider_auth_statuses()
+        except AuthStoreError as error:
+            yield RpcErrorEnvelope(
+                id=request.id,
+                error_type="InternalError",
+                message=str(error),
+            ).model_dump_json()
+            return
+
         yield RpcResponseEnvelope(
             id=request.id,
-            response=AuthStatusResponse(
-                providers=[
-                    AuthProviderStatus(**status.model_dump())
-                    for status in list_provider_auth_statuses()
-                ]
-            ),
+            response=AuthStatusResponse(providers=providers),
         ).model_dump_json()
         return
 
@@ -134,7 +140,14 @@ async def handle_rpc_json_line(
                 request.payload.provider,
                 request.payload.secret,
             )
-        except Exception as error:
+        except ProviderSecretValidationError as error:
+            yield RpcErrorEnvelope(
+                id=request.id,
+                error_type="InvalidRequest",
+                message=str(error),
+            ).model_dump_json()
+            return
+        except AuthStoreError as error:
             yield RpcErrorEnvelope(
                 id=request.id,
                 error_type="InternalError",
@@ -144,16 +157,14 @@ async def handle_rpc_json_line(
 
         yield RpcResponseEnvelope(
             id=request.id,
-            response=AuthSetResponse(
-                status=AuthProviderStatus(**status.model_dump())
-            ),
+            response=AuthSetResponse(status=status),
         ).model_dump_json()
         return
 
     if isinstance(request, AuthClearRequest):
         try:
             status = clear_provider_secret(request.payload.provider)
-        except Exception as error:
+        except AuthStoreError as error:
             yield RpcErrorEnvelope(
                 id=request.id,
                 error_type="InternalError",
@@ -163,9 +174,7 @@ async def handle_rpc_json_line(
 
         yield RpcResponseEnvelope(
             id=request.id,
-            response=AuthClearResponse(
-                status=AuthProviderStatus(**status.model_dump())
-            ),
+            response=AuthClearResponse(status=status),
         ).model_dump_json()
         return
 

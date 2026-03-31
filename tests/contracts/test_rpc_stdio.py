@@ -11,7 +11,7 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 
-from just_another_coding_agent.auth import ProviderAuthStatus
+from just_another_coding_agent.auth import AuthStoreError, ProviderAuthStatus
 from just_another_coding_agent.rpc.session_store import session_path_for_id
 from just_another_coding_agent.rpc.stdio import handle_rpc_json_line
 from just_another_coding_agent.session import load_session
@@ -495,6 +495,107 @@ async def test_handle_rpc_json_line_clears_provider_secret(
                     "source": "none",
                 }
             },
+        }
+    ]
+
+
+async def test_handle_rpc_json_line_rejects_blank_provider_secret_as_invalid_request(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+
+    messages = await _rpc_messages(
+        request_payload={
+            "id": "req-auth-set-blank",
+            "command": "auth.set",
+            "payload": {
+                "provider": "github",
+                "secret": "   ",
+            },
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    assert messages == [
+        {
+            "type": "rpc_error",
+            "id": "req-auth-set-blank",
+            "error_type": "InvalidRequest",
+            "message": "provider secret must be a non-empty string",
+        }
+    ]
+
+
+async def test_handle_rpc_json_line_returns_internal_error_for_auth_status_failure(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    monkeypatch.setattr(
+        "just_another_coding_agent.rpc.stdio.list_provider_auth_statuses",
+        lambda: (_ for _ in ()).throw(AuthStoreError("keychain backend unavailable")),
+    )
+
+    messages = await _rpc_messages(
+        request_payload={
+            "id": "req-auth-status-fail",
+            "command": "auth.status",
+            "payload": {},
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    assert messages == [
+        {
+            "type": "rpc_error",
+            "id": "req-auth-status-fail",
+            "error_type": "InternalError",
+            "message": "keychain backend unavailable",
+        }
+    ]
+
+
+async def test_handle_rpc_json_line_returns_internal_error_for_auth_clear_store_failure(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    monkeypatch.setattr(
+        "just_another_coding_agent.rpc.stdio.clear_provider_secret",
+        lambda _provider: (_ for _ in ()).throw(
+            AuthStoreError("keychain backend unavailable")
+        ),
+    )
+
+    messages = await _rpc_messages(
+        request_payload={
+            "id": "req-auth-clear-fail",
+            "command": "auth.clear",
+            "payload": {
+                "provider": "openai",
+            },
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    assert messages == [
+        {
+            "type": "rpc_error",
+            "id": "req-auth-clear-fail",
+            "error_type": "InternalError",
+            "message": "keychain backend unavailable",
         }
     ]
 

@@ -4,7 +4,9 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
-from just_another_coding_agent.auth import AuthSource
+from just_another_coding_agent.auth import (
+    ProviderAuthStatus as AuthProviderStatus,
+)
 
 from .model_catalog import ProviderName
 from .run_events import RunEvent, SessionLifecycleEvent
@@ -139,12 +141,6 @@ class ModelCatalogResponse(_RpcModel):
     providers: list[ModelCatalogProvider]
 
 
-class AuthProviderStatus(_RpcModel):
-    provider: ProviderName
-    configured: bool
-    source: AuthSource
-
-
 class AuthStatusResponse(_RpcModel):
     providers: list[AuthProviderStatus]
 
@@ -191,7 +187,6 @@ __all__ = [
     "AuthSetPayload",
     "AuthSetRequest",
     "AuthSetResponse",
-    "AuthSource",
     "AuthStatusPayload",
     "AuthStatusRequest",
     "AuthStatusResponse",
