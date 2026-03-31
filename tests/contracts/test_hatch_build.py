@@ -41,7 +41,15 @@ def test_explicit_wheel_tag_uses_manylinux_on_linux_x86_64(monkeypatch) -> None:
     )
 
 
-def test_explicit_wheel_tag_is_none_off_linux(monkeypatch) -> None:
+def test_explicit_wheel_tag_uses_macos_tag_on_darwin(monkeypatch) -> None:
     monkeypatch.setattr(go_binaries.sys, "platform", "darwin")
+    monkeypatch.setattr(go_binaries.platform, "machine", lambda: "arm64")
 
-    assert go_binaries.explicit_release_wheel_tag() is None
+    assert go_binaries.explicit_release_wheel_tag() == "py3-none-macosx_11_0_arm64"
+
+
+def test_explicit_wheel_tag_uses_windows_tag_on_win32(monkeypatch) -> None:
+    monkeypatch.setattr(go_binaries.sys, "platform", "win32")
+    monkeypatch.setattr(go_binaries.platform, "machine", lambda: "amd64")
+
+    assert go_binaries.explicit_release_wheel_tag() == "py3-none-win_amd64"
