@@ -228,6 +228,11 @@ async def test_serve_rpc_stdio_supports_model_catalog(
         messages[0]["response"]["providers"][0]["default_model_id"]
         == "ollama:kimi-k2:1t-cloud"
     )
+    assert messages[0]["response"]["providers"][1]["provider"] == "github"
+    assert (
+        messages[0]["response"]["providers"][1]["default_model_id"]
+        == "github:openai/gpt-5"
+    )
 
 
 async def test_serve_rpc_stdio_supports_session_compact(

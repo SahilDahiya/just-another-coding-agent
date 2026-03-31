@@ -127,9 +127,10 @@ The TUI keeps provider, model, and trace preferences in `~/.jaca/config.json`.
 Inside `jaca`:
 
 - `/provider ollama` selects local Ollama and requires no key
+- `/provider github` selects GitHub Models and starts masked auth if `GITHUB_API_KEY` is missing
 - `/provider openai` selects OpenAI and starts masked auth if `OPENAI_API_KEY` is missing
 - `/provider anthropic` selects Anthropic and starts masked auth if `ANTHROPIC_API_KEY` is missing
-- `/auth openai` or `/auth anthropic` stores credentials without echoing the secret into the transcript
+- `/auth github`, `/auth openai`, and `/auth anthropic` store credentials without echoing the secret into the transcript
 - `/model <provider:model>` switches the active model and aligns provider state to that model
 - `/trace off` disables tracing
 - `/trace local` stores spans locally under `~/.jaca/traces/`

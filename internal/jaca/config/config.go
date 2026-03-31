@@ -13,6 +13,7 @@ var envKeys = []string{
 	"OPENAI_API_KEY",
 	"OPENAI_BASE_URL",
 	"ANTHROPIC_API_KEY",
+	"GITHUB_API_KEY",
 	"OLLAMA_API_KEY",
 	"OLLAMA_BASE_URL",
 }
@@ -125,7 +126,7 @@ func SaveDefaultProvider(provider string) error {
 		return err
 	}
 	switch provider {
-	case "ollama", "openai", "anthropic":
+	case "ollama", "openai", "anthropic", "github":
 	default:
 		return errors.New("unknown provider")
 	}
@@ -145,6 +146,8 @@ func HasProviderCredentials(provider string) (bool, error) {
 		return hasConfiguredOrEnvValue(config, "OPENAI_API_KEY"), nil
 	case "anthropic":
 		return hasConfiguredOrEnvValue(config, "ANTHROPIC_API_KEY"), nil
+	case "github":
+		return hasConfiguredOrEnvValue(config, "GITHUB_API_KEY"), nil
 	default:
 		return false, errors.New("unknown provider")
 	}
@@ -198,6 +201,11 @@ func SaveProviderCredentials(update ProviderUpdate) error {
 		if update.APIKey != "" {
 			config["ANTHROPIC_API_KEY"] = update.APIKey
 			_ = os.Setenv("ANTHROPIC_API_KEY", update.APIKey)
+		}
+	case "github":
+		if update.APIKey != "" {
+			config["GITHUB_API_KEY"] = update.APIKey
+			_ = os.Setenv("GITHUB_API_KEY", update.APIKey)
 		}
 	default:
 		return errors.New("unknown provider")

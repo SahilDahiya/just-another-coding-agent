@@ -9,6 +9,7 @@ from pydantic_ai.models.openai import (
     OpenAIResponsesModel,
     OpenAIResponsesModelSettings,
 )
+from pydantic_ai.providers.github import GitHubProvider
 from pydantic_ai.providers.ollama import OllamaProvider
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.retries import AsyncTenacityTransport
@@ -63,6 +64,21 @@ def test_resolve_canonical_model_builds_explicit_openai_chat_model(
     assert model.model_name == "gpt-4o"
     assert model.system == "openai"
     assert model._provider.base_url == "https://example.test/v1/"
+
+
+def test_resolve_canonical_model_builds_explicit_github_chat_model(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("GITHUB_API_KEY", "test-key")
+
+    model = resolve_canonical_model("github:openai/gpt-5")
+    unwrapped = unwrap_instrumented_model(model)
+
+    assert isinstance(unwrapped, OpenAIChatModel)
+    assert model.model_name == "openai/gpt-5"
+    assert model.system == "github"
+    assert isinstance(model._provider, GitHubProvider)
+    assert model._provider.base_url == "https://models.github.ai/inference"
 
 
 def test_resolve_canonical_model_falls_back_to_pydanticai_for_other_strings() -> None:
@@ -139,6 +155,15 @@ def test_build_canonical_model_settings_enable_parallel_tool_calls_for_ollama() 
     assert build_canonical_model_settings(model=model) == {"parallel_tool_calls": True}
 
 
+def test_build_canonical_model_settings_enable_parallel_tool_calls_for_github() -> None:
+    model = OpenAIChatModel(
+        "openai/gpt-5",
+        provider=GitHubProvider(api_key="test-key"),
+    )
+
+    assert build_canonical_model_settings(model=model) == {"parallel_tool_calls": True}
+
+
 def test_resolve_canonical_model_uses_retrying_openai_http_transport(
     monkeypatch,
 ) -> None:
@@ -168,6 +193,21 @@ def test_resolve_canonical_model_uses_retrying_ollama_http_transport(
 
     assert isinstance(unwrapped, OpenAIChatModel)
     assert isinstance(model._provider, OllamaProvider)
+    assert client.max_retries == 0
+    assert isinstance(client._client._transport, AsyncTenacityTransport)
+
+
+def test_resolve_canonical_model_uses_retrying_github_http_transport(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("GITHUB_API_KEY", "test-key")
+
+    model = resolve_canonical_model("github:openai/gpt-5")
+    unwrapped = unwrap_instrumented_model(model)
+    client = unwrapped._provider.client
+
+    assert isinstance(unwrapped, OpenAIChatModel)
+    assert isinstance(model._provider, GitHubProvider)
     assert client.max_retries == 0
     assert isinstance(client._client._transport, AsyncTenacityTransport)
 
@@ -220,6 +260,7 @@ def test_build_canonical_model_settings_unwraps_instrumented_models() -> None:
 
 def test_get_model_context_window_tokens_for_supported_models(monkeypatch) -> None:
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("GITHUB_API_KEY", "test-key")
 
     assert get_model_context_window_tokens("openai-responses:gpt-5.3-codex") == 400_000
     assert get_model_context_window_tokens("openai:gpt-5.4") == 1_050_000
@@ -227,6 +268,9 @@ def test_get_model_context_window_tokens_for_supported_models(monkeypatch) -> No
     assert get_model_context_window_tokens("openai:gpt-4o") == 128_000
     assert get_model_context_window_tokens("anthropic:claude-sonnet-4-5") == 200_000
     assert get_model_context_window_tokens("anthropic:claude-opus-4-1") == 200_000
+    assert get_model_context_window_tokens("github:openai/gpt-5") == 200_000
+    assert get_model_context_window_tokens("github:openai/gpt-5-mini") == 200_000
+    assert get_model_context_window_tokens("github:openai/gpt-4.1") == 1_048_576
     assert get_model_context_window_tokens("ollama:glm-5:cloud") == 198_000
     assert get_model_context_window_tokens("ollama:kimi-k2:1t-cloud") == 262_144
     assert get_model_context_window_tokens("ollama:qwen3.5:397b-cloud") == 262_144
@@ -237,6 +281,7 @@ def test_build_in_run_compaction_soft_char_limit_scales_with_model_context(
     monkeypatch,
 ) -> None:
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("GITHUB_API_KEY", "test-key")
 
     assert (
         build_in_run_compaction_soft_char_limit("openai-responses:gpt-5.3-codex")
@@ -245,6 +290,15 @@ def test_build_in_run_compaction_soft_char_limit_scales_with_model_context(
     assert build_in_run_compaction_soft_char_limit("openai:gpt-5.4") == 3_360_000
     assert build_in_run_compaction_soft_char_limit("openai:gpt-5.4-mini") == 1_280_000
     assert build_in_run_compaction_soft_char_limit("openai:gpt-4o") == 409_600
+    assert build_in_run_compaction_soft_char_limit("github:openai/gpt-5") == 640_000
+    assert (
+        build_in_run_compaction_soft_char_limit("github:openai/gpt-5-mini")
+        == 640_000
+    )
+    assert (
+        build_in_run_compaction_soft_char_limit("github:openai/gpt-4.1")
+        == 3_355_443
+    )
     assert build_in_run_compaction_soft_char_limit("ollama:glm-5:cloud") == 633_600
     assert build_in_run_compaction_soft_char_limit("ollama:kimi-k2:1t-cloud") == 838_860
     assert (
@@ -274,5 +328,5 @@ def test_all_backend_owned_shipped_models_have_context_windows() -> None:
 
 
 def test_backend_owned_default_model_per_provider_has_context_window() -> None:
-    for provider in ("ollama", "openai", "anthropic"):
+    for provider in ("ollama", "github", "openai", "anthropic"):
         assert get_model_context_window_tokens(default_model_for_provider(provider))

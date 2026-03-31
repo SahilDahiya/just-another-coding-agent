@@ -24,3 +24,25 @@ func TestModelSuggestionsIncludeExpandedOllamaModels(t *testing.T) {
 		}
 	}
 }
+
+func TestModelSuggestionsIncludeGitHubModels(t *testing.T) {
+	rows := modelSuggestions(*testModelCatalog(), "github")
+
+	want := map[string]bool{
+		"github:openai/gpt-5":      false,
+		"github:openai/gpt-5-mini": false,
+		"github:openai/gpt-4.1":    false,
+	}
+
+	for _, row := range rows {
+		if _, ok := want[row.Value]; ok {
+			want[row.Value] = true
+		}
+	}
+
+	for value, seen := range want {
+		if !seen {
+			t.Fatalf("modelSuggestions(github) missing %q", value)
+		}
+	}
+}

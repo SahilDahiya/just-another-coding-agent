@@ -128,6 +128,20 @@ func TestHasProviderCredentialsAcceptsEnvironmentCredential(t *testing.T) {
 	}
 }
 
+func TestHasProviderCredentialsAcceptsGitHubEnvironmentCredential(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("GITHUB_API_KEY", "from-env")
+
+	got, err := HasProviderCredentials("github")
+	if err != nil {
+		t.Fatalf("HasProviderCredentials() returned error: %v", err)
+	}
+	if !got {
+		t.Fatal("HasProviderCredentials() = false, want true")
+	}
+}
+
 func TestApplyTraceModeToEnvSetsAndClearsRuntimeEnv(t *testing.T) {
 	t.Setenv("JACA_TRACE_MODE", "")
 

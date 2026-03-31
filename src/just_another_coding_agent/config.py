@@ -37,6 +37,7 @@ def apply_config_to_env(config: dict[str, str]) -> None:
         "OPENAI_API_KEY",
         "OPENAI_BASE_URL",
         "ANTHROPIC_API_KEY",
+        "GITHUB_API_KEY",
         "OLLAMA_API_KEY",
         "OLLAMA_BASE_URL",
     }
@@ -88,6 +89,9 @@ def save_provider_config(
     elif provider == "anthropic":
         if api_key:
             config["ANTHROPIC_API_KEY"] = api_key
+    elif provider == "github":
+        if api_key:
+            config["GITHUB_API_KEY"] = api_key
     config["default_provider"] = provider
     save_config(config)
 

@@ -44,6 +44,9 @@ Rules:
 - The shipped model catalog is backend-owned metadata. The Go TUI may request
   and render it, but it must not hardcode picker-visible model ids or provider
   defaults locally.
+- The shipped provider surface currently includes `ollama`, `github`,
+  `openai`, and `anthropic`, and new picker-visible providers must be added in
+  the backend-owned catalog before the TUI can render them.
 
 `thinking` contract:
 

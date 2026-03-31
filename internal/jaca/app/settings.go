@@ -24,6 +24,8 @@ func canonicalProviderName(raw string) string {
 func providerForModel(model string) string {
 	value := strings.ToLower(strings.TrimSpace(model))
 	switch {
+	case strings.HasPrefix(value, "github:"):
+		return "github"
 	case strings.HasPrefix(value, "openai:"):
 		return "openai"
 	case strings.HasPrefix(value, "anthropic:"):
@@ -117,14 +119,14 @@ func (m *model) handleTraceCommand(arg string) {
 func (m *model) handleAuthCommand(arg string) {
 	provider := canonicalProviderName(arg)
 	switch provider {
-	case "openai", "anthropic":
+	case "openai", "anthropic", "github":
 		m.startAuthFlow(provider, "", "")
 	case "ollama":
 		m.transcript.WriteNote("auth", nil)
 		m.transcript.WriteError("manual ollama auth is not supported yet")
 	default:
 		m.transcript.WriteNote("auth", nil)
-		m.transcript.WriteError("usage: /auth openai|anthropic")
+		m.transcript.WriteError("usage: /auth openai|anthropic|github")
 	}
 }
 
@@ -158,8 +160,10 @@ func (m *model) handleProvider(arg string) (
 		return []string{
 			"usage",
 			"  /provider ollama                  select Ollama",
+			"  /provider github                  select GitHub Models",
 			"  /provider openai                  select OpenAI",
 			"  /provider anthropic               select Anthropic",
+			"  /auth github                      save GitHub Models token",
 			"  /auth openai                      save OpenAI API key",
 			"  /auth anthropic                   save Anthropic API key",
 			"",
@@ -171,7 +175,7 @@ func (m *model) handleProvider(arg string) (
 	case "ollama":
 		lines, restart, err := m.applyProviderSelection(provider)
 		return lines, restart, "", err
-	case "openai", "anthropic":
+	case "openai", "anthropic", "github":
 		hasCreds, err := config.HasProviderCredentials(provider)
 		if err != nil {
 			return nil, false, "", err

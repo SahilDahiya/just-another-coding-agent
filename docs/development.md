@@ -74,6 +74,7 @@ canonical Python headless backend.
 
 - Copy `.env.example` to `.env` if you need local provider credentials.
 - Current foundation expects:
+  - `GITHUB_API_KEY`
   - `OPENAI_API_KEY`
   - `ANTHROPIC_API_KEY`
 - Common optional runtime env vars:
@@ -83,6 +84,13 @@ canonical Python headless backend.
   - `JACA_TRACE_MODE=local` to enable local JSONL trace export under `~/.jaca/traces/`
   - `JACA_TRACE_MODE=logfire` to export traces to Logfire
   - `LOGFIRE_TOKEN` if you want to override the active `~/.logfire/default.toml` project token explicitly in `logfire` mode
+
+The shipped provider surface currently includes:
+
+- `ollama`
+- `github`
+- `openai`
+- `anthropic`
 
 Tracing defaults to `local` (JSONL files under `~/.jaca/traces/`). Set `JACA_TRACE_MODE=off` to disable.
 

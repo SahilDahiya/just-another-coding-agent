@@ -185,7 +185,12 @@ func (t *Transcript) WriteStartupBanner(appVersion string, model string, workspa
 	renderedBox := boxStyle.Render(strings.Join(innerRendered, "\n"))
 
 	var extraPlain, extraRendered string
-	if strings.HasPrefix(model, "openai") && os.Getenv("OPENAI_API_KEY") == "" {
+	if strings.HasPrefix(model, "github") && os.Getenv("GITHUB_API_KEY") == "" {
+		extraPlain = "\nno GITHUB_API_KEY\nuse /provider github"
+		extraRendered = "\n" +
+			lipgloss.NewStyle().Foreground(defaultTheme.err).Render("no GITHUB_API_KEY") + "\n" +
+			hintStyle.Render("use /provider github")
+	} else if strings.HasPrefix(model, "openai") && os.Getenv("OPENAI_API_KEY") == "" {
 		extraPlain = "\nno OPENAI_API_KEY\nuse /provider openai"
 		extraRendered = "\n" +
 			lipgloss.NewStyle().Foreground(defaultTheme.err).Render("no OPENAI_API_KEY") + "\n" +
@@ -226,8 +231,10 @@ func (t *Transcript) WriteHelp() {
 		"",
 		"provider setup",
 		"  /provider ollama                     local ollama, no key needed",
+		"  /provider github                     select GitHub Models, auth starts if needed",
 		"  /provider openai                     select OpenAI, auth starts if needed",
 		"  /provider anthropic                  select Anthropic, auth starts if needed",
+		"  /auth github                         save GITHUB_API_KEY",
 		"  /auth openai                         save OPENAI_API_KEY",
 		"  /auth anthropic                      save ANTHROPIC_API_KEY",
 		"",

@@ -284,6 +284,24 @@ async def test_handle_rpc_json_line_returns_backend_owned_model_catalog(
                         ],
                     },
                     {
+                        "provider": "github",
+                        "default_model_id": "github:openai/gpt-5",
+                        "models": [
+                            {
+                                "model_id": "github:openai/gpt-5",
+                                "description": "GitHub Models GPT-5",
+                            },
+                            {
+                                "model_id": "github:openai/gpt-5-mini",
+                                "description": "GitHub Models GPT-5 mini",
+                            },
+                            {
+                                "model_id": "github:openai/gpt-4.1",
+                                "description": "GitHub Models GPT-4.1",
+                            },
+                        ],
+                    },
+                    {
                         "provider": "openai",
                         "default_model_id": "openai:gpt-5.4",
                         "models": [

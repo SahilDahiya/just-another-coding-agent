@@ -125,7 +125,7 @@ func (m *model) currentProvider() string {
 		return m.providerFromModel()
 	}
 	switch strings.ToLower(cfg["default_provider"]) {
-	case "openai", "anthropic", "ollama":
+	case "openai", "anthropic", "ollama", "github":
 		return strings.ToLower(cfg["default_provider"])
 	default:
 		return m.providerFromModel()
@@ -134,6 +134,8 @@ func (m *model) currentProvider() string {
 
 func (m *model) providerFromModel() string {
 	switch {
+	case strings.HasPrefix(strings.ToLower(m.options.Model), "github:"):
+		return "github"
 	case strings.HasPrefix(strings.ToLower(m.options.Model), "openai:"):
 		return "openai"
 	case strings.HasPrefix(strings.ToLower(m.options.Model), "anthropic:"):
@@ -215,6 +217,7 @@ func slashCommandSuggestions() []slashSuggestion {
 func providerSuggestions() []slashSuggestion {
 	return []slashSuggestion{
 		{Value: "ollama", Description: "Local or configured Ollama endpoint"},
+		{Value: "github", Description: "GitHub Models hosted models"},
 		{Value: "openai", Description: "OpenAI hosted models"},
 		{Value: "anthropic", Description: "Anthropic Claude models"},
 	}
@@ -222,6 +225,7 @@ func providerSuggestions() []slashSuggestion {
 
 func authSuggestions() []slashSuggestion {
 	return []slashSuggestion{
+		{Value: "github", Description: "Store GitHub Models token"},
 		{Value: "openai", Description: "Store OpenAI API key"},
 		{Value: "anthropic", Description: "Store Anthropic API key"},
 	}

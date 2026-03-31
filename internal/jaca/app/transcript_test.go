@@ -55,6 +55,21 @@ func TestWriteStartupBannerShowsProviderGuidanceForMissingOpenAIKey(t *testing.T
 	}
 }
 
+func TestWriteStartupBannerShowsProviderGuidanceForMissingGitHubKey(t *testing.T) {
+	t.Setenv("GITHUB_API_KEY", "")
+
+	transcript := NewTranscript()
+	transcript.WriteStartupBanner("0.1.0", "github:openai/gpt-5", "/workspace", "")
+
+	plain := transcript.blocks[0].Plain()
+	if !strings.Contains(plain, "no GITHUB_API_KEY") {
+		t.Fatalf("plain banner missing missing-key warning: %q", plain)
+	}
+	if !strings.Contains(plain, "use /provider github") {
+		t.Fatalf("plain banner missing provider guidance: %q", plain)
+	}
+}
+
 func TestCompletedAssistantMarkdownAvoidsBackgroundFills(t *testing.T) {
 	markdown := "## Review\n\n- first point\n- second point\n\n1. step one\n2. step two\n\n`inline code`"
 

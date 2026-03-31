@@ -48,6 +48,15 @@ func testModelCatalog() *rpc.ModelCatalogResponse {
 				},
 			},
 			{
+				Provider:       "github",
+				DefaultModelID: "github:openai/gpt-5",
+				Models: []rpc.ModelCatalogModel{
+					{ModelID: "github:openai/gpt-5", Description: "GitHub Models GPT-5"},
+					{ModelID: "github:openai/gpt-5-mini", Description: "GitHub Models GPT-5 mini"},
+					{ModelID: "github:openai/gpt-4.1", Description: "GitHub Models GPT-4.1"},
+				},
+			},
+			{
 				Provider:       "openai",
 				DefaultModelID: "openai:gpt-5.4",
 				Models: []rpc.ModelCatalogModel{
@@ -455,6 +464,7 @@ func TestTabOnProviderSuggestionCommitsCommandAndShowsProviderOptions(t *testing
 	rendered := stripANSI(m.View())
 	for _, want := range []string{
 		"ollama",
+		"github",
 		"openai",
 		"anthropic",
 	} {
@@ -611,6 +621,66 @@ func TestProviderWithoutCredentialsStartsMaskedAuthFlow(t *testing.T) {
 	}
 	if got := masked.promptHistory; len(got) != 1 || got[0] != "/provider openai" {
 		t.Fatalf("promptHistory = %#v, want only the non-secret provider command", got)
+	}
+}
+
+func TestGitHubProviderWithoutCredentialsStartsMaskedAuthFlow(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("GITHUB_API_KEY", "")
+
+	m := newTestModel()
+	m.options.Backend = rpc.NewManager(rpc.BackendConfig{})
+
+	m = sendRunes(m, "/provider github")
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	rendered := stripANSI(m.View())
+	if !strings.Contains(rendered, "auth github") {
+		t.Fatalf("view missing auth footer after provider selection: %q", rendered)
+	}
+	masked := sendRunes(m, "super-secret")
+	rendered = stripANSI(masked.View())
+	if strings.Contains(rendered, "super-secret") {
+		t.Fatalf("secret leaked into rendered view: %q", rendered)
+	}
+	if got := masked.promptHistory; len(got) != 1 || got[0] != "/provider github" {
+		t.Fatalf("promptHistory = %#v, want only the non-secret provider command", got)
+	}
+}
+
+func TestGitHubAuthSubmissionAppliesPendingModelSelection(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("GITHUB_API_KEY", "")
+
+	m := newTestModel()
+	m.options.Backend = rpc.NewManager(rpc.BackendConfig{})
+
+	m = sendRunes(m, "/model github:openai/gpt-5")
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+	m = sendRunes(m, "gh-token")
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	if got := m.options.Model; got != "github:openai/gpt-5" {
+		t.Fatalf("options.Model = %q, want %q", got, "github:openai/gpt-5")
+	}
+	data, err := os.ReadFile(home + "/.jaca/config.json")
+	if err != nil {
+		t.Fatalf("ReadFile() returned error: %v", err)
+	}
+	configText := string(data)
+	if !strings.Contains(configText, `"default_provider": "github"`) {
+		t.Fatalf("config.json missing provider selection: %q", configText)
+	}
+	if !strings.Contains(configText, `"default_model": "github:openai/gpt-5"`) {
+		t.Fatalf("config.json missing model selection: %q", configText)
+	}
+	if !strings.Contains(configText, `"GITHUB_API_KEY": "gh-token"`) {
+		t.Fatalf("config.json missing saved github credential: %q", configText)
+	}
+	if strings.Contains(stripANSI(m.transcript.Render()), "gh-token") {
+		t.Fatalf("secret leaked into transcript: %q", stripANSI(m.transcript.Render()))
 	}
 }
 
