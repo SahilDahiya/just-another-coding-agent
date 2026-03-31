@@ -9,18 +9,34 @@ from pathlib import Path
 
 
 def explicit_release_wheel_tag() -> str | None:
-    if sys.platform != "linux":
-        return None
-
     machine = platform.machine().lower()
-    if machine in {"x86_64", "amd64"}:
-        return "py3-none-manylinux_2_17_x86_64"
-    if machine in {"aarch64", "arm64"}:
-        return "py3-none-manylinux_2_17_aarch64"
 
-    raise RuntimeError(
-        f"unsupported Linux wheel architecture for release build: {machine}"
-    )
+    if sys.platform == "linux":
+        if machine in {"x86_64", "amd64"}:
+            return "py3-none-manylinux_2_17_x86_64"
+        if machine in {"aarch64", "arm64"}:
+            return "py3-none-manylinux_2_17_aarch64"
+        raise RuntimeError(
+            f"unsupported Linux wheel architecture for release build: {machine}"
+        )
+
+    if sys.platform == "darwin":
+        if machine in {"arm64", "aarch64"}:
+            return "py3-none-macosx_11_0_arm64"
+        if machine in {"x86_64", "amd64"}:
+            return "py3-none-macosx_10_12_x86_64"
+        raise RuntimeError(
+            f"unsupported macOS wheel architecture for release build: {machine}"
+        )
+
+    if sys.platform == "win32":
+        if machine in {"amd64", "x86_64"}:
+            return "py3-none-win_amd64"
+        raise RuntimeError(
+            f"unsupported Windows wheel architecture for release build: {machine}"
+        )
+
+    return None
 
 
 def build_go_binary(
