@@ -148,6 +148,8 @@ func newTestModel() *model {
 	m.visibleZones = 3
 	m.asyncCh = make(chan tea.Msg)
 	m.modelCatalog = testModelCatalog()
+	m.startupOnboardingSet = false
+	m.onboarding = onboardingState{}
 	return m
 }
 
@@ -727,6 +729,27 @@ func TestStartupAuthStatusShowsFirstRunOnboarding(t *testing.T) {
 	}
 }
 
+func TestNewWithFreshHomeStartsChooserImmediately(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	m := New(Options{
+		Model:         "ollama:test",
+		WorkspaceRoot: "/workspace",
+		Thinking:      "medium",
+	}).(*model)
+
+	if !m.onboarding.Active || m.onboarding.Kind != "provider" {
+		t.Fatalf("onboarding state = %#v, want active provider chooser", m.onboarding)
+	}
+	rendered := stripANSI(m.View())
+	for _, want := range []string{"Get Started", "1. Ollama", "2. GitHub Models"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("initial chooser missing %q in %q", want, rendered)
+		}
+	}
+}
+
 func TestFirstRunChooserDoesNotDependOnAuthStatus(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -748,6 +771,44 @@ func TestFirstRunChooserDoesNotDependOnAuthStatus(t *testing.T) {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("first-run chooser missing %q in %q", want, rendered)
 		}
+	}
+}
+
+func TestEscapeFromFirstRunAuthReturnsToProviderChooser(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	backend := newStubBackend()
+	status, err := backend.AuthStatus(context.Background())
+	if err != nil {
+		t.Fatalf("AuthStatus() returned error: %v", err)
+	}
+
+	m := newTestModel()
+	m.options.Backend = backend
+
+	updated, _ := m.Update(authStatusLoadedMsg{Status: status})
+	m = updated.(*model)
+	m = sendKey(m, tea.KeyMsg{Runes: []rune("3"), Type: tea.KeyRunes})
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if !m.auth.Active {
+		t.Fatal("openai selection should start auth")
+	}
+
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEsc})
+
+	if m.auth.Active {
+		t.Fatal("esc should close auth panel")
+	}
+	if !m.onboarding.Active || m.onboarding.Kind != "provider" {
+		t.Fatalf("onboarding state = %#v, want provider chooser", m.onboarding)
+	}
+	if m.onboarding.Selected != 2 {
+		t.Fatalf("onboarding.Selected = %d, want 2 for openai", m.onboarding.Selected)
+	}
+	rendered := stripANSI(m.View())
+	if !strings.Contains(rendered, "Get Started") || !strings.Contains(rendered, "3. OpenAI") {
+		t.Fatalf("provider chooser missing after esc: %q", rendered)
 	}
 }
 

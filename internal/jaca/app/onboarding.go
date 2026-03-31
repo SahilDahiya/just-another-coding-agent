@@ -46,7 +46,7 @@ func (m *model) maybeStartOnboarding() {
 					"for local Ollama instead, cancel and run /model ollama:<installed-model>",
 				},
 			)
-			m.startAuthFlow("ollama", "", "")
+			m.startAuthFlow("ollama", "", "", "")
 		}
 		return
 	}
@@ -61,7 +61,7 @@ func (m *model) maybeStartOnboarding() {
 				"local secrets are stored in the OS keychain",
 			},
 		)
-		m.startAuthFlow(selectedProvider, "", "")
+		m.startAuthFlow(selectedProvider, "", "", "")
 	}
 }
 
@@ -85,6 +85,21 @@ func firstRunOptionLines() []string {
 		"2. GitHub Models",
 		"3. OpenAI",
 		"4. Anthropic",
+	}
+}
+
+func onboardingSelectionForProvider(provider string) int {
+	switch provider {
+	case "ollama":
+		return 0
+	case "github":
+		return 1
+	case "openai":
+		return 2
+	case "anthropic":
+		return 3
+	default:
+		return 0
 	}
 }
 
@@ -192,18 +207,18 @@ func (m *model) completeOnboardingSelection() (tea.Model, tea.Cmd) {
 	case 1:
 		if kind == "ollama" {
 			m.onboarding = onboardingState{}
-			m.startAuthFlow("ollama", "ollama", "")
+			m.startAuthFlow("ollama", "ollama", "", "provider")
 			m.refreshViewport()
 			return m, nil
 		}
 		m.onboarding = onboardingState{}
-		m.startAuthFlow("github", "github", "")
+		m.startAuthFlow("github", "github", "", "provider")
 	case 2:
 		m.onboarding = onboardingState{}
-		m.startAuthFlow("openai", "openai", "")
+		m.startAuthFlow("openai", "openai", "", "provider")
 	case 3:
 		m.onboarding = onboardingState{}
-		m.startAuthFlow("anthropic", "anthropic", "")
+		m.startAuthFlow("anthropic", "anthropic", "", "provider")
 	}
 	m.refreshViewport()
 	return m, nil

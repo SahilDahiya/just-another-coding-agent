@@ -66,7 +66,7 @@ func (m *model) handleModelCommand(arg string) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 	if !hasCreds {
-		m.startAuthFlow(provider, provider, value)
+		m.startAuthFlow(provider, provider, value, "")
 		m.refreshViewport()
 		return m, cmd
 	}
@@ -136,7 +136,7 @@ func (m *model) handleAuthCommand(arg string) {
 	provider := canonicalProviderName(value)
 	switch provider {
 	case "openai", "anthropic", "github", "ollama":
-		m.startAuthFlow(provider, "", "")
+		m.startAuthFlow(provider, "", "", "")
 	default:
 		m.transcript.WriteNote("auth", nil)
 		m.transcript.WriteError("usage: /auth <provider>|status|clear <provider>")
@@ -150,7 +150,7 @@ func (m *model) handleProviderCommand(arg string) {
 		return
 	}
 	if startAuth != "" {
-		m.startAuthFlow(startAuth, startAuth, "")
+		m.startAuthFlow(startAuth, startAuth, "", "")
 		return
 	}
 	for _, line := range lines {

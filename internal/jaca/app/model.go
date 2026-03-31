@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 
+	"jaca/internal/jaca/config"
 	"jaca/internal/jaca/rpc"
 )
 
@@ -136,6 +137,7 @@ func New(options Options) tea.Model {
 
 	transcript := NewTranscript()
 	transcript.WriteStartupBanner(options.AppVersion, options.Model, options.WorkspaceRoot, options.Thinking)
+	startupOnboardingSet, onboarding := initialOnboardingState()
 
 	return &model{
 		options:              options,
@@ -144,9 +146,22 @@ func New(options Options) tea.Model {
 		viewport:             newViewport(),
 		transcript:           transcript,
 		historyIndex:         -1,
+		startupOnboardingSet: startupOnboardingSet,
+		onboarding:           onboarding,
 		appVersion:           options.AppVersion,
 		skippedUpdateVersion: options.SkippedUpdateVersion,
 	}
+}
+
+func initialOnboardingState() (bool, onboardingState) {
+	cfg, err := config.Load()
+	if err != nil {
+		return false, onboardingState{}
+	}
+	if strings.TrimSpace(cfg["default_provider"]) != "" {
+		return false, onboardingState{}
+	}
+	return true, onboardingState{Active: true, Kind: "provider", Selected: 0}
 }
 
 func (m *model) Init() tea.Cmd {
@@ -589,7 +604,16 @@ func (m *model) handleInterrupt() (tea.Model, tea.Cmd) {
 
 func (m *model) handleEscape() (tea.Model, tea.Cmd) {
 	if m.auth.Active {
+		returnKind := m.auth.ReturnToOnboardingKind
+		provider := m.auth.Provider
 		m.endAuthFlow()
+		if returnKind != "" {
+			m.onboarding = onboardingState{
+				Active:   true,
+				Kind:     returnKind,
+				Selected: onboardingSelectionForProvider(provider),
+			}
+		}
 		m.refreshViewport()
 		return m, nil
 	}

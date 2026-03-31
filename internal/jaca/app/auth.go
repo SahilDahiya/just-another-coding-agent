@@ -10,22 +10,25 @@ import (
 )
 
 type authState struct {
-	Active          bool
-	Provider        string
-	PendingProvider string
-	PendingModel    string
+	Active                 bool
+	Provider               string
+	PendingProvider        string
+	PendingModel           string
+	ReturnToOnboardingKind string
 }
 
 func (m *model) startAuthFlow(
 	provider string,
 	pendingProvider string,
 	pendingModel string,
+	returnToOnboardingKind string,
 ) {
 	m.auth = authState{
-		Active:          true,
-		Provider:        provider,
-		PendingProvider: pendingProvider,
-		PendingModel:    pendingModel,
+		Active:                 true,
+		Provider:               provider,
+		PendingProvider:        pendingProvider,
+		PendingModel:           pendingModel,
+		ReturnToOnboardingKind: returnToOnboardingKind,
 	}
 	m.textInput.SetValue("")
 	m.textInput.EchoMode = textinput.EchoPassword
