@@ -2,9 +2,9 @@
 
 read_when: you need the repo overview, scope, or setup commands
 
-Python-native coding-agent backend built around PydanticAI, with a thin first-party Go terminal UI.
+Terminal coding agent with a PydanticAI backend and a first-party Go TUI.
 
-This repo preserves the backend product shape of pi's coding agent while rebuilding it as a clean Python implementation around PydanticAI. It does not inherit pi-mono's monorepo layout, extension ecosystem, or migration burden.
+This repo preserves the product shape of pi's coding agent while rebuilding it as a clean Python implementation around PydanticAI. It does not inherit pi-mono's monorepo layout, extension ecosystem, or migration burden.
 
 It is intentionally narrow: coding-agent backend first, a thin first-party terminal UI, strict contracts, no fallbacks, and no compatibility glue. PydanticAI should provide as much of the agent machinery as possible; local code exists to define and enforce the coding-agent product contract.
 

@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "just-another-coding-agent"
 version = "0.1.3"
-description = "Python-native headless coding-agent backend built around PydanticAI"
+description = "Terminal coding agent with a PydanticAI backend and first-party Go TUI"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [

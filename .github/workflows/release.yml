@@ -31,12 +31,14 @@ jobs:
         uses: actions/checkout@v5
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: false
 
       - name: Set up Go
         uses: actions/setup-go@v6
@@ -52,7 +54,7 @@ jobs:
         run: python scripts/verify_bundled_wheel.py dist/*.whl
 
       - name: Upload wheel artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ matrix.artifact_name }}
           path: dist/*.whl
@@ -67,15 +69,25 @@ jobs:
 
     steps:
       - name: Download wheel artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           path: dist
           merge-multiple: true
 
       - name: Publish GitHub release assets
-        uses: softprops/action-gh-release@v2
-        with:
-          files: dist/*.whl
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "${{ github.ref_name }}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            gh release upload "${{ github.ref_name }}" dist/*.whl \
+              --repo "${{ github.repository }}" \
+              --clobber
+          else
+            gh release create "${{ github.ref_name }}" dist/*.whl \
+              --repo "${{ github.repository }}" \
+              --title "${{ github.ref_name }}" \
+              --verify-tag
+          fi
 
   publish-pypi:
     if: startsWith(github.ref, 'refs/tags/v')
@@ -88,7 +100,7 @@ jobs:
 
     steps:
       - name: Download wheel artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           path: dist
           merge-multiple: true
