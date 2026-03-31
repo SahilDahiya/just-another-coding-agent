@@ -19,17 +19,6 @@ type authState struct {
 	ReturnToOnboardingKind string
 }
 
-type authUnavailableState struct {
-	Active                 bool
-	Provider               string
-	EnvKey                 string
-	FileStorePath          string
-	Message                string
-	PendingProvider        string
-	PendingModel           string
-	ReturnToOnboardingKind string
-}
-
 func (m *model) startAuthFlow(
 	provider string,
 	storage string,
@@ -38,7 +27,6 @@ func (m *model) startAuthFlow(
 	pendingModel string,
 	returnToOnboardingKind string,
 ) {
-	m.authUnavailable = authUnavailableState{}
 	m.auth = authState{
 		Active:                 true,
 		Provider:               provider,
@@ -55,41 +43,11 @@ func (m *model) startAuthFlow(
 	m.promptFooterNotice = ""
 }
 
-func (m *model) startAuthUnavailableFlow(
-	provider string,
-	envKey string,
-	fileStorePath string,
-	message string,
-	pendingProvider string,
-	pendingModel string,
-	returnToOnboardingKind string,
-) {
-	m.endAuthFlow()
-	m.authUnavailable = authUnavailableState{
-		Active:                 true,
-		Provider:               provider,
-		EnvKey:                 envKey,
-		FileStorePath:          fileStorePath,
-		Message:                message,
-		PendingProvider:        pendingProvider,
-		PendingModel:           pendingModel,
-		ReturnToOnboardingKind: returnToOnboardingKind,
-	}
-	m.clearSlashMenu()
-	m.promptFooterNotice = ""
-}
-
 func (m *model) endAuthFlow() {
 	m.auth = authState{}
 	m.textInput.EchoMode = textinput.EchoNormal
 	m.textInput.EchoCharacter = '*'
 	m.textInput.SetValue("")
-	m.promptFooterNotice = ""
-	m.syncSlashMenu()
-}
-
-func (m *model) endAuthUnavailableFlow() {
-	m.authUnavailable = authUnavailableState{}
 	m.promptFooterNotice = ""
 	m.syncSlashMenu()
 }
@@ -197,43 +155,6 @@ func (m *model) handleAuthEnter() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m *model) handleAuthUnavailableKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "1":
-		provider := m.authUnavailable.Provider
-		storage := "file"
-		pendingProvider := m.authUnavailable.PendingProvider
-		pendingModel := m.authUnavailable.PendingModel
-		returnKind := m.authUnavailable.ReturnToOnboardingKind
-		m.endAuthUnavailableFlow()
-		m.startAuthFlow(
-			provider,
-			storage,
-			m.authUnavailable.FileStorePath,
-			pendingProvider,
-			pendingModel,
-			returnKind,
-		)
-		m.refreshViewport()
-		return m, nil
-	case "esc", "enter":
-		returnKind := m.authUnavailable.ReturnToOnboardingKind
-		provider := m.authUnavailable.Provider
-		m.endAuthUnavailableFlow()
-		if returnKind != "" {
-			m.onboarding = onboardingState{
-				Active:   true,
-				Kind:     returnKind,
-				Selected: onboardingSelectionForProvider(provider),
-			}
-		}
-		m.refreshViewport()
-		return m, nil
-	default:
-		return m, nil
-	}
-}
-
 func authSetupLines(provider string) []string {
 	return authSetupLinesForStorage(provider, "keychain", "")
 }
@@ -249,8 +170,9 @@ func authSetupLinesForStorage(provider string, storage string, fileStorePath str
 	if storage == "file" {
 		return []string{
 			fmt.Sprintf("Enter your %s", authSecretLabel(provider)),
+			"OS keychain unavailable; using local secret file instead",
 			fmt.Sprintf("Stored in %s", fileStorePath),
-			"Less secure than the OS keychain",
+			"Less secure than the OS keychain or env vars",
 			"Not added to transcript or prompt history",
 			"Enter saves. Esc cancels.",
 		}
@@ -261,24 +183,6 @@ func authSetupLinesForStorage(provider string, storage string, fileStorePath str
 		"Not added to transcript or prompt history",
 		"Enter saves. Esc cancels.",
 	}
-}
-
-func authUnavailableLines(provider string, envKey string, fileStorePath string, message string) []string {
-	lines := []string{
-		fmt.Sprintf("Interactive secure setup is unavailable for %s.", authProviderLabel(provider)),
-	}
-	if strings.TrimSpace(message) != "" {
-		lines = append(lines, message)
-	}
-	if strings.TrimSpace(fileStorePath) != "" {
-		lines = append(lines, fmt.Sprintf("Press 1 to store it in %s instead.", fileStorePath))
-	}
-	if strings.TrimSpace(envKey) != "" {
-		lines = append(lines, fmt.Sprintf("Or set %s in your environment and relaunch JACA.", envKey))
-	}
-	lines = append(lines, fmt.Sprintf("Or configure a system keychain and retry /auth %s.", provider))
-	lines = append(lines, "Enter closes. Esc goes back.")
-	return lines
 }
 
 func authProviderLabel(provider string) string {

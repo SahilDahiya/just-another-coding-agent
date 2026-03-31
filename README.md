@@ -125,8 +125,8 @@ JACA_BUILD_TUI=1 uv sync --reinstall-package just-another-coding-agent --extra d
 The TUI keeps non-secret provider, model, and trace preferences in
 `~/.jaca/config.json`.
 Provider secrets are backend-owned and stored in the local OS keychain by
-default. When keychain storage is unavailable, JACA can also store them in an
-explicitly chosen local file at `~/.jaca/secrets.json`.
+default. When keychain storage is unavailable, JACA stores them in
+`~/.jaca/secrets.json` instead and explains why in the auth panel.
 Environment variables remain the explicit override for headless, CI, and
 evaluation flows.
 On Linux/WSL, interactive `/auth` requires a supported OS keychain backend
@@ -176,13 +176,9 @@ uv run logfire auth
 uv run logfire projects use <project>
 ```
 
-If interactive auth is unavailable because the machine has no supported OS
-keychain backend, JACA shows a centered recovery panel before secret entry.
-That panel lets the user either:
-
-- choose the explicit second-best local file store at `~/.jaca/secrets.json`
-- set the provider env var and relaunch
-- or configure the system keychain and retry
+If interactive auth starts on a machine without a supported OS keychain
+backend, JACA goes directly to the local secret file flow and explains that it
+is doing so because keychain storage is unavailable.
 
 For direct Go TUI development, pass the backend command explicitly:
 

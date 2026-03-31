@@ -293,29 +293,32 @@ func TestRenderViewShowsCenteredSecureSetupPanel(t *testing.T) {
 	}
 }
 
-func TestRenderViewShowsAuthUnavailablePanel(t *testing.T) {
+func TestRenderViewShowsLocalSecretFilePanel(t *testing.T) {
 	rendered := stripANSI(renderView(viewModel{
 		Width:  80,
 		Height: 24,
-		AuthUnavailable: authUnavailableOverlayView{
-			Active:   true,
-			Provider: "openai",
-			Title:    "Interactive Auth Unavailable",
+		Auth: authOverlayView{
+			Active:      true,
+			Title:       "Local Secret File",
+			Provider:    "openai",
+			SecretLabel: "OpenAI API key",
+			InputValue:  "********",
 			HelpLines: []string{
-				"Interactive secure setup is unavailable for OpenAI.",
-				"No supported OS keychain backend is available for local provider secret storage.",
-				"Set OPENAI_API_KEY in your environment and relaunch JACA.",
-				"Or configure a system keychain and retry /auth openai.",
-				"Enter closes. Esc goes back.",
+				"Enter your OpenAI API key",
+				"OS keychain unavailable; using local secret file instead",
+				"Stored in /tmp/jaca-secrets.json",
+				"Less secure than the OS keychain or env vars",
+				"Not added to transcript or prompt history",
+				"Enter saves. Esc cancels.",
 			},
 		},
 	}))
 
 	for _, want := range []string{
-		"Interactive Auth Unavailable",
-		"Set OPENAI_API_KEY in your environment and relaunch JACA.",
-		"retry /auth openai",
-		"Enter closes. Esc goes back.",
+		"Local Secret File",
+		"Stored in /tmp/jaca-secrets.json",
+		"Less secure than the OS keychain or env vars",
+		"Enter saves. Esc cancels.",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("renderView() missing %q in %q", want, rendered)

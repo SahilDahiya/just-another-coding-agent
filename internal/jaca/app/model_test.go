@@ -1133,7 +1133,7 @@ func TestProviderWithoutCredentialsShowsSecureSetupPanel(t *testing.T) {
 	}
 }
 
-func TestProviderWithoutKeychainShowsRecoveryPanel(t *testing.T) {
+func TestProviderWithoutKeychainStartsLocalFileAuthFlow(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("OPENAI_API_KEY", "")
@@ -1150,59 +1150,22 @@ func TestProviderWithoutKeychainShowsRecoveryPanel(t *testing.T) {
 
 	m = sendRunes(m, "/provider openai")
 	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
-
-	rendered := stripANSI(m.View())
-	if !strings.Contains(rendered, "Interactive Auth Unavailable") {
-		t.Fatalf("view missing auth-unavailable panel: %q", rendered)
-	}
-	if !strings.Contains(rendered, "OPENAI_API_KEY") {
-		t.Fatalf("view missing env guidance: %q", rendered)
-	}
-	if !strings.Contains(rendered, "Press 1 to store it in") {
-		t.Fatalf("view missing file-store option: %q", rendered)
-	}
-	if !strings.Contains(rendered, "secrets.json") {
-		t.Fatalf("view missing file-store path: %q", rendered)
-	}
-	if strings.Contains(rendered, "Secure Setup") {
-		t.Fatalf("secure setup should not open when keychain is unavailable: %q", rendered)
-	}
-	if !m.authUnavailable.Active {
-		t.Fatal("authUnavailable should be active")
-	}
-	if m.auth.Active {
-		t.Fatal("auth flow should not be active")
-	}
-}
-
-func TestAuthUnavailablePanelCanSwitchToExplicitFileStore(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("OPENAI_API_KEY", "")
-
-	backend := newStubBackend()
-	message := "No supported OS keychain backend is available for local provider secret storage."
-	backend.localSecretStore = rpc.LocalSecretStoreStatus{
-		Available:     false,
-		Message:       &message,
-		FileStorePath: filepath.Join(home, ".jaca", "secrets.json"),
-	}
-	m := newTestModel()
-	m.options.Backend = backend
-
-	m = sendRunes(m, "/provider openai")
-	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
-	m = sendKey(m, tea.KeyMsg{Runes: []rune("1"), Type: tea.KeyRunes})
 
 	rendered := stripANSI(m.View())
 	if !strings.Contains(rendered, "Local Secret File") {
 		t.Fatalf("view missing local-secret-file panel: %q", rendered)
 	}
-	if !strings.Contains(rendered, "Less secure than the OS keychain") {
+	if !strings.Contains(rendered, "OS keychain unavailable; using local secret file instead") {
+		t.Fatalf("view missing automatic file-store reason: %q", rendered)
+	}
+	if !strings.Contains(rendered, "secrets.json") {
+		t.Fatalf("view missing file-store path: %q", rendered)
+	}
+	if !strings.Contains(rendered, "Less secure than the OS keychain or env vars") {
 		t.Fatalf("view missing file-store warning: %q", rendered)
 	}
 	if !m.auth.Active {
-		t.Fatal("choosing file store should open auth panel")
+		t.Fatal("file auth should be active")
 	}
 	if got := m.auth.Storage; got != "file" {
 		t.Fatalf("auth.Storage = %q, want %q", got, "file")
@@ -1231,47 +1194,6 @@ func TestGitHubProviderWithoutCredentialsStartsMaskedAuthFlow(t *testing.T) {
 	}
 	if got := masked.promptHistory; len(got) != 1 || got[0] != "/provider github" {
 		t.Fatalf("promptHistory = %#v, want only the non-secret provider command", got)
-	}
-}
-
-func TestEscapeFromAuthUnavailableReturnsToProviderChooser(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("OPENAI_API_KEY", "")
-
-	backend := newStubBackend()
-	message := "No supported OS keychain backend is available for local provider secret storage."
-	backend.localSecretStore = rpc.LocalSecretStoreStatus{
-		Available:     false,
-		Message:       &message,
-		FileStorePath: filepath.Join(home, ".jaca", "secrets.json"),
-	}
-	status, err := backend.AuthStatus(context.Background())
-	if err != nil {
-		t.Fatalf("AuthStatus() returned error: %v", err)
-	}
-
-	m := newTestModel()
-	m.options.Backend = backend
-
-	updated, _ := m.Update(authStatusLoadedMsg{Status: status})
-	m = updated.(*model)
-	m = sendKey(m, tea.KeyMsg{Runes: []rune("3"), Type: tea.KeyRunes})
-	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
-	if !m.authUnavailable.Active {
-		t.Fatal("openai selection should open auth-unavailable panel")
-	}
-
-	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEsc})
-
-	if m.authUnavailable.Active {
-		t.Fatal("esc should close auth-unavailable panel")
-	}
-	if !m.onboarding.Active || m.onboarding.Kind != "provider" {
-		t.Fatalf("onboarding state = %#v, want provider chooser", m.onboarding)
-	}
-	if m.onboarding.Selected != 2 {
-		t.Fatalf("onboarding.Selected = %d, want 2 for openai", m.onboarding.Selected)
 	}
 }
 

@@ -88,7 +88,7 @@ Three response types:
   session lifecycle events such as automatic compaction
 - `rpc_error` -- protocol-level problems only (bad JSON, unknown command, unknown session, invalid session state)
 
-Clients never see filesystem paths or workspace identifiers. Session identity is an opaque hex string. Provider auth is backend-owned too: provider secrets resolve from environment first, then OS keychain, then an explicitly chosen local secret file if one exists. The config file is not a secret store, and `auth.status` tells clients whether interactive local secret storage is available before they prompt for a secret.
+Clients never see filesystem paths or workspace identifiers. Session identity is an opaque hex string. Provider auth is backend-owned too: provider secrets resolve from environment first, then OS keychain, then the local secret file when keychain storage is unavailable. The config file is not a secret store, and `auth.status` tells clients whether interactive local secret storage is available before they prompt for a secret.
 
 ### Session
 

@@ -10,7 +10,7 @@ import (
 )
 
 func (m *model) maybeStartOnboarding() {
-	if m.startupOnboardingSet || m.onboarding.Active || m.auth.Active || m.authUnavailable.Active || m.streaming {
+	if m.startupOnboardingSet || m.onboarding.Active || m.auth.Active || m.streaming {
 		return
 	}
 	if strings.TrimSpace(m.textInput.Value()) != "" {
@@ -53,7 +53,7 @@ func (m *model) maybeStartOnboarding() {
 }
 
 func (m *model) shouldShowFirstRunPromptAssist() bool {
-	if !m.startupOnboardingSet || m.onboarding.Active || m.auth.Active || m.authUnavailable.Active || m.streaming {
+	if !m.startupOnboardingSet || m.onboarding.Active || m.auth.Active || m.streaming {
 		return false
 	}
 	if strings.TrimSpace(m.textInput.Value()) != "" {

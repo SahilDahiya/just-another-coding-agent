@@ -313,11 +313,10 @@ func (m *model) startCredentialSetup(
 			continue
 		}
 		if !statuses.LocalSecretStore.Available {
-			m.startAuthUnavailableFlow(
+			m.startAuthFlow(
 				provider,
-				status.EnvKey,
+				"file",
 				statuses.LocalSecretStore.FileStorePath,
-				stringOrEmpty(statuses.LocalSecretStore.Message),
 				pendingProvider,
 				pendingModel,
 				returnToOnboardingKind,
@@ -328,13 +327,6 @@ func (m *model) startCredentialSetup(
 		return nil
 	}
 	return fmt.Errorf("unknown provider: %s", provider)
-}
-
-func stringOrEmpty(value *string) string {
-	if value == nil {
-		return ""
-	}
-	return *value
 }
 
 func (m *model) ollamaCloudConfigured() (bool, error) {
