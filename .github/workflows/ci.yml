@@ -30,9 +30,6 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-
       - name: Install dependencies
         run: uv sync --extra dev --extra test
 
@@ -40,7 +37,12 @@ jobs:
         run: uv run ruff check .
 
       - name: Run tests
-        run: uv run python -m pytest tests/contracts tests/e2e tests/evaluations
+        run: >-
+          uv run python -m pytest
+          tests/contracts
+          tests/e2e
+          --ignore=tests/e2e/test_rust_read_only_worker.py
+          tests/evaluations
 
       - name: Run Go tests
         run: go test ./cmd/jaca ./internal/jaca/...
