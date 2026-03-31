@@ -128,8 +128,8 @@ Provider secrets are backend-owned and stored in the local OS keychain.
 Environment variables remain the explicit override for headless, CI, and
 evaluation flows.
 
-On first launch without a saved provider, JACA writes a startup setup note with
-the shipped provider choices. Ollama is split explicitly:
+On first launch without a saved provider, JACA opens a centered chooser panel
+with the shipped provider choices before chat. Ollama is split explicitly:
 
 - local Ollama: use `/model ollama:<local-model>` with no key
 - shipped Ollama cloud path: use `/provider ollama`, which starts masked auth if needed

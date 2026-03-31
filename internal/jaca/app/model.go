@@ -75,6 +75,12 @@ type authStatusLoadedMsg struct {
 	Err    error
 }
 
+type onboardingState struct {
+	Active   bool
+	Kind     string
+	Selected int
+}
+
 type model struct {
 	options              Options
 	phase                Phase
@@ -113,6 +119,7 @@ type model struct {
 	authStatus           *rpc.AuthStatusResponse
 	authStatusLoading    bool
 	startupOnboardingSet bool
+	onboarding           onboardingState
 	appVersion           string
 	skippedUpdateVersion string
 	updatePrompt         updatePromptState
@@ -383,6 +390,13 @@ func (m *model) currentViewModel() viewModel {
 		VisibleZones:   m.visibleZones,
 		SlashMenu:      m.slashMenu,
 		UpdatePrompt:   m.updatePrompt,
+		Onboarding: onboardingOverlayView{
+			Active:      m.onboarding.Active,
+			Selected:    m.onboarding.Selected,
+			Title:       m.onboardingTitle(),
+			OptionLines: m.onboardingOptionLines(),
+			HelpLines:   m.onboardingHelpLines(),
+		},
 		Auth: authOverlayView{
 			Active:      m.auth.Active,
 			Provider:    m.auth.Provider,
@@ -397,6 +411,9 @@ func (m *model) currentPromptFooter() string {
 	if m.promptFooterNotice != "" {
 		return m.promptFooterNotice
 	}
+	if m.onboarding.Active {
+		return ""
+	}
 	if m.shouldShowFirstRunPromptAssist() {
 		return "first-time setup: tab to choose a provider, or /model ollama:<local-model> for local Ollama"
 	}
@@ -404,6 +421,9 @@ func (m *model) currentPromptFooter() string {
 }
 
 func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.onboarding.Active {
+		return m.handleOnboardingKey(msg)
+	}
 	if m.updatePrompt.Active {
 		return m.handleUpdatePromptKey(msg)
 	}

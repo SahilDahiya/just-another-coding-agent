@@ -73,7 +73,16 @@ type viewModel struct {
 	VisibleZones   int
 	SlashMenu      slashMenuState
 	UpdatePrompt   updatePromptState
+	Onboarding     onboardingOverlayView
 	Auth           authOverlayView
+}
+
+type onboardingOverlayView struct {
+	Active      bool
+	Title       string
+	Selected    int
+	OptionLines []string
+	HelpLines   []string
 }
 
 type authOverlayView struct {
@@ -87,6 +96,9 @@ type authOverlayView struct {
 var topRailFrames = []string{"|", "/", "-", "\\"}
 
 func renderView(vm viewModel) string {
+	if vm.Onboarding.Active {
+		return renderOnboardingOverlay(vm)
+	}
 	if vm.Auth.Active {
 		return renderAuthOverlay(vm)
 	}
@@ -99,6 +111,68 @@ func renderView(vm viewModel) string {
 		prompt = renderPrompt(vm)
 	}
 	return lipgloss.JoinVertical(lipgloss.Left, transcript, prompt)
+}
+
+func renderOnboardingOverlay(vm viewModel) string {
+	panelWidth := 60
+	if vm.Width > 0 {
+		panelWidth = min(68, max(48, vm.Width-8))
+	}
+	title := lipgloss.NewStyle().
+		Foreground(defaultTheme.accentSoft).
+		Bold(true).
+		Render(vm.Onboarding.Title)
+	rows := make([]string, 0, len(vm.Onboarding.OptionLines))
+	for i, line := range vm.Onboarding.OptionLines {
+		prefix := " "
+		style := lipgloss.NewStyle().Foreground(defaultTheme.textMuted)
+		if i == vm.Onboarding.Selected {
+			prefix = ">"
+			style = lipgloss.NewStyle().Foreground(defaultTheme.accentSoft)
+		}
+		rows = append(
+			rows,
+			lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render(prefix)+" "+style.Render(line),
+		)
+	}
+	helpLines := make([]string, 0, len(vm.Onboarding.HelpLines))
+	for _, line := range vm.Onboarding.HelpLines {
+		helpLines = append(
+			helpLines,
+			lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render(line),
+		)
+	}
+	panel := lipgloss.NewStyle().
+		Width(panelWidth).
+		Padding(1, 2).
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(defaultTheme.border).
+		Render(lipgloss.JoinVertical(
+			lipgloss.Left,
+			title,
+			"",
+			lipgloss.JoinVertical(lipgloss.Left, rows...),
+			"",
+			lipgloss.JoinVertical(lipgloss.Left, helpLines...),
+		))
+
+	width := vm.Width
+	if width <= 0 {
+		width = panelWidth + 8
+	}
+	height := vm.Height
+	if height <= 0 {
+		height = max(16, lipgloss.Height(panel)+6)
+	}
+	return lipgloss.Place(
+		width,
+		height,
+		lipgloss.Center,
+		lipgloss.Center,
+		panel,
+		lipgloss.WithWhitespaceChars(" "),
+		lipgloss.WithWhitespaceForeground(defaultTheme.background),
+	)
 }
 
 func renderAuthOverlay(vm viewModel) string {

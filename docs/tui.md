@@ -94,9 +94,10 @@ The core architectural risk is semantic drift between the Go shell and the Pytho
   visible instead of being hidden inside a grouped block.
 - Completed assistant turns should settle into readable prose/Markdown instead of remaining raw streamed text.
 - The prompt is the single input surface for chat and slash commands.
-- Startup should surface a calm first-run setup note when no provider has been
-  selected yet, and saved cloud-provider selections missing auth should enter
-  masked auth immediately instead of failing later in the first real prompt.
+- Startup should surface a calm first-run chooser panel when no provider has
+  been selected yet, and saved cloud-provider selections missing auth should
+  enter masked auth immediately instead of failing later in the first real
+  prompt.
 - First-run setup should also be actionable from the prompt zone itself:
   show a prompt-footer hint and let `Tab` on an empty prompt open provider
   suggestions directly.

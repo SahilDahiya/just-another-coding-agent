@@ -701,29 +701,33 @@ func TestStartupAuthStatusShowsFirstRunOnboarding(t *testing.T) {
 	updated, _ := m.Update(authStatusLoadedMsg{Status: status})
 	m = updated.(*model)
 
-	rendered := stripANSI(m.transcript.Render())
+	rendered := stripANSI(m.View())
 	for _, want := range []string{
-		"note  first-time setup",
-		"/model ollama:<local-model>",
-		"/provider ollama",
-		"/provider github",
-		"/provider openai",
-		"/provider anthropic",
-		"/auth status",
+		"Get Started",
+		"1. Ollama",
+		"2. GitHub Models",
+		"3. OpenAI",
+		"4. Anthropic",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("startup onboarding missing %q in %q", want, rendered)
 		}
 	}
+	if got := stripANSI(m.transcript.Render()); strings.Contains(got, "first-time setup") {
+		t.Fatalf("first-run chooser should not write transcript note: %q", got)
+	}
+	if !m.onboarding.Active {
+		t.Fatal("first-run onboarding should open chooser panel")
+	}
 	if m.auth.Active {
 		t.Fatal("first-run onboarding should not auto-start auth")
 	}
-	if got := m.currentPromptFooter(); !strings.Contains(got, "tab to choose a provider") {
-		t.Fatalf("currentPromptFooter() = %q, want first-run prompt assist", got)
+	if got := m.currentPromptFooter(); got != "" {
+		t.Fatalf("currentPromptFooter() = %q, want empty while chooser is active", got)
 	}
 }
 
-func TestFirstRunTabOpensProviderSuggestions(t *testing.T) {
+func TestFirstRunEscapeThenTabOpensProviderSuggestions(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
@@ -739,6 +743,7 @@ func TestFirstRunTabOpensProviderSuggestions(t *testing.T) {
 	updated, _ := m.Update(authStatusLoadedMsg{Status: status})
 	m = updated.(*model)
 
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEsc})
 	m = sendKey(m, tea.KeyMsg{Type: tea.KeyTab})
 
 	if got := m.textInput.Value(); got != "/provider " {
@@ -749,6 +754,65 @@ func TestFirstRunTabOpensProviderSuggestions(t *testing.T) {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("provider suggestion %q missing in %q", want, rendered)
 		}
+	}
+}
+
+func TestFirstRunChoosingOpenAIOpensSecureSetupPanel(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	backend := newStubBackend()
+	status, err := backend.AuthStatus(context.Background())
+	if err != nil {
+		t.Fatalf("AuthStatus() returned error: %v", err)
+	}
+
+	m := newTestModel()
+	m.options.Backend = backend
+
+	updated, _ := m.Update(authStatusLoadedMsg{Status: status})
+	m = updated.(*model)
+	m = sendKey(m, tea.KeyMsg{Runes: []rune("3"), Type: tea.KeyRunes})
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	rendered := stripANSI(m.View())
+	if !strings.Contains(rendered, "Secure Setup") || !strings.Contains(rendered, "OpenAI API key") {
+		t.Fatalf("view missing openai secure setup panel after chooser selection: %q", rendered)
+	}
+	if m.onboarding.Active {
+		t.Fatal("onboarding chooser should close after provider selection")
+	}
+	if !m.auth.Active || m.auth.Provider != "openai" {
+		t.Fatalf("auth state = %#v, want active openai auth", m.auth)
+	}
+}
+
+func TestFirstRunChoosingOllamaShowsModeChooser(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	backend := newStubBackend()
+	status, err := backend.AuthStatus(context.Background())
+	if err != nil {
+		t.Fatalf("AuthStatus() returned error: %v", err)
+	}
+
+	m := newTestModel()
+	m.options.Backend = backend
+
+	updated, _ := m.Update(authStatusLoadedMsg{Status: status})
+	m = updated.(*model)
+	m = sendKey(m, tea.KeyMsg{Runes: []rune("1"), Type: tea.KeyRunes})
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	rendered := stripANSI(m.View())
+	for _, want := range []string{"Choose Ollama Mode", "1. Local Ollama", "2. Hosted Ollama"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("ollama mode chooser missing %q in %q", want, rendered)
+		}
+	}
+	if !m.onboarding.Active || m.onboarding.Kind != "ollama" {
+		t.Fatalf("onboarding state = %#v, want active ollama chooser", m.onboarding)
 	}
 }
 

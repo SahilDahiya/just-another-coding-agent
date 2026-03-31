@@ -291,3 +291,38 @@ func TestRenderViewShowsCenteredSecureSetupPanel(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderViewShowsFirstRunChooserPanel(t *testing.T) {
+	rendered := stripANSI(renderView(viewModel{
+		Width:  80,
+		Height: 24,
+		Onboarding: onboardingOverlayView{
+			Active:   true,
+			Title:    "Get Started",
+			Selected: 1,
+			OptionLines: []string{
+				"1. Ollama",
+				"2. GitHub Models",
+				"3. OpenAI",
+				"4. Anthropic",
+			},
+			HelpLines: []string{
+				"Choose a provider to get started",
+				"Enter selects. Esc closes this panel.",
+			},
+		},
+	}))
+
+	for _, want := range []string{
+		"Get Started",
+		"1. Ollama",
+		"2. GitHub Models",
+		"3. OpenAI",
+		"4. Anthropic",
+		"Enter selects. Esc closes this panel.",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("renderView() missing %q in %q", want, rendered)
+		}
+	}
+}
