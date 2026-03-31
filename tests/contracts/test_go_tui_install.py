@@ -6,6 +6,10 @@ import pytest
 
 import just_another_coding_agent.go_tui as go_tui
 
+UPDATE_COMMAND_JSON = json.dumps(
+    ["uv", "tool", "upgrade", "just-another-coding-agent"]
+)
+
 
 def test_go_tui_build_is_opt_in() -> None:
     assert go_tui.go_tui_build_requested({}) is False
@@ -34,12 +38,12 @@ def test_explicit_update_command_detects_uv_tool_install(monkeypatch, tmp_path) 
         "upgrade",
         "just-another-coding-agent",
     ]
-    assert go_tui.explicit_update_command_json() == json.dumps(
-        ["uv", "tool", "upgrade", "just-another-coding-agent"]
-    )
+    assert go_tui.explicit_update_command_json() == UPDATE_COMMAND_JSON
 
 
-def test_explicit_update_command_is_disabled_in_repo_checkout(monkeypatch, tmp_path) -> None:
+def test_explicit_update_command_is_disabled_in_repo_checkout(
+    monkeypatch, tmp_path
+) -> None:
     scripts_dir = tmp_path / ".local" / "share" / "uv" / "tools" / "pkg" / "bin"
     scripts_dir.mkdir(parents=True)
     monkeypatch.setattr(go_tui.sysconfig, "get_path", lambda key: str(scripts_dir))

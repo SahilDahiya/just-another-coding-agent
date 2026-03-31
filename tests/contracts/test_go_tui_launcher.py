@@ -10,6 +10,10 @@ import just_another_coding_agent.__main__ as entry
 from just_another_coding_agent.__main__ import main
 from just_another_coding_agent.go_tui import GO_TUI_BINARY
 
+UPDATE_COMMAND_JSON = json.dumps(
+    ["uv", "tool", "upgrade", "just-another-coding-agent"]
+)
+
 
 def test_main_launches_go_tui_for_interactive_mode(
     tmp_path,
@@ -35,7 +39,7 @@ def test_main_launches_go_tui_for_interactive_mode(
     monkeypatch.setattr(
         entry,
         "explicit_update_command_json",
-        lambda repo_root=None: json.dumps(["uv", "tool", "upgrade", "just-another-coding-agent"]),
+        lambda repo_root=None: UPDATE_COMMAND_JSON,
     )
 
     def fake_run(command, *, check, cwd=None):
@@ -77,7 +81,7 @@ def test_main_launches_go_tui_for_interactive_mode(
             "--sessions-root",
             str(sessions_root.resolve()),
             "--update-command-json",
-            json.dumps(["uv", "tool", "upgrade", "just-another-coding-agent"]),
+            UPDATE_COMMAND_JSON,
             "--thinking",
             "high",
         ],
@@ -118,7 +122,7 @@ def test_main_uses_saved_default_model_and_trace_mode(
     monkeypatch.setattr(
         entry,
         "explicit_update_command_json",
-        lambda repo_root=None: json.dumps(["uv", "tool", "upgrade", "just-another-coding-agent"]),
+        lambda repo_root=None: UPDATE_COMMAND_JSON,
     )
 
     def fake_run(command, *, check, cwd=None):
@@ -155,7 +159,7 @@ def test_main_uses_saved_default_model_and_trace_mode(
             "--sessions-root",
             str(sessions_root.resolve()),
             "--update-command-json",
-            json.dumps(["uv", "tool", "upgrade", "just-another-coding-agent"]),
+            UPDATE_COMMAND_JSON,
         ],
         "trace_mode": "local",
     }
@@ -196,7 +200,7 @@ def test_main_restores_config_applied_environment_after_return(
     monkeypatch.setattr(
         entry,
         "explicit_update_command_json",
-        lambda repo_root=None: json.dumps(["uv", "tool", "upgrade", "just-another-coding-agent"]),
+        lambda repo_root=None: UPDATE_COMMAND_JSON,
     )
 
     def fake_run(command, *, check, cwd=None):
@@ -297,7 +301,11 @@ def test_main_launches_repo_local_go_tui_when_installed_binary_is_missing(
         lambda: ["/tmp/fake-python", "-m", "just_another_coding_agent"],
     )
     monkeypatch.setattr(entry, "package_version", lambda: "0.1.0")
-    monkeypatch.setattr(entry, "explicit_update_command_json", lambda repo_root=None: None)
+    monkeypatch.setattr(
+        entry,
+        "explicit_update_command_json",
+        lambda repo_root=None: None,
+    )
 
     def fake_run(command, *, check, cwd=None):
         captured["command"] = command
