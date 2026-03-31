@@ -34,6 +34,24 @@ class ProviderSecretValidationError(ValueError):
     pass
 
 
+def _missing_keyring_backend_message() -> str:
+    return (
+        "No supported OS keychain backend is available for local provider secret "
+        "storage. Configure a supported system keychain and try again. On "
+        "Linux/WSL, install and unlock a Secret Service backend such as "
+        "gnome-keyring."
+    )
+
+
+def _auth_store_error_message(*, keyring, error: Exception) -> str:
+    no_keyring_error = getattr(keyring.errors, "NoKeyringError", None)
+    if no_keyring_error is not None and isinstance(error, no_keyring_error):
+        return _missing_keyring_backend_message()
+    if "No recommended backend was available" in str(error):
+        return _missing_keyring_backend_message()
+    return str(error)
+
+
 def resolve_provider_secret(
     provider: ProviderName,
     *,
@@ -90,7 +108,9 @@ def set_provider_secret(provider: ProviderName, secret: str) -> ProviderAuthStat
     try:
         keyring.set_password(SECRET_STORE_SERVICE, env_key, trimmed)
     except keyring.errors.KeyringError as error:
-        raise AuthStoreError(str(error)) from error
+        raise AuthStoreError(
+            _auth_store_error_message(keyring=keyring, error=error)
+        ) from error
     return get_provider_auth_status(provider)
 
 
@@ -102,7 +122,9 @@ def clear_provider_secret(provider: ProviderName) -> ProviderAuthStatus:
     except keyring.errors.PasswordDeleteError:
         pass
     except keyring.errors.KeyringError as error:
-        raise AuthStoreError(str(error)) from error
+        raise AuthStoreError(
+            _auth_store_error_message(keyring=keyring, error=error)
+        ) from error
     return get_provider_auth_status(provider)
 
 
@@ -130,7 +152,9 @@ def _get_keychain_secret(
     except keyring.errors.KeyringError as error:
         if allow_missing_keychain:
             return None
-        raise AuthStoreError(str(error)) from error
+        raise AuthStoreError(
+            _auth_store_error_message(keyring=keyring, error=error)
+        ) from error
     if value is None:
         return None
     stripped = value.strip()

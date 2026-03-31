@@ -75,6 +75,8 @@ canonical Python headless backend.
 - Copy `.env.example` to `.env` if you need local provider credentials.
 - For interactive local use, provider secrets now belong in the OS keychain,
   not in `~/.jaca/config.json`.
+- On Linux/WSL, interactive `/auth` also requires a supported OS keychain
+  backend such as Secret Service via `gnome-keyring`.
 - Environment variables remain the canonical override for headless,
   evaluation, and CI flows.
 - Current foundation expects:

@@ -4,6 +4,7 @@ import pytest
 
 from just_another_coding_agent.auth import (
     SECRET_STORE_SERVICE,
+    AuthStoreError,
     clear_provider_secret,
     get_provider_auth_status,
     resolve_provider_secret,
@@ -113,3 +114,33 @@ def test_missing_keyring_backend_is_tolerated_for_optional_lookup(monkeypatch) -
     monkeypatch.delenv("OLLAMA_API_KEY", raising=False)
 
     assert resolve_provider_secret("ollama", allow_missing_keychain=True) is None
+
+
+def test_set_provider_secret_reports_missing_keyring_backend_actionably(
+    monkeypatch,
+) -> None:
+    class _FailingKeyringErrors:
+        class KeyringError(Exception):
+            pass
+
+        class NoKeyringError(KeyringError):
+            pass
+
+    class _FailingKeyring:
+        errors = _FailingKeyringErrors
+
+        def set_password(self, service: str, username: str, password: str) -> None:
+            raise self.errors.NoKeyringError(
+                "No recommended backend was available. Install one."
+            )
+
+    monkeypatch.setattr(
+        "just_another_coding_agent.auth._load_keyring",
+        lambda: _FailingKeyring(),
+    )
+
+    with pytest.raises(
+        AuthStoreError,
+        match="No supported OS keychain backend is available",
+    ):
+        set_provider_secret("openai", "test-key")

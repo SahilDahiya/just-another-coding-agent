@@ -127,6 +127,8 @@ The TUI keeps non-secret provider, model, and trace preferences in
 Provider secrets are backend-owned and stored in the local OS keychain.
 Environment variables remain the explicit override for headless, CI, and
 evaluation flows.
+On Linux/WSL, interactive `/auth` requires a supported OS keychain backend
+such as Secret Service via `gnome-keyring`.
 
 On first launch without a saved provider, JACA opens a centered chooser panel
 with the shipped provider choices before chat. Ollama is split explicitly:
