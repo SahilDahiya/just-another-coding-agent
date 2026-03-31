@@ -150,7 +150,6 @@ func authSetupLines(provider string) []string {
 		"Stored in the OS keychain",
 		"Not added to transcript or prompt history",
 		"Enter saves. Esc cancels.",
-		"Env vars override keychain in headless and CI runs",
 	}
 }
 
