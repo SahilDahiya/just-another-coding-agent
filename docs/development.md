@@ -57,6 +57,11 @@ canonical Python headless backend.
   - `jaca-read-only-worker`
 - CI now verifies that built wheel artifacts contain those bundled binaries and are not `none-any` pure-Python wheels
 - Tagged releases upload bundled wheel artifacts to GitHub Releases
+- Tagged releases also publish those bundled wheels to PyPI via GitHub Actions trusted publishing
+- One-time external setup still required before the first real release:
+  - create the PyPI project `just-another-coding-agent`
+  - add this GitHub repo/workflow as a trusted publisher on PyPI
+  - allow the `pypi` GitHub Actions environment if you want environment-level protection
 
 ## Environment
 
