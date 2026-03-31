@@ -56,7 +56,9 @@ def verify_release_artifacts(dist_dir: Path) -> list[str]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Verify that a release dist directory contains every supported artifact."
+        description=(
+            "Verify that a release dist directory contains every supported artifact."
+        )
     )
     parser.add_argument("dist_dir", nargs="?", default="dist")
     args = parser.parse_args(argv)

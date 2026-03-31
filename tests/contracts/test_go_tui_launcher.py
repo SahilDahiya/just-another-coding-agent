@@ -35,7 +35,7 @@ def test_main_launches_go_tui_for_interactive_mode(
         "default_backend_command",
         lambda: ["/tmp/fake-python", "-m", "just_another_coding_agent"],
     )
-    monkeypatch.setattr(entry, "package_version", lambda: "0.1.3")
+    monkeypatch.setattr(entry, "package_version", lambda: "0.1.4")
     monkeypatch.setattr(
         entry,
         "explicit_update_command_json",
@@ -73,7 +73,7 @@ def test_main_launches_go_tui_for_interactive_mode(
             "--backend-command-json",
             json.dumps(["/tmp/fake-python", "-m", "just_another_coding_agent"]),
             "--app-version",
-            "0.1.3",
+            "0.1.4",
             "--model",
             "openai:test-model",
             "--workspace-root",
@@ -118,7 +118,7 @@ def test_main_uses_saved_default_model_and_trace_mode(
         "default_backend_command",
         lambda: ["/tmp/fake-python", "-m", "just_another_coding_agent"],
     )
-    monkeypatch.setattr(entry, "package_version", lambda: "0.1.3")
+    monkeypatch.setattr(entry, "package_version", lambda: "0.1.4")
     monkeypatch.setattr(
         entry,
         "explicit_update_command_json",
@@ -151,7 +151,7 @@ def test_main_uses_saved_default_model_and_trace_mode(
             "--backend-command-json",
             json.dumps(["/tmp/fake-python", "-m", "just_another_coding_agent"]),
             "--app-version",
-            "0.1.3",
+            "0.1.4",
             "--model",
             "openai:gpt-5.4",
             "--workspace-root",
@@ -196,7 +196,7 @@ def test_main_restores_config_applied_environment_after_return(
         "default_backend_command",
         lambda: ["/tmp/fake-python", "-m", "just_another_coding_agent"],
     )
-    monkeypatch.setattr(entry, "package_version", lambda: "0.1.3")
+    monkeypatch.setattr(entry, "package_version", lambda: "0.1.4")
     monkeypatch.setattr(
         entry,
         "explicit_update_command_json",
@@ -300,7 +300,7 @@ def test_main_launches_repo_local_go_tui_when_installed_binary_is_missing(
         "default_backend_command",
         lambda: ["/tmp/fake-python", "-m", "just_another_coding_agent"],
     )
-    monkeypatch.setattr(entry, "package_version", lambda: "0.1.3")
+    monkeypatch.setattr(entry, "package_version", lambda: "0.1.4")
     monkeypatch.setattr(
         entry,
         "explicit_update_command_json",
@@ -338,7 +338,7 @@ def test_main_launches_repo_local_go_tui_when_installed_binary_is_missing(
             "--backend-command-json",
             json.dumps(["/tmp/fake-python", "-m", "just_another_coding_agent"]),
             "--app-version",
-            "0.1.3",
+            "0.1.4",
             "--model",
             "openai:test-model",
             "--workspace-root",
