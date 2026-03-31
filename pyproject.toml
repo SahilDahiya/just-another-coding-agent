@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "just-another-coding-agent"
-version = "0.1.1"
+version = "0.1.2"
 description = "Python-native headless coding-agent backend built around PydanticAI"
 readme = "README.md"
 requires-python = ">=3.12"
