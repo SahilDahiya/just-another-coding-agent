@@ -110,6 +110,55 @@ func TestClientModelCatalog(t *testing.T) {
 	}
 }
 
+func TestClientModelCatalogMatchesResponsesByRequestID(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell-based helper is unix-only")
+	}
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+
+	tmpDir := t.TempDir()
+	markerPath := tmpDir + "/catalog-order.txt"
+	readyPath := tmpDir + "/ready.txt"
+	client := startPythonHelperClient(
+		t,
+		markerPath,
+		readyPath,
+		`import pathlib, os, sys
+ready = pathlib.Path(os.environ['JACA_RPC_HELPER_READY'])
+ready.write_text('ready')
+count = 0
+for _line in sys.stdin:
+    count += 1
+    if count == 1:
+        sys.stdout.write('{"type":"rpc_response","id":"go-2","response":{"providers":[{"provider":"openai","default_model_id":"openai:gpt-5.4","models":[{"model_id":"openai:gpt-5.4","description":"GPT-5.4"}]}]}}' + "\n")
+        sys.stdout.write('{"type":"rpc_response","id":"go-1","response":{"providers":[{"provider":"ollama","default_model_id":"ollama:kimi-k2:1t-cloud","models":[{"model_id":"ollama:kimi-k2:1t-cloud","description":"Kimi"}]}]}}' + "\n")
+        sys.stdout.flush()
+    elif count == 2:
+        break`,
+	)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	first, err := client.ModelCatalog(ctx)
+	if err != nil {
+		t.Fatalf("first ModelCatalog() returned error: %v", err)
+	}
+	if got := first.Providers[0].DefaultModelID; got != "ollama:kimi-k2:1t-cloud" {
+		t.Fatalf("first DefaultModelID = %q, want %q", got, "ollama:kimi-k2:1t-cloud")
+	}
+
+	second, err := client.ModelCatalog(ctx)
+	if err != nil {
+		t.Fatalf("second ModelCatalog() returned error: %v", err)
+	}
+	if got := second.Providers[0].DefaultModelID; got != "openai:gpt-5.4" {
+		t.Fatalf("second DefaultModelID = %q, want %q", got, "openai:gpt-5.4")
+	}
+}
+
 func startPythonHelperClient(t *testing.T, markerPath string, readyPath string, script string) *Client {
 	t.Helper()
 

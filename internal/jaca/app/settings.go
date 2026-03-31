@@ -7,6 +7,8 @@ import (
 	"os"
 	"strings"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"jaca/internal/jaca/config"
 )
 
@@ -37,31 +39,37 @@ func modelMatchesProvider(model string, provider string) bool {
 	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(model)), provider+":")
 }
 
-func (m *model) handleModelCommand(arg string) {
+func (m *model) handleModelCommand(arg string) (tea.Model, tea.Cmd) {
 	m.transcript.WriteNote("model", nil)
+	cmd := m.requestModelCatalog()
 	value := strings.TrimSpace(arg)
 	if value == "" {
 		m.transcript.WriteLine(fmt.Sprintf("model: %s", m.options.Model))
-		return
+		m.refreshViewport()
+		return m, cmd
 	}
 	provider := providerForModel(value)
 	if provider == "" {
 		m.transcript.WriteError(fmt.Sprintf("unknown model provider: %s", value))
-		return
+		m.refreshViewport()
+		return m, cmd
 	}
 	hasCreds, err := config.HasProviderCredentials(provider)
 	if err != nil {
 		m.transcript.WriteError(err.Error())
-		return
+		m.refreshViewport()
+		return m, cmd
 	}
 	if !hasCreds {
 		m.startAuthFlow(provider, provider, value)
-		return
+		m.refreshViewport()
+		return m, cmd
 	}
 	lines, restart, err := m.applyModelSelection(value, provider)
 	if err != nil {
 		m.transcript.WriteError(err.Error())
-		return
+		m.refreshViewport()
+		return m, cmd
 	}
 	for _, line := range lines {
 		m.transcript.WriteLine(line)
@@ -69,7 +77,10 @@ func (m *model) handleModelCommand(arg string) {
 	if restart && m.options.Backend != nil {
 		m.options.Backend.SetEnv(os.Environ())
 		_ = m.options.Backend.Restart(context.Background())
+		cmd = tea.Batch(cmd, m.requestModelCatalog())
 	}
+	m.refreshViewport()
+	return m, cmd
 }
 
 func (m *model) handleTraceCommand(arg string) {

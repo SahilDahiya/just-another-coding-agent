@@ -131,12 +131,18 @@ func (m *Manager) StreamRun(
 }
 
 type Client struct {
-	cmd       *exec.Cmd
-	stdin     io.WriteCloser
-	scanner   *bufio.Scanner
-	stderr    bytes.Buffer
-	mu        sync.Mutex
-	requestID atomic.Uint64
+	cmd              *exec.Cmd
+	stdin            io.WriteCloser
+	stderr           bytes.Buffer
+	mu               sync.Mutex
+	requestID        atomic.Uint64
+	readResults      chan readResult
+	pendingEnvelopes []any
+}
+
+type readResult struct {
+	value any
+	err   error
 }
 
 func StartClient(cfg BackendConfig) (*Client, error) {
@@ -162,17 +168,40 @@ func StartClient(cfg BackendConfig) (*Client, error) {
 		return nil, err
 	}
 	client := &Client{
-		cmd:   cmd,
-		stdin: stdin,
+		cmd:         cmd,
+		stdin:       stdin,
+		readResults: make(chan readResult, 16),
 	}
 	cmd.Stderr = &client.stderr
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
+	go client.readLoop(stdout)
+	return client, nil
+}
+
+func (c *Client) readLoop(stdout io.Reader) {
 	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 0, 16*1024), 2*1024*1024)
-	client.scanner = scanner
-	return client, nil
+	for scanner.Scan() {
+		value, err := decodeEnvelope(scanner.Bytes())
+		c.readResults <- readResult{value: value, err: err}
+		if err != nil {
+			close(c.readResults)
+			return
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		c.readResults <- readResult{err: err}
+		close(c.readResults)
+		return
+	}
+	stderr := strings.TrimSpace(c.stderr.String())
+	if stderr == "" {
+		stderr = "backend process exited unexpectedly"
+	}
+	c.readResults <- readResult{err: errors.New(stderr)}
+	close(c.readResults)
 }
 
 func (c *Client) Close(ctx context.Context) error {
@@ -250,7 +279,7 @@ func (c *Client) CreateSession(ctx context.Context) (string, error) {
 	}); err != nil {
 		return "", err
 	}
-	line, err := c.readEnvelope(ctx)
+	line, err := c.readEnvelope(ctx, requestID)
 	if err != nil {
 		return "", err
 	}
@@ -279,7 +308,7 @@ func (c *Client) CompactSession(ctx context.Context, sessionID string) (SessionC
 	}); err != nil {
 		return SessionCompactResponse{}, err
 	}
-	line, err := c.readEnvelope(ctx)
+	line, err := c.readEnvelope(ctx, requestID)
 	if err != nil {
 		return SessionCompactResponse{}, err
 	}
@@ -308,7 +337,7 @@ func (c *Client) ModelCatalog(ctx context.Context) (ModelCatalogResponse, error)
 	}); err != nil {
 		return ModelCatalogResponse{}, err
 	}
-	line, err := c.readEnvelope(ctx)
+	line, err := c.readEnvelope(ctx, requestID)
 	if err != nil {
 		return ModelCatalogResponse{}, err
 	}
@@ -358,7 +387,7 @@ func (c *Client) StreamRun(
 		return err
 	}
 	for {
-		line, err := c.readEnvelope(ctx)
+		line, err := c.readEnvelope(ctx, requestID)
 		if err != nil {
 			return err
 		}
@@ -389,32 +418,57 @@ func (c *Client) writeRequest(request Request) error {
 	return nil
 }
 
-func (c *Client) readEnvelope(ctx context.Context) (any, error) {
-	type result struct {
-		value any
-		err   error
+func (c *Client) readEnvelope(ctx context.Context, requestID string) (any, error) {
+	if pending, ok := c.takePendingEnvelope(requestID); ok {
+		return pending, nil
 	}
-	resultCh := make(chan result, 1)
-	go func() {
-		if c.scanner.Scan() {
-			value, err := decodeEnvelope(c.scanner.Bytes())
-			resultCh <- result{value: value, err: err}
-			return
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case result, ok := <-c.readResults:
+			if !ok {
+				return nil, errors.New("backend reader stopped unexpectedly")
+			}
+			if result.err != nil {
+				return nil, result.err
+			}
+			if envelopeMatchesRequestID(result.value, requestID) {
+				return result.value, nil
+			}
+			c.pendingEnvelopes = append(c.pendingEnvelopes, result.value)
 		}
-		if err := c.scanner.Err(); err != nil {
-			resultCh <- result{err: err}
-			return
+	}
+}
+
+func (c *Client) takePendingEnvelope(requestID string) (any, bool) {
+	for idx, envelope := range c.pendingEnvelopes {
+		if !envelopeMatchesRequestID(envelope, requestID) {
+			continue
 		}
-		stderr := strings.TrimSpace(c.stderr.String())
-		if stderr == "" {
-			stderr = "backend process exited unexpectedly"
+		c.pendingEnvelopes = append(c.pendingEnvelopes[:idx], c.pendingEnvelopes[idx+1:]...)
+		return envelope, true
+	}
+	return nil, false
+}
+
+func envelopeMatchesRequestID(envelope any, requestID string) bool {
+	return envelopeRequestID(envelope) == requestID
+}
+
+func envelopeRequestID(envelope any) string {
+	switch envelope := envelope.(type) {
+	case ResponseEnvelope:
+		return envelope.ID
+	case EventEnvelope:
+		return envelope.ID
+	case ErrorEnvelope:
+		if envelope.ID == nil {
+			return ""
 		}
-		resultCh <- result{err: errors.New(stderr)}
-	}()
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case result := <-resultCh:
-		return result.value, result.err
+		return *envelope.ID
+	default:
+		return ""
 	}
 }

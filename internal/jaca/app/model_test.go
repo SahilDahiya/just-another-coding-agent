@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -527,6 +528,45 @@ func TestModelCommandPersistsSelection(t *testing.T) {
 	}
 	if !strings.Contains(string(data), `"default_provider": "openai"`) {
 		t.Fatalf("config.json missing persisted provider: %q", string(data))
+	}
+}
+
+func TestModelCatalogDeadlineExceededDoesNotWriteStartupError(t *testing.T) {
+	m := newTestModel()
+	m.modelCatalog = nil
+	m.modelCatalogLoading = true
+
+	updated, _ := m.Update(modelCatalogLoadedMsg{Err: context.DeadlineExceeded})
+	m = updated.(*model)
+
+	if m.modelCatalogLoading {
+		t.Fatal("modelCatalogLoading should clear after catalog load result")
+	}
+	if got := stripANSI(m.transcript.Render()); strings.Contains(got, "model catalog:") {
+		t.Fatalf("transcript should not surface startup catalog timeout: %q", got)
+	}
+}
+
+func TestModelCommandRequestsCatalogWhenMissing(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("OPENAI_API_KEY", "test-key")
+
+	m := newTestModel()
+	m.modelCatalog = nil
+	m.options.Backend = rpc.NewManager(rpc.BackendConfig{})
+
+	updated, cmd := m.handleModelCommand("openai:gpt-5.4")
+	m = updated.(*model)
+
+	if cmd == nil {
+		t.Fatal("handleModelCommand should request model catalog when missing")
+	}
+	if !m.modelCatalogLoading {
+		t.Fatal("model catalog load should be marked in flight")
+	}
+	if got := m.options.Model; got != "openai:gpt-5.4" {
+		t.Fatalf("options.Model = %q, want %q", got, "openai:gpt-5.4")
 	}
 }
 

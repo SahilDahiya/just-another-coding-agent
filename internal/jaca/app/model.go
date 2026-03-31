@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -41,6 +42,7 @@ const (
 	motionTickDelay      = 140 * time.Millisecond
 	completionSettle     = 850 * time.Millisecond
 	doubleInterruptDelay = 2 * time.Second
+	modelCatalogTimeout  = 8 * time.Second
 )
 
 type startupTickMsg struct{}
@@ -102,6 +104,7 @@ type model struct {
 	lastTotalTokens      *int
 	lastContextWindow    *float64
 	modelCatalog         *rpc.ModelCatalogResponse
+	modelCatalogLoading  bool
 	appVersion           string
 	skippedUpdateVersion string
 	updatePrompt         updatePromptState
@@ -136,8 +139,8 @@ func (m *model) Init() tea.Cmd {
 		waitForStartupTick(),
 		waitForMotionTick(),
 	}
-	if m.options.Backend != nil {
-		cmds = append(cmds, fetchModelCatalog(m.options.Backend))
+	if cmd := m.requestModelCatalog(); cmd != nil {
+		cmds = append(cmds, cmd)
 	}
 	if len(m.options.UpdateCommand) > 0 && m.options.AppVersion != "" {
 		cmds = append(cmds, fetchUpdatePrompt(m.options.AppVersion, m.options.UpdateCommand))
@@ -265,9 +268,12 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refreshViewport()
 		return m, nil
 	case modelCatalogLoadedMsg:
+		m.modelCatalogLoading = false
 		if msg.Err != nil {
-			m.transcript.WriteError(fmt.Sprintf("model catalog: %v", msg.Err))
-			m.refreshViewport()
+			if !errors.Is(msg.Err, context.DeadlineExceeded) && !errors.Is(msg.Err, context.Canceled) {
+				m.transcript.WriteError(fmt.Sprintf("model catalog: %v", msg.Err))
+				m.refreshViewport()
+			}
 			return m, nil
 		}
 		catalog := msg.Catalog
@@ -609,7 +615,7 @@ func (m *model) handleSlashCommand(command string) (tea.Model, tea.Cmd) {
 	case "/help":
 		m.transcript.WriteHelp()
 	case "/model":
-		m.handleModelCommand(arg)
+		return m.handleModelCommand(arg)
 	case "/thinking":
 		m.transcript.WriteNote("thinking", nil)
 		value := strings.TrimSpace(arg)
@@ -792,9 +798,17 @@ func listenAsync(ch <-chan tea.Msg) tea.Cmd {
 	}
 }
 
+func (m *model) requestModelCatalog() tea.Cmd {
+	if m.modelCatalog != nil || m.modelCatalogLoading || m.options.Backend == nil {
+		return nil
+	}
+	m.modelCatalogLoading = true
+	return fetchModelCatalog(m.options.Backend)
+}
+
 func fetchModelCatalog(backend *rpc.Manager) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), modelCatalogTimeout)
 		defer cancel()
 		catalog, err := backend.ModelCatalog(ctx)
 		return modelCatalogLoadedMsg{Catalog: catalog, Err: err}
