@@ -10,7 +10,7 @@ from just_another_coding_agent.contracts.session import (
 )
 from just_another_coding_agent.session.jsonl import load_session
 
-SESSION_PREVIEW_MAX_RUNS = 3
+SESSION_PREVIEW_MAX_RUNS = 10
 SESSION_PREVIEW_MAX_ENTRY_CHARS = 600
 
 

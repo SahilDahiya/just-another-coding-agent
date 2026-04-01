@@ -102,7 +102,7 @@ def test_build_session_preview_uses_recent_runs_only(tmp_path) -> None:
     workspace_root.mkdir()
     initialize_session(path=path, workspace_root=workspace_root)
 
-    for index in range(1, 6):
+    for index in range(1, 13):
         run_id = f"run-{index}"
         prompt = f"prompt {index}"
         output = f"answer {index}"
@@ -131,6 +131,20 @@ def test_build_session_preview_uses_recent_runs_only(tmp_path) -> None:
         ("assistant", "answer 4"),
         ("user", "prompt 5"),
         ("assistant", "answer 5"),
+        ("user", "prompt 6"),
+        ("assistant", "answer 6"),
+        ("user", "prompt 7"),
+        ("assistant", "answer 7"),
+        ("user", "prompt 8"),
+        ("assistant", "answer 8"),
+        ("user", "prompt 9"),
+        ("assistant", "answer 9"),
+        ("user", "prompt 10"),
+        ("assistant", "answer 10"),
+        ("user", "prompt 11"),
+        ("assistant", "answer 11"),
+        ("user", "prompt 12"),
+        ("assistant", "answer 12"),
     ]
 
 
