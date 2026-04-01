@@ -37,7 +37,7 @@ func (m *model) maybeStartOnboarding() {
 	if selectedProvider == "ollama" {
 		if m.modelCatalog != nil && m.ollamaCloudSelectionRequiresAuth() && !providerConfigured(*statuses, "ollama") {
 			m.startupOnboardingSet = true
-			if err := m.startCredentialSetup("ollama", "", "", ""); err != nil {
+			if err := m.startCredentialSetup("ollama", "", "", "", ""); err != nil {
 				m.transcript.WriteError(err.Error())
 			}
 		}
@@ -46,7 +46,7 @@ func (m *model) maybeStartOnboarding() {
 
 	if !providerConfigured(*statuses, selectedProvider) {
 		m.startupOnboardingSet = true
-		if err := m.startCredentialSetup(selectedProvider, "", "", ""); err != nil {
+		if err := m.startCredentialSetup(selectedProvider, "", "", "", ""); err != nil {
 			m.transcript.WriteError(err.Error())
 		}
 	}
@@ -194,24 +194,24 @@ func (m *model) completeOnboardingSelection() (tea.Model, tea.Cmd) {
 	case 1:
 		if kind == "ollama" {
 			m.onboarding = onboardingState{}
-			if err := m.startCredentialSetup("ollama", "ollama", "", "provider"); err != nil {
+			if err := m.startCredentialSetup("ollama", "ollama", "", "provider", ""); err != nil {
 				m.transcript.WriteError(err.Error())
 			}
 			m.refreshViewport()
 			return m, nil
 		}
 		m.onboarding = onboardingState{}
-		if err := m.startCredentialSetup("github", "github", "", "provider"); err != nil {
+		if err := m.startCredentialSetup("github", "github", "", "provider", ""); err != nil {
 			m.transcript.WriteError(err.Error())
 		}
 	case 2:
 		m.onboarding = onboardingState{}
-		if err := m.startCredentialSetup("openai", "openai", "", "provider"); err != nil {
+		if err := m.startCredentialSetup("openai", "openai", "", "provider", ""); err != nil {
 			m.transcript.WriteError(err.Error())
 		}
 	case 3:
 		m.onboarding = onboardingState{}
-		if err := m.startCredentialSetup("anthropic", "anthropic", "", "provider"); err != nil {
+		if err := m.startCredentialSetup("anthropic", "anthropic", "", "provider", ""); err != nil {
 			m.transcript.WriteError(err.Error())
 		}
 	}

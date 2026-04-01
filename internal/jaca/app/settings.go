@@ -13,7 +13,7 @@ import (
 	"jaca/internal/jaca/rpc"
 )
 
-const authStatusTimeout = 2 * time.Second
+const authStatusTimeout = 8 * time.Second
 
 func canonicalProviderName(raw string) string {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
@@ -66,7 +66,7 @@ func (m *model) handleModelCommand(arg string) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 	if !hasCreds {
-		if err := m.startCredentialSetup(provider, provider, value, ""); err != nil {
+		if err := m.startCredentialSetup(provider, provider, value, "", ""); err != nil {
 			m.transcript.WriteError(err.Error())
 			m.refreshViewport()
 			return m, cmd
@@ -140,7 +140,7 @@ func (m *model) handleAuthCommand(arg string) {
 	provider := canonicalProviderName(value)
 	switch provider {
 	case "openai", "anthropic", "github", "ollama":
-		if err := m.startCredentialSetup(provider, "", "", ""); err != nil {
+		if err := m.startCredentialSetup(provider, "", "", "", ""); err != nil {
 			m.transcript.WriteNote("auth", nil)
 			m.transcript.WriteError(err.Error())
 		}
@@ -157,7 +157,7 @@ func (m *model) handleProviderCommand(arg string) {
 		return
 	}
 	if startAuth != "" {
-		if err := m.startCredentialSetup(startAuth, startAuth, "", ""); err != nil {
+		if err := m.startCredentialSetup(startAuth, startAuth, "", "", ""); err != nil {
 			m.transcript.WriteError(err.Error())
 		}
 		return
@@ -298,11 +298,29 @@ func (m *model) providerHasCredentials(provider string) (bool, error) {
 	return false, fmt.Errorf("unknown provider: %s", provider)
 }
 
+func (m *model) providerHasCredentialsFresh(provider string) (bool, error) {
+	if provider == "ollama" {
+		return true, nil
+	}
+	statuses, err := m.fetchAuthStatus()
+	if err != nil {
+		return false, err
+	}
+	m.authStatus = &statuses
+	for _, status := range statuses.Providers {
+		if status.Provider == provider {
+			return status.Configured, nil
+		}
+	}
+	return false, fmt.Errorf("unknown provider: %s", provider)
+}
+
 func (m *model) startCredentialSetup(
 	provider string,
 	pendingProvider string,
 	pendingModel string,
 	returnToOnboardingKind string,
+	pendingPrompt string,
 ) error {
 	statuses, err := m.availableAuthStatus()
 	if err != nil {
@@ -319,11 +337,20 @@ func (m *model) startCredentialSetup(
 				statuses.LocalSecretStore.FileStorePath,
 				pendingProvider,
 				pendingModel,
+				pendingPrompt,
 				returnToOnboardingKind,
 			)
 			return nil
 		}
-		m.startAuthFlow(provider, "keychain", "", pendingProvider, pendingModel, returnToOnboardingKind)
+		m.startAuthFlow(
+			provider,
+			"keychain",
+			"",
+			pendingProvider,
+			pendingModel,
+			pendingPrompt,
+			returnToOnboardingKind,
+		)
 		return nil
 	}
 	return fmt.Errorf("unknown provider: %s", provider)

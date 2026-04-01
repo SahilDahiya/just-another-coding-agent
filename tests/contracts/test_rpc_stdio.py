@@ -286,7 +286,7 @@ async def test_handle_rpc_json_line_returns_backend_owned_model_catalog(
                     },
                     {
                         "provider": "github",
-                        "default_model_id": "github:openai/gpt-5",
+                        "default_model_id": "github:openai/gpt-4.1",
                         "models": [
                             {
                                 "model_id": "github:openai/gpt-5",

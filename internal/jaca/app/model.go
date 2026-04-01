@@ -44,6 +44,7 @@ const (
 	completionSettle     = 850 * time.Millisecond
 	doubleInterruptDelay = 2 * time.Second
 	modelCatalogTimeout  = 8 * time.Second
+	authStatusRetryDelay = 750 * time.Millisecond
 )
 
 type startupTickMsg struct{}
@@ -75,6 +76,8 @@ type authStatusLoadedMsg struct {
 	Status rpc.AuthStatusResponse
 	Err    error
 }
+
+type authStatusRetryMsg struct{}
 
 type onboardingState struct {
 	Active   bool
@@ -318,6 +321,9 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case authStatusLoadedMsg:
 		m.authStatusLoading = false
 		if msg.Err != nil {
+			if errors.Is(msg.Err, context.DeadlineExceeded) || errors.Is(msg.Err, context.Canceled) {
+				return m, waitForAuthStatusRetry()
+			}
 			if !errors.Is(msg.Err, context.DeadlineExceeded) && !errors.Is(msg.Err, context.Canceled) {
 				m.transcript.WriteError(fmt.Sprintf("auth status: %v", msg.Err))
 				m.refreshViewport()
@@ -329,6 +335,8 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.maybeStartOnboarding()
 		m.refreshViewport()
 		return m, nil
+	case authStatusRetryMsg:
+		return m, m.requestAuthStatus()
 	case updateCheckMsg:
 		if msg.Err != nil || msg.LatestVersion == "" || msg.LatestVersion == m.skippedUpdateVersion {
 			return m, nil
@@ -607,6 +615,7 @@ func (m *model) handleEscape() (tea.Model, tea.Cmd) {
 	if m.auth.Active {
 		returnKind := m.auth.ReturnToOnboardingKind
 		provider := m.auth.Provider
+		pendingPrompt := m.auth.PendingPrompt
 		m.endAuthFlow()
 		if returnKind != "" {
 			m.onboarding = onboardingState{
@@ -614,6 +623,8 @@ func (m *model) handleEscape() (tea.Model, tea.Cmd) {
 				Kind:     returnKind,
 				Selected: onboardingSelectionForProvider(provider),
 			}
+		} else {
+			m.restorePendingPrompt(pendingPrompt)
 		}
 		m.refreshViewport()
 		return m, nil
@@ -673,6 +684,20 @@ func (m *model) handleEnter() (tea.Model, tea.Cmd) {
 	}
 	if m.auth.Active {
 		return m.handleAuthEnter()
+	}
+	provider := m.currentProvider()
+	hasCreds, err := m.providerHasCredentialsFresh(provider)
+	if err != nil {
+		m.transcript.WriteError(err.Error())
+		m.refreshViewport()
+		return m, nil
+	}
+	if !hasCreds {
+		if err := m.startCredentialSetup(provider, "", "", "", prompt); err != nil {
+			m.transcript.WriteError(err.Error())
+		}
+		m.refreshViewport()
+		return m, nil
 	}
 	m.recordPromptHistory(prompt)
 	m.textInput.SetValue("")
@@ -926,6 +951,12 @@ func fetchAuthStatus(backend Backend) tea.Cmd {
 		status, err := backend.AuthStatus(ctx)
 		return authStatusLoadedMsg{Status: status, Err: err}
 	}
+}
+
+func waitForAuthStatusRetry() tea.Cmd {
+	return tea.Tick(authStatusRetryDelay, func(time.Time) tea.Msg {
+		return authStatusRetryMsg{}
+	})
 }
 
 func (m *model) scheduleLiveFlush() tea.Cmd {

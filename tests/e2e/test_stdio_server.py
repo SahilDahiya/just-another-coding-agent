@@ -231,7 +231,7 @@ async def test_serve_rpc_stdio_supports_model_catalog(
     assert messages[0]["response"]["providers"][1]["provider"] == "github"
     assert (
         messages[0]["response"]["providers"][1]["default_model_id"]
-        == "github:openai/gpt-5"
+        == "github:openai/gpt-4.1"
     )
 
 

@@ -16,6 +16,7 @@ type authState struct {
 	FileStorePath          string
 	PendingProvider        string
 	PendingModel           string
+	PendingPrompt          string
 	ReturnToOnboardingKind string
 }
 
@@ -25,6 +26,7 @@ func (m *model) startAuthFlow(
 	fileStorePath string,
 	pendingProvider string,
 	pendingModel string,
+	pendingPrompt string,
 	returnToOnboardingKind string,
 ) {
 	m.auth = authState{
@@ -34,6 +36,7 @@ func (m *model) startAuthFlow(
 		FileStorePath:          fileStorePath,
 		PendingProvider:        pendingProvider,
 		PendingModel:           pendingModel,
+		PendingPrompt:          pendingPrompt,
 		ReturnToOnboardingKind: returnToOnboardingKind,
 	}
 	m.textInput.SetValue("")
@@ -76,7 +79,9 @@ func (m *model) handleAuthEnter() (tea.Model, tea.Cmd) {
 	}
 
 	if m.options.Backend == nil {
+		pendingPrompt := m.auth.PendingPrompt
 		m.endAuthFlow()
+		m.restorePendingPrompt(pendingPrompt)
 		m.transcript.WriteError("backend unavailable")
 		m.refreshViewport()
 		return m, nil
@@ -90,7 +95,9 @@ func (m *model) handleAuthEnter() (tea.Model, tea.Cmd) {
 		m.auth.Storage,
 	)
 	if err != nil {
+		pendingPrompt := m.auth.PendingPrompt
 		m.endAuthFlow()
+		m.restorePendingPrompt(pendingPrompt)
 		m.transcript.WriteError(err.Error())
 		m.refreshViewport()
 		return m, nil
@@ -125,7 +132,9 @@ func (m *model) handleAuthEnter() (tea.Model, tea.Cmd) {
 			m.auth.PendingProvider,
 		)
 		if err != nil {
+			pendingPrompt := m.auth.PendingPrompt
 			m.endAuthFlow()
+			m.restorePendingPrompt(pendingPrompt)
 			m.transcript.WriteError(err.Error())
 			m.refreshViewport()
 			return m, nil
@@ -135,7 +144,9 @@ func (m *model) handleAuthEnter() (tea.Model, tea.Cmd) {
 	} else if m.auth.PendingProvider != "" {
 		selectedLines, selectedRestart, err := m.applyProviderSelection(m.auth.PendingProvider)
 		if err != nil {
+			pendingPrompt := m.auth.PendingPrompt
 			m.endAuthFlow()
+			m.restorePendingPrompt(pendingPrompt)
 			m.transcript.WriteError(err.Error())
 			m.refreshViewport()
 			return m, nil
@@ -144,7 +155,9 @@ func (m *model) handleAuthEnter() (tea.Model, tea.Cmd) {
 		restart = selectedRestart
 	}
 
+	pendingPrompt := m.auth.PendingPrompt
 	m.endAuthFlow()
+	m.restorePendingPrompt(pendingPrompt)
 	for _, line := range lines {
 		m.transcript.WriteLine(line)
 	}
@@ -153,6 +166,15 @@ func (m *model) handleAuthEnter() (tea.Model, tea.Cmd) {
 	}
 	m.refreshViewport()
 	return m, nil
+}
+
+func (m *model) restorePendingPrompt(prompt string) {
+	if strings.TrimSpace(prompt) == "" {
+		return
+	}
+	m.textInput.SetValue(prompt)
+	m.textInput.CursorEnd()
+	m.syncSlashMenu()
 }
 
 func authSetupLines(provider string) []string {

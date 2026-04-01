@@ -19,17 +19,17 @@ func intPtr(v int) *int { return &v }
 func floatPtr(v float64) *float64 { return &v }
 
 type stubBackend struct {
-	model           string
-	modelCatalog    rpc.ModelCatalogResponse
-	modelCatalogErr error
-	authStatuses    map[string]rpc.AuthProviderStatus
+	model            string
+	modelCatalog     rpc.ModelCatalogResponse
+	modelCatalogErr  error
+	authStatuses     map[string]rpc.AuthProviderStatus
 	localSecretStore rpc.LocalSecretStoreStatus
-	authStatusErr   error
-	setSecretErr    error
-	clearSecretErr  error
-	restarts        int
-	lastSetSecret   rpc.AuthSetPayload
-	lastCleared     string
+	authStatusErr    error
+	setSecretErr     error
+	clearSecretErr   error
+	restarts         int
+	lastSetSecret    rpc.AuthSetPayload
+	lastCleared      string
 }
 
 func newStubBackend() *stubBackend {
@@ -199,7 +199,7 @@ func testModelCatalog() *rpc.ModelCatalogResponse {
 			},
 			{
 				Provider:       "github",
-				DefaultModelID: "github:openai/gpt-5",
+				DefaultModelID: "github:openai/gpt-4.1",
 				Models: []rpc.ModelCatalogModel{
 					{ModelID: "github:openai/gpt-5", Description: "GitHub Models GPT-5"},
 					{ModelID: "github:openai/gpt-5-mini", Description: "GitHub Models GPT-5 mini"},
@@ -973,6 +973,35 @@ func TestStartupAuthStatusAutoStartsAuthForPersistedProviderWithoutCredentials(t
 	}
 }
 
+func TestStartupAuthStatusTimeoutSchedulesRetry(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	if err := config.SaveDefaultProvider("github"); err != nil {
+		t.Fatalf("SaveDefaultProvider() returned error: %v", err)
+	}
+	if err := config.SaveDefaultModel("github:openai/gpt-4.1"); err != nil {
+		t.Fatalf("SaveDefaultModel() returned error: %v", err)
+	}
+
+	m := newTestModel()
+	m.options.Model = "github:openai/gpt-4.1"
+
+	updated, cmd := m.Update(authStatusLoadedMsg{Err: context.DeadlineExceeded})
+	m = updated.(*model)
+
+	if m.auth.Active {
+		t.Fatal("startup auth should not enter auth flow before retry completes")
+	}
+	if cmd == nil {
+		t.Fatal("auth status timeout should schedule a retry")
+	}
+	msg := cmd()
+	if _, ok := msg.(authStatusRetryMsg); !ok {
+		t.Fatalf("retry cmd returned %T, want authStatusRetryMsg", msg)
+	}
+}
+
 func TestStartupAuthStatusAutoStartsAuthForPersistedHostedOllamaSelection(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -1169,6 +1198,94 @@ func TestProviderWithoutKeychainStartsLocalFileAuthFlow(t *testing.T) {
 	}
 }
 
+func TestPromptWithMissingGitHubCredentialsStartsAuthInsteadOfRun(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("GITHUB_API_KEY", "")
+
+	if err := config.SaveDefaultProvider("github"); err != nil {
+		t.Fatalf("SaveDefaultProvider() returned error: %v", err)
+	}
+	if err := config.SaveDefaultModel("github:openai/gpt-4.1"); err != nil {
+		t.Fatalf("SaveDefaultModel() returned error: %v", err)
+	}
+
+	backend := newStubBackend()
+	message := "No supported OS keychain backend is available for local provider secret storage."
+	backend.localSecretStore = rpc.LocalSecretStoreStatus{
+		Available:     false,
+		Message:       &message,
+		FileStorePath: filepath.Join(home, ".jaca", "secrets.json"),
+	}
+	m := newTestModel()
+	m.options.Backend = backend
+	m.options.Model = "github:openai/gpt-4.1"
+
+	m = sendRunes(m, "hello")
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(*model)
+
+	if !m.auth.Active {
+		t.Fatal("missing github credentials should open auth instead of starting a run")
+	}
+	if m.streaming {
+		t.Fatal("model run should not start when provider credentials are missing")
+	}
+}
+
+func TestPromptRefreshesAuthStatusBeforeStartingRun(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("GITHUB_API_KEY", "")
+
+	if err := config.SaveDefaultProvider("github"); err != nil {
+		t.Fatalf("SaveDefaultProvider() returned error: %v", err)
+	}
+	if err := config.SaveDefaultModel("github:openai/gpt-4.1"); err != nil {
+		t.Fatalf("SaveDefaultModel() returned error: %v", err)
+	}
+
+	backend := newStubBackend()
+	message := "No supported OS keychain backend is available for local provider secret storage."
+	backend.localSecretStore = rpc.LocalSecretStoreStatus{
+		Available:     false,
+		Message:       &message,
+		FileStorePath: filepath.Join(home, ".jaca", "secrets.json"),
+	}
+	backend.authStatuses["github"] = rpc.AuthProviderStatus{
+		Provider:   "github",
+		Configured: true,
+		Source:     "file",
+		EnvKey:     "GITHUB_API_KEY",
+	}
+	m := newTestModel()
+	m.options.Backend = backend
+	m.options.Model = "github:openai/gpt-4.1"
+	m.authStatus = &rpc.AuthStatusResponse{
+		Providers: []rpc.AuthProviderStatus{
+			{
+				Provider:   "github",
+				Configured: true,
+				Source:     "file",
+				EnvKey:     "GITHUB_API_KEY",
+			},
+		},
+		LocalSecretStore: backend.localSecretStore,
+	}
+	delete(backend.authStatuses, "github")
+
+	m = sendRunes(m, "hello")
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(*model)
+
+	if !m.auth.Active {
+		t.Fatal("fresh auth status should reopen auth when credentials disappeared")
+	}
+	if m.streaming {
+		t.Fatal("model run should not start when refreshed auth status reports missing credentials")
+	}
+}
+
 func TestGitHubProviderWithoutCredentialsStartsMaskedAuthFlow(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -1243,6 +1360,65 @@ func TestGitHubAuthSubmissionAppliesPendingModelSelection(t *testing.T) {
 	}
 	if backend.lastSetSecret.Provider != "github" || backend.lastSetSecret.Secret != "gh-token" || backend.lastSetSecret.Storage != "keychain" {
 		t.Fatalf("backend lastSetSecret = %#v", backend.lastSetSecret)
+	}
+}
+
+func TestPromptRequiringAuthIsRestoredAfterSuccessfulSubmission(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("OPENAI_API_KEY", "")
+
+	backend := newStubBackend()
+	m := newTestModel()
+	m.options.Backend = backend
+	m.options.Model = "openai:gpt-5.4"
+
+	m = sendRunes(m, "run go tests")
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(*model)
+	if !m.auth.Active {
+		t.Fatal("missing credentials should open auth")
+	}
+
+	m = sendRunes(m, "openai-token")
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(*model)
+
+	if got := m.textInput.Value(); got != "run go tests" {
+		t.Fatalf("textInput.Value() = %q, want original prompt restored", got)
+	}
+	if m.auth.Active {
+		t.Fatal("auth overlay should close after successful auth")
+	}
+	if m.streaming {
+		t.Fatal("successful auth should restore the prompt, not start the run automatically")
+	}
+}
+
+func TestPromptRequiringAuthIsRestoredOnEscape(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("OPENAI_API_KEY", "")
+
+	m := newTestModel()
+	m.options.Backend = newStubBackend()
+	m.options.Model = "openai:gpt-5.4"
+
+	m = sendRunes(m, "run go tests")
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(*model)
+	if !m.auth.Active {
+		t.Fatal("missing credentials should open auth")
+	}
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = updated.(*model)
+
+	if got := m.textInput.Value(); got != "run go tests" {
+		t.Fatalf("textInput.Value() = %q, want original prompt restored", got)
+	}
+	if m.auth.Active {
+		t.Fatal("auth overlay should close after escape")
 	}
 }
 
