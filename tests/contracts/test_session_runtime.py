@@ -780,6 +780,68 @@ def test_should_auto_compact_again_after_new_large_run_post_compaction(
     )
 
 
+def test_should_fail_auto_compaction_for_retained_run_boundary(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    session_path = tmp_path / "session.jsonl"
+    large_prompt = "z" * 400_000
+
+    for run_id in ["run-1", "run-2", "run-3"]:
+        append_run_to_session(
+            path=session_path,
+            workspace_root=workspace_root,
+            prompt=large_prompt,
+            thinking=None,
+            messages=[ModelRequest(parts=[UserPromptPart(content=large_prompt)])],
+            events=[
+                RunStartedEvent(run_id=run_id),
+                RunSucceededEvent(run_id=run_id, output_text="done"),
+            ],
+        )
+
+    session_path.write_text(
+        session_path.read_text(encoding="utf-8")
+        + json.dumps(
+            {
+                "type": "session_compaction",
+                "compaction_id": "compact-1",
+                "summarized_through_run_id": "run-1",
+                "first_kept_run_id": "run-2",
+                "summary": {
+                    "current_objective": "continue from retained runs",
+                    "established_facts": ["run-1 is summarized"],
+                    "user_preferences": [],
+                    "important_paths": [],
+                    "read_paths": [],
+                    "modified_paths": [],
+                    "recent_shell_commands": [],
+                    "recent_failures": [],
+                    "open_questions": [],
+                    "unresolved_work": ["finish the task"],
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    loaded = load_session(path=session_path, workspace_root=workspace_root)
+
+    with pytest.raises(
+        RuntimeError,
+        match=(
+            "Auto-compaction trigger does not support retained-run "
+            "compaction boundaries"
+        ),
+    ):
+        session_summary_module.should_auto_compact_session(
+            loaded,
+            model="ollama:glm-5:cloud",
+        )
+
+
 async def test_stream_session_run_events_replays_compacted_history_keeps_messages_raw(
     tmp_path,
 ) -> None:

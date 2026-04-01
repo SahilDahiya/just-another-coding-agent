@@ -36,9 +36,6 @@ def should_auto_compact_session(
     if not loaded_session.runs:
         return False
 
-    if runs_since_latest_compaction(loaded_session) == 0:
-        return False
-
     context_window_tokens = get_context_window_tokens(model)
     if context_window_tokens is None:
         return False
@@ -47,10 +44,26 @@ def should_auto_compact_session(
     compaction_trigger_budget_tokens = int(
         context_window_tokens * SESSION_AUTO_COMPACTION_CONTEXT_WINDOW_UTILIZATION
     )
-    return (
+    if (
         estimated_resume_history_tokens + SESSION_AUTO_COMPACTION_PROMPT_RESERVE_TOKENS
-        >= compaction_trigger_budget_tokens
-    )
+        < compaction_trigger_budget_tokens
+    ):
+        return False
+
+    latest_compaction = loaded_session.latest_compaction
+    if (
+        latest_compaction is not None
+        and latest_compaction.first_kept_run_id is not None
+    ):
+        raise RuntimeError(
+            "Auto-compaction trigger does not support retained-run "
+            "compaction boundaries"
+        )
+
+    if runs_since_latest_compaction(loaded_session) == 0:
+        return False
+
+    return True
 
 
 def _estimate_resume_history_tokens(loaded_session: LoadedSession) -> int:

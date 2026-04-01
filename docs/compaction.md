@@ -52,6 +52,16 @@ The current automatic trigger is pre-run and token-budget-aware:
   context-window metadata so this trigger cannot silently degrade when the
   model surface changes
 
+One explicit limitation remains:
+
+- if a compaction entry keeps native runs via `first_kept_run_id`, the current
+  auto-compaction trigger fails hard when that retained-run boundary would
+  otherwise need automatic compaction, instead of guessing how many runs are
+  genuinely new since the partial-kept boundary
+- that retained-run trigger policy will need a later contract extension before
+  partial-kept durable compaction can participate in automatic pre-run
+  compaction safely
+
 The compaction source is intentionally not a raw transcript dump. It uses:
 
 - the latest durable compaction summary, when present
