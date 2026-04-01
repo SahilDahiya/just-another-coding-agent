@@ -47,6 +47,9 @@ Rules:
 - The shipped provider surface currently includes `ollama`, `github`,
   `openai`, and `anthropic`, and new picker-visible providers must be added in
   the backend-owned catalog before the TUI can render them.
+- Auth status and local secret-store shapes are backend-owned contract types in
+  `contracts/auth.py`; runtime auth code and RPC models both import those
+  shared contract models rather than defining or mirroring them locally.
 - Local provider-secret resolution is backend-owned and uses this precedence:
   environment, then OS keychain, then explicit local secret file, then hard
   failure.

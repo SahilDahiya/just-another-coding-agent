@@ -4,16 +4,17 @@ import json
 import os
 import stat
 from pathlib import Path
-from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
-
+from just_another_coding_agent.contracts.auth import (
+    AuthSource,
+    AuthStorageKind,
+    LocalSecretStoreStatus,
+    ProviderAuthStatus,
+)
 from just_another_coding_agent.contracts.model_catalog import ProviderName
 
 SECRET_STORE_SERVICE = "just-another-coding-agent"
 SECRET_FILE_PATH = Path.home() / ".jaca" / "secrets.json"
-AuthSource = Literal["env", "keychain", "file", "none"]
-AuthStorageKind = Literal["keychain", "file"]
 
 PROVIDER_SECRET_ENV_KEYS: dict[ProviderName, str] = {
     "ollama": "OLLAMA_API_KEY",
@@ -21,24 +22,6 @@ PROVIDER_SECRET_ENV_KEYS: dict[ProviderName, str] = {
     "anthropic": "ANTHROPIC_API_KEY",
     "github": "GITHUB_API_KEY",
 }
-
-
-class ProviderAuthStatus(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    provider: ProviderName
-    configured: bool
-    source: AuthSource
-    env_key: str
-
-
-class LocalSecretStoreStatus(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    available: bool
-    message: str | None = None
-    file_store_path: str
-
 
 class AuthStoreError(RuntimeError):
     pass

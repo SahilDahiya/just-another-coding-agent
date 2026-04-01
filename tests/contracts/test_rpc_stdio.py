@@ -11,7 +11,8 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 
-from just_another_coding_agent.auth import AuthStoreError, ProviderAuthStatus
+from just_another_coding_agent.auth import AuthStoreError
+from just_another_coding_agent.contracts.auth import ProviderAuthStatus
 from just_another_coding_agent.rpc.session_store import session_path_for_id
 from just_another_coding_agent.rpc.stdio import handle_rpc_json_line
 from just_another_coding_agent.session import load_session

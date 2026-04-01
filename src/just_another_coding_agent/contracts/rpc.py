@@ -4,13 +4,8 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
-from just_another_coding_agent.auth import (
-    LocalSecretStoreStatus as RpcLocalSecretStoreStatus,
-)
-from just_another_coding_agent.auth import (
-    ProviderAuthStatus as AuthProviderStatus,
-)
-
+from .auth import LocalSecretStoreStatus as RpcLocalSecretStoreStatus
+from .auth import ProviderAuthStatus as AuthProviderStatus
 from .model_catalog import ProviderName
 from .run_events import RunEvent, SessionLifecycleEvent
 from .session import SessionCompactionSummary as SessionCompactSummary

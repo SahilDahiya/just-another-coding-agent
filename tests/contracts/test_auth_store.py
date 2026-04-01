@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from just_another_coding_agent.auth import (
@@ -114,6 +116,10 @@ def test_missing_keyring_backend_is_tolerated_for_optional_lookup(monkeypatch) -
     monkeypatch.setattr(
         "just_another_coding_agent.auth._load_keyring",
         lambda: _FailingKeyring(),
+    )
+    monkeypatch.setattr(
+        "just_another_coding_agent.auth.SECRET_FILE_PATH",
+        Path("/tmp/pytest-jaca-no-secrets.json"),
     )
     monkeypatch.delenv("OLLAMA_API_KEY", raising=False)
 
