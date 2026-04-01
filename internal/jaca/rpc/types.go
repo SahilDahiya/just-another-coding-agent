@@ -13,6 +13,11 @@ type Request struct {
 
 type SessionCreatePayload struct{}
 
+type SessionNamePayload struct {
+	SessionID string `json:"session_id"`
+	Name      string `json:"name"`
+}
+
 type ModelCatalogPayload struct{}
 
 type AuthStatusPayload struct{}
@@ -59,6 +64,11 @@ type ErrorEnvelope struct {
 
 type SessionCreateResponse struct {
 	SessionID string `json:"session_id"`
+}
+
+type SessionNameResponse struct {
+	SessionID string `json:"session_id"`
+	Name      string `json:"name"`
 }
 
 type ModelCatalogModel struct {

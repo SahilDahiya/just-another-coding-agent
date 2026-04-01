@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from collections.abc import Sequence
 from pathlib import Path
 from typing import TextIO
@@ -37,7 +38,9 @@ from just_another_coding_agent.contracts.session import (
     SessionEntry,
     SessionEventEntry,
     SessionHeaderEntry,
+    SessionInfoEntry,
     SessionMessagesEntry,
+    SessionName,
     SessionRunEntry,
     SessionRunRecord,
 )
@@ -45,10 +48,15 @@ from just_another_coding_agent.contracts.thinking import ThinkingSetting
 from just_another_coding_agent.tools._workspace import normalize_workspace_root
 
 _SESSION_ENTRY_ADAPTER = TypeAdapter(SessionEntry)
+_SESSION_NAME_ADAPTER = TypeAdapter(SessionName)
 
 
 class SessionFormatError(ValueError):
     """Raised when persisted session data violates the canonical JSONL contract."""
+
+
+class SessionNameValidationError(ValueError):
+    """Raised when a requested session name cannot be normalized safely."""
 
 
 class SessionRunAppender:
@@ -200,6 +208,27 @@ def append_compaction_to_session(
     return entry
 
 
+def append_session_name_to_session(
+    *,
+    path: Path,
+    workspace_root: Path | str,
+    shell_family: ShellFamily | None = None,
+    name: str,
+) -> SessionName:
+    normalized_workspace_root = normalize_workspace_root(workspace_root)
+    load_session(
+        path=path,
+        workspace_root=normalized_workspace_root,
+        shell_family=shell_family,
+    )
+    normalized_name = normalize_session_name(name)
+    entry = SessionInfoEntry(name=normalized_name)
+    with path.open("a", encoding="utf-8") as file_handle:
+        _write_entry(file_handle, entry)
+        _flush_file_handle(file_handle)
+    return normalized_name
+
+
 def load_session(
     *,
     path: Path,
@@ -215,6 +244,7 @@ def load_session(
         raise SessionFormatError("Session file is empty")
 
     header: SessionHeaderEntry | None = None
+    name: SessionName | None = None
     runs: list[SessionRunRecord] = []
     compactions: list[SessionCompactionEntry] = []
     current_run: SessionRunRecord | None = None
@@ -256,6 +286,14 @@ def load_session(
                 events=[],
             )
             known_run_ids.add(entry.run_id)
+            continue
+
+        if isinstance(entry, SessionInfoEntry):
+            if current_run is not None:
+                raise SessionFormatError(
+                    "Session info entry must not appear inside an incomplete run"
+                )
+            name = entry.name
             continue
 
         if isinstance(entry, SessionMessagesEntry):
@@ -340,7 +378,12 @@ def load_session(
     if current_run is not None:
         raise SessionFormatError("Session ended with incomplete run")
 
-    return LoadedSession(header=header, runs=runs, compactions=compactions)
+    return LoadedSession(
+        header=header,
+        name=name,
+        runs=runs,
+        compactions=compactions,
+    )
 
 
 def _extract_run_id(events: Sequence[RunEvent]) -> str:
@@ -483,6 +526,15 @@ def start_run_to_session(
     )
 
 
+def normalize_session_name(name: str) -> SessionName:
+    normalized = re.sub(r"[^a-z0-9]+", "-", name.strip().lower()).strip("-")
+    if not normalized:
+        raise SessionNameValidationError(
+            "Session name must contain at least one letter or number"
+        )
+    return _SESSION_NAME_ADAPTER.validate_python(normalized)
+
+
 def _parse_entry(*, raw_line: str, line_number: int) -> SessionEntry:
     try:
         payload = json.loads(raw_line)
@@ -511,6 +563,7 @@ def _write_entry(
     file_handle: TextIO,
     entry: (
         SessionHeaderEntry
+        | SessionInfoEntry
         | SessionRunEntry
         | SessionMessagesEntry
         | SessionEventEntry
@@ -525,6 +578,7 @@ def _append_entry_to_path(
     path: Path,
     entry: (
         SessionHeaderEntry
+        | SessionInfoEntry
         | SessionRunEntry
         | SessionMessagesEntry
         | SessionEventEntry

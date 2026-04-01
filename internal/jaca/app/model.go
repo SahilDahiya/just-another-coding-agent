@@ -21,6 +21,8 @@ type Options struct {
 	Model                string
 	WorkspaceRoot        string
 	SessionsRoot         string
+	SessionID            string
+	SessionName          string
 	Thinking             string
 	Backend              Backend
 	UpdateCommand        []string
@@ -89,6 +91,7 @@ type model struct {
 	options              Options
 	phase                Phase
 	sessionID            string
+	sessionName          string
 	textInput            textinput.Model
 	viewport             viewport.Model
 	transcript           *Transcript
@@ -141,10 +144,24 @@ func New(options Options) tea.Model {
 	transcript := NewTranscript()
 	transcript.WriteStartupBanner(options.AppVersion, options.Model, options.WorkspaceRoot, options.Thinking)
 	startupOnboardingSet, onboarding := initialOnboardingState()
+	if options.SessionID != "" {
+		startupOnboardingSet = false
+		onboarding = onboardingState{}
+		lines := []string{fmt.Sprintf("resumed %s", options.SessionID)}
+		if options.SessionName != "" {
+			lines = []string{
+				fmt.Sprintf("resumed %s", options.SessionName),
+				fmt.Sprintf("id: %s", options.SessionID),
+			}
+		}
+		transcript.WriteNote("session", lines)
+	}
 
 	return &model{
 		options:              options,
 		phase:                PhaseIdle,
+		sessionID:            options.SessionID,
+		sessionName:          options.SessionName,
 		textInput:            input,
 		viewport:             newViewport(),
 		transcript:           transcript,
@@ -233,6 +250,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.sessionID = msg.SessionID
+		m.sessionName = ""
 		return m, listenAsync(m.asyncCh)
 	case runEventMsg:
 		if msg.Err != nil {
@@ -764,12 +782,9 @@ func (m *model) handleSlashCommand(command string) (tea.Model, tea.Cmd) {
 		m.transcript.WriteNote("workspace", nil)
 		m.transcript.WriteLine(fmt.Sprintf("workspace: %s", displayPath(m.options.WorkspaceRoot)))
 	case "/session":
-		m.transcript.WriteNote("session", nil)
-		if m.sessionID == "" {
-			m.transcript.WriteLine("no active session")
-		} else {
-			m.transcript.WriteLine(fmt.Sprintf("session: %s", m.sessionID))
-		}
+		m.writeSessionInfo()
+	case "/name":
+		m.handleSessionNameCommand(strings.TrimSpace(arg))
 	case "/provider":
 		m.handleProviderCommand(strings.TrimSpace(arg))
 	case "/auth":
@@ -796,6 +811,7 @@ func (m *model) handleSlashCommand(command string) (tea.Model, tea.Cmd) {
 	case "/new":
 		m.transcript.WriteNote("session", nil)
 		m.sessionID = ""
+		m.sessionName = ""
 		m.phase = PhaseIdle
 		m.transcript.WriteLine("session cleared")
 	case "/quit":

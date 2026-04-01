@@ -13,6 +13,7 @@ type Backend interface {
 	Shutdown(ctx context.Context) error
 	Interrupt(ctx context.Context) error
 	CreateSession(ctx context.Context) (string, error)
+	SetSessionName(ctx context.Context, sessionID string, name string) (rpc.SessionNameResponse, error)
 	CompactSession(ctx context.Context, sessionID string) (rpc.SessionCompactResponse, error)
 	ModelCatalog(ctx context.Context) (rpc.ModelCatalogResponse, error)
 	AuthStatus(ctx context.Context) (rpc.AuthStatusResponse, error)

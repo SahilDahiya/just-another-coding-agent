@@ -30,6 +30,8 @@ def test_main_launches_go_tui_for_interactive_mode(
         "resolve_go_tui_launch",
         lambda: ([str(go_binary)], None),
     )
+    monkeypatch.delenv("JACA_MODEL", raising=False)
+    monkeypatch.setattr(entry, "load_config", lambda: {})
     monkeypatch.setattr(
         entry,
         "default_backend_command",
@@ -84,6 +86,93 @@ def test_main_launches_go_tui_for_interactive_mode(
             UPDATE_COMMAND_JSON,
             "--thinking",
             "high",
+        ],
+        "check": False,
+        "cwd": None,
+    }
+
+
+def test_main_resume_launches_go_tui_with_resolved_session(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    go_binary = tmp_path / ("jaca-go.exe" if os.name == "nt" else "jaca-go")
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        entry,
+        "resolve_go_tui_launch",
+        lambda: ([str(go_binary)], None),
+    )
+    monkeypatch.delenv("JACA_MODEL", raising=False)
+    monkeypatch.setattr(entry, "load_config", lambda: {})
+    monkeypatch.setattr(
+        entry,
+        "default_backend_command",
+        lambda: ["/tmp/fake-python", "-m", "just_another_coding_agent"],
+    )
+    monkeypatch.setattr(entry, "package_version", lambda: "0.1.4")
+    monkeypatch.setattr(
+        entry,
+        "explicit_update_command_json",
+        lambda repo_root=None: UPDATE_COMMAND_JSON,
+    )
+    monkeypatch.setattr(
+        entry,
+        "resolve_session_reference",
+        lambda **_: SimpleNamespace(
+            session_id="0123456789abcdef0123456789abcdef",
+            name="auth-store-cleanup",
+        ),
+    )
+
+    def fake_run(command, *, check, cwd=None):
+        captured["command"] = command
+        captured["check"] = check
+        captured["cwd"] = cwd
+        return SimpleNamespace(returncode=23)
+
+    monkeypatch.setattr(
+        "just_another_coding_agent.__main__.subprocess.run",
+        fake_run,
+    )
+
+    exit_code = main(
+        [
+            "resume",
+            "Auth",
+            "Store",
+            "Cleanup",
+            "--workspace-root",
+            str(workspace_root),
+            "--sessions-root",
+            str(sessions_root),
+        ]
+    )
+
+    assert exit_code == 23
+    assert captured == {
+        "command": [
+            str(go_binary),
+            "--backend-command-json",
+            json.dumps(["/tmp/fake-python", "-m", "just_another_coding_agent"]),
+            "--app-version",
+            "0.1.4",
+            "--model",
+            "ollama:kimi-k2:1t-cloud",
+            "--workspace-root",
+            str(workspace_root.resolve()),
+            "--sessions-root",
+            str(sessions_root.resolve()),
+            "--update-command-json",
+            UPDATE_COMMAND_JSON,
+            "--session-id",
+            "0123456789abcdef0123456789abcdef",
+            "--session-name",
+            "auth-store-cleanup",
         ],
         "check": False,
         "cwd": None,

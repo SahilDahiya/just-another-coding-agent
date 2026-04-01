@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 from pydantic_ai.messages import ModelMessage
 
 from .platform import ShellFamily
@@ -10,6 +10,10 @@ from .run_events import RunEvent
 from .thinking import ThinkingSetting
 
 SESSION_FORMAT_VERSION = 7
+SessionName = Annotated[
+    str,
+    StringConstraints(pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$"),
+]
 
 
 class _SessionEntryBase(BaseModel):
@@ -28,6 +32,11 @@ class SessionRunEntry(_SessionEntryBase):
     run_id: str
     prompt: str
     thinking: ThinkingSetting | None = None
+
+
+class SessionInfoEntry(_SessionEntryBase):
+    type: Literal["session_info"] = "session_info"
+    name: SessionName
 
 
 class SessionMessagesEntry(_SessionEntryBase):
@@ -65,6 +74,7 @@ class SessionCompactionEntry(_SessionEntryBase):
 
 SessionEntry = Annotated[
     SessionHeaderEntry
+    | SessionInfoEntry
     | SessionRunEntry
     | SessionMessagesEntry
     | SessionEventEntry
@@ -83,6 +93,7 @@ class SessionRunRecord(_SessionEntryBase):
 
 class LoadedSession(_SessionEntryBase):
     header: SessionHeaderEntry
+    name: SessionName | None = None
     runs: list[SessionRunRecord]
     compactions: list[SessionCompactionEntry] = Field(default_factory=list)
 
@@ -112,7 +123,9 @@ __all__ = [
     "SessionEntry",
     "SessionEventEntry",
     "SessionHeaderEntry",
+    "SessionInfoEntry",
     "SessionMessagesEntry",
+    "SessionName",
     "SessionRunEntry",
     "SessionRunRecord",
 ]

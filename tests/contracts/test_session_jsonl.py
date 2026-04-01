@@ -32,6 +32,7 @@ from just_another_coding_agent.session.jsonl import (
     SessionFormatError,
     append_compaction_to_session,
     append_run_to_session,
+    append_session_name_to_session,
     initialize_session,
     load_session,
 )
@@ -90,6 +91,47 @@ async def test_append_and_load_session_with_runtime_events(tmp_path) -> None:
     assert loaded.runs[0].events == events
     assert loaded.message_history == messages
     assert loaded.thinking == "high"
+
+
+def test_append_session_name_to_session_normalizes_and_persists_name(tmp_path) -> None:
+    path = tmp_path / "session.jsonl"
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    initialize_session(path=path, workspace_root=workspace_root)
+
+    name = append_session_name_to_session(
+        path=path,
+        workspace_root=workspace_root,
+        name="Auth Store Cleanup",
+    )
+    loaded = load_session(path=path, workspace_root=workspace_root)
+
+    assert name == "auth-store-cleanup"
+    assert loaded.name == "auth-store-cleanup"
+    line_types = [json.loads(line)["type"] for line in path.read_text().splitlines()]
+    assert line_types == ["session_header", "session_info"]
+
+
+def test_load_session_uses_latest_session_name_entry(tmp_path) -> None:
+    path = tmp_path / "session.jsonl"
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    initialize_session(path=path, workspace_root=workspace_root)
+
+    append_session_name_to_session(
+        path=path,
+        workspace_root=workspace_root,
+        name="first pass",
+    )
+    append_session_name_to_session(
+        path=path,
+        workspace_root=workspace_root,
+        name="second pass",
+    )
+
+    loaded = load_session(path=path, workspace_root=workspace_root)
+
+    assert loaded.name == "second-pass"
 
 
 def test_append_run_to_session_appends_without_rewriting_header(tmp_path) -> None:

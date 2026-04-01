@@ -94,6 +94,13 @@ The core architectural risk is semantic drift between the Go shell and the Pytho
   visible instead of being hidden inside a grouped block.
 - Completed assistant turns should settle into readable prose/Markdown instead of remaining raw streamed text.
 - The prompt is the single input surface for chat and slash commands.
+- `/name <text>` should stay thin and backend-owned: the shell forwards raw
+  text, the backend persists the normalized session name, and `/session`
+  renders the returned durable name plus the opaque session id.
+- When the wrapper launches the TUI in resumed-session mode, the shell should
+  preseed the opaque session id plus the backend-resolved session name,
+  suppress first-run onboarding, and show one calm resume note in the
+  transcript instead of inventing a separate resume UX inside Go.
 - Startup should surface a calm first-run chooser panel when no provider has
   been selected yet, and saved cloud-provider selections missing auth should
   enter masked auth immediately instead of failing later in the first real

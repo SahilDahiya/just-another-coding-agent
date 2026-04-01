@@ -94,6 +94,16 @@ func (m *Manager) CreateSession(ctx context.Context) (string, error) {
 	return client.CreateSession(ctx)
 }
 
+func (m *Manager) SetSessionName(ctx context.Context, sessionID string, name string) (SessionNameResponse, error) {
+	m.mu.Lock()
+	client, err := m.ensureStartedLocked()
+	m.mu.Unlock()
+	if err != nil {
+		return SessionNameResponse{}, err
+	}
+	return client.SetSessionName(ctx, sessionID, name)
+}
+
 func (m *Manager) CompactSession(ctx context.Context, sessionID string) (SessionCompactResponse, error) {
 	m.mu.Lock()
 	client, err := m.ensureStartedLocked()
@@ -332,6 +342,38 @@ func (c *Client) CreateSession(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("%s: %s", envelope.ErrorType, envelope.Message)
 	default:
 		return "", fmt.Errorf("unexpected envelope for session.create: %T", line)
+	}
+}
+
+func (c *Client) SetSessionName(ctx context.Context, sessionID string, name string) (SessionNameResponse, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	requestID := c.nextRequestID()
+	if err := c.writeRequest(Request{
+		ID:      requestID,
+		Command: "session.name",
+		Payload: SessionNamePayload{
+			SessionID: sessionID,
+			Name:      name,
+		},
+	}); err != nil {
+		return SessionNameResponse{}, err
+	}
+	line, err := c.readEnvelope(ctx, requestID)
+	if err != nil {
+		return SessionNameResponse{}, err
+	}
+	switch envelope := line.(type) {
+	case ResponseEnvelope:
+		var response SessionNameResponse
+		if err := json.Unmarshal(envelope.Response, &response); err != nil {
+			return SessionNameResponse{}, err
+		}
+		return response, nil
+	case ErrorEnvelope:
+		return SessionNameResponse{}, fmt.Errorf("%s: %s", envelope.ErrorType, envelope.Message)
+	default:
+		return SessionNameResponse{}, fmt.Errorf("unexpected envelope for session.name: %T", line)
 	}
 }
 

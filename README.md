@@ -158,9 +158,17 @@ Inside `jaca`:
 - `/auth status` shows whether each provider is configured from env, keychain, local file, or neither, and whether interactive local secret storage is available at all
 - `/auth clear <provider>` removes the stored local secret for that provider from both keychain and local file storage
 - `/model <provider:model>` switches the active model and aligns provider state to that model
+- `/name <text>` assigns a durable backend-normalized session name such as `auth-store-cleanup`
+- `/session` shows the current durable session name and opaque session id
 - `/trace off` disables tracing
 - `/trace local` stores spans locally under `~/.jaca/traces/`
 - `/trace logfire` exports spans to Logfire
+
+To continue a named or known session later:
+
+```bash
+jaca resume auth-store-cleanup
+```
 
 Tracing is off by default. Local and Logfire tracing both require the optional
 trace dependency:

@@ -51,6 +51,7 @@ Core RPC commands:
 - `auth.set` -- stores one provider secret in the canonical local secret store, with an explicit storage mode
 - `auth.clear` -- removes one stored local provider secret
 - `session.create` -- creates a new session, returns a server-generated opaque `session_id`
+- `session.name` -- appends one backend-normalized human session name to an existing session
 - `run.start` -- runs a prompt against an existing session, streams run events back, and may carry an optional `thinking` setting
 - `session.compact` -- appends one model-generated durable compaction summary entry for an existing session
 
@@ -95,6 +96,7 @@ Clients never see filesystem paths or workspace identifiers. Session identity is
 A session is the append-only JSONL file that records what happened across multiple runs. It is bound to exactly one workspace root. Each line is one of:
 
 - `session_header` -- written once, first line, contains format version and workspace root
+- `session_info` -- append-only durable session metadata such as the backend-normalized human session name
 - `session_run` -- marks start of a run (run_id, prompt, and effective thinking setting)
 - `session_messages` -- the native PydanticAI `ModelMessage` list for that run (used for resume)
 - `session_event` -- wraps one run event
@@ -105,6 +107,7 @@ Example:
 
 ```json
 {"type":"session_header","version":7,"workspace_root":"/abs/path/to/workspace"}
+{"type":"session_info","name":"auth-store-cleanup"}
 {"type":"session_run","run_id":"abc","prompt":"fix bug","thinking":"high"}
 {"type":"session_event","run_id":"abc","event":{"type":"run_started","run_id":"abc"}}
 {"type":"session_event","run_id":"abc","event":{"type":"run_succeeded","run_id":"abc","output_text":"done","total_tokens":1234,"context_window_used":0.031}}
@@ -134,7 +137,7 @@ The current deterministic auto-compaction trigger is model-aware: before a resum
 
 ### Session Store
 
-The RPC layer maps opaque session IDs to session files via `rpc/session_store.py`. Session IDs are server-generated 32-character lowercase hex strings validated by a Pydantic `SessionId` type. Clients create sessions via `session.create` and reference them by ID in `run.start`.
+The RPC layer maps opaque session IDs to session files via `rpc/session_store.py`. Session IDs are server-generated 32-character lowercase hex strings validated by a Pydantic `SessionId` type. Clients create sessions via `session.create`, may append a durable human name via `session.name`, and reference sessions by ID in `run.start`. The installed `jaca` wrapper also offers `jaca resume <name-or-id>`: it resolves an exact session id or exact normalized session name inside the current workspace on the Python side, then launches the same TUI with that existing session preloaded.
 
 ### Tools
 

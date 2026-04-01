@@ -237,6 +237,51 @@ async def test_handle_rpc_json_line_creates_session_and_resumes_runs(
     assert [run.thinking for run in loaded.runs] == ["high", "high"]
 
 
+async def test_handle_rpc_json_line_names_session_with_backend_normalization(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+
+    session_id = await _create_session_id(
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    messages = await _rpc_messages(
+        request_payload={
+            "id": "req-name",
+            "command": "session.name",
+            "payload": {
+                "session_id": session_id,
+                "name": "Auth Store Cleanup",
+            },
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    assert messages == [
+        {
+            "type": "rpc_response",
+            "id": "req-name",
+            "response": {
+                "session_id": session_id,
+                "name": "auth-store-cleanup",
+            },
+        }
+    ]
+
+    session_path = session_path_for_id(
+        sessions_root=sessions_root,
+        session_id=session_id,
+    )
+    loaded = load_session(path=session_path, workspace_root=workspace_root)
+    assert loaded.name == "auth-store-cleanup"
+
+
 async def test_handle_rpc_json_line_returns_backend_owned_model_catalog(
     tmp_path,
 ) -> None:

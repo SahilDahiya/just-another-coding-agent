@@ -199,6 +199,7 @@ func (t *Transcript) WriteHelp() {
 		"  /thinking <level>  set thinking level",
 		"  /workspace         show workspace root",
 		"  /session           show session info",
+		"  /name <text>       name active session",
 		"  /compact           compact current session",
 		"  /new               start a new session",
 		"  /quit              exit",

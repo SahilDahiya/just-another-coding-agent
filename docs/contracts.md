@@ -422,6 +422,9 @@ Initial executable session slice:
 
 - `session_header`
   - fields: `type`, `version`, `workspace_root`
+- `session_info`
+  - fields: `type`, `name`
+  - `name` is the backend-normalized durable human session name
 - `session_run`
   - fields: `type`, `run_id`, `prompt`, `thinking`
   - `thinking` is optional and stores the effective thinking setting for that run
@@ -441,6 +444,7 @@ Initial executable session slice:
 Ordering rules for the session slice:
 
 - The first line must be exactly one `session_header`
+- `session_info` may appear only at completed-run boundaries, never in the middle of a run
 - Each completed `session_run` is followed by one or more `session_event` lines for the same `run_id` and then exactly one trailing `session_messages` line for that run
 - A trailing run without `session_messages` is an incomplete run and authoritative session load must fail hard
 - `session_compaction` may appear only at a completed run boundary, never in the middle of a run
@@ -501,6 +505,7 @@ Initial executable RPC slice:
     - `auth.set` with payload `{"provider": <provider-name>, "secret": <string>, "storage": "keychain" | "file"}`
     - `auth.clear` with payload `{"provider": <provider-name>}`
     - `session.create` with payload `{}`
+    - `session.name` with payload `{"session_id": <opaque-lowercase-hex-string>, "name": <string>}`
     - `session.compact` with payload `{"session_id": <opaque-lowercase-hex-string>}`
     - `run.start` with payload `{"session_id": <opaque-lowercase-hex-string>, "prompt": <string>, "thinking": <optional-thinking-setting>}`
 - `rpc_response`
@@ -510,6 +515,7 @@ Initial executable RPC slice:
     - `{"status": {"provider": <provider-name>, "configured": <bool>, "source": "env" | "keychain" | "file" | "none", "env_key": <provider-env-var>}}` for `auth.set`
     - `{"status": {"provider": <provider-name>, "configured": <bool>, "source": "env" | "keychain" | "file" | "none", "env_key": <provider-env-var>}}` for `auth.clear`
     - `{"session_id": <opaque-lowercase-hex-string>}`
+    - `{"session_id": <opaque-lowercase-hex-string>, "name": <backend-normalized-session-name>}` for `session.name`
     - `{"compaction_id": <opaque-lowercase-hex-string>, "summarized_through_run_id": <run_id>, "first_kept_run_id": <optional-run_id>, "summary": <structured-compaction-summary>}`
 - `rpc_event`
   - fields: `type`, `id`, `event`
@@ -531,6 +537,7 @@ Ordering rules for the RPC slice:
   the stored local secret for that provider from both keychain and explicit
   local file storage
 - A valid `session.create` request yields exactly one `rpc_response` containing a server-generated opaque `session_id`
+- A valid `session.name` request must reference an existing `session_id`, append one backend-normalized `session_info` entry, and yield exactly one `rpc_response` containing that normalized session name
 - A valid `session.compact` request must reference an existing `session_id` and yields exactly one `rpc_response` describing the newly appended compaction entry
 - `session.compact` responses must include the durable summary's backend-owned
   deterministic fields (`read_paths`, `modified_paths`,

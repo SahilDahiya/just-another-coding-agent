@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -28,9 +29,12 @@ type stubBackend struct {
 	authStatusErr    error
 	setSecretErr     error
 	clearSecretErr   error
+	setSessionNameErr error
 	restarts         int
 	lastSetSecret    rpc.AuthSetPayload
 	lastCleared      string
+	lastNamedSession string
+	lastSessionName  string
 }
 
 func newStubBackend() *stubBackend {
@@ -57,6 +61,17 @@ func (b *stubBackend) CreateSession(_ context.Context) (string, error) {
 }
 func (b *stubBackend) CompactSession(_ context.Context, _ string) (rpc.SessionCompactResponse, error) {
 	return rpc.SessionCompactResponse{}, nil
+}
+func (b *stubBackend) SetSessionName(_ context.Context, sessionID string, name string) (rpc.SessionNameResponse, error) {
+	if b.setSessionNameErr != nil {
+		return rpc.SessionNameResponse{}, b.setSessionNameErr
+	}
+	b.lastNamedSession = sessionID
+	b.lastSessionName = name
+	return rpc.SessionNameResponse{
+		SessionID: sessionID,
+		Name:      normalizeTestSessionName(name),
+	}, nil
 }
 func (b *stubBackend) ModelCatalog(_ context.Context) (rpc.ModelCatalogResponse, error) {
 	return b.modelCatalog, b.modelCatalogErr
@@ -163,6 +178,11 @@ func envKeyForProvider(provider string) string {
 	default:
 		return ""
 	}
+}
+
+func normalizeTestSessionName(name string) string {
+	re := regexp.MustCompile(`[^a-z0-9]+`)
+	return strings.Trim(re.ReplaceAllString(strings.ToLower(strings.TrimSpace(name)), "-"), "-")
 }
 
 func newTestModel() *model {
@@ -325,6 +345,26 @@ func TestCurrentViewModelMarksDetachedLiveWhenStreamingScrolledUp(t *testing.T) 
 
 	if !vm.DetachedLive {
 		t.Fatal("currentViewModel() should mark detached live state when scrolled off bottom during streaming")
+	}
+}
+
+func TestNewResumedSessionSkipsFirstRunOnboardingAndShowsResumeNote(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	m := New(Options{
+		Model:         "openai:gpt-5.4",
+		WorkspaceRoot: "/workspace",
+		SessionID:     "0123456789abcdef0123456789abcdef",
+		SessionName:   "auth-store-cleanup",
+	}).(*model)
+
+	if m.onboarding.Active {
+		t.Fatal("resumed session should not show first-run onboarding")
+	}
+	rendered := stripANSI(m.transcript.Render())
+	if !strings.Contains(rendered, "resumed auth-store-cleanup") {
+		t.Fatalf("startup transcript missing resumed session note: %q", rendered)
 	}
 }
 
@@ -1548,6 +1588,60 @@ func TestAuthClearCommandCallsBackend(t *testing.T) {
 	rendered := stripANSI(m.transcript.Render())
 	if !strings.Contains(rendered, "openai auth cleared; current source: missing (none)") {
 		t.Fatalf("transcript missing clear confirmation: %q", rendered)
+	}
+}
+
+func TestNameCommandCallsBackendAndShowsNormalizedName(t *testing.T) {
+	backend := newStubBackend()
+	m := newTestModel()
+	m.options.Backend = backend
+	m.sessionID = "0123456789abcdef0123456789abcdef"
+
+	m = sendRunes(m, "/name Auth Store Cleanup")
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	if backend.lastNamedSession != m.sessionID {
+		t.Fatalf("backend.lastNamedSession = %q, want %q", backend.lastNamedSession, m.sessionID)
+	}
+	if backend.lastSessionName != "Auth Store Cleanup" {
+		t.Fatalf("backend.lastSessionName = %q, want %q", backend.lastSessionName, "Auth Store Cleanup")
+	}
+	if got := m.sessionName; got != "auth-store-cleanup" {
+		t.Fatalf("sessionName = %q, want %q", got, "auth-store-cleanup")
+	}
+	rendered := stripANSI(m.transcript.Render())
+	if !strings.Contains(rendered, "session named auth-store-cleanup") {
+		t.Fatalf("transcript missing session naming confirmation: %q", rendered)
+	}
+}
+
+func TestSessionCommandShowsSessionNameAndID(t *testing.T) {
+	m := newTestModel()
+	m.sessionID = "0123456789abcdef0123456789abcdef"
+	m.sessionName = "auth-store-cleanup"
+
+	m = sendRunes(m, "/session")
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	rendered := stripANSI(m.transcript.Render())
+	if !strings.Contains(rendered, "session: auth-store-cleanup") {
+		t.Fatalf("transcript missing session name: %q", rendered)
+	}
+	if !strings.Contains(rendered, "id: 0123456789abcdef0123456789abcdef") {
+		t.Fatalf("transcript missing session id: %q", rendered)
+	}
+}
+
+func TestNameCommandWithoutActiveSessionFailsHard(t *testing.T) {
+	m := newTestModel()
+	m.options.Backend = newStubBackend()
+
+	m = sendRunes(m, "/name auth store cleanup")
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	rendered := stripANSI(m.transcript.Render())
+	if !strings.Contains(rendered, "no active session") {
+		t.Fatalf("transcript missing no-active-session error: %q", rendered)
 	}
 }
 

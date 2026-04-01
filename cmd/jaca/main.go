@@ -37,6 +37,8 @@ func run() error {
 	model := flag.String("model", defaultModel, "Model to use")
 	workspaceRoot := flag.String("workspace-root", ".", "Workspace root directory")
 	sessionsRoot := flag.String("sessions-root", "", "Sessions storage directory")
+	sessionID := flag.String("session-id", "", "Existing session id to resume")
+	sessionName := flag.String("session-name", "", "Resolved human session name for the resumed session")
 	thinking := flag.String("thinking", "", "Thinking level")
 	backendCommandJSON := flag.String("backend-command-json", "", "JSON array command used to start the canonical headless backend")
 	appVersion := flag.String("app-version", "", "Installed JACA package version")
@@ -81,6 +83,8 @@ func run() error {
 			Model:                *model,
 			WorkspaceRoot:        absWorkspace,
 			SessionsRoot:         resolvedSessionsRoot,
+			SessionID:            *sessionID,
+			SessionName:          *sessionName,
 			Thinking:             normalizeThinking(*thinking),
 			Backend:              manager,
 			UpdateCommand:        updateCommand,

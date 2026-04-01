@@ -24,6 +24,7 @@ from just_another_coding_agent.go_tui import (
     resolve_go_tui_launch,
 )
 from just_another_coding_agent.rpc import serve_rpc_stdio
+from just_another_coding_agent.rpc.session_store import resolve_session_reference
 from just_another_coding_agent.runtime.observability import (
     configure_observability,
 )
@@ -39,37 +40,25 @@ def main(
     config = load_config()
     with _scoped_config_env(config):
         default_model = resolve_default_model(config)
+        raw_args = list(argv) if argv is not None else sys.argv[1:]
+
+        if raw_args and raw_args[0] == "resume":
+            return _run_resume_mode(
+                argv=raw_args[1:],
+                default_model=default_model,
+            )
 
         parser = argparse.ArgumentParser(
             prog="jaca",
             description="Interactive coding agent with optional headless RPC mode.",
         )
-        parser.add_argument(
-            "--model",
-            default=default_model,
-            help=f"Model to use (default: {default_model}, or set JACA_MODEL env var)",
-        )
-        parser.add_argument(
-            "--workspace-root",
-            default=".",
-            help="Workspace root directory (default: current directory)",
-        )
-        parser.add_argument(
-            "--sessions-root",
-            default=None,
-            help="Sessions storage directory (default: ~/.jaca/sessions)",
-        )
-        parser.add_argument(
-            "--thinking",
-            choices=["true", "false", "minimal", "low", "medium", "high", "xhigh"],
-            default=None,
-        )
+        _add_common_interactive_args(parser, default_model=default_model)
         parser.add_argument(
             "--headless",
             action="store_true",
             help="Run as a headless JSON-over-stdio RPC server",
         )
-        args = parser.parse_args(list(argv) if argv is not None else None)
+        args = parser.parse_args(raw_args)
         workspace_root = normalize_workspace_root(args.workspace_root)
         sessions_root = _resolve_sessions_root(args.sessions_root)
 
@@ -88,6 +77,66 @@ def main(
             sessions_root=sessions_root,
             thinking=args.thinking,
         )
+
+
+def _run_resume_mode(
+    *,
+    argv: Sequence[str],
+    default_model: str,
+) -> int:
+    parser = argparse.ArgumentParser(
+        prog="jaca resume",
+        description="Resume an existing session by name or opaque session id.",
+    )
+    parser.add_argument(
+        "session_ref",
+        nargs="+",
+        help="Normalized session name or opaque session id to resume",
+    )
+    _add_common_interactive_args(parser, default_model=default_model)
+    args = parser.parse_args(list(argv))
+    workspace_root = normalize_workspace_root(args.workspace_root)
+    sessions_root = _resolve_sessions_root(args.sessions_root)
+    resolved = resolve_session_reference(
+        sessions_root=sessions_root,
+        workspace_root=workspace_root,
+        session_ref=" ".join(args.session_ref),
+    )
+    return _run_tui(
+        model=args.model,
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+        thinking=args.thinking,
+        session_id=resolved.session_id,
+        session_name=resolved.name,
+    )
+
+
+def _add_common_interactive_args(
+    parser: argparse.ArgumentParser,
+    *,
+    default_model: str,
+) -> None:
+    parser.add_argument(
+        "--model",
+        default=default_model,
+        help=f"Model to use (default: {default_model}, or set JACA_MODEL env var)",
+    )
+    parser.add_argument(
+        "--workspace-root",
+        default=".",
+        help="Workspace root directory (default: current directory)",
+    )
+    parser.add_argument(
+        "--sessions-root",
+        default=None,
+        help="Sessions storage directory (default: ~/.jaca/sessions)",
+    )
+    parser.add_argument(
+        "--thinking",
+        choices=["true", "false", "minimal", "low", "medium", "high", "xhigh"],
+        default=None,
+    )
 
 
 def _run_headless(
@@ -120,6 +169,8 @@ def _run_tui(
     workspace_root: Path,
     sessions_root: Path,
     thinking: str | None,
+    session_id: str | None = None,
+    session_name: str | None = None,
 ) -> int:
     launch_command, launch_cwd = resolve_go_tui_launch()
     app_version = package_version()
@@ -141,6 +192,10 @@ def _run_tui(
         command.extend(["--update-command-json", update_command_json])
     if thinking is not None:
         command.extend(["--thinking", thinking])
+    if session_id is not None:
+        command.extend(["--session-id", session_id])
+    if session_name is not None:
+        command.extend(["--session-name", session_name])
     completed = subprocess.run(
         command,
         check=False,

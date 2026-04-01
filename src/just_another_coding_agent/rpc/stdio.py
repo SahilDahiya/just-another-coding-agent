@@ -40,6 +40,8 @@ from just_another_coding_agent.contracts.rpc import (
     SessionCompactResponse,
     SessionCreateRequest,
     SessionCreateResponse,
+    SessionNameRequest,
+    SessionNameResponse,
 )
 from just_another_coding_agent.contracts.tools import CANONICAL_TOOL_NAMES
 from just_another_coding_agent.rpc.session_store import (
@@ -50,7 +52,11 @@ from just_another_coding_agent.runtime.compaction import (
     summarize_and_append_compaction_to_session,
 )
 from just_another_coding_agent.runtime.session import stream_session_run_events
-from just_another_coding_agent.session import SessionFormatError
+from just_another_coding_agent.session import (
+    SessionFormatError,
+    SessionNameValidationError,
+    append_session_name_to_session,
+)
 
 _RPC_REQUEST_ADAPTER = TypeAdapter(RpcRequest)
 
@@ -179,6 +185,48 @@ async def handle_rpc_json_line(
         yield RpcResponseEnvelope(
             id=request.id,
             response=AuthClearResponse(status=status),
+        ).model_dump_json()
+        return
+
+    if isinstance(request, SessionNameRequest):
+        session_path = session_path_for_id(
+            sessions_root=sessions_root,
+            session_id=request.payload.session_id,
+        )
+        if not session_path.exists():
+            yield RpcErrorEnvelope(
+                id=request.id,
+                error_type="UnknownSession",
+                message=f"Unknown session_id: {request.payload.session_id}",
+            ).model_dump_json()
+            return
+        try:
+            name = append_session_name_to_session(
+                path=session_path,
+                workspace_root=workspace_root,
+                name=request.payload.name,
+            )
+        except SessionNameValidationError as error:
+            yield RpcErrorEnvelope(
+                id=request.id,
+                error_type="InvalidRequest",
+                message=str(error),
+            ).model_dump_json()
+            return
+        except SessionFormatError as error:
+            yield RpcErrorEnvelope(
+                id=request.id,
+                error_type="InvalidSession",
+                message=str(error),
+            ).model_dump_json()
+            return
+
+        yield RpcResponseEnvelope(
+            id=request.id,
+            response=SessionNameResponse(
+                session_id=request.payload.session_id,
+                name=name,
+            ),
         ).model_dump_json()
         return
 

@@ -207,6 +207,7 @@ func slashCommandSuggestions() []slashSuggestion {
 		{Value: "/thinking", Description: "Set thinking effort", AcceptsArgs: true},
 		{Value: "/workspace", Description: "Show current workspace"},
 		{Value: "/session", Description: "Show active session"},
+		{Value: "/name", Description: "Name active session", AcceptsArgs: true},
 		{Value: "/compact", Description: "Compact current session"},
 		{Value: "/new", Description: "Clear active session"},
 		{Value: "/help", Description: "Show available commands"},

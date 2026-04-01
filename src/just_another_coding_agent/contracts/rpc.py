@@ -9,6 +9,7 @@ from .auth import ProviderAuthStatus as AuthProviderStatus
 from .model_catalog import ProviderName
 from .run_events import RunEvent, SessionLifecycleEvent
 from .session import SessionCompactionSummary as SessionCompactSummary
+from .session import SessionName
 from .thinking import ThinkingSetting
 
 SessionId = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{32}$")]
@@ -36,6 +37,17 @@ class SessionCompactRequest(_RpcModel):
     id: str
     command: Literal["session.compact"]
     payload: SessionCompactPayload
+
+
+class SessionNamePayload(_RpcModel):
+    session_id: SessionId
+    name: str
+
+
+class SessionNameRequest(_RpcModel):
+    id: str
+    command: Literal["session.name"]
+    payload: SessionNamePayload
 
 
 class ModelCatalogPayload(_RpcModel):
@@ -95,6 +107,7 @@ class RunStartRequest(_RpcModel):
 RpcRequest = Annotated[
     SessionCreateRequest
     | SessionCompactRequest
+    | SessionNameRequest
     | ModelCatalogRequest
     | AuthStatusRequest
     | AuthSetRequest
@@ -113,6 +126,11 @@ class SessionCompactResponse(_RpcModel):
     summarized_through_run_id: str
     first_kept_run_id: str | None
     summary: SessionCompactSummary
+
+
+class SessionNameResponse(_RpcModel):
+    session_id: SessionId
+    name: SessionName
 
 
 class ModelCatalogModel(_RpcModel):
@@ -149,6 +167,7 @@ class RpcResponseEnvelope(_RpcModel):
     response: (
         SessionCreateResponse
         | SessionCompactResponse
+        | SessionNameResponse
         | ModelCatalogResponse
         | AuthStatusResponse
         | AuthSetResponse
@@ -197,6 +216,9 @@ __all__ = [
     "SessionCompactRequest",
     "SessionCompactResponse",
     "SessionCompactSummary",
+    "SessionNamePayload",
+    "SessionNameRequest",
+    "SessionNameResponse",
     "SessionCreatePayload",
     "SessionCreateRequest",
     "SessionCreateResponse",
