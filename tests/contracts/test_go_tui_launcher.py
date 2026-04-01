@@ -179,6 +179,80 @@ def test_main_resume_launches_go_tui_with_resolved_session(
     }
 
 
+def test_main_resume_without_reference_prompts_for_recent_session_selection(
+    tmp_path,
+    monkeypatch,
+    capsys,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    go_binary = tmp_path / ("jaca-go.exe" if os.name == "nt" else "jaca-go")
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        entry,
+        "resolve_go_tui_launch",
+        lambda: ([str(go_binary)], None),
+    )
+    monkeypatch.setattr(entry, "load_config", lambda: {})
+    monkeypatch.setattr(
+        entry,
+        "default_backend_command",
+        lambda: ["/tmp/fake-python", "-m", "just_another_coding_agent"],
+    )
+    monkeypatch.setattr(entry, "package_version", lambda: "0.1.4")
+    monkeypatch.setattr(
+        entry,
+        "explicit_update_command_json",
+        lambda repo_root=None: UPDATE_COMMAND_JSON,
+    )
+    monkeypatch.setattr(
+        entry,
+        "list_workspace_sessions",
+        lambda **_: [
+            SimpleNamespace(
+                session_id="1" * 32,
+                name="first-session",
+                updated_at_ns=20,
+            ),
+            SimpleNamespace(
+                session_id="2" * 32,
+                name="second-session",
+                updated_at_ns=10,
+            ),
+        ],
+    )
+    monkeypatch.setattr("builtins.input", lambda _: "2")
+
+    def fake_run(command, *, check, cwd=None):
+        captured["command"] = command
+        return SimpleNamespace(returncode=29)
+
+    monkeypatch.setattr(
+        "just_another_coding_agent.__main__.subprocess.run",
+        fake_run,
+    )
+
+    exit_code = main(
+        [
+            "resume",
+            "--workspace-root",
+            str(workspace_root),
+            "--sessions-root",
+            str(sessions_root),
+        ]
+    )
+
+    assert exit_code == 29
+    assert captured["command"][-2:] == ["--session-name", "second-session"]
+    assert captured["command"][-4:-2] == ["--session-id", "2" * 32]
+    output = capsys.readouterr().out
+    assert "Recent sessions" in output
+    assert "1. first-session" in output
+    assert "2. second-session" in output
+
+
 def test_main_uses_saved_default_model_and_trace_mode(
     tmp_path,
     monkeypatch,

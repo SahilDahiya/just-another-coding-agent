@@ -24,7 +24,11 @@ from just_another_coding_agent.go_tui import (
     resolve_go_tui_launch,
 )
 from just_another_coding_agent.rpc import serve_rpc_stdio
-from just_another_coding_agent.rpc.session_store import resolve_session_reference
+from just_another_coding_agent.rpc.session_store import (
+    ResolvedSessionReference,
+    list_workspace_sessions,
+    resolve_session_reference,
+)
 from just_another_coding_agent.runtime.observability import (
     configure_observability,
 )
@@ -90,18 +94,24 @@ def _run_resume_mode(
     )
     parser.add_argument(
         "session_ref",
-        nargs="+",
+        nargs="*",
         help="Normalized session name or opaque session id to resume",
     )
     _add_common_interactive_args(parser, default_model=default_model)
     args = parser.parse_args(list(argv))
     workspace_root = normalize_workspace_root(args.workspace_root)
     sessions_root = _resolve_sessions_root(args.sessions_root)
-    resolved = resolve_session_reference(
-        sessions_root=sessions_root,
-        workspace_root=workspace_root,
-        session_ref=" ".join(args.session_ref),
-    )
+    if args.session_ref:
+        resolved = resolve_session_reference(
+            sessions_root=sessions_root,
+            workspace_root=workspace_root,
+            session_ref=" ".join(args.session_ref),
+        )
+    else:
+        resolved = _select_session_to_resume(
+            sessions_root=sessions_root,
+            workspace_root=workspace_root,
+        )
     return _run_tui(
         model=args.model,
         workspace_root=workspace_root,
@@ -109,6 +119,48 @@ def _run_resume_mode(
         thinking=args.thinking,
         session_id=resolved.session_id,
         session_name=resolved.name,
+    )
+
+
+def _select_session_to_resume(
+    *,
+    sessions_root: Path,
+    workspace_root: Path,
+) -> ResolvedSessionReference:
+    sessions = list_workspace_sessions(
+        sessions_root=sessions_root,
+        workspace_root=workspace_root,
+    )
+    if not sessions:
+        raise RuntimeError(f"No sessions found for workspace: {workspace_root}")
+    if len(sessions) == 1:
+        only = sessions[0]
+        return ResolvedSessionReference(session_id=only.session_id, name=only.name)
+
+    print("Recent sessions:")
+    for index, session in enumerate(sessions, start=1):
+        label = session.name or session.session_id
+        print(f"{index}. {label}")
+        if session.name is not None:
+            print(f"   id: {session.session_id}")
+
+    raw_choice = input(f"Select session [1-{len(sessions)}, default 1]: ").strip()
+    if raw_choice == "":
+        selected = sessions[0]
+        return ResolvedSessionReference(
+            session_id=selected.session_id,
+            name=selected.name,
+        )
+    try:
+        selected_index = int(raw_choice)
+    except ValueError as error:
+        raise RuntimeError("Resume selection must be a session number") from error
+    if selected_index < 1 or selected_index > len(sessions):
+        raise RuntimeError("Resume selection is out of range")
+    selected = sessions[selected_index - 1]
+    return ResolvedSessionReference(
+        session_id=selected.session_id,
+        name=selected.name,
     )
 
 

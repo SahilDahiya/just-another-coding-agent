@@ -29,6 +29,13 @@ class ResolvedSessionReference:
     name: SessionName | None
 
 
+@dataclass(frozen=True)
+class ListedSession:
+    session_id: str
+    name: SessionName | None
+    updated_at_ns: int
+
+
 def create_session(
     *,
     sessions_root: Path | str,
@@ -108,6 +115,29 @@ def resolve_session_reference(
     return matches[0]
 
 
+def list_workspace_sessions(
+    *,
+    sessions_root: Path | str,
+    workspace_root: Path | str,
+) -> list[ListedSession]:
+    expected_workspace_root = str(Path(workspace_root).expanduser().resolve())
+    sessions: list[ListedSession] = []
+    for session_path in Path(sessions_root).glob("*.jsonl"):
+        header = _load_session_header(session_path)
+        if header.workspace_root != expected_workspace_root:
+            continue
+        loaded = load_session(path=session_path, workspace_root=workspace_root)
+        sessions.append(
+            ListedSession(
+                session_id=session_path.stem,
+                name=loaded.name,
+                updated_at_ns=session_path.stat().st_mtime_ns,
+            )
+        )
+    sessions.sort(key=lambda session: session.updated_at_ns, reverse=True)
+    return sessions
+
+
 def _load_session_header(path: Path) -> SessionHeaderEntry:
     with path.open("r", encoding="utf-8") as file_handle:
         first_line = file_handle.readline()
@@ -126,9 +156,11 @@ def _load_session_header(path: Path) -> SessionHeaderEntry:
 
 
 __all__ = [
+    "ListedSession",
     "ResolvedSessionReference",
     "SessionLookupError",
     "create_session",
+    "list_workspace_sessions",
     "resolve_session_reference",
     "session_path_for_id",
 ]

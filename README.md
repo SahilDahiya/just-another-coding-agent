@@ -170,6 +170,9 @@ To continue a named or known session later:
 jaca resume auth-store-cleanup
 ```
 
+If you omit the reference, `jaca resume` shows recent sessions from the
+current workspace and lets you choose one by number.
+
 Tracing is off by default. Local and Logfire tracing both require the optional
 trace dependency:
 
