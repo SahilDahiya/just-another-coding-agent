@@ -146,6 +146,29 @@ It is intentionally narrow:
   - note: the agent reached the merge conflict state cleanly but did not resolve the conflicting implementations before verifier timeout
   - artifacts: `/tmp/pi-kimi-terminal-bench-merge-arc.f3fa0f/just-another-coding-agent-merge-diff-arc-kimi`
 
+## GLM-5 via Ollama Cloud
+
+### Compaction Regression Rerun
+
+- `distribution-search`
+  - model: `ollama:glm-5:cloud`
+  - setting: `thinking=high`
+  - result: green in `compaction-check-distribution-search-20260401`
+  - note: rerun after the compaction continuity work stayed green and materially improved the Harbor execution profile relative to the earlier green baseline in `glm5-high-a-pass-3-20260330-095106`
+  - comparison:
+    - old green baseline agent execution: about `18m43s`
+    - rerun agent execution: about `6m21s`
+    - old first assistant delta: about `169.5s`
+    - rerun first assistant delta: about `52.4s`
+    - old first tool event: about `215.1s`
+    - rerun first tool event: about `76.8s`
+    - old terminal event: about `1122.2s`
+    - rerun terminal event: about `379.9s`
+    - old event profile: `21` tool starts, `665,990` input tokens, `33,098` output tokens, `699,088` total tokens, `3.531` context-window-used ratio
+    - rerun event profile: `8` tool starts, `103,791` input tokens, `13,818` output tokens, `117,609` total tokens, `0.594` context-window-used ratio
+  - compaction-specific note: this Harbor adapter path is still one-shot, so the rerun did not exercise durable cross-run compaction directly; it served as a long real-task regression check that the compaction/session changes did not destabilize Harbor or long solver behavior
+  - artifacts: `/home/dahiy/repos/urban-octo-guacamole/jobs/compaction-check-distribution-search-20260401`
+
 ## GPT-5.3 Codex via OpenAI Responses
 
 ### Initial Tracked Codex Baseline
