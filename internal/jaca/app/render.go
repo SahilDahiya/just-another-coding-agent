@@ -446,6 +446,16 @@ func buildWorkingWave(motionTick int) string {
 		"working",
 		"workinG",
 		"working",
+		"workiNg",
+		"working",
+		"workIng",
+		"working",
+		"worKing",
+		"working",
+		"woRking",
+		"working",
+		"wOrking",
+		"working",
 	}
 	return frames[motionTick%len(frames)]
 }

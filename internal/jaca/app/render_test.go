@@ -131,6 +131,15 @@ func TestBuildWorkingWaveBreathesBetweenHighlights(t *testing.T) {
 	if got := buildWorkingWave(2); got != "wOrking" {
 		t.Fatalf("buildWorkingWave(2) = %q, want %q", got, "wOrking")
 	}
+	if got := buildWorkingWave(14); got != "workiNg" {
+		t.Fatalf("buildWorkingWave(14) = %q, want %q", got, "workiNg")
+	}
+	if got := buildWorkingWave(16); got != "workIng" {
+		t.Fatalf("buildWorkingWave(16) = %q, want %q", got, "workIng")
+	}
+	if got := buildWorkingWave(22); got != "wOrking" {
+		t.Fatalf("buildWorkingWave(22) = %q, want %q", got, "wOrking")
+	}
 }
 
 func TestBuildTopRailIndicatorHiddenWhenIdle(t *testing.T) {
