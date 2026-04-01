@@ -11,10 +11,6 @@ from just_another_coding_agent.contracts.session import (
     SessionCompactionEntry,
     SessionCompactionSummary,
 )
-from just_another_coding_agent.runtime.compaction.constants import (
-    SESSION_AUTO_COMPACTION_CONTEXT_WINDOW_UTILIZATION,
-    SESSION_AUTO_COMPACTION_PROMPT_RESERVE_TOKENS,
-)
 from just_another_coding_agent.runtime.compaction.working_set import (
     merge_summary_paths,
     with_deterministic_survival_state,
@@ -182,8 +178,6 @@ def _build_bounded_compaction_source(
 
 __all__ = [
     "COMPACTION_SUMMARY_INSTRUCTIONS",
-    "SESSION_AUTO_COMPACTION_CONTEXT_WINDOW_UTILIZATION",
-    "SESSION_AUTO_COMPACTION_PROMPT_RESERVE_TOKENS",
     "should_auto_compact_session",
     "summarize_and_append_compaction_to_session",
     "summarize_session_for_compaction",

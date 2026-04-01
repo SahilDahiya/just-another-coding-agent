@@ -94,10 +94,6 @@ def _normalize_unicode_variants(text: str) -> str:
     )
 
 
-def trim_trailing_whitespace_per_line(text: str) -> str:
-    return "\n".join(line.rstrip() for line in text.split("\n"))
-
-
 def build_fuzzy_view(text: str) -> tuple[str, list[tuple[int, int]]]:
     view_parts: list[str] = []
     spans: list[tuple[int, int]] = []

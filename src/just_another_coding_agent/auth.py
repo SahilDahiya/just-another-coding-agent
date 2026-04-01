@@ -6,7 +6,6 @@ import stat
 from pathlib import Path
 
 from just_another_coding_agent.contracts.auth import (
-    AuthSource,
     AuthStorageKind,
     LocalSecretStoreStatus,
     ProviderAuthStatus,
@@ -295,7 +294,6 @@ def _load_keyring():
 
 __all__ = [
     "AuthStoreError",
-    "AuthSource",
     "AuthStorageKind",
     "LocalSecretStoreStatus",
     "PROVIDER_SECRET_ENV_KEYS",
