@@ -23,6 +23,7 @@ from just_another_coding_agent.contracts.run_events import (
     RunSucceededEvent,
     SessionCompactionCompletedEvent,
     SessionCompactionStartedEvent,
+    SessionCompactionWarningEvent,
     SessionLifecycleEvent,
     ToolCallFailedEvent,
     ToolCallStartedEvent,
@@ -180,6 +181,14 @@ async def stream_session_run_events(
                 compaction_id=compaction_entry.compaction_id,
                 summarized_through_run_id=compaction_entry.summarized_through_run_id,
             )
+            if len(loaded_session.compactions) >= 2:
+                yield SessionCompactionWarningEvent(
+                    compaction_count=len(loaded_session.compactions),
+                    message=(
+                        "Session has been compacted multiple times; continuity "
+                        "quality may degrade."
+                    ),
+                )
     resolved_thinking = (
         thinking
         if thinking is not None

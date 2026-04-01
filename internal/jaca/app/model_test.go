@@ -594,8 +594,23 @@ func TestCompactionLifecycleEventsUpdatePhaseAndTranscript(t *testing.T) {
 		t.Fatalf("phase after compaction complete = %q, want %q", m.phase, PhaseStreaming)
 	}
 
+	updated, _ = m.Update(runEventMsg{Event: rpc.RunEvent{
+		Type:            "session_compaction_warning",
+		CompactionCount: intPtr(2),
+		Message:         "Session has been compacted multiple times; continuity quality may degrade.",
+	}})
+	m = updated.(*model)
+
+	if m.phase != PhaseStreaming {
+		t.Fatalf("phase after compaction warning = %q, want %q", m.phase, PhaseStreaming)
+	}
+
 	rendered := stripANSI(m.transcript.Render())
-	for _, want := range []string{"compacting session...", "session compacted"} {
+	for _, want := range []string{
+		"compacting session...",
+		"session compacted",
+		"Session has been compacted multiple times; continuity quality may degrade.",
+	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("transcript missing %q in %q", want, rendered)
 		}

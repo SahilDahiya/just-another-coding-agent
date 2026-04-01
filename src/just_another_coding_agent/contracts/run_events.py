@@ -173,7 +173,19 @@ class SessionCompactionCompletedEvent(BaseModel):
     summarized_through_run_id: str
 
 
-SessionLifecycleEvent = SessionCompactionStartedEvent | SessionCompactionCompletedEvent
+class SessionCompactionWarningEvent(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    type: Literal["session_compaction_warning"] = "session_compaction_warning"
+    compaction_count: int
+    message: str
+
+
+SessionLifecycleEvent = (
+    SessionCompactionStartedEvent
+    | SessionCompactionCompletedEvent
+    | SessionCompactionWarningEvent
+)
 
 
 RunEvent = Annotated[
@@ -202,6 +214,7 @@ __all__ = [
     "RunSucceededEvent",
     "SessionCompactionCompletedEvent",
     "SessionCompactionStartedEvent",
+    "SessionCompactionWarningEvent",
     "SessionLifecycleEvent",
     "ShellActivityDetails",
     "ToolActivity",

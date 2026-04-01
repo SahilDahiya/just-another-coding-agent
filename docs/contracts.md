@@ -290,6 +290,8 @@ Initial executable run slice:
   - fields: `type`
 - `session_compaction_completed`
   - fields: `type`, `compaction_id`, `summarized_through_run_id`
+- `session_compaction_warning`
+  - fields: `type`, `compaction_count`, `message`
 - `run_started`
   - fields: `type`, `run_id`
 - `assistant_text_delta`
@@ -307,6 +309,9 @@ Ordering rules for the initial slice:
 - `run_succeeded` may also carry optional additive usage metadata when the model/provider reports it
 - `input_tokens`, `output_tokens`, and `total_tokens` are optional integer token counts on `run_succeeded`
 - `context_window_used` is an optional float ratio on `run_succeeded` and is omitted when the backend cannot determine the active model context window
+- After a second-or-later durable automatic compaction, the runtime emits one
+  explicit `session_compaction_warning` before `run_started` so clients can
+  surface potential continuity degradation without inventing local heuristics
 - Before any assistant text or tool lifecycle event is emitted, the runtime may hide one retryable transient failure and continue with the same public `run_id`
 - Once any assistant text or tool lifecycle event has been emitted, the runtime must not retry the run automatically
 - Consumers must not need to understand raw PydanticAI stream event kinds to consume this contract

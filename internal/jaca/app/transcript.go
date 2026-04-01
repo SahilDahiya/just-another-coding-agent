@@ -294,12 +294,22 @@ func (t *Transcript) WriteCompactionCompleted() {
 	t.WriteLine("session compacted")
 }
 
+func (t *Transcript) WriteCompactionWarning(message string) {
+	t.endToolGroup()
+	t.endLiveAssistant()
+	t.ensureBlockGap()
+	t.WriteNote("warning", nil)
+	t.WriteLine(message)
+}
+
 func (t *Transcript) ApplyRunEvent(event rpc.RunEvent) {
 	switch event.Type {
 	case "session_compaction_started":
 		t.WriteCompactionStarted()
 	case "session_compaction_completed":
 		t.WriteCompactionCompleted()
+	case "session_compaction_warning":
+		t.WriteCompactionWarning(event.Message)
 	case "assistant_text_delta":
 		t.appendAssistantDelta(event.Delta)
 	case "tool_call_started":

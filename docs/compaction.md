@@ -51,6 +51,10 @@ The current automatic trigger is pre-run and token-budget-aware:
 - shipped default and picker-visible model ids are required to carry explicit
   context-window metadata so this trigger cannot silently degrade when the
   model surface changes
+- after a second-or-later durable automatic compaction, the runtime emits one
+  explicit warning event before `run_started` so clients can surface the real
+  continuity risk instead of treating repeated compactions as silent
+  maintenance
 
 One explicit limitation remains:
 

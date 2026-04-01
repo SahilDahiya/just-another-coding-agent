@@ -133,6 +133,7 @@ type RunEvent struct {
 	Type              string         `json:"type"`
 	RunID             string         `json:"run_id"`
 	CompactionID      string         `json:"compaction_id,omitempty"`
+	CompactionCount   *int           `json:"compaction_count,omitempty"`
 	SummarizedThrough string         `json:"summarized_through_run_id,omitempty"`
 	Delta             string         `json:"delta,omitempty"`
 	ToolCallID        string         `json:"tool_call_id,omitempty"`

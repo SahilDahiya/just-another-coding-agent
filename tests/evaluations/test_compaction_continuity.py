@@ -365,10 +365,16 @@ async def test_auto_compaction_preserves_multi_compaction_continuity(
     assert [event.type for event in events] == [
         "session_compaction_started",
         "session_compaction_completed",
+        "session_compaction_warning",
         "run_started",
         "assistant_text_delta",
         "run_succeeded",
     ]
+    assert events[2].compaction_count == 2
+    assert events[2].message == (
+        "Session has been compacted multiple times; continuity quality may "
+        "degrade."
+    )
 
     loaded = load_session(path=session_path, workspace_root=workspace_root)
     assert loaded.latest_compaction is not None

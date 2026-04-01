@@ -108,3 +108,34 @@ func TestDecodeEnvelopePreservesSessionCompactionCompletedFields(t *testing.T) {
 		t.Fatalf("SummarizedThrough = %q, want run-5", envelope.Event.SummarizedThrough)
 	}
 }
+
+func TestDecodeEnvelopePreservesSessionCompactionWarningFields(t *testing.T) {
+	line := []byte(`{
+		"type":"rpc_event",
+		"id":"req-4",
+		"event":{
+			"type":"session_compaction_warning",
+			"compaction_count":2,
+			"message":"Session has been compacted multiple times; continuity quality may degrade."
+		}
+	}`)
+
+	value, err := decodeEnvelope(line)
+	if err != nil {
+		t.Fatalf("decodeEnvelope() returned error: %v", err)
+	}
+
+	envelope, ok := value.(EventEnvelope)
+	if !ok {
+		t.Fatalf("decodeEnvelope() type = %T, want EventEnvelope", value)
+	}
+	if envelope.Event.Type != "session_compaction_warning" {
+		t.Fatalf("Type = %q, want session_compaction_warning", envelope.Event.Type)
+	}
+	if envelope.Event.CompactionCount == nil || *envelope.Event.CompactionCount != 2 {
+		t.Fatalf("CompactionCount = %v, want 2", envelope.Event.CompactionCount)
+	}
+	if envelope.Event.Message != "Session has been compacted multiple times; continuity quality may degrade." {
+		t.Fatalf("Message = %q, want repeated compaction warning", envelope.Event.Message)
+	}
+}

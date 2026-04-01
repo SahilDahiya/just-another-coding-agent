@@ -1914,6 +1914,129 @@ async def test_stream_session_run_events_auto_compacts_stale_session_before_resu
     )
 
 
+async def test_stream_session_run_events_warns_after_repeated_auto_compaction(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    session_path = tmp_path / "session.jsonl"
+    large_prompt = "z" * 400_000
+
+    for index in range(2):
+        run_id = f"run-{index + 1}"
+        append_run_to_session(
+            path=session_path,
+            workspace_root=workspace_root,
+            prompt=large_prompt,
+            thinking=None,
+            messages=[ModelRequest(parts=[UserPromptPart(content=large_prompt)])],
+            events=[
+                RunStartedEvent(run_id=run_id),
+                RunSucceededEvent(run_id=run_id, output_text="done"),
+            ],
+        )
+
+    append_compaction_to_session(
+        path=session_path,
+        workspace_root=workspace_root,
+        summary=SessionCompactionSummary(
+            current_objective="continue the task",
+            established_facts=["The first two runs were summarized."],
+            user_preferences=[],
+            important_paths=[],
+            read_paths=[],
+            modified_paths=[],
+            recent_shell_commands=[],
+            recent_failures=[],
+            open_questions=[],
+            unresolved_work=["Handle the next prompt."],
+        ),
+    )
+
+    for index in range(2, 4):
+        run_id = f"run-{index + 1}"
+        append_run_to_session(
+            path=session_path,
+            workspace_root=workspace_root,
+            prompt=large_prompt,
+            thinking=None,
+            messages=[ModelRequest(parts=[UserPromptPart(content=large_prompt)])],
+            events=[
+                RunStartedEvent(run_id=run_id),
+                RunSucceededEvent(run_id=run_id, output_text="done"),
+            ],
+        )
+
+    async def fake_summarize_and_append_compaction_to_session(
+        *,
+        model,
+        path,
+        workspace_root,
+    ):
+        del model
+        return append_compaction_to_session(
+            path=path,
+            workspace_root=workspace_root,
+            summary=SessionCompactionSummary(
+                current_objective="continue after repeated auto compaction",
+                established_facts=["The later oversized runs were summarized."],
+                user_preferences=[],
+                important_paths=[],
+                read_paths=[],
+                modified_paths=[],
+                recent_shell_commands=[],
+                recent_failures=[],
+                open_questions=[],
+                unresolved_work=["Handle the next prompt."],
+            ),
+        )
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(
+        "just_another_coding_agent.runtime.session.summarize_and_append_compaction_to_session",
+        fake_summarize_and_append_compaction_to_session,
+    )
+    monkeypatch.setattr(
+        "just_another_coding_agent.runtime.compaction.session_summary.get_model_context_window_tokens",
+        lambda model: 198_000,
+    )
+    try:
+        events = [
+            event
+            async for event in stream_session_run_events(
+                model=FunctionModel(stream_function=text_only_stream),
+                workspace_root=workspace_root,
+                session_path=session_path,
+                prompt="follow-up",
+            )
+        ]
+    finally:
+        monkeypatch.undo()
+
+    assert [event.type for event in events] == [
+        "session_compaction_started",
+        "session_compaction_completed",
+        "session_compaction_warning",
+        "run_started",
+        "assistant_text_delta",
+        "run_succeeded",
+    ]
+    assert events[2].message == (
+        "Session has been compacted multiple times; continuity quality may "
+        "degrade."
+    )
+    assert events[2].compaction_count == 2
+
+    loaded = load_session(path=session_path, workspace_root=workspace_root)
+    assert len(loaded.compactions) == 2
+    assert loaded.latest_compaction is not None
+    assert loaded.latest_compaction.summarized_through_run_id == "run-4"
+    assert (
+        loaded.latest_compaction.summary.current_objective
+        == "continue after repeated auto compaction"
+    )
+
+
 async def test_stream_session_run_events_does_not_recompact_without_new_completed_run(
     tmp_path,
     monkeypatch,

@@ -288,12 +288,18 @@ func TestSessionCompactionLifecycleEventsRenderInTranscript(t *testing.T) {
 		CompactionID:      "compact-1",
 		SummarizedThrough: "run-5",
 	})
+	transcript.ApplyRunEvent(rpc.RunEvent{
+		Type:    "session_compaction_warning",
+		Message: "Session has been compacted multiple times; continuity quality may degrade.",
+	})
 
 	plain := stripANSI(transcript.Render())
 	for _, want := range []string{
 		"note  compact",
 		"compacting session...",
 		"session compacted",
+		"note  warning",
+		"Session has been compacted multiple times; continuity quality may degrade.",
 	} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("compaction transcript missing %q in %q", want, plain)
