@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -23,7 +24,20 @@ type helperRequest struct {
 }
 
 func TestModelRunsAgainstRealRPCBackendProcess(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
 	t.Setenv("OPENAI_API_KEY", "test-key")
+	configDir := filepath.Join(home, ".jaca")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatalf("mkdir config dir: %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(configDir, "config.json"),
+		[]byte("{\n  \"default_provider\": \"openai\",\n  \"default_model\": \"openai:test-model\"\n}\n"),
+		0o600,
+	); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
 
 	workspaceRoot := t.TempDir()
 	sessionsRoot := t.TempDir()
@@ -103,6 +117,51 @@ func TestGoTUIRPCBackendHelperProcess(t *testing.T) {
 			os.Exit(1)
 		}
 		switch request.Command {
+		case "model.catalog":
+			if err := encoder.Encode(map[string]any{
+				"type": "rpc_response",
+				"id":   request.ID,
+				"response": map[string]any{
+					"providers": []map[string]any{
+						{
+							"provider":         "openai",
+							"default_model_id": "openai:gpt-5.4",
+							"models": []map[string]any{
+								{
+									"model_id":    "openai:gpt-5.4",
+									"description": "OpenAI GPT-5.4",
+								},
+							},
+						},
+					},
+				},
+			}); err != nil {
+				fmt.Fprintf(os.Stderr, "helper encode model.catalog response: %v\n", err)
+				os.Exit(1)
+			}
+		case "auth.status":
+			if err := encoder.Encode(map[string]any{
+				"type": "rpc_response",
+				"id":   request.ID,
+				"response": map[string]any{
+					"providers": []map[string]any{
+						{
+							"provider":   "openai",
+							"configured": true,
+							"source":     "env",
+							"env_key":    "OPENAI_API_KEY",
+						},
+					},
+					"local_secret_store": map[string]any{
+						"available":       true,
+						"message":         nil,
+						"file_store_path": "",
+					},
+				},
+			}); err != nil {
+				fmt.Fprintf(os.Stderr, "helper encode auth.status response: %v\n", err)
+				os.Exit(1)
+			}
 		case "session.create":
 			if err := encoder.Encode(map[string]any{
 				"type": "rpc_response",

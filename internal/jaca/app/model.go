@@ -685,6 +685,13 @@ func (m *model) handleEnter() (tea.Model, tea.Cmd) {
 	if m.auth.Active {
 		return m.handleAuthEnter()
 	}
+	if strings.HasPrefix(prompt, "/") {
+		m.recordPromptHistory(prompt)
+		m.textInput.SetValue("")
+		m.clearSlashMenu()
+		m.clearInterruptGuidance()
+		return m.handleSlashCommand(prompt)
+	}
 	provider := m.currentProvider()
 	hasCreds, err := m.providerHasCredentialsFresh(provider)
 	if err != nil {
@@ -703,9 +710,6 @@ func (m *model) handleEnter() (tea.Model, tea.Cmd) {
 	m.textInput.SetValue("")
 	m.clearSlashMenu()
 	m.clearInterruptGuidance()
-	if strings.HasPrefix(prompt, "/") {
-		return m.handleSlashCommand(prompt)
-	}
 	m.transcript.WriteUserTurn(prompt)
 	m.phase = PhaseStreaming
 	m.streaming = true
