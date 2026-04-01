@@ -96,6 +96,7 @@ Clients never see filesystem paths or workspace identifiers. Session identity is
 A session is the append-only JSONL file that records what happened across multiple runs. It is bound to exactly one workspace root. Each line is one of:
 
 - `session_header` -- written once, first line, contains format version and workspace root
+- `session_fork` -- optional direct parent lineage for a forked session
 - `session_info` -- append-only durable session metadata such as the backend-normalized human session name
 - `session_run` -- marks start of a run (run_id, prompt, and effective thinking setting)
 - `session_messages` -- the native PydanticAI `ModelMessage` list for that run (used for resume)
@@ -106,8 +107,9 @@ A session is the append-only JSONL file that records what happened across multip
 Example:
 
 ```json
-{"type":"session_header","version":7,"workspace_root":"/abs/path/to/workspace"}
-{"type":"session_info","name":"auth-store-cleanup"}
+{"type":"session_header","version":8,"workspace_root":"/abs/path/to/workspace"}
+{"type":"session_fork","forked_from_session_id":"parent-session-id","forked_from_run_id":"abc"}
+{"type":"session_info","name":"auth-store-cleanup-followup"}
 {"type":"session_run","run_id":"abc","prompt":"fix bug","thinking":"high"}
 {"type":"session_event","run_id":"abc","event":{"type":"run_started","run_id":"abc"}}
 {"type":"session_event","run_id":"abc","event":{"type":"run_succeeded","run_id":"abc","output_text":"done","total_tokens":1234,"context_window_used":0.031}}
@@ -115,7 +117,7 @@ Example:
 {"type":"session_compaction","compaction_id":"cmp-1","summarized_through_run_id":"abc","first_kept_run_id":null,"summary":{"current_objective":"ship the fix","established_facts":[],"user_preferences":[],"important_paths":[],"read_paths":[],"modified_paths":[],"open_questions":[],"unresolved_work":[]}}
 ```
 
-Rules: header appears exactly once, no duplicate run IDs, events must satisfy the same ordering rules as the streaming contract, and compaction entries may appear only at completed run boundaries. Invalid files fail hard on load. Loading a session against a different workspace root than the one persisted is invalid state.
+Rules: header appears exactly once, `session_fork` may appear at most once and only immediately after the header, no duplicate run IDs, events must satisfy the same ordering rules as the streaming contract, and compaction entries may appear only at completed run boundaries. Invalid files fail hard on load. Loading a session against a different workspace root than the one persisted is invalid state.
 
 Sessions persist both public contract events (for consumers) and native PydanticAI message history (for resume). They also persist the effective per-run thinking setting. These serve different purposes and neither can replace the other.
 Compaction entries stay durable session metadata, but they now also change the runtime's effective replayed history: resumed runs materialize a synthetic compaction summary plus retained native messages from the latest compaction entry instead of replaying the summarized raw prefix.
@@ -151,7 +153,12 @@ normalized session name inside the current workspace on the Python side, then
 launches the same TUI with that existing session preloaded. With no argument,
 the wrapper lists the recent sessions from the current workspace, caps the
 picker to the most recent ten, and requires an interactive terminal before it
-prompts.
+prompts. `jaca fork <name-or-id> [--name <new-name>]` uses the same
+workspace-scoped discovery path, creates a new session JSONL plus metadata
+sidecar in that shard, appends one durable `session_fork` entry after the
+header, and then launches the TUI against the new fork. The sidecar mirrors
+only the direct parent `forked_from_session_id` for discovery; the append-only
+JSONL session file remains canonical.
 
 ### Tools
 

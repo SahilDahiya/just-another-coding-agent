@@ -21,20 +21,20 @@ func intPtr(v int) *int { return &v }
 func floatPtr(v float64) *float64 { return &v }
 
 type stubBackend struct {
-	model            string
-	modelCatalog     rpc.ModelCatalogResponse
-	modelCatalogErr  error
-	authStatuses     map[string]rpc.AuthProviderStatus
-	localSecretStore rpc.LocalSecretStoreStatus
-	authStatusErr    error
-	setSecretErr     error
-	clearSecretErr   error
+	model             string
+	modelCatalog      rpc.ModelCatalogResponse
+	modelCatalogErr   error
+	authStatuses      map[string]rpc.AuthProviderStatus
+	localSecretStore  rpc.LocalSecretStoreStatus
+	authStatusErr     error
+	setSecretErr      error
+	clearSecretErr    error
 	setSessionNameErr error
-	restarts         int
-	lastSetSecret    rpc.AuthSetPayload
-	lastCleared      string
-	lastNamedSession string
-	lastSessionName  string
+	restarts          int
+	lastSetSecret     rpc.AuthSetPayload
+	lastCleared       string
+	lastNamedSession  string
+	lastSessionName   string
 }
 
 func newStubBackend() *stubBackend {
@@ -1629,6 +1629,41 @@ func TestSessionCommandShowsSessionNameAndID(t *testing.T) {
 	}
 	if !strings.Contains(rendered, "id: 0123456789abcdef0123456789abcdef") {
 		t.Fatalf("transcript missing session id: %q", rendered)
+	}
+}
+
+func TestSessionCommandShowsForkLineage(t *testing.T) {
+	m := newTestModel()
+	m.sessionID = "fedcba9876543210fedcba9876543210"
+	m.sessionName = "auth-store-cleanup-followup"
+	m.forkedFromSessionID = "0123456789abcdef0123456789abcdef"
+	m.forkedFromSessionName = "auth-store-cleanup"
+
+	m = sendRunes(m, "/session")
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	rendered := stripANSI(m.transcript.Render())
+	if !strings.Contains(rendered, "forked from: auth-store-cleanup") {
+		t.Fatalf("transcript missing fork lineage: %q", rendered)
+	}
+}
+
+func TestNewForkedSessionShowsForkNote(t *testing.T) {
+	teaModel := New(Options{
+		AppVersion:            "0.1.4",
+		Model:                 "ollama:kimi-k2:1t-cloud",
+		WorkspaceRoot:         "/workspace",
+		SessionsRoot:          "/sessions",
+		SessionID:             "fedcba9876543210fedcba9876543210",
+		SessionName:           "auth-store-cleanup-followup",
+		ForkedFromSessionID:   "0123456789abcdef0123456789abcdef",
+		ForkedFromSessionName: "auth-store-cleanup",
+	})
+
+	m := teaModel.(*model)
+	rendered := stripANSI(m.transcript.Render())
+	if !strings.Contains(rendered, "forked from auth-store-cleanup") {
+		t.Fatalf("startup transcript missing fork note: %q", rendered)
 	}
 }
 

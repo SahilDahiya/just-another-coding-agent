@@ -39,6 +39,8 @@ func run() error {
 	sessionsRoot := flag.String("sessions-root", "", "Sessions storage directory")
 	sessionID := flag.String("session-id", "", "Existing session id to resume")
 	sessionName := flag.String("session-name", "", "Resolved human session name for the resumed session")
+	forkedFromSessionID := flag.String("forked-from-session-id", "", "Parent session id for a forked session")
+	forkedFromSessionName := flag.String("forked-from-session-name", "", "Resolved human parent session name for a forked session")
 	thinking := flag.String("thinking", "", "Thinking level")
 	backendCommandJSON := flag.String("backend-command-json", "", "JSON array command used to start the canonical headless backend")
 	appVersion := flag.String("app-version", "", "Installed JACA package version")
@@ -79,16 +81,18 @@ func run() error {
 
 	program := tea.NewProgram(
 		app.New(app.Options{
-			AppVersion:           *appVersion,
-			Model:                *model,
-			WorkspaceRoot:        absWorkspace,
-			SessionsRoot:         resolvedSessionsRoot,
-			SessionID:            *sessionID,
-			SessionName:          *sessionName,
-			Thinking:             normalizeThinking(*thinking),
-			Backend:              manager,
-			UpdateCommand:        updateCommand,
-			SkippedUpdateVersion: cfg["update_skip_version"],
+			AppVersion:            *appVersion,
+			Model:                 *model,
+			WorkspaceRoot:         absWorkspace,
+			SessionsRoot:          resolvedSessionsRoot,
+			SessionID:             *sessionID,
+			SessionName:           *sessionName,
+			ForkedFromSessionID:   *forkedFromSessionID,
+			ForkedFromSessionName: *forkedFromSessionName,
+			Thinking:              normalizeThinking(*thinking),
+			Backend:               manager,
+			UpdateCommand:         updateCommand,
+			SkippedUpdateVersion:  cfg["update_skip_version"],
 		}),
 		tea.WithAltScreen(),
 		tea.WithMouseCellMotion(),

@@ -8,6 +8,8 @@ from pydantic import ValidationError
 
 import just_another_coding_agent.__main__ as entry
 from just_another_coding_agent.rpc.session_store import (
+    SessionLookupError,
+    create_fork,
     list_workspace_sessions,
     resolve_session_reference,
     session_path_for_id,
@@ -209,6 +211,113 @@ def test_list_workspace_sessions_orders_by_metadata_update_time_and_filters_work
 
     assert [session.session_id for session in listed] == ["2" * 32, "1" * 32]
     assert [session.name for session in listed] == ["new-session", "old-session"]
+
+
+def test_create_fork_creates_new_session_with_parent_lineage_and_optional_name(
+    tmp_path,
+) -> None:
+    sessions_root = tmp_path / "sessions"
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    source_path = session_path_for_id(
+        sessions_root=sessions_root,
+        workspace_root=workspace_root,
+        session_id="1" * 32,
+    )
+    initialize_session(path=source_path, workspace_root=workspace_root)
+    append_session_name_to_session(
+        path=source_path,
+        workspace_root=workspace_root,
+        name="source session",
+    )
+
+    forked = create_fork(
+        sessions_root=sessions_root,
+        workspace_root=workspace_root,
+        source_session_id="1" * 32,
+        name="forked session",
+    )
+
+    assert forked.session_id != "1" * 32
+    assert forked.name == "forked-session"
+    assert forked.forked_from_session_id == "1" * 32
+    fork_metadata = read_session_metadata(
+        path=session_path_for_id(
+            sessions_root=sessions_root,
+            workspace_root=workspace_root,
+            session_id=forked.session_id,
+        ).with_suffix(".meta.json")
+    )
+    assert fork_metadata.forked_from_session_id == "1" * 32
+
+
+def test_resolve_session_reference_exposes_fork_parent_metadata(tmp_path) -> None:
+    sessions_root = tmp_path / "sessions"
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    source_path = session_path_for_id(
+        sessions_root=sessions_root,
+        workspace_root=workspace_root,
+        session_id="1" * 32,
+    )
+    initialize_session(path=source_path, workspace_root=workspace_root)
+    create_fork(
+        sessions_root=sessions_root,
+        workspace_root=workspace_root,
+        source_session_id="1" * 32,
+        name="forked session",
+    )
+
+    resolved = resolve_session_reference(
+        sessions_root=sessions_root,
+        workspace_root=workspace_root,
+        session_ref="forked-session",
+    )
+
+    assert resolved.forked_from_session_id == "1" * 32
+
+
+def test_create_fork_rejects_duplicate_name_without_creating_session(tmp_path) -> None:
+    sessions_root = tmp_path / "sessions"
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    source_path = session_path_for_id(
+        sessions_root=sessions_root,
+        workspace_root=workspace_root,
+        session_id="1" * 32,
+    )
+    existing_path = session_path_for_id(
+        sessions_root=sessions_root,
+        workspace_root=workspace_root,
+        session_id="2" * 32,
+    )
+    initialize_session(path=source_path, workspace_root=workspace_root)
+    initialize_session(path=existing_path, workspace_root=workspace_root)
+    append_session_name_to_session(
+        path=existing_path,
+        workspace_root=workspace_root,
+        name="forked session",
+    )
+
+    with pytest.raises(
+        SessionLookupError,
+        match="Session name already in use in this workspace: forked-session",
+    ):
+        create_fork(
+            sessions_root=sessions_root,
+            workspace_root=workspace_root,
+            source_session_id="1" * 32,
+            name="forked session",
+        )
+
+    listed = list_workspace_sessions(
+        sessions_root=sessions_root,
+        workspace_root=workspace_root,
+    )
+    assert [session.session_id for session in listed] == ["2" * 32, "1" * 32]
 
 
 def test_select_session_to_resume_requires_interactive_stdin(

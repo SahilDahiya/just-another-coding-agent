@@ -159,7 +159,7 @@ Inside `jaca`:
 - `/auth clear <provider>` removes the stored local secret for that provider from both keychain and local file storage
 - `/model <provider:model>` switches the active model and aligns provider state to that model
 - `/name <text>` assigns a durable backend-normalized session name such as `auth-store-cleanup` and keeps it unique within the current workspace
-- `/session` shows the current durable session name and opaque session id
+- `/session` shows the current durable session name, opaque session id, and any direct fork parent
 - `/trace off` disables tracing
 - `/trace local` stores spans locally under `~/.jaca/traces/`
 - `/trace logfire` exports spans to Logfire
@@ -173,6 +173,17 @@ jaca resume auth-store-cleanup
 If you omit the reference, `jaca resume` shows the recent sessions from the
 current workspace, caps the picker to the most recent ten, and lets you choose
 one by number. This picker requires an interactive terminal.
+
+To branch a current-workspace session into a new one:
+
+```bash
+jaca fork auth-store-cleanup --name auth-store-cleanup-followup
+```
+
+If you omit the reference, `jaca fork` uses the same current-workspace picker as
+`jaca resume`. Forked sessions keep durable lineage to their direct parent and
+start as a new session with copied history instead of mutating the original
+thread.
 
 Tracing is off by default. Local and Logfire tracing both require the optional
 trace dependency:

@@ -10,7 +10,7 @@ from .platform import ShellFamily
 from .run_events import RunEvent
 from .thinking import ThinkingSetting
 
-SESSION_FORMAT_VERSION = 7
+SESSION_FORMAT_VERSION = 8
 SessionName = Annotated[
     str,
     StringConstraints(pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$"),
@@ -38,6 +38,12 @@ class SessionRunEntry(_SessionEntryBase):
 class SessionInfoEntry(_SessionEntryBase):
     type: Literal["session_info"] = "session_info"
     name: SessionName
+
+
+class SessionForkEntry(_SessionEntryBase):
+    type: Literal["session_fork"] = "session_fork"
+    forked_from_session_id: str
+    forked_from_run_id: str | None = None
 
 
 class SessionMessagesEntry(_SessionEntryBase):
@@ -75,6 +81,7 @@ class SessionCompactionEntry(_SessionEntryBase):
 
 SessionEntry = Annotated[
     SessionHeaderEntry
+    | SessionForkEntry
     | SessionInfoEntry
     | SessionRunEntry
     | SessionMessagesEntry
@@ -94,6 +101,7 @@ class SessionRunRecord(_SessionEntryBase):
 
 class LoadedSession(_SessionEntryBase):
     header: SessionHeaderEntry
+    fork: SessionForkEntry | None = None
     name: SessionName | None = None
     runs: list[SessionRunRecord]
     compactions: list[SessionCompactionEntry] = Field(default_factory=list)
@@ -131,6 +139,7 @@ __all__ = [
     "SessionCompactionSummary",
     "SessionEntry",
     "SessionEventEntry",
+    "SessionForkEntry",
     "SessionHeaderEntry",
     "SessionInfoEntry",
     "SessionMessagesEntry",

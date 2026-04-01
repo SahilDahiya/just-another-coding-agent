@@ -17,16 +17,18 @@ import (
 )
 
 type Options struct {
-	AppVersion           string
-	Model                string
-	WorkspaceRoot        string
-	SessionsRoot         string
-	SessionID            string
-	SessionName          string
-	Thinking             string
-	Backend              Backend
-	UpdateCommand        []string
-	SkippedUpdateVersion string
+	AppVersion            string
+	Model                 string
+	WorkspaceRoot         string
+	SessionsRoot          string
+	SessionID             string
+	SessionName           string
+	ForkedFromSessionID   string
+	ForkedFromSessionName string
+	Thinking              string
+	Backend               Backend
+	UpdateCommand         []string
+	SkippedUpdateVersion  string
 }
 
 type Phase string
@@ -88,48 +90,50 @@ type onboardingState struct {
 }
 
 type model struct {
-	options              Options
-	phase                Phase
-	sessionID            string
-	sessionName          string
-	textInput            textinput.Model
-	viewport             viewport.Model
-	transcript           *Transcript
-	width                int
-	height               int
-	visibleZones         int
-	motionTick           int
-	streaming            bool
-	activeRunSucceeded   bool
-	promptHistory        []string
-	historyIndex         int
-	historyDraft         string
-	lastInterrupt        time.Time
-	activeRunCancel      context.CancelFunc
-	editPreviousArmed    bool
-	promptFooterNotice   string
-	runStartTime         time.Time
-	lastDeltaTime        time.Time
-	linePulse            int
-	pendingAssistant     string
-	liveFlushScheduled   bool
-	asyncCh              chan tea.Msg
-	slashMenu            slashMenuState
-	auth                 authState
-	configErrLogged      bool
-	lastInputTokens      *int
-	lastOutputTokens     *int
-	lastTotalTokens      *int
-	lastContextWindow    *float64
-	modelCatalog         *rpc.ModelCatalogResponse
-	modelCatalogLoading  bool
-	authStatus           *rpc.AuthStatusResponse
-	authStatusLoading    bool
-	startupOnboardingSet bool
-	onboarding           onboardingState
-	appVersion           string
-	skippedUpdateVersion string
-	updatePrompt         updatePromptState
+	options               Options
+	phase                 Phase
+	sessionID             string
+	sessionName           string
+	forkedFromSessionID   string
+	forkedFromSessionName string
+	textInput             textinput.Model
+	viewport              viewport.Model
+	transcript            *Transcript
+	width                 int
+	height                int
+	visibleZones          int
+	motionTick            int
+	streaming             bool
+	activeRunSucceeded    bool
+	promptHistory         []string
+	historyIndex          int
+	historyDraft          string
+	lastInterrupt         time.Time
+	activeRunCancel       context.CancelFunc
+	editPreviousArmed     bool
+	promptFooterNotice    string
+	runStartTime          time.Time
+	lastDeltaTime         time.Time
+	linePulse             int
+	pendingAssistant      string
+	liveFlushScheduled    bool
+	asyncCh               chan tea.Msg
+	slashMenu             slashMenuState
+	auth                  authState
+	configErrLogged       bool
+	lastInputTokens       *int
+	lastOutputTokens      *int
+	lastTotalTokens       *int
+	lastContextWindow     *float64
+	modelCatalog          *rpc.ModelCatalogResponse
+	modelCatalogLoading   bool
+	authStatus            *rpc.AuthStatusResponse
+	authStatusLoading     bool
+	startupOnboardingSet  bool
+	onboarding            onboardingState
+	appVersion            string
+	skippedUpdateVersion  string
+	updatePrompt          updatePromptState
 }
 
 func New(options Options) tea.Model {
@@ -154,22 +158,31 @@ func New(options Options) tea.Model {
 				fmt.Sprintf("id: %s", options.SessionID),
 			}
 		}
+		if options.ForkedFromSessionID != "" {
+			label := options.ForkedFromSessionID
+			if options.ForkedFromSessionName != "" {
+				label = options.ForkedFromSessionName
+			}
+			lines = append(lines, fmt.Sprintf("forked from %s", label))
+		}
 		transcript.WriteNote("session", lines)
 	}
 
 	return &model{
-		options:              options,
-		phase:                PhaseIdle,
-		sessionID:            options.SessionID,
-		sessionName:          options.SessionName,
-		textInput:            input,
-		viewport:             newViewport(),
-		transcript:           transcript,
-		historyIndex:         -1,
-		startupOnboardingSet: startupOnboardingSet,
-		onboarding:           onboarding,
-		appVersion:           options.AppVersion,
-		skippedUpdateVersion: options.SkippedUpdateVersion,
+		options:               options,
+		phase:                 PhaseIdle,
+		sessionID:             options.SessionID,
+		sessionName:           options.SessionName,
+		forkedFromSessionID:   options.ForkedFromSessionID,
+		forkedFromSessionName: options.ForkedFromSessionName,
+		textInput:             input,
+		viewport:              newViewport(),
+		transcript:            transcript,
+		historyIndex:          -1,
+		startupOnboardingSet:  startupOnboardingSet,
+		onboarding:            onboarding,
+		appVersion:            options.AppVersion,
+		skippedUpdateVersion:  options.SkippedUpdateVersion,
 	}
 }
 
@@ -251,6 +264,8 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.sessionID = msg.SessionID
 		m.sessionName = ""
+		m.forkedFromSessionID = ""
+		m.forkedFromSessionName = ""
 		return m, listenAsync(m.asyncCh)
 	case runEventMsg:
 		if msg.Err != nil {
@@ -812,6 +827,8 @@ func (m *model) handleSlashCommand(command string) (tea.Model, tea.Cmd) {
 		m.transcript.WriteNote("session", nil)
 		m.sessionID = ""
 		m.sessionName = ""
+		m.forkedFromSessionID = ""
+		m.forkedFromSessionName = ""
 		m.phase = PhaseIdle
 		m.transcript.WriteLine("session cleared")
 	case "/quit":

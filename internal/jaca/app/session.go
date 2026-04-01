@@ -15,9 +15,23 @@ func (m *model) writeSessionInfo() {
 	if m.sessionName != "" {
 		m.transcript.WriteLine(fmt.Sprintf("session: %s", m.sessionName))
 		m.transcript.WriteLine(fmt.Sprintf("id: %s", m.sessionID))
+		if m.forkedFromSessionID != "" {
+			label := m.forkedFromSessionID
+			if m.forkedFromSessionName != "" {
+				label = m.forkedFromSessionName
+			}
+			m.transcript.WriteLine(fmt.Sprintf("forked from: %s", label))
+		}
 		return
 	}
 	m.transcript.WriteLine(fmt.Sprintf("session: %s", m.sessionID))
+	if m.forkedFromSessionID != "" {
+		label := m.forkedFromSessionID
+		if m.forkedFromSessionName != "" {
+			label = m.forkedFromSessionName
+		}
+		m.transcript.WriteLine(fmt.Sprintf("forked from: %s", label))
+	}
 }
 
 func (m *model) handleSessionNameCommand(raw string) {

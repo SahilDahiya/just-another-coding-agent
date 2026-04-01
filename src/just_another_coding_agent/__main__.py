@@ -26,6 +26,7 @@ from just_another_coding_agent.go_tui import (
 from just_another_coding_agent.rpc import serve_rpc_stdio
 from just_another_coding_agent.rpc.session_store import (
     ResolvedSessionReference,
+    create_fork,
     list_workspace_sessions,
     resolve_session_reference,
 )
@@ -48,6 +49,11 @@ def main(
 
         if raw_args and raw_args[0] == "resume":
             return _run_resume_mode(
+                argv=raw_args[1:],
+                default_model=default_model,
+            )
+        if raw_args and raw_args[0] == "fork":
+            return _run_fork_mode(
                 argv=raw_args[1:],
                 default_model=default_model,
             )
@@ -112,6 +118,11 @@ def _run_resume_mode(
             sessions_root=sessions_root,
             workspace_root=workspace_root,
         )
+    forked_from_session_id, forked_from_session_name = _resolve_fork_context(
+        sessions_root=sessions_root,
+        workspace_root=workspace_root,
+        resolved=resolved,
+    )
     return _run_tui(
         model=args.model,
         workspace_root=workspace_root,
@@ -119,6 +130,60 @@ def _run_resume_mode(
         thinking=args.thinking,
         session_id=resolved.session_id,
         session_name=resolved.name,
+        forked_from_session_id=forked_from_session_id,
+        forked_from_session_name=forked_from_session_name,
+    )
+
+
+def _run_fork_mode(
+    *,
+    argv: Sequence[str],
+    default_model: str,
+) -> int:
+    parser = argparse.ArgumentParser(
+        prog="jaca fork",
+        description="Fork an existing session into a new session in this workspace.",
+    )
+    parser.add_argument(
+        "session_ref",
+        nargs="*",
+        help="Normalized session name or opaque session id to fork",
+    )
+    parser.add_argument(
+        "--name",
+        default=None,
+        help="Optional name for the new forked session",
+    )
+    _add_common_interactive_args(parser, default_model=default_model)
+    args = parser.parse_args(list(argv))
+    workspace_root = normalize_workspace_root(args.workspace_root)
+    sessions_root = _resolve_sessions_root(args.sessions_root)
+    if args.session_ref:
+        source = resolve_session_reference(
+            sessions_root=sessions_root,
+            workspace_root=workspace_root,
+            session_ref=" ".join(args.session_ref),
+        )
+    else:
+        source = _select_session_to_resume(
+            sessions_root=sessions_root,
+            workspace_root=workspace_root,
+        )
+    forked = create_fork(
+        sessions_root=sessions_root,
+        workspace_root=workspace_root,
+        source_session_id=source.session_id,
+        name=args.name,
+    )
+    return _run_tui(
+        model=args.model,
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+        thinking=args.thinking,
+        session_id=forked.session_id,
+        session_name=forked.name,
+        forked_from_session_id=source.session_id,
+        forked_from_session_name=source.name,
     )
 
 
@@ -236,6 +301,8 @@ def _run_tui(
     thinking: str | None,
     session_id: str | None = None,
     session_name: str | None = None,
+    forked_from_session_id: str | None = None,
+    forked_from_session_name: str | None = None,
 ) -> int:
     launch_command, launch_cwd = resolve_go_tui_launch()
     app_version = package_version()
@@ -261,12 +328,32 @@ def _run_tui(
         command.extend(["--session-id", session_id])
     if session_name is not None:
         command.extend(["--session-name", session_name])
+    if forked_from_session_id is not None:
+        command.extend(["--forked-from-session-id", forked_from_session_id])
+    if forked_from_session_name is not None:
+        command.extend(["--forked-from-session-name", forked_from_session_name])
     completed = subprocess.run(
         command,
         check=False,
         cwd=None if launch_cwd is None else str(launch_cwd),
     )
     return completed.returncode
+
+
+def _resolve_fork_context(
+    *,
+    sessions_root: Path,
+    workspace_root: Path,
+    resolved: ResolvedSessionReference,
+) -> tuple[str | None, str | None]:
+    if resolved.forked_from_session_id is None:
+        return None, None
+    parent = resolve_session_reference(
+        sessions_root=sessions_root,
+        workspace_root=workspace_root,
+        session_ref=resolved.forked_from_session_id,
+    )
+    return parent.session_id, parent.name
 
 
 def _resolve_sessions_root(raw_sessions_root: str | None) -> Path:

@@ -33,6 +33,7 @@ from just_another_coding_agent.session.jsonl import (
     append_compaction_to_session,
     append_run_to_session,
     append_session_name_to_session,
+    fork_session,
     initialize_session,
     load_session,
     read_session_metadata,
@@ -149,6 +150,97 @@ def test_load_session_uses_latest_session_name_entry(tmp_path) -> None:
     loaded = load_session(path=path, workspace_root=workspace_root)
 
     assert loaded.name == "second-pass"
+
+
+def test_fork_session_copies_history_and_records_lineage(tmp_path) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    source_path = tmp_path / "source.jsonl"
+    target_path = tmp_path / "fork.jsonl"
+
+    initialize_session(path=source_path, workspace_root=workspace_root)
+    append_session_name_to_session(
+        path=source_path,
+        workspace_root=workspace_root,
+        name="source session",
+    )
+    append_run_to_session(
+        path=source_path,
+        workspace_root=workspace_root,
+        prompt="first",
+        thinking="medium",
+        events=[
+            RunStartedEvent(run_id="run-1"),
+            RunSucceededEvent(run_id="run-1", output_text="done"),
+        ],
+        messages=[ModelRequest(parts=[UserPromptPart(content="first")])],
+    )
+
+    fork_session(
+        source_path=source_path,
+        target_path=target_path,
+        workspace_root=workspace_root,
+        forked_from_session_id="a" * 32,
+    )
+
+    loaded = load_session(path=target_path, workspace_root=workspace_root)
+    metadata = read_session_metadata(path=target_path.with_suffix(".meta.json"))
+    raw_lines = target_path.read_text(encoding="utf-8").splitlines()
+    line_types = [
+        json.loads(line)["type"] for line in raw_lines
+    ]
+
+    assert loaded.name is None
+    assert loaded.fork is not None
+    assert loaded.fork.forked_from_session_id == "a" * 32
+    assert loaded.fork.forked_from_run_id == "run-1"
+    assert [run.prompt for run in loaded.runs] == ["first"]
+    assert metadata.forked_from_session_id == "a" * 32
+    assert line_types[:3] == ["session_header", "session_fork", "session_run"]
+
+
+def test_fork_session_replaces_parent_fork_entry_with_direct_lineage(tmp_path) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    source_path = tmp_path / "source.jsonl"
+    target_path = tmp_path / "fork.jsonl"
+
+    initialize_session(path=source_path, workspace_root=workspace_root)
+    append_run_to_session(
+        path=source_path,
+        workspace_root=workspace_root,
+        prompt="first",
+        thinking="medium",
+        events=[
+            RunStartedEvent(run_id="run-1"),
+            RunSucceededEvent(run_id="run-1", output_text="done"),
+        ],
+        messages=[ModelRequest(parts=[UserPromptPart(content="first")])],
+    )
+    intermediate_path = tmp_path / "intermediate.jsonl"
+    fork_session(
+        source_path=source_path,
+        target_path=intermediate_path,
+        workspace_root=workspace_root,
+        forked_from_session_id="a" * 32,
+    )
+
+    fork_session(
+        source_path=intermediate_path,
+        target_path=target_path,
+        workspace_root=workspace_root,
+        forked_from_session_id="b" * 32,
+    )
+
+    loaded = load_session(path=target_path, workspace_root=workspace_root)
+    raw_lines = target_path.read_text(encoding="utf-8").splitlines()
+    line_types = [
+        json.loads(line)["type"] for line in raw_lines
+    ]
+
+    assert loaded.fork is not None
+    assert loaded.fork.forked_from_session_id == "b" * 32
+    assert line_types.count("session_fork") == 1
 
 
 def test_append_run_to_session_appends_without_rewriting_header(tmp_path) -> None:

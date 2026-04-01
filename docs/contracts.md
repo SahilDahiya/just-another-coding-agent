@@ -425,6 +425,11 @@ Initial executable session slice:
 - `session_info`
   - fields: `type`, `name`
   - `name` is the backend-normalized durable human session name
+- `session_fork`
+  - fields: `type`, `forked_from_session_id`, `forked_from_run_id`
+  - records direct parent lineage for a forked session
+  - `forked_from_run_id` is optional and, when present, identifies the latest
+    completed parent run visible at fork time
 - `session_run`
   - fields: `type`, `run_id`, `prompt`, `thinking`
   - `thinking` is optional and stores the effective thinking setting for that run
@@ -444,6 +449,8 @@ Initial executable session slice:
 Ordering rules for the session slice:
 
 - The first line must be exactly one `session_header`
+- `session_fork` may appear at most once and, when present, must be the second
+  line immediately after `session_header`
 - `session_info` may appear only at completed-run boundaries, never in the middle of a run
 - `session_info.name` is unique within the current workspace-backed session shard
 - Each completed `session_run` is followed by one or more `session_event` lines for the same `run_id` and then exactly one trailing `session_messages` line for that run
@@ -548,6 +555,9 @@ Ordering rules for the RPC slice:
 - A valid `run.start` request must reference an existing `session_id` and yields zero or more `rpc_event` lines whose embedded events satisfy the streamed run contract
 - Session lifecycle `rpc_event` payloads such as `session_compaction_started` and `session_compaction_completed` may appear before `run_started`
 - `run.start` on an existing session is the canonical continue operation; there is no separate `session.continue` command
+- Forking is a wrapper-level session-store operation today: the Python launcher
+  may create a new session file with one `session_fork` entry before the TUI
+  starts, but RPC clients do not have a separate `session.fork` command yet
 - A valid `run.start` request may include `thinking`; when omitted, session-backed execution inherits the latest persisted thinking setting for that session when present
 - A valid request that ends in run failure still yields `rpc_event` lines ending in `run_failed`; it does not switch to `rpc_error`
 - Clients must not provide filesystem paths or workspace identifiers in the RPC session contract

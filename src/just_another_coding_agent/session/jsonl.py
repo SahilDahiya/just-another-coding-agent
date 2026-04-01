@@ -38,6 +38,7 @@ from just_another_coding_agent.contracts.session import (
     SessionCompactionSummary,
     SessionEntry,
     SessionEventEntry,
+    SessionForkEntry,
     SessionHeaderEntry,
     SessionInfoEntry,
     SessionMessagesEntry,
@@ -261,6 +262,63 @@ def append_session_name_to_session(
     return normalized_name
 
 
+def fork_session(
+    *,
+    source_path: Path,
+    target_path: Path,
+    workspace_root: Path | str,
+    shell_family: ShellFamily | None = None,
+    forked_from_session_id: str,
+) -> None:
+    normalized_workspace_root = normalize_workspace_root(workspace_root)
+    loaded_source = load_session(
+        path=source_path,
+        workspace_root=normalized_workspace_root,
+        shell_family=shell_family,
+    )
+    if target_path.exists():
+        raise FileExistsError(f"Session already exists: {target_path}")
+
+    source_entries = _read_entries(source_path)
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    with target_path.open("w", encoding="utf-8") as file_handle:
+        _write_entry(
+            file_handle,
+            SessionHeaderEntry(
+                workspace_root=str(normalized_workspace_root),
+                shell_family=loaded_source.header.shell_family,
+            ),
+        )
+        _write_entry(
+            file_handle,
+            SessionForkEntry(
+                forked_from_session_id=forked_from_session_id,
+                forked_from_run_id=(
+                    loaded_source.runs[-1].run_id if loaded_source.runs else None
+                ),
+            ),
+        )
+        for entry in source_entries[1:]:
+            if isinstance(
+                entry,
+                (SessionHeaderEntry, SessionForkEntry, SessionInfoEntry),
+            ):
+                continue
+            _write_entry(file_handle, entry)
+        _flush_file_handle(file_handle)
+
+    timestamp = _utc_now()
+    _write_session_metadata(
+        path=_metadata_path_for_session_path(target_path),
+        metadata=SessionMetadata(
+            session_id=target_path.stem,
+            created_at=timestamp,
+            updated_at=timestamp,
+            forked_from_session_id=forked_from_session_id,
+        ),
+    )
+
+
 def load_session(
     *,
     path: Path,
@@ -276,6 +334,7 @@ def load_session(
         raise SessionFormatError("Session file is empty")
 
     header: SessionHeaderEntry | None = None
+    fork: SessionForkEntry | None = None
     name: SessionName | None = None
     runs: list[SessionRunRecord] = []
     compactions: list[SessionCompactionEntry] = []
@@ -303,6 +362,18 @@ def load_session(
 
         if header is None:
             raise SessionFormatError("Session header must be first entry")
+
+        if isinstance(entry, SessionForkEntry):
+            if current_run is not None:
+                raise SessionFormatError(
+                    "Session fork entry must not appear inside an incomplete run"
+                )
+            if fork is not None or runs or compactions or name is not None:
+                raise SessionFormatError(
+                    "Session fork entry must appear once immediately after header"
+                )
+            fork = entry
+            continue
 
         if isinstance(entry, SessionRunEntry):
             if current_run is not None:
@@ -412,6 +483,7 @@ def load_session(
 
     return LoadedSession(
         header=header,
+        fork=fork,
         name=name,
         runs=runs,
         compactions=compactions,
@@ -608,10 +680,21 @@ def _parse_entry(*, raw_line: str, line_number: int) -> SessionEntry:
         ) from error
 
 
+def _read_entries(path: Path) -> list[SessionEntry]:
+    lines = path.read_text(encoding="utf-8").splitlines()
+    if not lines:
+        raise SessionFormatError("Session file is empty")
+    return [
+        _parse_entry(raw_line=raw_line, line_number=line_number)
+        for line_number, raw_line in enumerate(lines, start=1)
+    ]
+
+
 def _write_entry(
     file_handle: TextIO,
     entry: (
         SessionHeaderEntry
+        | SessionForkEntry
         | SessionInfoEntry
         | SessionRunEntry
         | SessionMessagesEntry
@@ -627,6 +710,7 @@ def _append_entry_to_path(
     path: Path,
     entry: (
         SessionHeaderEntry
+        | SessionForkEntry
         | SessionInfoEntry
         | SessionRunEntry
         | SessionMessagesEntry
