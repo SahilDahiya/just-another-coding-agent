@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -94,8 +95,6 @@ type authOverlayView struct {
 	InputValue  string
 	HelpLines   []string
 }
-
-var topRailFrames = []string{"|", "/", "-", "\\"}
 
 func renderView(vm viewModel) string {
 	if vm.Onboarding.Active {
@@ -367,6 +366,16 @@ func renderTopRail(vm viewModel) string {
 	if indicator == "" {
 		return ""
 	}
+	if vm.Phase == PhaseStreaming {
+		return lipgloss.JoinHorizontal(
+			lipgloss.Left,
+			renderWorkingWave(vm.MotionTick),
+			" ",
+			lipgloss.NewStyle().
+				Foreground(defaultTheme.accentSoft).
+				Render(formatElapsedClock(vm.RunElapsed)),
+		)
+	}
 	return lipgloss.NewStyle().
 		Foreground(defaultTheme.accentSoft).
 		Render(indicator)
@@ -415,24 +424,46 @@ func buildTopRailIndicator(vm viewModel) string {
 	if vm.Phase != PhaseStreaming && vm.Phase != PhaseCompacting {
 		return ""
 	}
-	frame := topRailFrames[vm.MotionTick%len(topRailFrames)]
-	if vm.DetachedLive {
-		return fmt.Sprintf("%s %s %s", frame, buildWorkingWave(vm.MotionTick), formatElapsedClock(vm.RunElapsed))
+	if vm.Phase == PhaseStreaming {
+		return fmt.Sprintf("%s %s", buildWorkingWave(vm.MotionTick), formatElapsedClock(vm.RunElapsed))
 	}
-	return fmt.Sprintf("%s %s", frame, formatElapsedClock(vm.RunElapsed))
+	return fmt.Sprintf("Compacting %s", formatElapsedClock(vm.RunElapsed))
 }
 
 func buildWorkingWave(motionTick int) string {
-	switch motionTick % 4 {
-	case 0:
-		return "Working"
-	case 1:
-		return "Working."
-	case 2:
-		return "Working.."
-	default:
-		return "Working..."
+	frames := []string{
+		"Working",
+		"working",
+		"wOrking",
+		"working",
+		"woRking",
+		"working",
+		"worKing",
+		"working",
+		"workIng",
+		"working",
+		"workiNg",
+		"working",
+		"workinG",
+		"working",
 	}
+	return frames[motionTick%len(frames)]
+}
+
+func renderWorkingWave(motionTick int) string {
+	frame := buildWorkingWave(motionTick)
+	base := lipgloss.NewStyle().Foreground(defaultTheme.accentSoft)
+	active := lipgloss.NewStyle().Foreground(defaultTheme.textSoft).Bold(true)
+	parts := make([]string, 0, len(frame))
+	for _, r := range frame {
+		s := string(r)
+		if unicode.IsUpper(r) {
+			parts = append(parts, active.Render(s))
+			continue
+		}
+		parts = append(parts, base.Render(s))
+	}
+	return strings.Join(parts, "")
 }
 
 func renderSlashMenu(state slashMenuState) string {
