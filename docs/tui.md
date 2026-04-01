@@ -108,6 +108,10 @@ The core architectural risk is semantic drift between the Go shell and the Pytho
   provider-specific labeling, a centered secure setup panel, a masked input
   field, and clear copy that the secret is not written into transcript or
   prompt history.
+- GitHub token setup should also be explicit in-product: ask for a
+  fine-grained personal access token and call out the required account
+  permission `Models -> Read-only` instead of making the user infer that from
+  docs.
 - If the backend reports that interactive local secret storage is unavailable,
   the TUI should skip the normal keychain panel and go directly to the local
   secret file panel with clear explanatory copy about why that path was chosen.

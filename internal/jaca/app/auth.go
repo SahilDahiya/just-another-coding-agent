@@ -189,20 +189,38 @@ func authOverlayTitle(storage string) string {
 }
 
 func authSetupLinesForStorage(provider string, storage string, fileStorePath string) []string {
+	githubGuidance := []string{
+		"Use a fine-grained personal access token",
+		"Account permission: Models -> Read-only",
+	}
 	if storage == "file" {
-		return []string{
+		lines := []string{
 			fmt.Sprintf("Enter your %s", authSecretLabel(provider)),
+		}
+		if provider == "github" {
+			lines = append(lines, githubGuidance...)
+		}
+		lines = append(
+			lines,
 			"OS keychain unavailable; using local secret file instead",
 			fmt.Sprintf("Stored in %s", fileStorePath),
 			"Enter saves. Esc cancels.",
-		}
+		)
+		return lines
 	}
-	return []string{
+	lines := []string{
 		fmt.Sprintf("Enter your %s", authSecretLabel(provider)),
+	}
+	if provider == "github" {
+		lines = append(lines, githubGuidance...)
+	}
+	lines = append(
+		lines,
 		"Stored in the OS keychain",
 		"Not added to transcript or prompt history",
 		"Enter saves. Esc cancels.",
-	}
+	)
+	return lines
 }
 
 func authProviderLabel(provider string) string {

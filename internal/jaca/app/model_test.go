@@ -1301,6 +1301,14 @@ func TestGitHubProviderWithoutCredentialsStartsMaskedAuthFlow(t *testing.T) {
 	if !strings.Contains(rendered, "Secure Setup") || !strings.Contains(rendered, "GitHub Models token") {
 		t.Fatalf("view missing github secure setup panel after provider selection: %q", rendered)
 	}
+	for _, want := range []string{
+		"Use a fine-grained personal access token",
+		"Account permission: Models -> Read-only",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("github secure setup panel missing %q: %q", want, rendered)
+		}
+	}
 	masked := sendRunes(m, "super-secret")
 	rendered = stripANSI(masked.View())
 	if strings.Contains(rendered, "super-secret") {

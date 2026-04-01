@@ -273,6 +273,8 @@ func TestRenderViewShowsCenteredSecureSetupPanel(t *testing.T) {
 			InputValue:  "********",
 			HelpLines: []string{
 				"Enter your github models token",
+				"Use a fine-grained personal access token",
+				"Account permission: Models -> Read-only",
 				"Stored in the OS keychain",
 				"Not added to transcript or prompt history",
 				"Enter saves. Esc cancels.",
@@ -284,6 +286,8 @@ func TestRenderViewShowsCenteredSecureSetupPanel(t *testing.T) {
 		"Secure Setup",
 		"GitHub Models token",
 		"********",
+		"Use a fine-grained personal access token",
+		"Account permission: Models -> Read-only",
 		"Stored in the OS keychain",
 		"Enter saves. Esc cancels.",
 	} {
