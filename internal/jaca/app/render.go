@@ -70,6 +70,7 @@ type viewModel struct {
 	ContextWindow  *float64
 	LinePulse      int
 	SinceLastDelta time.Duration
+	DetachedLive   bool
 	VisibleZones   int
 	SlashMenu      slashMenuState
 	UpdatePrompt   updatePromptState
@@ -415,7 +416,23 @@ func buildTopRailIndicator(vm viewModel) string {
 		return ""
 	}
 	frame := topRailFrames[vm.MotionTick%len(topRailFrames)]
+	if vm.DetachedLive {
+		return fmt.Sprintf("%s %s %s", frame, buildWorkingWave(vm.MotionTick), formatElapsedClock(vm.RunElapsed))
+	}
 	return fmt.Sprintf("%s %s", frame, formatElapsedClock(vm.RunElapsed))
+}
+
+func buildWorkingWave(motionTick int) string {
+	switch motionTick % 4 {
+	case 0:
+		return "Working"
+	case 1:
+		return "Working."
+	case 2:
+		return "Working.."
+	default:
+		return "Working..."
+	}
 }
 
 func renderSlashMenu(state slashMenuState) string {

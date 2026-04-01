@@ -410,6 +410,7 @@ func (m *model) currentViewModel() viewModel {
 		ContextWindow:  m.lastContextWindow,
 		LinePulse:      m.linePulse,
 		SinceLastDelta: sinceLastDelta,
+		DetachedLive:   m.streaming && !m.viewport.AtBottom(),
 		VisibleZones:   m.visibleZones,
 		SlashMenu:      m.slashMenu,
 		UpdatePrompt:   m.updatePrompt,

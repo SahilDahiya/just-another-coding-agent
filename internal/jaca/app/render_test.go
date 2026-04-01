@@ -104,6 +104,22 @@ func TestBuildTopRailIndicatorShowsFixedElapsed(t *testing.T) {
 	}
 }
 
+func TestBuildTopRailIndicatorShowsDetachedWorkingState(t *testing.T) {
+	got := buildTopRailIndicator(viewModel{
+		Phase:        PhaseStreaming,
+		MotionTick:   2,
+		RunElapsed:   37 * time.Second,
+		DetachedLive: true,
+	})
+
+	if !strings.Contains(got, "Working..") {
+		t.Fatalf("buildTopRailIndicator() missing detached live label: %q", got)
+	}
+	if !strings.Contains(got, "00:37") {
+		t.Fatalf("buildTopRailIndicator() missing elapsed indicator: %q", got)
+	}
+}
+
 func TestBuildTopRailIndicatorHiddenWhenIdle(t *testing.T) {
 	got := buildTopRailIndicator(viewModel{
 		Phase:      PhaseIdle,
@@ -130,6 +146,22 @@ func TestRenderPromptRuleShowsTopRailIndicatorDuringStreaming(t *testing.T) {
 	frame := topRailFrames[tick%len(topRailFrames)]
 	if !strings.Contains(rendered, frame) {
 		t.Fatalf("renderTopRail() missing spinner frame: %q", rendered)
+	}
+}
+
+func TestRenderTopRailShowsDetachedWorkingState(t *testing.T) {
+	rendered := stripANSI(renderTopRail(viewModel{
+		Phase:        PhaseStreaming,
+		MotionTick:   1,
+		RunElapsed:   12 * time.Second,
+		DetachedLive: true,
+	}))
+
+	if !strings.Contains(rendered, "Working.") {
+		t.Fatalf("renderTopRail() missing detached working label: %q", rendered)
+	}
+	if !strings.Contains(rendered, "00:12") {
+		t.Fatalf("renderTopRail() missing elapsed indicator: %q", rendered)
 	}
 }
 

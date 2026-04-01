@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -304,6 +305,26 @@ func TestRefreshViewportDoesNotForceFollowWhileStreamingAfterManualScroll(t *tes
 
 	if m.viewport.YOffset != 0 {
 		t.Fatalf("refreshViewport() moved manual scroll position during streaming to %d", m.viewport.YOffset)
+	}
+}
+
+func TestCurrentViewModelMarksDetachedLiveWhenStreamingScrolledUp(t *testing.T) {
+	m := newTestModel()
+	m.width = 80
+	m.height = 24
+	for i := 0; i < 30; i++ {
+		m.transcript.WriteLine(fmt.Sprintf("line %02d", i))
+	}
+	m.streaming = true
+	m.phase = PhaseStreaming
+	m.runStartTime = time.Now().Add(-37 * time.Second)
+	m.refreshViewport()
+	m.viewport.GotoTop()
+
+	vm := m.currentViewModel()
+
+	if !vm.DetachedLive {
+		t.Fatal("currentViewModel() should mark detached live state when scrolled off bottom during streaming")
 	}
 }
 
