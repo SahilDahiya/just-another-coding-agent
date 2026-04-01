@@ -106,9 +106,13 @@ Before a resumed run starts, the runtime now builds the effective
 Code:
 
 - `runtime/compaction/resume.py`
+- `runtime/compaction/boundary.py`
 
 Responsibilities:
 
+- define the canonical post-compaction continuity boundary:
+  - latest durable summary, when present
+  - retained native runs after the durable compaction boundary
 - turn the latest `session_compaction` entry into one synthetic summary message
 - append retained native messages after the compaction boundary
 - strip synthetic summary messages back out before persistence
@@ -117,6 +121,10 @@ This is deterministic replay, not prefix matching or message-history surgery.
 The canonical session runtime now treats this local materialized history as the
 authoritative source of truth for resumed runs instead of relying on
 provider-side server history.
+
+That same post-compaction continuity boundary is the seam future fork behavior
+must use too. Resume should not own bespoke boundary math that a later fork path
+would need to reimplement differently.
 
 ### 3. In-run compaction
 

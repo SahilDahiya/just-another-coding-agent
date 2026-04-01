@@ -39,6 +39,9 @@ from just_another_coding_agent.runtime.compaction import (
 from just_another_coding_agent.runtime.compaction import (
     session_summary as session_summary_module,
 )
+from just_another_coding_agent.runtime.compaction.boundary import (
+    build_post_compaction_continuity_boundary,
+)
 from just_another_coding_agent.session import (
     SessionFormatError,
     append_compaction_to_session,
@@ -998,6 +1001,70 @@ def test_build_resume_message_history_uses_summary_plus_retained_runs(tmp_path) 
         for part in _all_parts(resume_history)
         if isinstance(part, UserPromptPart)
     ] == ["second", "third"]
+
+
+def test_build_post_compaction_continuity_boundary_uses_kept_run_boundary(
+    tmp_path,
+) -> None:
+    session_path = tmp_path / "session.jsonl"
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    for run_id, prompt in [
+        ("run-1", "first"),
+        ("run-2", "second"),
+        ("run-3", "third"),
+    ]:
+        append_run_to_session(
+            path=session_path,
+            workspace_root=workspace_root,
+            prompt=prompt,
+            thinking=None,
+            messages=[ModelRequest(parts=[UserPromptPart(content=prompt)])],
+            events=[
+                RunStartedEvent(run_id=run_id),
+                RunSucceededEvent(run_id=run_id, output_text="done"),
+            ],
+        )
+
+    session_path.write_text(
+        session_path.read_text(encoding="utf-8")
+        + json.dumps(
+            {
+                "type": "session_compaction",
+                "compaction_id": "compact-1",
+                "summarized_through_run_id": "run-1",
+                "first_kept_run_id": "run-2",
+                "summary": {
+                    "current_objective": "continue from retained runs",
+                    "established_facts": ["run-1 is summarized"],
+                    "user_preferences": [],
+                    "important_paths": [],
+                    "read_paths": [],
+                    "modified_paths": [],
+                    "recent_shell_commands": [],
+                    "recent_failures": [],
+                    "open_questions": [],
+                    "unresolved_work": ["finish the task"],
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    loaded = load_session(path=session_path, workspace_root=workspace_root)
+    continuity_boundary = build_post_compaction_continuity_boundary(loaded)
+
+    assert continuity_boundary.summary is not None
+    assert (
+        continuity_boundary.summary.current_objective
+        == "continue from retained runs"
+    )
+    assert [run.run_id for run in continuity_boundary.retained_runs] == [
+        "run-2",
+        "run-3",
+    ]
 
 
 async def test_summarize_session_for_compaction_uses_model_output_and_prior_summary(

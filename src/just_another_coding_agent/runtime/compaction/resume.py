@@ -13,36 +13,25 @@ from just_another_coding_agent.contracts.session import (
     LoadedSession,
     SessionCompactionSummary,
 )
+from just_another_coding_agent.runtime.compaction.boundary import (
+    build_post_compaction_continuity_boundary,
+)
 
 COMPACTION_SUMMARY_DYNAMIC_REF = "session-compaction-summary"
 
 
 def build_resume_message_history(loaded_session: LoadedSession) -> list[ModelMessage]:
-    latest_compaction = loaded_session.latest_compaction
-    if latest_compaction is None:
+    continuity_boundary = build_post_compaction_continuity_boundary(loaded_session)
+    if continuity_boundary.summary is None:
         return loaded_session.message_history
-
-    if latest_compaction.first_kept_run_id is not None:
-        retained_start_index = _run_index_for_id(
-            loaded_session,
-            latest_compaction.first_kept_run_id,
-        )
-    else:
-        retained_start_index = (
-            _run_index_for_id(
-                loaded_session,
-                latest_compaction.summarized_through_run_id,
-            )
-            + 1
-        )
 
     retained_messages = [
         message
-        for run in loaded_session.runs[retained_start_index:]
+        for run in continuity_boundary.retained_runs
         for message in run.messages
     ]
     return [
-        build_compaction_summary_message(latest_compaction.summary),
+        build_compaction_summary_message(continuity_boundary.summary),
         *retained_messages,
     ]
 
@@ -117,11 +106,3 @@ def _is_compaction_summary_part(part: ModelRequestPart) -> bool:
         isinstance(part, SystemPromptPart)
         and part.dynamic_ref == COMPACTION_SUMMARY_DYNAMIC_REF
     )
-
-
-def _run_index_for_id(loaded_session: LoadedSession, run_id: str) -> int:
-    for index, run in enumerate(loaded_session.runs):
-        if run.run_id == run_id:
-            return index
-
-    raise RuntimeError(f"Compaction references unknown run_id: {run_id}")
