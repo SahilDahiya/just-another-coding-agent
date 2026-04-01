@@ -104,6 +104,10 @@ def render_summary(summary: SessionCompactionSummary) -> str:
     _append_rendered_section(lines, "Important paths", summary.important_paths)
     _append_rendered_section(lines, "Read paths", summary.read_paths)
     _append_rendered_section(lines, "Modified paths", summary.modified_paths)
+    _append_rendered_section(
+        lines, "Recent shell commands", summary.recent_shell_commands
+    )
+    _append_rendered_section(lines, "Recent failures", summary.recent_failures)
     _append_rendered_section(lines, "Open questions", summary.open_questions)
     _append_rendered_section(lines, "Unresolved work", summary.unresolved_work)
     return "\n".join(lines) if lines else "(empty summary)"

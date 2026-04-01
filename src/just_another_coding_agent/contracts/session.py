@@ -49,6 +49,8 @@ class SessionCompactionSummary(_SessionEntryBase):
     important_paths: list[str] = Field(default_factory=list)
     read_paths: list[str] = Field(default_factory=list)
     modified_paths: list[str] = Field(default_factory=list)
+    recent_shell_commands: list[str] = Field(default_factory=list)
+    recent_failures: list[str] = Field(default_factory=list)
     open_questions: list[str] = Field(default_factory=list)
     unresolved_work: list[str] = Field(default_factory=list)
 

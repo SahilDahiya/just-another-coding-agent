@@ -431,7 +431,7 @@ Initial executable session slice:
   - `summarized_through_run_id` must reference an existing persisted `run_id`
   - `first_kept_run_id`, when present, must reference an existing persisted
     `run_id` strictly after `summarized_through_run_id`
-  - `summary` is model-generated structured compaction state, not arbitrary untyped metadata
+  - `summary` is structured durable compaction state, not arbitrary untyped metadata
 
 Ordering rules for the session slice:
 
@@ -443,7 +443,16 @@ Ordering rules for the session slice:
 - Authoritative session loads must provide the expected workspace root and it must match the persisted `session_header.workspace_root` exactly
 - Session resume semantics must reconstruct effective conversation context from the latest compaction summary plus retained `session_messages` when a compaction entry exists; retained messages start at `first_kept_run_id` when present, otherwise they start strictly after `summarized_through_run_id`
 - Durable cross-run compaction must be materialized into resume `message_history` before the next run starts; only run-local compaction uses PydanticAI `history_processors`
-- Durable compaction summaries must carry structured working-set path state in addition to prose: `read_paths` for explicitly read files and `modified_paths` for explicitly written or edited files
+- Durable compaction summaries must carry backend-owned deterministic survival
+  state in addition to model-written prose: `read_paths` for explicitly read
+  files, `modified_paths` for explicitly written or edited files,
+  `recent_shell_commands` for recent shell command/outcome snapshots, and
+  `recent_failures` for recent failed tool calls or terminal run failures
+- Durable compaction summary generation must use the model only for narrative
+  fields such as `current_objective`, `established_facts`, `user_preferences`,
+  `important_paths`, `open_questions`, and `unresolved_work`; backend-owned
+  deterministic fields must be derived from persisted run events instead of
+  model recall
 - Run-local history processors may compact current-run tool-return content for
   the model when context pressure grows, but the persistence layer must restore
   the original raw tool-return content before writing `session_messages`
@@ -518,7 +527,10 @@ Ordering rules for the RPC slice:
   local file storage
 - A valid `session.create` request yields exactly one `rpc_response` containing a server-generated opaque `session_id`
 - A valid `session.compact` request must reference an existing `session_id` and yields exactly one `rpc_response` describing the newly appended compaction entry
-- `session.compact` responses must include the durable summary's structured working-set path fields (`read_paths` and `modified_paths`) alongside the existing prose sections
+- `session.compact` responses must include the durable summary's backend-owned
+  deterministic fields (`read_paths`, `modified_paths`,
+  `recent_shell_commands`, and `recent_failures`) alongside the narrative
+  fields
 - If model-driven compaction summary generation fails, `session.compact` fails hard; it does not append a placeholder summary
 - A valid `run.start` request must reference an existing `session_id` and yields zero or more `rpc_event` lines whose embedded events satisfy the streamed run contract
 - Session lifecycle `rpc_event` payloads such as `session_compaction_started` and `session_compaction_completed` may appear before `run_started`

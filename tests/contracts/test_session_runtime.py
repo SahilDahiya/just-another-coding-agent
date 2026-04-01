@@ -23,6 +23,7 @@ from just_another_coding_agent.contracts.run_events import (
     RunFailedEvent,
     RunStartedEvent,
     RunSucceededEvent,
+    ShellActivityDetails,
     ToolActivity,
     ToolCallFailedEvent,
     ToolCallStartedEvent,
@@ -970,6 +971,8 @@ def test_build_resume_message_history_uses_summary_plus_retained_runs(tmp_path) 
                     "important_paths": [],
                     "read_paths": [],
                     "modified_paths": [],
+                    "recent_shell_commands": [],
+                    "recent_failures": [],
                     "open_questions": [],
                     "unresolved_work": ["finish the task"],
                 },
@@ -1075,6 +1078,123 @@ async def test_summarize_session_for_compaction_uses_model_output_and_prior_summ
     assert summary.important_paths == ["note.txt", "src/app.py"]
     assert summary.open_questions == ["Should we add retries?"]
     assert summary.unresolved_work == ["Run the final acceptance check."]
+
+
+async def test_summarize_session_for_compaction_carries_recent_shell_and_failure_state(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    session_path = tmp_path / "session.jsonl"
+
+    append_run_to_session(
+        path=session_path,
+        workspace_root=workspace_root,
+        prompt="first",
+        thinking=None,
+        messages=[ModelRequest(parts=[UserPromptPart(content="first")])],
+        events=[
+            RunStartedEvent(run_id="run-1"),
+            RunSucceededEvent(run_id="run-1", output_text="done"),
+        ],
+    )
+    append_compaction_to_session(
+        path=session_path,
+        workspace_root=workspace_root,
+        summary=SessionCompactionSummary(
+            current_objective="continue the task",
+            established_facts=["The first run completed."],
+            user_preferences=[],
+            important_paths=[],
+            read_paths=[],
+            modified_paths=[],
+            recent_shell_commands=["pytest -q (exit 0)"],
+            recent_failures=["shell pytest -q failed: exit 1"],
+            open_questions=[],
+            unresolved_work=["Handle the next run."],
+        ),
+    )
+    append_run_to_session(
+        path=session_path,
+        workspace_root=workspace_root,
+        prompt="second",
+        thinking=None,
+        messages=[ModelRequest(parts=[UserPromptPart(content="second")])],
+        events=[
+            RunStartedEvent(run_id="run-2"),
+            ToolCallStartedEvent(
+                run_id="run-2",
+                tool_call_id="call-shell-ok",
+                tool_name="shell",
+                args={"command": "go test ./..."},
+                args_valid=True,
+            ),
+            ToolCallSucceededEvent(
+                run_id="run-2",
+                tool_call_id="call-shell-ok",
+                tool_name="shell",
+                result={"exit_code": 0, "output": "ok"},
+                activity=ToolActivity(
+                    title="shell go test ./...",
+                    summary="command exited 0",
+                    details=ShellActivityDetails(
+                        command_preview="go test ./...",
+                        shell_family="posix",
+                        exit_code=0,
+                    ),
+                ),
+            ),
+            ToolCallStartedEvent(
+                run_id="run-2",
+                tool_call_id="call-shell-fail",
+                tool_name="shell",
+                args={"command": "pytest -q"},
+                args_valid=True,
+            ),
+            ToolCallFailedEvent(
+                run_id="run-2",
+                tool_call_id="call-shell-fail",
+                tool_name="shell",
+                error_type="ToolCommandError",
+                message="Command exited with code 1",
+                activity=ToolActivity(
+                    title="shell pytest -q",
+                    summary="Command exited with code 1",
+                ),
+            ),
+            RunFailedEvent(
+                run_id="run-2",
+                error_type="ModelHTTPError",
+                message="provider timeout",
+            ),
+        ],
+    )
+
+    loaded = load_session(path=session_path, workspace_root=workspace_root)
+    summary = await summarize_session_for_compaction(
+        model=_test_summary_model(
+            custom_output_args={
+                "current_objective": "repair the failing verifier",
+                "established_facts": ["The second run failed after verifier work."],
+                "user_preferences": [],
+                "important_paths": [],
+                "open_questions": [],
+                "unresolved_work": ["Fix the failing test run."],
+            }
+        ),
+        loaded_session=loaded,
+    )
+
+    assert summary.recent_shell_commands == [
+        "pytest -q (exit 0)",
+        "go test ./... (exit 0)",
+        "pytest -q (failed)",
+    ]
+    assert summary.recent_failures == [
+        "shell pytest -q failed: exit 1",
+        "shell pytest -q failed: Command exited with code 1",
+        "run failed (ModelHTTPError): provider timeout",
+    ]
 
 
 async def test_summarize_session_for_compaction_carries_forward_working_set_paths(
@@ -1879,6 +1999,8 @@ async def test_resumed_compacted_session_still_applies_live_in_run_compaction(
                     "important_paths": ["retained-big.txt", "current-big.txt"],
                     "read_paths": [],
                     "modified_paths": [],
+                    "recent_shell_commands": [],
+                    "recent_failures": [],
                     "open_questions": [],
                     "unresolved_work": ["inspect the current big file"],
                 },

@@ -87,8 +87,6 @@ async def compaction_summary_function(
                         "established_facts": ["note.txt was created"],
                         "user_preferences": ["be concise"],
                         "important_paths": ["note.txt"],
-                        "read_paths": [],
-                        "modified_paths": ["note.txt"],
                         "open_questions": ["Should we add logging?"],
                         "unresolved_work": ["Run the final verifier."],
                     }
@@ -308,6 +306,8 @@ async def test_serve_rpc_stdio_supports_session_compact(
     assert compact_response["response"]["summary"]["important_paths"] == ["note.txt"]
     assert compact_response["response"]["summary"]["read_paths"] == []
     assert compact_response["response"]["summary"]["modified_paths"] == ["note.txt"]
+    assert compact_response["response"]["summary"]["recent_shell_commands"] == []
+    assert compact_response["response"]["summary"]["recent_failures"] == []
 
     session_path = session_path_for_id(
         sessions_root=sessions_root,

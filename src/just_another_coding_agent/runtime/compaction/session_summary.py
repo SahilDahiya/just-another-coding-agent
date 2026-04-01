@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from pydantic import BaseModel, ConfigDict, Field
 from pydantic_ai import Agent
 
 from just_another_coding_agent.contracts.platform import detect_default_shell_family
@@ -16,7 +17,7 @@ from just_another_coding_agent.runtime.compaction.constants import (
 )
 from just_another_coding_agent.runtime.compaction.working_set import (
     merge_summary_paths,
-    with_deterministic_working_set_paths,
+    with_deterministic_survival_state,
 )
 from just_another_coding_agent.runtime.models import (
     get_model_context_window_tokens,
@@ -54,6 +55,17 @@ COMPACTION_SUMMARY_INSTRUCTIONS = "\n".join(
 )
 
 
+class _NarrativeCompactionSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    current_objective: str | None = None
+    established_facts: list[str] = Field(default_factory=list)
+    user_preferences: list[str] = Field(default_factory=list)
+    important_paths: list[str] = Field(default_factory=list)
+    open_questions: list[str] = Field(default_factory=list)
+    unresolved_work: list[str] = Field(default_factory=list)
+
+
 async def summarize_session_for_compaction(
     *,
     model: Any,
@@ -64,11 +76,11 @@ async def summarize_session_for_compaction(
 
     summarizer = Agent(
         resolve_canonical_model(model),
-        output_type=SessionCompactionSummary,
+        output_type=_NarrativeCompactionSummary,
         instructions=COMPACTION_SUMMARY_INSTRUCTIONS,
     )
     result = await summarizer.run(_build_compaction_source(loaded_session, model=model))
-    normalized = with_deterministic_working_set_paths(
+    normalized = with_deterministic_survival_state(
         _normalize_compaction_summary(result.output),
         loaded_session=loaded_session,
     )
@@ -79,6 +91,8 @@ async def summarize_session_for_compaction(
         and not normalized.important_paths
         and not normalized.read_paths
         and not normalized.modified_paths
+        and not normalized.recent_shell_commands
+        and not normalized.recent_failures
         and not normalized.open_questions
         and not normalized.unresolved_work
     ):
@@ -115,7 +129,7 @@ async def summarize_and_append_compaction_to_session(
 
 
 def _normalize_compaction_summary(
-    summary: SessionCompactionSummary,
+    summary: _NarrativeCompactionSummary,
 ) -> SessionCompactionSummary:
     current_objective = _normalize_optional_text(summary.current_objective)
     return SessionCompactionSummary(
@@ -123,8 +137,6 @@ def _normalize_compaction_summary(
         established_facts=_normalize_summary_items(summary.established_facts),
         user_preferences=_normalize_summary_items(summary.user_preferences),
         important_paths=_normalize_summary_items(summary.important_paths),
-        read_paths=_normalize_summary_items(summary.read_paths),
-        modified_paths=_normalize_summary_items(summary.modified_paths),
         open_questions=_normalize_summary_items(summary.open_questions),
         unresolved_work=_normalize_summary_items(summary.unresolved_work),
     )

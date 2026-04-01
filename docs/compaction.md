@@ -27,7 +27,8 @@ Responsibilities:
 
 - decide when automatic durable compaction should happen
 - build a bounded structured compaction source from prior runs and any previous compaction
-- validate and normalize model-produced summary output
+- validate and normalize model-produced narrative summary output
+- derive deterministic survival state from actual persisted run events
 - append one durable `session_compaction` entry to the session file
 
 The public orchestration entrypoint stays in `session_summary.py`, but the
@@ -57,15 +58,36 @@ The compaction source is intentionally not a raw transcript dump. It uses:
 - structured per-run summaries for runs since the latest compaction boundary
 - bounded prompt/output/activity text rather than raw event JSON or raw tool-return payloads
 
-The durable summary now also carries explicit structured working-set path state:
+The durable summary now carries two kinds of state:
+
+- model-written narrative state:
+  - `current_objective`
+  - `established_facts`
+  - `user_preferences`
+  - `important_paths`
+  - `open_questions`
+  - `unresolved_work`
+- backend-owned deterministic survival state:
+  - `read_paths`
+  - `modified_paths`
+  - `recent_shell_commands`
+  - `recent_failures`
+
+The deterministic fields are derived from actual persisted run events and
+carried forward across compaction boundaries. They are not left to model
+free-form recall.
+
+The working-set portion of deterministic survival state includes:
 
 - `read_paths` for files explicitly read since the latest compaction boundary
 - `modified_paths` for files explicitly written or edited since the latest
   compaction boundary
 
-Those path lists are runtime-derived from actual tool activity and carried
-forward across compaction boundaries. They are not left to model free-form
-recall.
+The operational portion of deterministic survival state includes:
+
+- `recent_shell_commands` for concise command/outcome snapshots from recent
+  `shell` tool activity
+- `recent_failures` for recent failed tool calls and terminal run failures
 
 If the source would exceed the active model context window, oldest run sections
 are trimmed before the summarizer model call starts. If even the minimal source
