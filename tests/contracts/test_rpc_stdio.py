@@ -164,6 +164,7 @@ async def _create_session_id(*, workspace_root, sessions_root) -> str:
     assert len(session_id) == 32
     session_path = session_path_for_id(
         sessions_root=sessions_root,
+        workspace_root=workspace_root,
         session_id=session_id,
     )
     assert session_path.exists()
@@ -230,6 +231,7 @@ async def test_handle_rpc_json_line_creates_session_and_resumes_runs(
 
     session_path = session_path_for_id(
         sessions_root=sessions_root,
+        workspace_root=workspace_root,
         session_id=session_id,
     )
     loaded = load_session(path=session_path, workspace_root=workspace_root)
@@ -276,6 +278,7 @@ async def test_handle_rpc_json_line_names_session_with_backend_normalization(
 
     session_path = session_path_for_id(
         sessions_root=sessions_root,
+        workspace_root=workspace_root,
         session_id=session_id,
     )
     loaded = load_session(path=session_path, workspace_root=workspace_root)
@@ -723,6 +726,7 @@ async def test_handle_rpc_json_line_compacts_session_and_returns_metadata(
     )
     session_path = session_path_for_id(
         sessions_root=sessions_root,
+        workspace_root=workspace_root,
         session_id=session_id,
     )
     created_run_id = (
@@ -915,6 +919,7 @@ async def test_handle_rpc_json_line_keeps_run_failure_in_event_stream_and_sessio
 
     session_path = session_path_for_id(
         sessions_root=sessions_root,
+        workspace_root=workspace_root,
         session_id=session_id,
     )
     loaded = load_session(path=session_path, workspace_root=workspace_root)
@@ -987,12 +992,8 @@ async def test_handle_rpc_json_line_returns_invalid_session_error_on_workspace_m
         {
             "type": "rpc_error",
             "id": "req-mismatch",
-            "error_type": "InvalidSession",
-            "message": (
-                "Session workspace_root mismatch: "
-                f"expected {second_workspace_root.resolve()}, got "
-                f"{first_workspace_root.resolve()}"
-            ),
+            "error_type": "UnknownSession",
+            "message": f"Unknown session_id: {session_id}",
         }
     ]
 

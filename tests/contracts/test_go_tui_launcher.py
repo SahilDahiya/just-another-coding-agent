@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pytest
@@ -214,15 +215,18 @@ def test_main_resume_without_reference_prompts_for_recent_session_selection(
             SimpleNamespace(
                 session_id="1" * 32,
                 name="first-session",
-                updated_at_ns=20,
+                created_at=datetime.now(UTC),
+                updated_at=datetime.now(UTC),
             ),
             SimpleNamespace(
                 session_id="2" * 32,
                 name="second-session",
-                updated_at_ns=10,
+                created_at=datetime.now(UTC),
+                updated_at=datetime.now(UTC),
             ),
         ],
     )
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
     monkeypatch.setattr("builtins.input", lambda _: "2")
 
     def fake_run(command, *, check, cwd=None):

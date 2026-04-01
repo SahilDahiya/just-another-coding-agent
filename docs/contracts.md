@@ -445,6 +445,7 @@ Ordering rules for the session slice:
 
 - The first line must be exactly one `session_header`
 - `session_info` may appear only at completed-run boundaries, never in the middle of a run
+- `session_info.name` is unique within the current workspace-backed session shard
 - Each completed `session_run` is followed by one or more `session_event` lines for the same `run_id` and then exactly one trailing `session_messages` line for that run
 - A trailing run without `session_messages` is an incomplete run and authoritative session load must fail hard
 - `session_compaction` may appear only at a completed run boundary, never in the middle of a run
@@ -537,7 +538,7 @@ Ordering rules for the RPC slice:
   the stored local secret for that provider from both keychain and explicit
   local file storage
 - A valid `session.create` request yields exactly one `rpc_response` containing a server-generated opaque `session_id`
-- A valid `session.name` request must reference an existing `session_id`, append one backend-normalized `session_info` entry, and yield exactly one `rpc_response` containing that normalized session name
+- A valid `session.name` request must reference an existing `session_id`, append one backend-normalized `session_info` entry when the requested name changes, enforce workspace-local name uniqueness, and yield exactly one `rpc_response` containing that normalized session name
 - A valid `session.compact` request must reference an existing `session_id` and yields exactly one `rpc_response` describing the newly appended compaction entry
 - `session.compact` responses must include the durable summary's backend-owned
   deterministic fields (`read_paths`, `modified_paths`,

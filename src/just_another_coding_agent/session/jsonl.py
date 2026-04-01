@@ -4,6 +4,7 @@ import json
 import os
 import re
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TextIO
 from uuid import uuid4
@@ -40,6 +41,7 @@ from just_another_coding_agent.contracts.session import (
     SessionHeaderEntry,
     SessionInfoEntry,
     SessionMessagesEntry,
+    SessionMetadata,
     SessionName,
     SessionRunEntry,
     SessionRunRecord,
@@ -49,6 +51,7 @@ from just_another_coding_agent.tools._workspace import normalize_workspace_root
 
 _SESSION_ENTRY_ADAPTER = TypeAdapter(SessionEntry)
 _SESSION_NAME_ADAPTER = TypeAdapter(SessionName)
+_UNSET = object()
 
 
 class SessionFormatError(ValueError):
@@ -125,6 +128,7 @@ class SessionRunAppender:
             self._path,
             SessionMessagesEntry(run_id=self._run_id, messages=list(messages)),
         )
+        _update_session_metadata(path=self._path, updated_at=_utc_now())
         self._finalized = True
 
 
@@ -149,6 +153,15 @@ def initialize_session(
             ),
         )
         _flush_file_handle(file_handle)
+    timestamp = _utc_now()
+    _write_session_metadata(
+        path=_metadata_path_for_session_path(path),
+        metadata=SessionMetadata(
+            session_id=path.stem,
+            created_at=timestamp,
+            updated_at=timestamp,
+        ),
+    )
 
 
 def append_run_to_session(
@@ -204,6 +217,7 @@ def append_compaction_to_session(
     with path.open("a", encoding="utf-8") as file_handle:
         _write_entry(file_handle, entry)
         _flush_file_handle(file_handle)
+    _update_session_metadata(path=path, updated_at=_utc_now())
 
     return entry
 
@@ -222,10 +236,28 @@ def append_session_name_to_session(
         shell_family=shell_family,
     )
     normalized_name = normalize_session_name(name)
+    metadata = read_session_metadata(path=_metadata_path_for_session_path(path))
+    if metadata.name == normalized_name:
+        return normalized_name
+
+    for candidate in _iter_workspace_session_metadata(path.parent):
+        if candidate.session_id == metadata.session_id:
+            continue
+        if candidate.name == normalized_name:
+            raise SessionNameValidationError(
+                "Session name already in use in this workspace: "
+                f"{normalized_name}"
+            )
+
     entry = SessionInfoEntry(name=normalized_name)
     with path.open("a", encoding="utf-8") as file_handle:
         _write_entry(file_handle, entry)
         _flush_file_handle(file_handle)
+    _update_session_metadata(
+        path=path,
+        name=normalized_name,
+        updated_at=_utc_now(),
+    )
     return normalized_name
 
 
@@ -384,6 +416,23 @@ def load_session(
         runs=runs,
         compactions=compactions,
     )
+
+
+def read_session_metadata(*, path: Path) -> SessionMetadata:
+    try:
+        raw_payload = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        raise SessionFormatError(f"Session metadata is missing: {path}") from None
+
+    try:
+        payload = json.loads(raw_payload)
+    except json.JSONDecodeError as error:
+        raise SessionFormatError(f"Invalid session metadata JSON: {path}") from error
+
+    try:
+        return SessionMetadata.model_validate(payload)
+    except ValidationError as error:
+        raise SessionFormatError(f"Invalid session metadata: {path}") from error
 
 
 def _extract_run_id(events: Sequence[RunEvent]) -> str:
@@ -602,6 +651,7 @@ def _ensure_session_is_appendable(
             workspace_root=workspace_root,
             shell_family=shell_family,
         )
+        read_session_metadata(path=_metadata_path_for_session_path(path))
         return
 
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -614,8 +664,61 @@ def _ensure_session_is_appendable(
             ),
         )
         _flush_file_handle(file_handle)
+    timestamp = _utc_now()
+    _write_session_metadata(
+        path=_metadata_path_for_session_path(path),
+        metadata=SessionMetadata(
+            session_id=path.stem,
+            created_at=timestamp,
+            updated_at=timestamp,
+        ),
+    )
 
 
 def _flush_file_handle(file_handle: TextIO) -> None:
     file_handle.flush()
     os.fsync(file_handle.fileno())
+
+
+def _metadata_path_for_session_path(path: Path) -> Path:
+    return path.with_suffix(".meta.json")
+
+
+def _write_session_metadata(*, path: Path, metadata: SessionMetadata) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(metadata.model_dump_json(), encoding="utf-8")
+
+
+def _update_session_metadata(
+    *,
+    path: Path,
+    name: SessionName | None | object = _UNSET,
+    updated_at: datetime | object = _UNSET,
+) -> SessionMetadata:
+    metadata_path = _metadata_path_for_session_path(path)
+    existing = read_session_metadata(path=metadata_path)
+    metadata = existing.model_copy(
+        update={
+            key: value
+            for key, value in {
+                "name": name,
+                "updated_at": updated_at,
+            }.items()
+            if value is not _UNSET
+        }
+    )
+    _write_session_metadata(path=metadata_path, metadata=metadata)
+    return metadata
+
+
+def _iter_workspace_session_metadata(
+    workspace_sessions_root: Path,
+) -> Sequence[SessionMetadata]:
+    return [
+        read_session_metadata(path=metadata_path)
+        for metadata_path in sorted(workspace_sessions_root.glob("*.meta.json"))
+    ]
+
+
+def _utc_now() -> datetime:
+    return datetime.now(UTC)

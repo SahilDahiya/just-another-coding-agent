@@ -113,6 +113,7 @@ async def _create_session_id(*, workspace_root, sessions_root) -> str:
     session_id = str(messages[0]["response"]["session_id"])
     session_path = session_path_for_id(
         sessions_root=sessions_root,
+        workspace_root=workspace_root,
         session_id=session_id,
     )
     assert session_path.exists()
@@ -196,6 +197,7 @@ async def test_e2e_rpc_runtime_session_uses_explicit_workspace_root(
 
     session_path = session_path_for_id(
         sessions_root=sessions_root,
+        workspace_root=workspace_root,
         session_id=session_id,
     )
     loaded = load_session(path=session_path, workspace_root=workspace_root)
@@ -263,6 +265,7 @@ async def test_e2e_failure_round_trips_through_rpc_and_session(
 
     session_path = session_path_for_id(
         sessions_root=sessions_root,
+        workspace_root=workspace_root,
         session_id=session_id,
     )
     loaded = load_session(path=session_path, workspace_root=workspace_root)

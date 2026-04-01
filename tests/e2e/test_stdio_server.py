@@ -181,6 +181,7 @@ async def test_serve_rpc_stdio_handles_multiple_lines_in_one_process(
 
     session_path = session_path_for_id(
         sessions_root=sessions_root,
+        workspace_root=workspace_root,
         session_id=fixed_session_id,
     )
     loaded = load_session(path=session_path, workspace_root=workspace_root)
@@ -311,6 +312,7 @@ async def test_serve_rpc_stdio_supports_session_compact(
 
     session_path = session_path_for_id(
         sessions_root=sessions_root,
+        workspace_root=workspace_root,
         session_id=fixed_session_id,
     )
     loaded = load_session(path=session_path, workspace_root=workspace_root)

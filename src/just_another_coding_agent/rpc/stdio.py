@@ -191,6 +191,7 @@ async def handle_rpc_json_line(
     if isinstance(request, SessionNameRequest):
         session_path = session_path_for_id(
             sessions_root=sessions_root,
+            workspace_root=workspace_root,
             session_id=request.payload.session_id,
         )
         if not session_path.exists():
@@ -232,6 +233,7 @@ async def handle_rpc_json_line(
 
     session_path = session_path_for_id(
         sessions_root=sessions_root,
+        workspace_root=workspace_root,
         session_id=request.payload.session_id,
     )
     if not session_path.exists():

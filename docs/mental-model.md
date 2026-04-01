@@ -137,7 +137,21 @@ The current deterministic auto-compaction trigger is model-aware: before a resum
 
 ### Session Store
 
-The RPC layer maps opaque session IDs to session files via `rpc/session_store.py`. Session IDs are server-generated 32-character lowercase hex strings validated by a Pydantic `SessionId` type. Clients create sessions via `session.create`, may append a durable human name via `session.name`, and reference sessions by ID in `run.start`. The installed `jaca` wrapper also offers `jaca resume <name-or-id>`: it resolves an exact session id or exact normalized session name inside the current workspace on the Python side, then launches the same TUI with that existing session preloaded. With no argument, the wrapper lists recent sessions from the current workspace and lets the user choose one by number before launching the TUI.
+The RPC layer maps opaque session IDs to workspace-scoped session files via
+`rpc/session_store.py`. Session IDs are server-generated 32-character
+lowercase hex strings validated by a Pydantic `SessionId` type. Each workspace
+gets its own shard under `~/.jaca/sessions/<workspace-key>/`, and each session
+stores one canonical JSONL file plus one small metadata sidecar used only for
+discovery and resume picking. Clients create sessions via `session.create`, may
+append a durable human name via `session.name`, and reference sessions by ID
+in `run.start`. Those human names are backend-normalized and unique within the
+current workspace shard. The installed `jaca` wrapper also offers
+`jaca resume <name-or-id>`: it resolves an exact session id or exact
+normalized session name inside the current workspace on the Python side, then
+launches the same TUI with that existing session preloaded. With no argument,
+the wrapper lists the recent sessions from the current workspace, caps the
+picker to the most recent ten, and requires an interactive terminal before it
+prompts.
 
 ### Tools
 

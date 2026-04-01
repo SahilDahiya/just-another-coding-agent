@@ -9,6 +9,7 @@ from .jsonl import (
     initialize_session,
     load_session,
     normalize_session_name,
+    read_session_metadata,
 )
 
 __all__ = [
@@ -20,4 +21,5 @@ __all__ = [
     "initialize_session",
     "load_session",
     "normalize_session_name",
+    "read_session_metadata",
 ]

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
@@ -115,6 +116,14 @@ class LoadedSession(_SessionEntryBase):
         return self.compactions[-1]
 
 
+class SessionMetadata(_SessionEntryBase):
+    session_id: str
+    name: SessionName | None = None
+    created_at: datetime
+    updated_at: datetime
+    forked_from_session_id: str | None = None
+
+
 __all__ = [
     "LoadedSession",
     "SESSION_FORMAT_VERSION",
@@ -125,6 +134,7 @@ __all__ = [
     "SessionHeaderEntry",
     "SessionInfoEntry",
     "SessionMessagesEntry",
+    "SessionMetadata",
     "SessionName",
     "SessionRunEntry",
     "SessionRunRecord",

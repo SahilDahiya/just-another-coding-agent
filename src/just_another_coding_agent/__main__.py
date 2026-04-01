@@ -127,6 +127,11 @@ def _select_session_to_resume(
     sessions_root: Path,
     workspace_root: Path,
 ) -> ResolvedSessionReference:
+    if not sys.stdin.isatty():
+        raise RuntimeError(
+            "jaca resume without a session reference requires an interactive terminal"
+        )
+
     sessions = list_workspace_sessions(
         sessions_root=sessions_root,
         workspace_root=workspace_root,
@@ -137,16 +142,24 @@ def _select_session_to_resume(
         only = sessions[0]
         return ResolvedSessionReference(session_id=only.session_id, name=only.name)
 
+    displayed_sessions = sessions[:10]
     print("Recent sessions:")
-    for index, session in enumerate(sessions, start=1):
+    if len(sessions) > len(displayed_sessions):
+        print(
+            f"Showing {len(displayed_sessions)} most recent "
+            f"of {len(sessions)} sessions."
+        )
+    for index, session in enumerate(displayed_sessions, start=1):
         label = session.name or session.session_id
         print(f"{index}. {label}")
         if session.name is not None:
             print(f"   id: {session.session_id}")
 
-    raw_choice = input(f"Select session [1-{len(sessions)}, default 1]: ").strip()
+    raw_choice = input(
+        f"Select session [1-{len(displayed_sessions)}, default 1]: "
+    ).strip()
     if raw_choice == "":
-        selected = sessions[0]
+        selected = displayed_sessions[0]
         return ResolvedSessionReference(
             session_id=selected.session_id,
             name=selected.name,
@@ -155,9 +168,9 @@ def _select_session_to_resume(
         selected_index = int(raw_choice)
     except ValueError as error:
         raise RuntimeError("Resume selection must be a session number") from error
-    if selected_index < 1 or selected_index > len(sessions):
+    if selected_index < 1 or selected_index > len(displayed_sessions):
         raise RuntimeError("Resume selection is out of range")
-    selected = sessions[selected_index - 1]
+    selected = displayed_sessions[selected_index - 1]
     return ResolvedSessionReference(
         session_id=selected.session_id,
         name=selected.name,

@@ -35,6 +35,7 @@ from just_another_coding_agent.session.jsonl import (
     append_session_name_to_session,
     initialize_session,
     load_session,
+    read_session_metadata,
 )
 
 
@@ -110,6 +111,22 @@ def test_append_session_name_to_session_normalizes_and_persists_name(tmp_path) -
     assert loaded.name == "auth-store-cleanup"
     line_types = [json.loads(line)["type"] for line in path.read_text().splitlines()]
     assert line_types == ["session_header", "session_info"]
+    metadata = read_session_metadata(path=path.with_suffix(".meta.json"))
+    assert metadata.session_id == path.stem
+    assert metadata.name == "auth-store-cleanup"
+
+
+def test_initialize_session_creates_metadata_sidecar(tmp_path) -> None:
+    path = tmp_path / "session.jsonl"
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    initialize_session(path=path, workspace_root=workspace_root)
+
+    metadata = read_session_metadata(path=path.with_suffix(".meta.json"))
+    assert metadata.session_id == path.stem
+    assert metadata.name is None
+    assert metadata.forked_from_session_id is None
 
 
 def test_load_session_uses_latest_session_name_entry(tmp_path) -> None:

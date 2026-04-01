@@ -1,17 +1,23 @@
-import os
+from __future__ import annotations
+
+import sys
+from datetime import UTC, datetime
 
 import pytest
 from pydantic import ValidationError
 
+import just_another_coding_agent.__main__ as entry
 from just_another_coding_agent.rpc.session_store import (
-    SessionLookupError,
     list_workspace_sessions,
     resolve_session_reference,
     session_path_for_id,
+    workspace_sessions_dir,
 )
 from just_another_coding_agent.session import (
+    SessionNameValidationError,
     append_session_name_to_session,
     initialize_session,
+    read_session_metadata,
 )
 
 
@@ -32,8 +38,25 @@ def test_session_path_for_id_fails_on_invalid_session_id(
     with pytest.raises(ValidationError):
         session_path_for_id(
             sessions_root=tmp_path,
+            workspace_root=tmp_path / "workspace",
             session_id=session_id,
         )
+
+
+def test_session_path_for_id_uses_workspace_shard(tmp_path) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    session_path = session_path_for_id(
+        sessions_root=tmp_path / "sessions",
+        workspace_root=workspace_root,
+        session_id="1" * 32,
+    )
+
+    assert session_path.parent == workspace_sessions_dir(
+        sessions_root=tmp_path / "sessions",
+        workspace_root=workspace_root,
+    )
 
 
 def test_resolve_session_reference_matches_normalized_name_in_workspace(
@@ -48,6 +71,7 @@ def test_resolve_session_reference_matches_normalized_name_in_workspace(
     matching_id = "1" * 32
     matching_path = session_path_for_id(
         sessions_root=sessions_root,
+        workspace_root=workspace_root,
         session_id=matching_id,
     )
     initialize_session(path=matching_path, workspace_root=workspace_root)
@@ -59,6 +83,7 @@ def test_resolve_session_reference_matches_normalized_name_in_workspace(
 
     other_path = session_path_for_id(
         sessions_root=sessions_root,
+        workspace_root=other_workspace_root,
         session_id="2" * 32,
     )
     initialize_session(path=other_path, workspace_root=other_workspace_root)
@@ -78,34 +103,44 @@ def test_resolve_session_reference_matches_normalized_name_in_workspace(
     assert resolved.name == "auth-store-cleanup"
 
 
-def test_resolve_session_reference_fails_on_ambiguous_name_in_same_workspace(
+def test_append_session_name_to_session_fails_on_duplicate_name_in_workspace(
     tmp_path,
 ) -> None:
     sessions_root = tmp_path / "sessions"
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
 
-    for session_id in ("1" * 32, "2" * 32):
-        path = session_path_for_id(
-            sessions_root=sessions_root,
-            session_id=session_id,
-        )
-        initialize_session(path=path, workspace_root=workspace_root)
+    first_path = session_path_for_id(
+        sessions_root=sessions_root,
+        workspace_root=workspace_root,
+        session_id="1" * 32,
+    )
+    initialize_session(path=first_path, workspace_root=workspace_root)
+    append_session_name_to_session(
+        path=first_path,
+        workspace_root=workspace_root,
+        name="Auth Store Cleanup",
+    )
+
+    second_path = session_path_for_id(
+        sessions_root=sessions_root,
+        workspace_root=workspace_root,
+        session_id="2" * 32,
+    )
+    initialize_session(path=second_path, workspace_root=workspace_root)
+
+    with pytest.raises(
+        SessionNameValidationError,
+        match="Session name already in use in this workspace",
+    ):
         append_session_name_to_session(
-            path=path,
+            path=second_path,
             workspace_root=workspace_root,
             name="Auth Store Cleanup",
         )
 
-    with pytest.raises(SessionLookupError, match="Ambiguous session name"):
-        resolve_session_reference(
-            sessions_root=sessions_root,
-            workspace_root=workspace_root,
-            session_ref="auth-store-cleanup",
-        )
 
-
-def test_list_workspace_sessions_orders_by_recent_activity_and_filters_workspace(
+def test_list_workspace_sessions_orders_by_metadata_update_time_and_filters_workspace(
     tmp_path,
 ) -> None:
     sessions_root = tmp_path / "sessions"
@@ -114,10 +149,10 @@ def test_list_workspace_sessions_orders_by_recent_activity_and_filters_workspace
     workspace_root.mkdir()
     other_workspace_root.mkdir()
 
-    older_id = "1" * 32
     older_path = session_path_for_id(
         sessions_root=sessions_root,
-        session_id=older_id,
+        workspace_root=workspace_root,
+        session_id="1" * 32,
     )
     initialize_session(path=older_path, workspace_root=workspace_root)
     append_session_name_to_session(
@@ -126,10 +161,10 @@ def test_list_workspace_sessions_orders_by_recent_activity_and_filters_workspace
         name="old session",
     )
 
-    newer_id = "2" * 32
     newer_path = session_path_for_id(
         sessions_root=sessions_root,
-        session_id=newer_id,
+        workspace_root=workspace_root,
+        session_id="2" * 32,
     )
     initialize_session(path=newer_path, workspace_root=workspace_root)
     append_session_name_to_session(
@@ -140,6 +175,7 @@ def test_list_workspace_sessions_orders_by_recent_activity_and_filters_workspace
 
     other_path = session_path_for_id(
         sessions_root=sessions_root,
+        workspace_root=other_workspace_root,
         session_id="3" * 32,
     )
     initialize_session(path=other_path, workspace_root=other_workspace_root)
@@ -149,15 +185,90 @@ def test_list_workspace_sessions_orders_by_recent_activity_and_filters_workspace
         name="other session",
     )
 
-    older_stat = older_path.stat()
-    newer_stat = newer_path.stat()
-    os.utime(older_path, (older_stat.st_atime, older_stat.st_mtime))
-    os.utime(newer_path, (newer_stat.st_atime, newer_stat.st_mtime + 60))
+    older_metadata_path = older_path.with_suffix(".meta.json")
+    older_metadata = read_session_metadata(path=older_metadata_path).model_copy(
+        update={"updated_at": datetime(2026, 4, 1, 1, 0, tzinfo=UTC)}
+    )
+    older_metadata_path.write_text(
+        older_metadata.model_dump_json(),
+        encoding="utf-8",
+    )
+    newer_metadata_path = newer_path.with_suffix(".meta.json")
+    newer_metadata = read_session_metadata(path=newer_metadata_path).model_copy(
+        update={"updated_at": datetime(2026, 4, 1, 2, 0, tzinfo=UTC)}
+    )
+    newer_metadata_path.write_text(
+        newer_metadata.model_dump_json(),
+        encoding="utf-8",
+    )
 
     listed = list_workspace_sessions(
         sessions_root=sessions_root,
         workspace_root=workspace_root,
     )
 
-    assert [session.session_id for session in listed] == [newer_id, older_id]
+    assert [session.session_id for session in listed] == ["2" * 32, "1" * 32]
     assert [session.name for session in listed] == ["new-session", "old-session"]
+
+
+def test_select_session_to_resume_requires_interactive_stdin(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    sessions_root = tmp_path / "sessions"
+    workspace_root.mkdir()
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
+
+    with pytest.raises(
+        RuntimeError,
+        match="requires an interactive terminal",
+    ):
+        entry._select_session_to_resume(
+            sessions_root=sessions_root,
+            workspace_root=workspace_root,
+        )
+
+
+def test_select_session_to_resume_caps_display_to_ten_sessions(
+    tmp_path,
+    monkeypatch,
+    capsys,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    sessions = [
+        entry.ResolvedSessionReference(session_id=str(index) * 32, name=f"s-{index}")
+        for index in range(1, 13)
+    ]
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(
+        entry,
+        "list_workspace_sessions",
+        lambda **_: [
+            type(
+                "Listed",
+                (),
+                {
+                    "session_id": session.session_id,
+                    "name": session.name,
+                    "created_at": datetime.now(UTC),
+                    "updated_at": datetime.now(UTC),
+                },
+            )()
+            for session in sessions
+        ],
+    )
+    monkeypatch.setattr("builtins.input", lambda _: "")
+
+    resolved = entry._select_session_to_resume(
+        sessions_root=tmp_path / "sessions",
+        workspace_root=workspace_root,
+    )
+
+    output = capsys.readouterr().out
+    assert "Showing 10 most recent of 12 sessions." in output
+    assert "10. s-10" in output
+    assert "11. s-11" not in output
+    assert resolved.session_id == "1" * 32

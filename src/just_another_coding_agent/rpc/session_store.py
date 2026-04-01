@@ -1,20 +1,22 @@
 from __future__ import annotations
 
-import json
+import hashlib
+import re
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
 
 from pydantic import TypeAdapter, ValidationError
 
 from just_another_coding_agent.contracts.rpc import SessionId
-from just_another_coding_agent.contracts.session import SessionHeaderEntry, SessionName
+from just_another_coding_agent.contracts.session import SessionMetadata, SessionName
 from just_another_coding_agent.session import (
-    SessionFormatError,
     initialize_session,
-    load_session,
     normalize_session_name,
+    read_session_metadata,
 )
+from just_another_coding_agent.tools._workspace import normalize_workspace_root
 
 _SESSION_ID_ADAPTER = TypeAdapter(SessionId)
 
@@ -33,7 +35,8 @@ class ResolvedSessionReference:
 class ListedSession:
     session_id: str
     name: SessionName | None
-    updated_at_ns: int
+    created_at: datetime
+    updated_at: datetime
 
 
 def create_session(
@@ -41,11 +44,11 @@ def create_session(
     sessions_root: Path | str,
     workspace_root: Path | str,
 ) -> str:
-    root = Path(sessions_root)
     while True:
         session_id = uuid4().hex
         session_path = session_path_for_id(
-            sessions_root=root,
+            sessions_root=sessions_root,
+            workspace_root=workspace_root,
             session_id=session_id,
         )
         if session_path.exists():
@@ -58,10 +61,14 @@ def create_session(
 def session_path_for_id(
     *,
     sessions_root: Path | str,
+    workspace_root: Path | str,
     session_id: str,
 ) -> Path:
     validated_session_id = _SESSION_ID_ADAPTER.validate_python(session_id)
-    return Path(sessions_root) / f"{validated_session_id}.jsonl"
+    return workspace_sessions_dir(
+        sessions_root=sessions_root,
+        workspace_root=workspace_root,
+    ) / f"{validated_session_id}.jsonl"
 
 
 def resolve_session_reference(
@@ -70,7 +77,6 @@ def resolve_session_reference(
     workspace_root: Path | str,
     session_ref: str,
 ) -> ResolvedSessionReference:
-    expected_workspace_root = str(Path(workspace_root).expanduser().resolve())
     try:
         validated_session_id = _SESSION_ID_ADAPTER.validate_python(session_ref)
     except ValidationError:
@@ -79,31 +85,31 @@ def resolve_session_reference(
     if validated_session_id is not None:
         session_path = session_path_for_id(
             sessions_root=sessions_root,
+            workspace_root=workspace_root,
             session_id=validated_session_id,
         )
         if not session_path.exists():
             raise SessionLookupError(f"Unknown session: {validated_session_id}")
-        loaded = load_session(path=session_path, workspace_root=workspace_root)
+        metadata = read_session_metadata(
+            path=_metadata_path_for_session_path(session_path)
+        )
         return ResolvedSessionReference(
             session_id=validated_session_id,
-            name=loaded.name,
+            name=metadata.name,
         )
 
     normalized_name = normalize_session_name(session_ref)
-    matches: list[ResolvedSessionReference] = []
-    for session_path in sorted(Path(sessions_root).glob("*.jsonl")):
-        header = _load_session_header(session_path)
-        if header.workspace_root != expected_workspace_root:
-            continue
-        loaded = load_session(path=session_path, workspace_root=workspace_root)
-        if loaded.name == normalized_name:
-            matches.append(
-                ResolvedSessionReference(
-                    session_id=session_path.stem,
-                    name=loaded.name,
-                )
-            )
-
+    matches = [
+        ResolvedSessionReference(
+            session_id=metadata.session_id,
+            name=metadata.name,
+        )
+        for metadata in _iter_workspace_session_metadata(
+            sessions_root=sessions_root,
+            workspace_root=workspace_root,
+        )
+        if metadata.name == normalized_name
+    ]
     if not matches:
         raise SessionLookupError(f"Unknown session: {normalized_name}")
     if len(matches) > 1:
@@ -120,39 +126,57 @@ def list_workspace_sessions(
     sessions_root: Path | str,
     workspace_root: Path | str,
 ) -> list[ListedSession]:
-    expected_workspace_root = str(Path(workspace_root).expanduser().resolve())
-    sessions: list[ListedSession] = []
-    for session_path in Path(sessions_root).glob("*.jsonl"):
-        header = _load_session_header(session_path)
-        if header.workspace_root != expected_workspace_root:
-            continue
-        loaded = load_session(path=session_path, workspace_root=workspace_root)
-        sessions.append(
-            ListedSession(
-                session_id=session_path.stem,
-                name=loaded.name,
-                updated_at_ns=session_path.stat().st_mtime_ns,
-            )
+    sessions = [
+        ListedSession(
+            session_id=metadata.session_id,
+            name=metadata.name,
+            created_at=metadata.created_at,
+            updated_at=metadata.updated_at,
         )
-    sessions.sort(key=lambda session: session.updated_at_ns, reverse=True)
+        for metadata in _iter_workspace_session_metadata(
+            sessions_root=sessions_root,
+            workspace_root=workspace_root,
+        )
+    ]
+    sessions.sort(key=lambda session: session.updated_at, reverse=True)
     return sessions
 
 
-def _load_session_header(path: Path) -> SessionHeaderEntry:
-    with path.open("r", encoding="utf-8") as file_handle:
-        first_line = file_handle.readline()
-    if first_line == "":
-        raise SessionFormatError("Session file is empty")
+def workspace_sessions_dir(
+    *,
+    sessions_root: Path | str,
+    workspace_root: Path | str,
+) -> Path:
+    return Path(sessions_root) / _workspace_key(workspace_root)
 
-    try:
-        payload = json.loads(first_line)
-    except json.JSONDecodeError as error:
-        raise SessionFormatError("Invalid JSON on line 1") from error
 
-    try:
-        return SessionHeaderEntry.model_validate(payload)
-    except ValidationError as error:
-        raise SessionFormatError("Session header must be first entry") from error
+def _iter_workspace_session_metadata(
+    *,
+    sessions_root: Path | str,
+    workspace_root: Path | str,
+) -> list[SessionMetadata]:
+    workspace_dir = workspace_sessions_dir(
+        sessions_root=sessions_root,
+        workspace_root=workspace_root,
+    )
+    if not workspace_dir.exists():
+        return []
+    return [
+        read_session_metadata(path=metadata_path)
+        for metadata_path in sorted(workspace_dir.glob("*.meta.json"))
+    ]
+
+
+def _metadata_path_for_session_path(path: Path) -> Path:
+    return path.with_suffix(".meta.json")
+
+
+def _workspace_key(workspace_root: Path | str) -> str:
+    normalized_workspace_root = str(normalize_workspace_root(workspace_root))
+    slug = re.sub(r"[^a-z0-9]+", "-", Path(normalized_workspace_root).name.lower())
+    normalized_slug = slug.strip("-") or "workspace"
+    digest = hashlib.sha256(normalized_workspace_root.encode("utf-8")).hexdigest()[:16]
+    return f"{normalized_slug}-{digest}"
 
 
 __all__ = [
@@ -163,4 +187,5 @@ __all__ = [
     "list_workspace_sessions",
     "resolve_session_reference",
     "session_path_for_id",
+    "workspace_sessions_dir",
 ]
