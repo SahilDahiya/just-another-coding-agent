@@ -17,6 +17,11 @@ state into a `SessionCompactionSummary`.
 Code:
 
 - `runtime/compaction/session_summary.py`
+- `runtime/compaction/constants.py`
+- `runtime/compaction/boundary.py`
+- `runtime/compaction/trigger.py`
+- `runtime/compaction/source_builder.py`
+- `runtime/compaction/working_set.py`
 
 Responsibilities:
 
@@ -24,6 +29,12 @@ Responsibilities:
 - build a bounded structured compaction source from prior runs and any previous compaction
 - validate and normalize model-produced summary output
 - append one durable `session_compaction` entry to the session file
+
+The public orchestration entrypoint stays in `session_summary.py`, but the
+constants, compaction boundary helpers, trigger policy, bounded source
+building, and deterministic working-set path carry-forward are now split into
+focused helper modules so durable compaction is not owned by one oversized
+file.
 
 This is cross-run state management. It is not a live-run `history_processor`.
 

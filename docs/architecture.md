@@ -165,7 +165,9 @@ The important boundary is:
 - `src/just_another_coding_agent/runtime/`
   - agent construction
   - `compaction/`
-    - `session_summary.py` for durable cross-run summary generation
+    - `session_summary.py` for durable cross-run compaction orchestration
+    - `constants.py`, `boundary.py`, `trigger.py`, `source_builder.py`, and
+      `working_set.py` for focused durable-compaction helpers
     - `resume.py` for compacted session replay helpers
     - `in_run.py` for live-run tool-return compaction
   - orchestration entrypoints

@@ -1,0 +1,200 @@
+from __future__ import annotations
+
+from typing import Any
+
+from just_another_coding_agent.contracts.run_events import (
+    RunFailedEvent,
+    RunSucceededEvent,
+    ToolCallFailedEvent,
+    ToolCallSucceededEvent,
+)
+from just_another_coding_agent.contracts.session import (
+    LoadedSession,
+    SessionCompactionSummary,
+    SessionRunRecord,
+)
+from just_another_coding_agent.runtime.compaction.boundary import (
+    runs_since_latest_compaction_boundary,
+)
+from just_another_coding_agent.runtime.compaction.constants import (
+    DEFAULT_SESSION_COMPACTION_SOURCE_CHAR_LIMIT,
+    MAX_COMPACTION_TEXT_FIELD_CHARS,
+    MAX_COMPACTION_TOOL_ACTIVITY_LINES,
+    SESSION_COMPACTION_CHARS_PER_TOKEN_HEURISTIC,
+    SESSION_COMPACTION_CONTEXT_WINDOW_UTILIZATION,
+)
+from just_another_coding_agent.runtime.models import get_model_context_window_tokens
+from just_another_coding_agent.session.jsonl import SessionFormatError
+
+
+def build_compaction_source(loaded_session: LoadedSession, *, model: Any) -> str:
+    return _build_bounded_compaction_source(
+        loaded_session,
+        max_chars=_compaction_source_char_limit(model),
+    )
+
+
+def _compaction_source_char_limit(model: Any) -> int:
+    context_window_tokens = get_model_context_window_tokens(model)
+    if context_window_tokens is None:
+        return DEFAULT_SESSION_COMPACTION_SOURCE_CHAR_LIMIT
+
+    return int(
+        context_window_tokens
+        * SESSION_COMPACTION_CONTEXT_WINDOW_UTILIZATION
+        * SESSION_COMPACTION_CHARS_PER_TOKEN_HEURISTIC
+    )
+
+
+def _build_bounded_compaction_source(
+    loaded_session: LoadedSession,
+    *,
+    max_chars: int,
+) -> str:
+    if max_chars <= 0:
+        raise SessionFormatError(
+            "Compaction source does not fit within the active model context window"
+        )
+
+    latest_compaction = loaded_session.latest_compaction
+    sections: list[str] = []
+
+    if latest_compaction is not None:
+        sections.append("Previous compaction summary:")
+        sections.append(render_summary(latest_compaction.summary))
+
+    run_sections = [
+        _render_run(run)
+        for run in runs_since_latest_compaction_boundary(loaded_session)
+    ]
+    omitted_runs = 0
+
+    while True:
+        candidate_sections = list(sections)
+        candidate_sections.append("Runs since the latest compaction boundary:")
+        if omitted_runs:
+            candidate_sections.append(
+                "(omitted "
+                f"{omitted_runs} oldest run(s) to fit the model context window)"
+            )
+        if run_sections:
+            candidate_sections.extend(run_sections)
+        else:
+            candidate_sections.append("(no new runs)")
+
+        source = "\n\n".join(candidate_sections)
+        if len(source) <= max_chars:
+            return source
+
+        if len(run_sections) <= 1:
+            raise SessionFormatError(
+                "Compaction source does not fit within the active model context window"
+            )
+
+        run_sections.pop(0)
+        omitted_runs += 1
+
+
+def render_summary(summary: SessionCompactionSummary) -> str:
+    lines: list[str] = []
+    if summary.current_objective is not None:
+        lines.append(f"Current objective: {compact_text(summary.current_objective)}")
+    _append_rendered_section(lines, "Established facts", summary.established_facts)
+    _append_rendered_section(lines, "User preferences", summary.user_preferences)
+    _append_rendered_section(lines, "Important paths", summary.important_paths)
+    _append_rendered_section(lines, "Read paths", summary.read_paths)
+    _append_rendered_section(lines, "Modified paths", summary.modified_paths)
+    _append_rendered_section(lines, "Open questions", summary.open_questions)
+    _append_rendered_section(lines, "Unresolved work", summary.unresolved_work)
+    return "\n".join(lines) if lines else "(empty summary)"
+
+
+def _append_rendered_section(lines: list[str], heading: str, values: list[str]) -> None:
+    if not values:
+        return
+
+    lines.append(f"{heading}:")
+    lines.extend(f"- {compact_text(value)}" for value in values)
+
+
+def _render_run(run: SessionRunRecord) -> str:
+    lines = [f"Run {run.run_id}", f"Prompt: {compact_text(run.prompt)}"]
+    if run.thinking is not None:
+        lines.append(f"Thinking: {run.thinking}")
+
+    terminal_lines = _render_terminal_run_outcome(run)
+    tool_lines = _render_tool_activity_lines(run)
+    if terminal_lines:
+        lines.extend(terminal_lines)
+    if tool_lines:
+        lines.append("Tool outcomes:")
+        lines.extend(f"- {line}" for line in tool_lines)
+
+    return "\n".join(lines)
+
+
+def _render_terminal_run_outcome(run: SessionRunRecord) -> list[str]:
+    lines: list[str] = []
+    for event in reversed(run.events):
+        if isinstance(event, RunSucceededEvent):
+            lines.append("Outcome: succeeded")
+            if event.output_text:
+                lines.append(f"Assistant result: {compact_text(event.output_text)}")
+            return lines
+        if isinstance(event, RunFailedEvent):
+            lines.append(f"Outcome: failed ({event.error_type})")
+            lines.append(f"Failure: {compact_text(event.message)}")
+            return lines
+
+    return lines
+
+
+def _render_tool_activity_lines(run: SessionRunRecord) -> list[str]:
+    rendered: list[str] = []
+    for event in run.events:
+        if isinstance(event, ToolCallSucceededEvent):
+            activity = event.activity
+            if activity is None or activity.group_kind == "exploration":
+                continue
+            line = _format_tool_activity_line(activity.title, activity.summary)
+            if line is not None:
+                rendered.append(line)
+            continue
+
+        if isinstance(event, ToolCallFailedEvent):
+            activity = event.activity
+            title = activity.title if activity is not None else event.tool_name
+            rendered.append(compact_text(f"{title}: failed - {event.message}"))
+
+    if len(rendered) > MAX_COMPACTION_TOOL_ACTIVITY_LINES:
+        rendered = rendered[-MAX_COMPACTION_TOOL_ACTIVITY_LINES:]
+    return rendered
+
+
+def _format_tool_activity_line(title: str, summary: str | None) -> str | None:
+    compact_title = compact_text(title)
+    if summary is None:
+        return compact_title or None
+
+    compact_summary = compact_text(summary)
+    if not compact_summary:
+        return compact_title or None
+    if compact_summary == compact_title:
+        return compact_title or None
+    return f"{compact_title}: {compact_summary}"
+
+
+def compact_text(
+    text: str,
+    *,
+    max_chars: int = MAX_COMPACTION_TEXT_FIELD_CHARS,
+) -> str:
+    collapsed = " ".join(text.split())
+    if len(collapsed) <= max_chars:
+        return collapsed
+    if max_chars <= 1:
+        return collapsed[:max_chars]
+    return collapsed[: max_chars - 1] + "…"
+
+
+__all__ = ["build_compaction_source", "compact_text", "render_summary"]
