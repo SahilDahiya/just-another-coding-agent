@@ -339,43 +339,34 @@ def _with_deterministic_working_set_paths(
         important_paths=summary.important_paths,
         read_paths=_merge_summary_paths(
             previous_read_paths,
-            _collect_recent_read_paths(loaded_session),
+            _collect_recent_paths_for_tools(
+                loaded_session,
+                tool_names={"read"},
+            ),
         ),
         modified_paths=_merge_summary_paths(
             previous_modified_paths,
-            _collect_recent_modified_paths(loaded_session),
+            _collect_recent_paths_for_tools(
+                loaded_session,
+                tool_names={"write", "edit"},
+            ),
         ),
         open_questions=summary.open_questions,
         unresolved_work=summary.unresolved_work,
     )
 
 
-def _collect_recent_read_paths(loaded_session: LoadedSession) -> list[str]:
-    collected: list[str] = []
-    for run in _runs_since_latest_compaction_boundary(loaded_session):
-        for event in run.events:
-            if (
-                isinstance(event, ToolCallSucceededEvent)
-                and event.tool_name == "read"
-                and (
-                    path := _extract_activity_path(
-                        event,
-                        workspace_root=loaded_session.header.workspace_root,
-                    )
-                )
-                is not None
-            ):
-                collected.append(path)
-    return _merge_summary_paths(collected)
-
-
-def _collect_recent_modified_paths(loaded_session: LoadedSession) -> list[str]:
+def _collect_recent_paths_for_tools(
+    loaded_session: LoadedSession,
+    *,
+    tool_names: set[str],
+) -> list[str]:
     collected: list[str] = []
     for run in _runs_since_latest_compaction_boundary(loaded_session):
         for event in run.events:
             if not isinstance(event, ToolCallSucceededEvent):
                 continue
-            if event.tool_name not in {"write", "edit"}:
+            if event.tool_name not in tool_names:
                 continue
             path = _extract_activity_path(
                 event,

@@ -99,7 +99,6 @@ async def stream_run_events(
     message_history: Sequence[ModelMessage] | None = None,
     thinking: ThinkingSetting | None = None,
     deps: WorkspaceDeps | None = None,
-    enable_server_history: bool = False,
     message_history_sink: Callable[[Sequence[ModelMessage]], None] | None = None,
 ) -> AsyncIterator[RunEvent]:
     """Translate one PydanticAI run into the canonical streamed event contract.
@@ -149,7 +148,6 @@ async def stream_run_events(
                         model_settings=build_canonical_model_settings(
                             model=getattr(agent, "model", None),
                             thinking=thinking,
-                            enable_server_history=enable_server_history,
                         ),
                         usage_limits=_build_unbounded_usage_limits(),
                     ):

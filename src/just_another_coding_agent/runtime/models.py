@@ -11,7 +11,6 @@ from pydantic_ai.models.instrumented import InstrumentedModel
 from pydantic_ai.models.openai import (
     OpenAIChatModel,
     OpenAIResponsesModel,
-    OpenAIResponsesModelSettings,
 )
 from pydantic_ai.models.wrapper import WrapperModel
 from pydantic_ai.providers.anthropic import AnthropicProvider
@@ -199,21 +198,12 @@ def build_canonical_model_settings(
     *,
     model: Any = None,
     thinking: ThinkingSetting | None = None,
-    enable_server_history: bool = False,
 ) -> ModelSettings | None:
     settings: dict[str, Any] = {}
     if model is not None:
         resolved_model = resolve_canonical_model(model)
         policy_model = _unwrap_policy_model(resolved_model)
         settings.update(resolved_model.settings or {})
-        if (
-            enable_server_history
-            and isinstance(policy_model, OpenAIResponsesModel)
-            and "openai_previous_response_id" not in settings
-        ):
-            settings.update(
-                OpenAIResponsesModelSettings(openai_previous_response_id="auto")
-            )
         _apply_parallel_tool_call_policy(settings=settings, model=policy_model)
     if thinking is not None:
         settings["thinking"] = thinking

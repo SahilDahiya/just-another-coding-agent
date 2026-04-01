@@ -13,6 +13,7 @@ from just_another_coding_agent.auth import (
 
 from .model_catalog import ProviderName
 from .run_events import RunEvent, SessionLifecycleEvent
+from .session import SessionCompactionSummary as SessionCompactSummary
 from .thinking import ThinkingSetting
 
 SessionId = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{32}$")]
@@ -110,17 +111,6 @@ RpcRequest = Annotated[
 
 class SessionCreateResponse(_RpcModel):
     session_id: SessionId
-
-
-class SessionCompactSummary(_RpcModel):
-    current_objective: str | None = None
-    established_facts: list[str]
-    user_preferences: list[str]
-    important_paths: list[str]
-    read_paths: list[str]
-    modified_paths: list[str]
-    open_questions: list[str]
-    unresolved_work: list[str]
 
 
 class SessionCompactResponse(_RpcModel):

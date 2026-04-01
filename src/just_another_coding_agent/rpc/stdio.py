@@ -38,7 +38,6 @@ from just_another_coding_agent.contracts.rpc import (
     RunStartRequest,
     SessionCompactRequest,
     SessionCompactResponse,
-    SessionCompactSummary,
     SessionCreateRequest,
     SessionCreateResponse,
 )
@@ -223,16 +222,7 @@ async def handle_rpc_json_line(
                 compaction_id=compaction.compaction_id,
                 summarized_through_run_id=compaction.summarized_through_run_id,
                 first_kept_run_id=compaction.first_kept_run_id,
-                summary=SessionCompactSummary(
-                    current_objective=compaction.summary.current_objective,
-                    established_facts=compaction.summary.established_facts,
-                    user_preferences=compaction.summary.user_preferences,
-                    important_paths=compaction.summary.important_paths,
-                    read_paths=compaction.summary.read_paths,
-                    modified_paths=compaction.summary.modified_paths,
-                    open_questions=compaction.summary.open_questions,
-                    unresolved_work=compaction.summary.unresolved_work,
-                ),
+                summary=compaction.summary,
             ),
         ).model_dump_json()
         return

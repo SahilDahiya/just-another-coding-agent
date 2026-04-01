@@ -185,7 +185,6 @@ async def stream_session_run_events(
         if thinking is not None
         else (loaded_session.thinking if loaded_session is not None else None)
     )
-    enable_server_history = False
 
     agent = build_canonical_agent(
         model=model,
@@ -219,7 +218,6 @@ async def stream_session_run_events(
                     workspace_root=normalized_workspace_root,
                     shell_family=shell_family,
                 ),
-                enable_server_history=enable_server_history,
                 message_history_sink=_record_message_history,
             ):
                 if run_appender is None:

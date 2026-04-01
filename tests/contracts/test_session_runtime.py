@@ -385,7 +385,6 @@ async def test_stream_session_run_events_resumes_session_created_on_other_shell_
         message_history=None,
         thinking=None,
         deps=None,
-        enable_server_history=False,
         message_history_sink=None,
     ):
         del (
@@ -393,7 +392,6 @@ async def test_stream_session_run_events_resumes_session_created_on_other_shell_
             prompt,
             message_history,
             thinking,
-            enable_server_history,
             message_history_sink,
         )
         captured["deps"] = deps
@@ -484,7 +482,6 @@ async def test_stream_session_run_events_persists_partial_run_before_completion(
         message_history=None,
         thinking=None,
         deps=None,
-        enable_server_history=False,
         message_history_sink=None,
     ):
         del (
@@ -493,7 +490,6 @@ async def test_stream_session_run_events_persists_partial_run_before_completion(
             message_history,
             thinking,
             deps,
-            enable_server_history,
             message_history_sink,
         )
         yield RunStartedEvent(run_id="run-1")
@@ -568,14 +564,12 @@ async def test_stream_session_run_events_inherits_last_persisted_thinking_when_o
         message_history=None,
         thinking=None,
         deps=None,
-        enable_server_history=False,
         message_history_sink=None,
     ):
         captured["prompt"] = prompt
         captured["thinking"] = thinking
         captured["message_history"] = message_history
         captured["deps"] = deps
-        captured["enable_server_history"] = enable_server_history
         captured["message_history_sink"] = message_history_sink
         yield RunStartedEvent(run_id="run-2")
         yield RunSucceededEvent(run_id="run-2", output_text="done")
@@ -599,7 +593,6 @@ async def test_stream_session_run_events_inherits_last_persisted_thinking_when_o
     assert captured["prompt"] == "second"
     assert captured["thinking"] == "high"
     assert captured["deps"] == WorkspaceDeps.from_workspace_root(workspace_root)
-    assert captured["enable_server_history"] is False
     loaded = load_session(path=session_path, workspace_root=workspace_root)
     assert [run.thinking for run in loaded.runs] == ["high", "high"]
     assert loaded.thinking == "high"
@@ -1720,7 +1713,6 @@ async def test_stream_session_run_events_does_not_recompact_without_new_complete
         message_history=None,
         thinking=None,
         deps=None,
-        enable_server_history=False,
         message_history_sink=None,
     ):
         del (
@@ -1729,7 +1721,6 @@ async def test_stream_session_run_events_does_not_recompact_without_new_complete
             message_history,
             thinking,
             deps,
-            enable_server_history,
             message_history_sink,
         )
         yield RunStartedEvent(run_id="run-3")
@@ -1965,7 +1956,6 @@ async def test_stream_session_run_events_finalizes_cancelled_run(
         message_history=None,
         thinking=None,
         deps=None,
-        enable_server_history=False,
         message_history_sink=None,
     ):
         del (
@@ -1974,7 +1964,6 @@ async def test_stream_session_run_events_finalizes_cancelled_run(
             message_history,
             thinking,
             deps,
-            enable_server_history,
             message_history_sink,
         )
         yield RunStartedEvent(run_id="run-1")
@@ -2053,7 +2042,6 @@ async def test_stream_session_run_events_sanitize_cancelled_run_messages(
         message_history=None,
         thinking=None,
         deps=None,
-        enable_server_history=False,
         message_history_sink=None,
     ):
         del (
@@ -2062,7 +2050,6 @@ async def test_stream_session_run_events_sanitize_cancelled_run_messages(
             message_history,
             thinking,
             deps,
-            enable_server_history,
             message_history_sink,
         )
         yield RunStartedEvent(run_id="run-1")
@@ -2151,7 +2138,6 @@ async def test_stream_session_run_events_trim_failed_correction_tail_from_histor
         message_history=None,
         thinking=None,
         deps=None,
-        enable_server_history=False,
         message_history_sink=None,
     ):
         del (
@@ -2160,7 +2146,6 @@ async def test_stream_session_run_events_trim_failed_correction_tail_from_histor
             message_history,
             thinking,
             deps,
-            enable_server_history,
             message_history_sink,
         )
         yield RunStartedEvent(run_id="run-1")
@@ -2277,7 +2262,6 @@ async def test_stream_session_run_events_resume_after_failed_correction_is_clean
         message_history=None,
         thinking=None,
         deps=None,
-        enable_server_history=False,
         message_history_sink=None,
     ):
         del (
@@ -2286,7 +2270,6 @@ async def test_stream_session_run_events_resume_after_failed_correction_is_clean
             message_history,
             thinking,
             deps,
-            enable_server_history,
             message_history_sink,
         )
         yield RunStartedEvent(run_id="run-1")

@@ -120,22 +120,6 @@ def test_build_canonical_model_settings_merge_model_defaults() -> None:
         "thinking": "high",
     }
 
-
-def test_build_canonical_model_settings_enable_openai_server_history() -> None:
-    model = OpenAIResponsesModel(
-        "gpt-5.3-codex",
-        provider=OpenAIProvider(base_url="https://example.test/v1", api_key="test-key"),
-    )
-
-    assert build_canonical_model_settings(
-        model=model,
-        enable_server_history=True,
-    ) == {
-        "openai_previous_response_id": "auto",
-        "parallel_tool_calls": True,
-    }
-
-
 def test_build_canonical_model_settings_enable_parallel_tool_calls_for_supported_models(
     monkeypatch,
 ) -> None:
@@ -237,7 +221,6 @@ def test_resolve_canonical_model_wraps_with_instrumentation_when_enabled(
     assert isinstance(resolved, InstrumentedModel)
     assert resolved.wrapped is model
 
-
 def test_build_canonical_model_settings_unwraps_instrumented_models() -> None:
     model = InstrumentedModel(
         OpenAIResponsesModel(
@@ -249,13 +232,7 @@ def test_build_canonical_model_settings_unwraps_instrumented_models() -> None:
         )
     )
 
-    assert build_canonical_model_settings(
-        model=model,
-        enable_server_history=True,
-    ) == {
-        "openai_previous_response_id": "auto",
-        "parallel_tool_calls": True,
-    }
+    assert build_canonical_model_settings(model=model) == {"parallel_tool_calls": True}
 
 
 def test_get_model_context_window_tokens_for_supported_models(monkeypatch) -> None:
