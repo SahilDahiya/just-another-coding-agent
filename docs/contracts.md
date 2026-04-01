@@ -514,6 +514,7 @@ Initial executable RPC slice:
     - `auth.clear` with payload `{"provider": <provider-name>}`
     - `session.create` with payload `{}`
     - `session.name` with payload `{"session_id": <opaque-lowercase-hex-string>, "name": <string>}`
+    - `session.preview` with payload `{"session_id": <opaque-lowercase-hex-string>}`
     - `session.compact` with payload `{"session_id": <opaque-lowercase-hex-string>}`
     - `run.start` with payload `{"session_id": <opaque-lowercase-hex-string>, "prompt": <string>, "thinking": <optional-thinking-setting>}`
 - `rpc_response`
@@ -524,6 +525,7 @@ Initial executable RPC slice:
     - `{"status": {"provider": <provider-name>, "configured": <bool>, "source": "env" | "keychain" | "file" | "none", "env_key": <provider-env-var>}}` for `auth.clear`
     - `{"session_id": <opaque-lowercase-hex-string>}`
     - `{"session_id": <opaque-lowercase-hex-string>, "name": <backend-normalized-session-name>}` for `session.name`
+    - `{"session_id": <opaque-lowercase-hex-string>, "entries": [{"kind": "user" | "assistant" | "error", "text": <string>}], "truncated": <bool>}` for `session.preview`
     - `{"compaction_id": <opaque-lowercase-hex-string>, "summarized_through_run_id": <run_id>, "first_kept_run_id": <optional-run_id>, "summary": <structured-compaction-summary>}`
 - `rpc_event`
   - fields: `type`, `id`, `event`
@@ -546,6 +548,7 @@ Ordering rules for the RPC slice:
   local file storage
 - A valid `session.create` request yields exactly one `rpc_response` containing a server-generated opaque `session_id`
 - A valid `session.name` request must reference an existing `session_id`, append one backend-normalized `session_info` entry when the requested name changes, enforce workspace-local name uniqueness, and yield exactly one `rpc_response` containing that normalized session name
+- A valid `session.preview` request must reference an existing `session_id` and yields exactly one `rpc_response` containing a bounded recent-history preview derived from durable session runs; it is a presentation helper and does not change resume authority
 - A valid `session.compact` request must reference an existing `session_id` and yields exactly one `rpc_response` describing the newly appended compaction entry
 - `session.compact` responses must include the durable summary's backend-owned
   deterministic fields (`read_paths`, `modified_paths`,

@@ -12,6 +12,7 @@ from .jsonl import (
     normalize_session_name,
     read_session_metadata,
 )
+from .preview import build_session_preview
 
 __all__ = [
     "SessionFormatError",
@@ -24,4 +25,5 @@ __all__ = [
     "load_session",
     "normalize_session_name",
     "read_session_metadata",
+    "build_session_preview",
 ]

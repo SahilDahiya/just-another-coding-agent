@@ -81,6 +81,11 @@ type authStatusLoadedMsg struct {
 	Err    error
 }
 
+type sessionPreviewLoadedMsg struct {
+	Preview rpc.SessionPreviewResponse
+	Err     error
+}
+
 type authStatusRetryMsg struct{}
 
 type onboardingState struct {
@@ -129,6 +134,8 @@ type model struct {
 	modelCatalogLoading   bool
 	authStatus            *rpc.AuthStatusResponse
 	authStatusLoading     bool
+	sessionPreviewLoading bool
+	sessionPreviewLoaded  bool
 	startupOnboardingSet  bool
 	onboarding            onboardingState
 	appVersion            string
@@ -206,6 +213,9 @@ func (m *model) Init() tea.Cmd {
 		cmds = append(cmds, cmd)
 	}
 	if cmd := m.requestAuthStatus(); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	if cmd := m.requestSessionPreview(); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
 	if len(m.options.UpdateCommand) > 0 && m.options.AppVersion != "" {
@@ -366,6 +376,19 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		status := msg.Status
 		m.authStatus = &status
 		m.maybeStartOnboarding()
+		m.refreshViewport()
+		return m, nil
+	case sessionPreviewLoadedMsg:
+		m.sessionPreviewLoading = false
+		m.sessionPreviewLoaded = true
+		if msg.Err != nil {
+			if !errors.Is(msg.Err, context.DeadlineExceeded) && !errors.Is(msg.Err, context.Canceled) {
+				m.transcript.WriteError(fmt.Sprintf("session preview: %v", msg.Err))
+				m.refreshViewport()
+			}
+			return m, nil
+		}
+		m.transcript.ApplySessionPreview(msg.Preview)
 		m.refreshViewport()
 		return m, nil
 	case authStatusRetryMsg:
@@ -973,6 +996,14 @@ func (m *model) requestAuthStatus() tea.Cmd {
 	return fetchAuthStatus(m.options.Backend)
 }
 
+func (m *model) requestSessionPreview() tea.Cmd {
+	if m.options.SessionID == "" || m.sessionPreviewLoaded || m.sessionPreviewLoading || m.options.Backend == nil {
+		return nil
+	}
+	m.sessionPreviewLoading = true
+	return fetchSessionPreview(m.options.Backend, m.options.SessionID)
+}
+
 func fetchModelCatalog(backend Backend) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), modelCatalogTimeout)
@@ -988,6 +1019,15 @@ func fetchAuthStatus(backend Backend) tea.Cmd {
 		defer cancel()
 		status, err := backend.AuthStatus(ctx)
 		return authStatusLoadedMsg{Status: status, Err: err}
+	}
+}
+
+func fetchSessionPreview(backend Backend, sessionID string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), authStatusTimeout)
+		defer cancel()
+		preview, err := backend.SessionPreview(ctx, sessionID)
+		return sessionPreviewLoadedMsg{Preview: preview, Err: err}
 	}
 }
 

@@ -239,6 +239,73 @@ async def test_handle_rpc_json_line_creates_session_and_resumes_runs(
     assert [run.thinking for run in loaded.runs] == ["high", "high"]
 
 
+async def test_handle_rpc_json_line_returns_session_preview(tmp_path) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    model = FunctionModel(stream_function=resume_aware_write_stream)
+
+    session_id = await _create_session_id(
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    await _rpc_messages(
+        request_payload={
+            "id": "req-1",
+            "command": "run.start",
+            "payload": {
+                "session_id": session_id,
+                "prompt": "create note",
+            },
+        },
+        model=model,
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+    await _rpc_messages(
+        request_payload={
+            "id": "req-2",
+            "command": "run.start",
+            "payload": {
+                "session_id": session_id,
+                "prompt": "what did you do?",
+            },
+        },
+        model=model,
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    messages = await _rpc_messages(
+        request_payload={
+            "id": "req-preview",
+            "command": "session.preview",
+            "payload": {"session_id": session_id},
+        },
+        model=model,
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    assert messages == [
+        {
+            "type": "rpc_response",
+            "id": "req-preview",
+            "response": {
+                "session_id": session_id,
+                "entries": [
+                    {"kind": "user", "text": "create note"},
+                    {"kind": "assistant", "text": "created"},
+                    {"kind": "user", "text": "what did you do?"},
+                    {"kind": "assistant", "text": "I created note.txt"},
+                ],
+                "truncated": False,
+            },
+        }
+    ]
+
+
 async def test_handle_rpc_json_line_names_session_with_backend_normalization(
     tmp_path,
 ) -> None:

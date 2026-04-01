@@ -100,8 +100,9 @@ The core architectural risk is semantic drift between the Go shell and the Pytho
 - When the wrapper launches the TUI in resumed-session or forked-session mode,
   the shell should preseed the opaque session id plus the backend-resolved
   session name, optionally preseed the direct fork parent label, suppress
-  first-run onboarding, and show one calm note in the transcript instead of
-  inventing a separate resume or fork UX inside Go.
+  first-run onboarding, and show one calm note plus a bounded backend-owned
+  recent-history preview in the transcript instead of inventing a separate
+  resume or fork UX inside Go.
 - Startup should surface a calm first-run chooser panel when no provider has
   been selected yet, and saved cloud-provider selections missing auth should
   enter masked auth immediately instead of failing later in the first real

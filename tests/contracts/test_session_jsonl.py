@@ -28,6 +28,7 @@ from just_another_coding_agent.contracts.session import (
     SessionCompactionSummary,
 )
 from just_another_coding_agent.runtime.run import stream_run_events
+from just_another_coding_agent.session import build_session_preview
 from just_another_coding_agent.session.jsonl import (
     SessionFormatError,
     append_compaction_to_session,
@@ -93,6 +94,44 @@ async def test_append_and_load_session_with_runtime_events(tmp_path) -> None:
     assert loaded.runs[0].events == events
     assert loaded.message_history == messages
     assert loaded.thinking == "high"
+
+
+def test_build_session_preview_uses_recent_runs_only(tmp_path) -> None:
+    path = tmp_path / "session.jsonl"
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    initialize_session(path=path, workspace_root=workspace_root)
+
+    for index in range(1, 6):
+        run_id = f"run-{index}"
+        prompt = f"prompt {index}"
+        output = f"answer {index}"
+        append_run_to_session(
+            path=path,
+            workspace_root=workspace_root,
+            prompt=prompt,
+            events=[
+                RunStartedEvent(run_id=run_id),
+                RunSucceededEvent(run_id=run_id, output_text=output),
+            ],
+            messages=[
+                ModelRequest(parts=[UserPromptPart(content=prompt)]),
+                ModelResponse(parts=[TextPart(content=output)]),
+            ],
+        )
+
+    preview = build_session_preview(path=path, workspace_root=workspace_root)
+
+    assert preview.session_id == path.stem
+    assert preview.truncated is True
+    assert [(entry.kind, entry.text) for entry in preview.entries] == [
+        ("user", "prompt 3"),
+        ("assistant", "answer 3"),
+        ("user", "prompt 4"),
+        ("assistant", "answer 4"),
+        ("user", "prompt 5"),
+        ("assistant", "answer 5"),
+    ]
 
 
 def test_append_session_name_to_session_normalizes_and_persists_name(tmp_path) -> None:

@@ -18,6 +18,10 @@ type SessionNamePayload struct {
 	Name      string `json:"name"`
 }
 
+type SessionPreviewPayload struct {
+	SessionID string `json:"session_id"`
+}
+
 type ModelCatalogPayload struct{}
 
 type AuthStatusPayload struct{}
@@ -69,6 +73,17 @@ type SessionCreateResponse struct {
 type SessionNameResponse struct {
 	SessionID string `json:"session_id"`
 	Name      string `json:"name"`
+}
+
+type SessionPreviewEntry struct {
+	Kind string `json:"kind"`
+	Text string `json:"text"`
+}
+
+type SessionPreviewResponse struct {
+	SessionID string                `json:"session_id"`
+	Entries   []SessionPreviewEntry `json:"entries"`
+	Truncated bool                  `json:"truncated"`
 }
 
 type ModelCatalogModel struct {

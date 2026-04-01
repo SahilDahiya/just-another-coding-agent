@@ -104,6 +104,16 @@ func (m *Manager) SetSessionName(ctx context.Context, sessionID string, name str
 	return client.SetSessionName(ctx, sessionID, name)
 }
 
+func (m *Manager) SessionPreview(ctx context.Context, sessionID string) (SessionPreviewResponse, error) {
+	m.mu.Lock()
+	client, err := m.ensureStartedLocked()
+	m.mu.Unlock()
+	if err != nil {
+		return SessionPreviewResponse{}, err
+	}
+	return client.SessionPreview(ctx, sessionID)
+}
+
 func (m *Manager) CompactSession(ctx context.Context, sessionID string) (SessionCompactResponse, error) {
 	m.mu.Lock()
 	client, err := m.ensureStartedLocked()
@@ -374,6 +384,35 @@ func (c *Client) SetSessionName(ctx context.Context, sessionID string, name stri
 		return SessionNameResponse{}, fmt.Errorf("%s: %s", envelope.ErrorType, envelope.Message)
 	default:
 		return SessionNameResponse{}, fmt.Errorf("unexpected envelope for session.name: %T", line)
+	}
+}
+
+func (c *Client) SessionPreview(ctx context.Context, sessionID string) (SessionPreviewResponse, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	requestID := c.nextRequestID()
+	if err := c.writeRequest(Request{
+		ID:      requestID,
+		Command: "session.preview",
+		Payload: SessionPreviewPayload{SessionID: sessionID},
+	}); err != nil {
+		return SessionPreviewResponse{}, err
+	}
+	line, err := c.readEnvelope(ctx, requestID)
+	if err != nil {
+		return SessionPreviewResponse{}, err
+	}
+	switch envelope := line.(type) {
+	case ResponseEnvelope:
+		var response SessionPreviewResponse
+		if err := json.Unmarshal(envelope.Response, &response); err != nil {
+			return SessionPreviewResponse{}, err
+		}
+		return response, nil
+	case ErrorEnvelope:
+		return SessionPreviewResponse{}, fmt.Errorf("%s: %s", envelope.ErrorType, envelope.Message)
+	default:
+		return SessionPreviewResponse{}, fmt.Errorf("unexpected envelope for session.preview: %T", line)
 	}
 }
 

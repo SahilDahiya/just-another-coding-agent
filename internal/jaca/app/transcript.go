@@ -303,6 +303,28 @@ func (t *Transcript) WriteCompactionWarning(message string) {
 	t.WriteLine(message)
 }
 
+func (t *Transcript) ApplySessionPreview(preview rpc.SessionPreviewResponse) {
+	if len(preview.Entries) == 0 {
+		return
+	}
+
+	lines := []string{"showing recent session history"}
+	if preview.Truncated {
+		lines = append(lines, "older history omitted")
+	}
+	t.WriteNote("history", lines)
+	for _, entry := range preview.Entries {
+		switch entry.Kind {
+		case "user":
+			t.WriteUserTurn(entry.Text)
+		case "assistant":
+			t.completeAssistant(entry.Text)
+		case "error":
+			t.WriteError(entry.Text)
+		}
+	}
+}
+
 func (t *Transcript) ApplyRunEvent(event rpc.RunEvent) {
 	switch event.Type {
 	case "session_compaction_started":

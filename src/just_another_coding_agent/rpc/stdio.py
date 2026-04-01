@@ -42,6 +42,8 @@ from just_another_coding_agent.contracts.rpc import (
     SessionCreateResponse,
     SessionNameRequest,
     SessionNameResponse,
+    SessionPreviewRequest,
+    SessionPreviewResponse,
 )
 from just_another_coding_agent.contracts.tools import CANONICAL_TOOL_NAMES
 from just_another_coding_agent.rpc.session_store import (
@@ -56,6 +58,7 @@ from just_another_coding_agent.session import (
     SessionFormatError,
     SessionNameValidationError,
     append_session_name_to_session,
+    build_session_preview,
 )
 
 _RPC_REQUEST_ADAPTER = TypeAdapter(RpcRequest)
@@ -227,6 +230,42 @@ async def handle_rpc_json_line(
             response=SessionNameResponse(
                 session_id=request.payload.session_id,
                 name=name,
+            ),
+        ).model_dump_json()
+        return
+
+    if isinstance(request, SessionPreviewRequest):
+        session_path = session_path_for_id(
+            sessions_root=sessions_root,
+            workspace_root=workspace_root,
+            session_id=request.payload.session_id,
+        )
+        if not session_path.exists():
+            yield RpcErrorEnvelope(
+                id=request.id,
+                error_type="UnknownSession",
+                message=f"Unknown session_id: {request.payload.session_id}",
+            ).model_dump_json()
+            return
+        try:
+            preview = build_session_preview(
+                path=session_path,
+                workspace_root=workspace_root,
+            )
+        except SessionFormatError as error:
+            yield RpcErrorEnvelope(
+                id=request.id,
+                error_type="InvalidSession",
+                message=str(error),
+            ).model_dump_json()
+            return
+
+        yield RpcResponseEnvelope(
+            id=request.id,
+            response=SessionPreviewResponse(
+                session_id=preview.session_id,
+                entries=preview.entries,
+                truncated=preview.truncated,
             ),
         ).model_dump_json()
         return

@@ -30,6 +30,8 @@ type stubBackend struct {
 	setSecretErr      error
 	clearSecretErr    error
 	setSessionNameErr error
+	sessionPreview    rpc.SessionPreviewResponse
+	sessionPreviewErr error
 	restarts          int
 	lastSetSecret     rpc.AuthSetPayload
 	lastCleared       string
@@ -72,6 +74,12 @@ func (b *stubBackend) SetSessionName(_ context.Context, sessionID string, name s
 		SessionID: sessionID,
 		Name:      normalizeTestSessionName(name),
 	}, nil
+}
+func (b *stubBackend) SessionPreview(_ context.Context, _ string) (rpc.SessionPreviewResponse, error) {
+	if b.sessionPreviewErr != nil {
+		return rpc.SessionPreviewResponse{}, b.sessionPreviewErr
+	}
+	return b.sessionPreview, nil
 }
 func (b *stubBackend) ModelCatalog(_ context.Context) (rpc.ModelCatalogResponse, error) {
 	return b.modelCatalog, b.modelCatalogErr
@@ -365,6 +373,39 @@ func TestNewResumedSessionSkipsFirstRunOnboardingAndShowsResumeNote(t *testing.T
 	rendered := stripANSI(m.transcript.Render())
 	if !strings.Contains(rendered, "resumed auth-store-cleanup") {
 		t.Fatalf("startup transcript missing resumed session note: %q", rendered)
+	}
+}
+
+func TestResumedSessionPreviewHydratesRecentHistory(t *testing.T) {
+	m := newTestModel()
+	m.options.Backend = newStubBackend()
+	m.sessionID = "0123456789abcdef0123456789abcdef"
+	m.sessionName = "auth-store-cleanup"
+	m.transcript.WriteNote("session", []string{"resumed auth-store-cleanup"})
+
+	updated, _ := m.Update(sessionPreviewLoadedMsg{
+		Preview: rpc.SessionPreviewResponse{
+			SessionID: "0123456789abcdef0123456789abcdef",
+			Entries: []rpc.SessionPreviewEntry{
+				{Kind: "user", Text: "fix the auth store"},
+				{Kind: "assistant", Text: "I updated the auth store logic."},
+			},
+			Truncated: true,
+		},
+	})
+
+	rendered := stripANSI(updated.(*model).transcript.Render())
+	if !strings.Contains(rendered, "showing recent session history") {
+		t.Fatalf("resume preview note missing from transcript: %q", rendered)
+	}
+	if !strings.Contains(rendered, "older history omitted") {
+		t.Fatalf("resume preview truncation note missing from transcript: %q", rendered)
+	}
+	if !strings.Contains(rendered, "> fix the auth store") {
+		t.Fatalf("resumed user turn missing from transcript: %q", rendered)
+	}
+	if !strings.Contains(rendered, "I updated the auth store logic.") {
+		t.Fatalf("resumed assistant turn missing from transcript: %q", rendered)
 	}
 }
 

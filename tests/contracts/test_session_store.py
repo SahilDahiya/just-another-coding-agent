@@ -381,3 +381,41 @@ def test_select_session_to_resume_caps_display_to_ten_sessions(
     assert "10. s-10" in output
     assert "11. s-11" not in output
     assert resolved.session_id == "1" * 32
+
+
+def test_select_session_to_resume_still_prompts_when_only_one_session(
+    tmp_path,
+    monkeypatch,
+    capsys,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(
+        entry,
+        "list_workspace_sessions",
+        lambda **_: [
+            type(
+                "Listed",
+                (),
+                {
+                    "session_id": "1" * 32,
+                    "name": "only-session",
+                    "created_at": datetime.now(UTC),
+                    "updated_at": datetime.now(UTC),
+                },
+            )()
+        ],
+    )
+    monkeypatch.setattr("builtins.input", lambda _: "")
+
+    resolved = entry._select_session_to_resume(
+        sessions_root=tmp_path / "sessions",
+        workspace_root=workspace_root,
+    )
+
+    output = capsys.readouterr().out
+    assert "Recent sessions" in output
+    assert "1. only-session" in output
+    assert resolved.session_id == "1" * 32

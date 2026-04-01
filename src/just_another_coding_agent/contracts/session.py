@@ -132,6 +132,17 @@ class SessionMetadata(_SessionEntryBase):
     forked_from_session_id: str | None = None
 
 
+class SessionPreviewEntry(_SessionEntryBase):
+    kind: Literal["user", "assistant", "error"]
+    text: str
+
+
+class SessionPreview(_SessionEntryBase):
+    session_id: str
+    entries: list[SessionPreviewEntry]
+    truncated: bool = False
+
+
 __all__ = [
     "LoadedSession",
     "SESSION_FORMAT_VERSION",
@@ -145,6 +156,8 @@ __all__ = [
     "SessionMessagesEntry",
     "SessionMetadata",
     "SessionName",
+    "SessionPreview",
+    "SessionPreviewEntry",
     "SessionRunEntry",
     "SessionRunRecord",
 ]

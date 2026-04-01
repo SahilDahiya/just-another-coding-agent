@@ -203,9 +203,6 @@ def _select_session_to_resume(
     )
     if not sessions:
         raise RuntimeError(f"No sessions found for workspace: {workspace_root}")
-    if len(sessions) == 1:
-        only = sessions[0]
-        return ResolvedSessionReference(session_id=only.session_id, name=only.name)
 
     displayed_sessions = sessions[:10]
     print("Recent sessions:")

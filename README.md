@@ -171,8 +171,11 @@ jaca resume auth-store-cleanup
 ```
 
 If you omit the reference, `jaca resume` shows the recent sessions from the
-current workspace, caps the picker to the most recent ten, and lets you choose
-one by number. This picker requires an interactive terminal.
+current workspace, even when there is only one session, caps the picker to the
+most recent ten, and lets you choose one by number. This picker requires an
+interactive terminal. Resumed and forked sessions also hydrate a bounded
+recent-history preview into the transcript instead of trying to render the
+entire saved session.
 
 To branch a current-workspace session into a new one:
 

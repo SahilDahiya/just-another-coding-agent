@@ -14,6 +14,7 @@ type Backend interface {
 	Interrupt(ctx context.Context) error
 	CreateSession(ctx context.Context) (string, error)
 	SetSessionName(ctx context.Context, sessionID string, name string) (rpc.SessionNameResponse, error)
+	SessionPreview(ctx context.Context, sessionID string) (rpc.SessionPreviewResponse, error)
 	CompactSession(ctx context.Context, sessionID string) (rpc.SessionCompactResponse, error)
 	ModelCatalog(ctx context.Context) (rpc.ModelCatalogResponse, error)
 	AuthStatus(ctx context.Context) (rpc.AuthStatusResponse, error)

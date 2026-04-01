@@ -133,6 +133,12 @@ If a new run omits `thinking`, the session runtime inherits the most recent pers
 
 `run.start` against an existing session is the canonical continue operation. There is no separate `session.continue` command.
 
+The visible TUI history shown on resume is intentionally smaller than the
+authoritative backend continuation state. The backend may expose a bounded
+recent-history preview for resumed or forked sessions, but that preview is
+presentation-only. The canonical continuation substrate remains the durable
+local `message_history` rebuilt before `run.start`.
+
 The coordinator `stream_session_run_events()` handles the full lifecycle: load session, optionally auto-compact stale history, build the agent, stream events, capture messages, strip synthetic compaction-summary messages back out, append `session_run` plus streamed `session_event` lines incrementally, then append trailing `session_messages` after terminal completion. If cancellation unwinds through this coordinator, it now finalizes the run as terminal `run_failed` so the session stays resumable. Failed runs also sanitize poisoned correction tails before persisting `session_messages`: unresolved trailing repair prompts and the matching invalid tool-call suffix are trimmed from future resume history, but the original run events and traces remain intact for debugging. True crashes or abandonment before finalization can still leave an incomplete trailing run on disk, and `load_session(...)` fails hard in that case.
 
 The current deterministic auto-compaction trigger is model-aware: before a resumed run starts, the runtime estimates tokens for the exact local resume history it will replay, adds a conservative reserve for the next prompt and wrapper overhead, and appends one automatic compaction entry when that total crosses the configured fraction of the active model context window. It also requires at least one completed run after the latest compaction boundary so a just-compacted session does not immediately compact again on the next resume.
