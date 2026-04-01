@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import stat
 from pathlib import Path
 
 from just_another_coding_agent.contracts.model_catalog import default_model_for_provider
@@ -21,15 +20,6 @@ def load_config() -> dict[str, str]:
         return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return {}
-
-
-def save_config(config: dict[str, str]) -> None:
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    CONFIG_PATH.write_text(
-        json.dumps(config, indent=2) + "\n",
-        encoding="utf-8",
-    )
-    CONFIG_PATH.chmod(stat.S_IRUSR | stat.S_IWUSR)
 
 
 def apply_config_to_env(config: dict[str, str]) -> None:
@@ -63,33 +53,10 @@ def resolve_default_model(config: dict[str, str]) -> str:
     if saved_model:
         return saved_model
     return DEFAULT_MODEL
-
-
-def save_provider_config(
-    provider: str,
-    *,
-    api_key: str | None = None,
-    base_url: str | None = None,
-) -> None:
-    config = load_config()
-    if provider == "ollama":
-        if base_url:
-            config["OLLAMA_BASE_URL"] = base_url
-    elif provider == "openai":
-        if base_url:
-            config["OPENAI_BASE_URL"] = base_url
-    elif provider in {"anthropic", "github"}:
-        pass
-    config["default_provider"] = provider
-    save_config(config)
-
-
 __all__ = [
     "apply_config_to_env",
     "apply_trace_mode_to_env",
     "DEFAULT_MODEL",
     "load_config",
     "resolve_default_model",
-    "save_config",
-    "save_provider_config",
 ]

@@ -141,7 +141,7 @@ def should_auto_compact_session(
     if context_window_tokens is None:
         return False
 
-    estimated_resume_history_tokens = estimate_resume_history_tokens(loaded_session)
+    estimated_resume_history_tokens = _estimate_resume_history_tokens(loaded_session)
     compaction_trigger_budget_tokens = int(
         context_window_tokens * SESSION_AUTO_COMPACTION_CONTEXT_WINDOW_UTILIZATION
     )
@@ -151,7 +151,7 @@ def should_auto_compact_session(
     )
 
 
-def estimate_resume_history_tokens(loaded_session: LoadedSession) -> int:
+def _estimate_resume_history_tokens(loaded_session: LoadedSession) -> int:
     resume_history = build_resume_message_history(loaded_session)
     return math.ceil(
         _estimate_message_history_chars(resume_history)
