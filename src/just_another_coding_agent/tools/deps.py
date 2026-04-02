@@ -9,6 +9,7 @@ from just_another_coding_agent.contracts.platform import (
     ShellFamily,
     detect_default_shell_family,
 )
+from just_another_coding_agent.contracts.rpc import SessionId
 from just_another_coding_agent.contracts.run_events import JsonValue
 from just_another_coding_agent.tools._workspace import normalize_workspace_root
 from just_another_coding_agent.tools.read_only_worker.runtime import (
@@ -25,6 +26,7 @@ ToolUpdateSink: TypeAlias = Callable[
 class WorkspaceDeps:
     workspace_root: Path
     shell_family: ShellFamily = "posix"
+    session_id: SessionId | None = None
     tool_update_sink: ToolUpdateSink | None = None
     read_only_worker: ReadOnlyWorkerRuntime = field(
         default_factory=ReadOnlyWorkerRuntime,

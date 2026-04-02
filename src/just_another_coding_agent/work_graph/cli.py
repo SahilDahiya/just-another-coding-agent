@@ -18,7 +18,6 @@ from just_another_coding_agent.work_graph.store import (
     create_work_item,
     get_work_item_by_slug,
     list_work_items,
-    list_work_session_links,
     list_work_updates,
     update_work_item,
 )
@@ -62,6 +61,11 @@ def run_work_mode(*, argv: Sequence[str]) -> int:
         "--body",
         default="",
         help="Optional markdown body for the work item.",
+    )
+    new_parser.add_argument(
+        "--session-id",
+        default=None,
+        help="Optional session id that created this work item",
     )
     new_parser.add_argument("title", nargs="+", help="Work item title")
 
@@ -122,6 +126,7 @@ def run_work_mode(*, argv: Sequence[str]) -> int:
                 slug=args.slug,
                 parent_slug=args.parent,
                 body_md=args.body,
+                created_session_id=args.session_id,
             )
         if args.work_command == "list":
             return _run_work_list(
@@ -167,6 +172,7 @@ def _run_work_new(
     slug: str | None,
     parent_slug: str | None,
     body_md: str,
+    created_session_id: str | None,
 ) -> int:
     parent_id = None
     if parent_slug is not None:
@@ -185,6 +191,7 @@ def _run_work_new(
         slug=slug,
         parent_id=parent_id,
         body_md=body_md,
+        created_session_id=created_session_id,
     )
     print(f"Created {created.kind} {created.slug}")
     print(f"id: {created.id}")
@@ -249,12 +256,6 @@ def _run_work_show(
         workspace_root=workspace_root,
         work_item_id=item.id,
     )
-    links = list_work_session_links(
-        workspaces_root=workspaces_root,
-        workspace_root=workspace_root,
-        work_item_id=item.id,
-    )
-
     print(f"slug: {item.slug}")
     print(f"title: {item.title}")
     print(f"kind: {item.kind}")
@@ -262,6 +263,8 @@ def _run_work_show(
     print(f"id: {item.id}")
     if parent_slug is not None:
         print(f"parent: {parent_slug}")
+    if item.created_session_id is not None:
+        print(f"created_session_id: {item.created_session_id}")
     print(f"created_at: {item.created_at}")
     print(f"updated_at: {item.updated_at}")
     if item.archived_at is not None:
@@ -277,11 +280,6 @@ def _run_work_show(
                 header += f" (session {update.session_id})"
             print(header)
             print(f"  {update.body_md}")
-
-    if links:
-        print("linked sessions:")
-        for link in links:
-            print(f"- {link.session_id} @ {link.created_at}")
 
     return 0
 

@@ -4,8 +4,34 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
-CANONICAL_TOOL_NAMES = ("read", "write", "edit", "shell", "grep", "ls", "find")
-CanonicalToolName = Literal["read", "write", "edit", "shell", "grep", "ls", "find"]
+CANONICAL_TOOL_NAMES = (
+    "read",
+    "write",
+    "edit",
+    "shell",
+    "grep",
+    "ls",
+    "find",
+    "work_list",
+    "work_read",
+    "work_create",
+    "work_update",
+    "work_status",
+)
+CanonicalToolName = Literal[
+    "read",
+    "write",
+    "edit",
+    "shell",
+    "grep",
+    "ls",
+    "find",
+    "work_list",
+    "work_read",
+    "work_create",
+    "work_update",
+    "work_status",
+]
 
 
 class ToolErrorResult(BaseModel):

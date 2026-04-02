@@ -65,13 +65,27 @@ def test_build_canonical_instructions_include_dynamic_context(tmp_path) -> None:
         in instructions
     )
     assert (
-        "Use only these tools: read, write, edit, shell, grep, ls, find."
+        "Use only these tools: read, write, edit, shell, grep, ls, find, "
+        "work_list, work_read, work_create, work_update, work_status."
         in instructions
     )
     assert "Use grep for content search across files." in instructions
     assert "Use ls for bounded directory listings." in instructions
     assert "Use find for file discovery by glob pattern." in instructions
     assert "Use shell for builds, commands, and verification." in instructions
+    assert (
+        "Use work_list and work_read when durable workspace work tracking is "
+        "relevant."
+        in instructions
+    )
+    assert (
+        "Before using work_create, check for an obvious existing match with "
+        "work_list or work_read."
+        in instructions
+    )
+    assert (
+        "Use work_status to change durable work-item status." in instructions
+    )
     assert "Current shell family: powershell" in instructions
     assert (
         "Do not claim you created, edited, or saved a file unless you "

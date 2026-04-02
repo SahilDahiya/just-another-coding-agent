@@ -17,6 +17,13 @@ from just_another_coding_agent.tools.grep import GREP_TOOL
 from just_another_coding_agent.tools.ls import LS_TOOL
 from just_another_coding_agent.tools.read import READ_TOOL
 from just_another_coding_agent.tools.shell import SHELL_TOOL
+from just_another_coding_agent.tools.work_graph import (
+    WORK_CREATE_TOOL,
+    WORK_LIST_TOOL,
+    WORK_READ_TOOL,
+    WORK_STATUS_TOOL,
+    WORK_UPDATE_TOOL,
+)
 from just_another_coding_agent.tools.write import WRITE_TOOL
 
 
@@ -34,6 +41,11 @@ SEQUENTIAL_CANONICAL_TOOL_NAMES = (
     "write",
     "edit",
     "shell",
+    "work_list",
+    "work_read",
+    "work_create",
+    "work_update",
+    "work_status",
 )
 
 _TOOLS_BY_NAME = {
@@ -43,6 +55,11 @@ _TOOLS_BY_NAME = {
     "ls": LS_TOOL,
     "read": READ_TOOL,
     "shell": SHELL_TOOL,
+    "work_create": WORK_CREATE_TOOL,
+    "work_list": WORK_LIST_TOOL,
+    "work_read": WORK_READ_TOOL,
+    "work_status": WORK_STATUS_TOOL,
+    "work_update": WORK_UPDATE_TOOL,
     "write": WRITE_TOOL,
 }
 

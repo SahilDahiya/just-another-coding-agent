@@ -27,6 +27,20 @@ _SAMPLE_ARGS_BY_TOOL: dict[str, dict[str, object]] = {
     },
     "ls": {"path": "src", "limit": 20},
     "find": {"pattern": "*.py", "path": "src", "limit": 20},
+    "work_list": {"parent_slug": "bloat-and-rot", "include_archived": False},
+    "work_read": {"slug": "trim-dead-re-exports"},
+    "work_create": {
+        "title": "Trim Dead Re-exports",
+        "parent_slug": "bloat-and-rot",
+        "body_md": "",
+        "kind": "task",
+    },
+    "work_update": {
+        "slug": "trim-dead-re-exports",
+        "kind": "note",
+        "body_md": "Investigated dead helpers.",
+    },
+    "work_status": {"slug": "trim-dead-re-exports", "status": "done", "note": None},
 }
 
 _EXPECTED_STARTED_TITLE_BY_TOOL = {
@@ -37,6 +51,11 @@ _EXPECTED_STARTED_TITLE_BY_TOOL = {
     "grep": "grep TODO",
     "ls": "ls src",
     "find": "find *.py",
+    "work_list": "work list bloat-and-rot",
+    "work_read": "work read trim-dead-re-exports",
+    "work_create": "work create Trim Dead Re-exports",
+    "work_update": "work update trim-dead-re-exports",
+    "work_status": "work status trim-dead-re-exports",
 }
 
 
@@ -52,7 +71,9 @@ def test_started_activity_uses_backend_owned_titles_only() -> None:
         )
 
         expected_group_kind = (
-            "exploration" if tool_name in {"read", "grep", "ls", "find"} else None
+            "exploration"
+            if tool_name in {"read", "grep", "ls", "find", "work_list", "work_read"}
+            else None
         )
         assert activity == ToolActivity(
             title=_EXPECTED_STARTED_TITLE_BY_TOOL[tool_name],

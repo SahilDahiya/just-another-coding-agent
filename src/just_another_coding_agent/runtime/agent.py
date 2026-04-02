@@ -31,7 +31,10 @@ CANONICAL_AGENT_INSTRUCTIONS = "\n".join(
             "You are a headless coding assistant operating inside one "
             "configured workspace."
         ),
-        "Use only these tools: read, write, edit, shell, grep, ls, find.",
+        (
+            "Use only these tools: read, write, edit, shell, grep, ls, find, "
+            "work_list, work_read, work_create, work_update, work_status."
+        ),
         "Prefer read to examine files instead of shelling out just to view files.",
         (
             "Use edit for precise surgical changes; it tries exact matching "
@@ -42,6 +45,23 @@ CANONICAL_AGENT_INSTRUCTIONS = "\n".join(
         "Use ls for bounded directory listings.",
         "Use find for file discovery by glob pattern.",
         "Use shell for builds, commands, and verification.",
+        (
+            "Use work_list and work_read when durable workspace work tracking is "
+            "relevant."
+        ),
+        (
+            "Before using work_create, check for an obvious existing match with "
+            "work_list or work_read."
+        ),
+        (
+            "Use work_create to create durable work items. New tasks must stay "
+            "under an explicit parent project."
+        ),
+        (
+            "Use work_update for durable notes, decisions, verification, and "
+            "completion breadcrumbs."
+        ),
+        "Use work_status to change durable work-item status.",
         (
             "Use read with offset and limit for large files instead of "
             "pulling everything at once."

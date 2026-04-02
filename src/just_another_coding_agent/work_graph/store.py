@@ -15,7 +15,6 @@ from just_another_coding_agent.contracts.work_graph import (
     WorkItemId,
     WorkItemKind,
     WorkItemStatus,
-    WorkSessionLink,
     WorkSlug,
     WorkUpdate,
     WorkUpdateKind,
@@ -28,7 +27,6 @@ _WORK_ITEM_ADAPTER = TypeAdapter(WorkItem)
 _WORK_ITEM_ID_ADAPTER = TypeAdapter(WorkItemId)
 _WORK_ITEM_KIND_ADAPTER = TypeAdapter(WorkItemKind)
 _WORK_ITEM_STATUS_ADAPTER = TypeAdapter(WorkItemStatus)
-_WORK_SESSION_LINK_ADAPTER = TypeAdapter(WorkSessionLink)
 _WORK_SLUG_ADAPTER = TypeAdapter(WorkSlug)
 _WORK_UPDATE_ADAPTER = TypeAdapter(WorkUpdate)
 _WORK_UPDATE_KIND_ADAPTER = TypeAdapter(WorkUpdateKind)
@@ -46,6 +44,7 @@ CREATE TABLE IF NOT EXISTS work_items (
     ),
     parent_id TEXT NULL REFERENCES work_items(id),
     body_md TEXT NOT NULL,
+    created_session_id TEXT NULL,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     archived_at TEXT NULL
@@ -60,13 +59,6 @@ CREATE TABLE IF NOT EXISTS work_updates (
     body_md TEXT NOT NULL,
     session_id TEXT NULL,
     created_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS work_session_links (
-    work_item_id TEXT NOT NULL REFERENCES work_items(id),
-    session_id TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    PRIMARY KEY (work_item_id, session_id)
 );
 """
 
@@ -116,6 +108,7 @@ def create_work_item(
     body_md: str = "",
     slug: str | None = None,
     parent_id: str | None = None,
+    created_session_id: str | None = None,
 ) -> WorkItem:
     normalized_kind = _WORK_ITEM_KIND_ADAPTER.validate_python(kind)
     normalized_title = title.strip()
@@ -127,6 +120,14 @@ def create_work_item(
             message=f"Unknown parent work item: {parent_id}",
         )
         if parent_id is not None
+        else None
+    )
+    normalized_created_session_id = (
+        _validate_session_id(
+            created_session_id,
+            message=f"Invalid created session id: {created_session_id}",
+        )
+        if created_session_id is not None
         else None
     )
     normalized_slug = normalize_work_slug(slug or normalized_title)
@@ -151,10 +152,11 @@ def create_work_item(
                     status,
                     parent_id,
                     body_md,
+                    created_session_id,
                     created_at,
                     updated_at,
                     archived_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     item_id,
@@ -164,6 +166,7 @@ def create_work_item(
                     "todo",
                     normalized_parent_id,
                     body_md,
+                    normalized_created_session_id,
                     _serialize_datetime(now),
                     _serialize_datetime(now),
                     None,
@@ -201,6 +204,7 @@ def get_work_item_by_slug(
                 status,
                 parent_id,
                 body_md,
+                created_session_id,
                 created_at,
                 updated_at,
                 archived_at
@@ -236,6 +240,7 @@ def list_work_items(
                     status,
                     parent_id,
                     body_md,
+                    created_session_id,
                     created_at,
                     updated_at,
                     archived_at
@@ -254,6 +259,7 @@ def list_work_items(
                     status,
                     parent_id,
                     body_md,
+                    created_session_id,
                     created_at,
                     updated_at,
                     archived_at
@@ -447,79 +453,6 @@ def list_work_updates(
         return [_row_to_work_update(row) for row in rows]
 
 
-def link_session_to_work_item(
-    *,
-    workspaces_root: Path | str = DEFAULT_WORKSPACES_ROOT,
-    workspace_root: Path | str,
-    work_item_id: str,
-    session_id: str,
-) -> WorkSessionLink:
-    normalized_work_item_id = _validate_work_item_id(
-        work_item_id,
-        message=f"Unknown work item: {work_item_id}",
-    )
-    normalized_session_id = _validate_session_id(
-        session_id,
-        message=f"Invalid session id: {session_id}",
-    )
-    now = _utc_now()
-    db_path = work_graph_db_path(
-        workspaces_root=workspaces_root,
-        workspace_root=workspace_root,
-    )
-    with _connect(db_path) as connection:
-        _require_existing_work_item(connection, work_item_id=normalized_work_item_id)
-        try:
-            connection.execute(
-                """
-                INSERT INTO work_session_links (work_item_id, session_id, created_at)
-                VALUES (?, ?, ?)
-                """,
-                (
-                    normalized_work_item_id,
-                    normalized_session_id,
-                    _serialize_datetime(now),
-                ),
-            )
-        except sqlite3.IntegrityError as error:
-            raise WorkGraphError(
-                "Session is already linked to this work item"
-            ) from error
-        return _load_work_session_link(
-            connection,
-            work_item_id=normalized_work_item_id,
-            session_id=normalized_session_id,
-        )
-
-
-def list_work_session_links(
-    *,
-    workspaces_root: Path | str = DEFAULT_WORKSPACES_ROOT,
-    workspace_root: Path | str,
-    work_item_id: str,
-) -> list[WorkSessionLink]:
-    normalized_work_item_id = _validate_work_item_id(
-        work_item_id,
-        message=f"Unknown work item: {work_item_id}",
-    )
-    db_path = work_graph_db_path(
-        workspaces_root=workspaces_root,
-        workspace_root=workspace_root,
-    )
-    with _connect(db_path) as connection:
-        _require_existing_work_item(connection, work_item_id=normalized_work_item_id)
-        rows = connection.execute(
-            """
-            SELECT work_item_id, session_id, created_at
-            FROM work_session_links
-            WHERE work_item_id = ?
-            ORDER BY created_at ASC, session_id ASC
-            """,
-            (normalized_work_item_id,),
-        ).fetchall()
-        return [_row_to_work_session_link(row) for row in rows]
-
-
 def _connect(path: Path) -> sqlite3.Connection:
     path.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(path)
@@ -544,6 +477,7 @@ def _load_work_item_by_id(
             status,
             parent_id,
             body_md,
+            created_session_id,
             created_at,
             updated_at,
             archived_at
@@ -573,27 +507,6 @@ def _load_work_update_by_id(
     if row is None:
         raise WorkGraphError(f"Unknown work update: {work_update_id}")
     return _row_to_work_update(row)
-
-
-def _load_work_session_link(
-    connection: sqlite3.Connection,
-    *,
-    work_item_id: WorkItemId,
-    session_id: SessionId,
-) -> WorkSessionLink:
-    row = connection.execute(
-        """
-        SELECT work_item_id, session_id, created_at
-        FROM work_session_links
-        WHERE work_item_id = ? AND session_id = ?
-        """,
-        (work_item_id, session_id),
-    ).fetchone()
-    if row is None:
-        raise WorkGraphError(
-            f"Unknown work-session link: {work_item_id}/{session_id}"
-        )
-    return _row_to_work_session_link(row)
 
 
 def _require_existing_work_item(
@@ -631,10 +544,6 @@ def _row_to_work_update(row: sqlite3.Row) -> WorkUpdate:
     return _WORK_UPDATE_ADAPTER.validate_python(dict(row))
 
 
-def _row_to_work_session_link(row: sqlite3.Row) -> WorkSessionLink:
-    return _WORK_SESSION_LINK_ADAPTER.validate_python(dict(row))
-
-
 def _serialize_datetime(value: datetime) -> str:
     return value.astimezone(UTC).isoformat()
 
@@ -650,9 +559,7 @@ __all__ = [
     "append_work_update",
     "create_work_item",
     "get_work_item_by_slug",
-    "link_session_to_work_item",
     "list_work_items",
-    "list_work_session_links",
     "list_work_updates",
     "normalize_work_slug",
     "update_work_item",

@@ -36,6 +36,7 @@ class WorkItem(_WorkGraphModel):
     status: WorkItemStatus
     parent_id: WorkItemId | None = None
     body_md: str
+    created_session_id: SessionId | None = None
     created_at: datetime
     updated_at: datetime
     archived_at: datetime | None = None
@@ -50,18 +51,11 @@ class WorkUpdate(_WorkGraphModel):
     created_at: datetime
 
 
-class WorkSessionLink(_WorkGraphModel):
-    work_item_id: WorkItemId
-    session_id: SessionId
-    created_at: datetime
-
-
 __all__ = [
     "WorkItem",
     "WorkItemId",
     "WorkItemKind",
     "WorkItemStatus",
-    "WorkSessionLink",
     "WorkSlug",
     "WorkUpdate",
     "WorkUpdateId",

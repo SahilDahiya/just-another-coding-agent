@@ -16,6 +16,13 @@ from just_another_coding_agent.tools.registry import (
     list_canonical_tool_names,
 )
 from just_another_coding_agent.tools.shell import SHELL_TOOL
+from just_another_coding_agent.tools.work_graph import (
+    WORK_CREATE_TOOL,
+    WORK_LIST_TOOL,
+    WORK_READ_TOOL,
+    WORK_STATUS_TOOL,
+    WORK_UPDATE_TOOL,
+)
 from just_another_coding_agent.tools.write import WRITE_TOOL
 
 
@@ -28,6 +35,11 @@ def test_registry_exposes_canonical_tool_names() -> None:
         "grep",
         "ls",
         "find",
+        "work_list",
+        "work_read",
+        "work_create",
+        "work_update",
+        "work_status",
     )
 
 
@@ -51,6 +63,11 @@ def test_registry_exposes_explicit_parallel_tool_policy() -> None:
     assert WRITE_TOOL.sequential is True
     assert EDIT_TOOL.sequential is True
     assert SHELL_TOOL.sequential is True
+    assert WORK_LIST_TOOL.sequential is True
+    assert WORK_READ_TOOL.sequential is True
+    assert WORK_CREATE_TOOL.sequential is True
+    assert WORK_UPDATE_TOOL.sequential is True
+    assert WORK_STATUS_TOOL.sequential is True
 
 
 def test_build_canonical_toolset_registers_implemented_tools_with_pydanticai(
@@ -61,7 +78,20 @@ def test_build_canonical_toolset_registers_implemented_tools_with_pydanticai(
         model,
         toolsets=[
             build_canonical_toolset(
-                ["read", "write", "edit", "shell", "grep", "ls", "find"]
+                [
+                    "read",
+                    "write",
+                    "edit",
+                    "shell",
+                    "grep",
+                    "ls",
+                    "find",
+                    "work_list",
+                    "work_read",
+                    "work_create",
+                    "work_update",
+                    "work_status",
+                ]
             )
         ],
         deps_type=WorkspaceDeps,
@@ -71,7 +101,20 @@ def test_build_canonical_toolset_registers_implemented_tools_with_pydanticai(
 
     function_tools = model.last_model_request_parameters.function_tools
     tool_names = [tool.name for tool in function_tools]
-    assert tool_names == ["read", "write", "edit", "shell", "grep", "ls", "find"]
+    assert tool_names == [
+        "read",
+        "write",
+        "edit",
+        "shell",
+        "grep",
+        "ls",
+        "find",
+        "work_list",
+        "work_read",
+        "work_create",
+        "work_update",
+        "work_status",
+    ]
 
 
 def test_build_canonical_toolset_exposes_rich_model_facing_tool_descriptions(
@@ -82,7 +125,20 @@ def test_build_canonical_toolset_exposes_rich_model_facing_tool_descriptions(
         model,
         toolsets=[
             build_canonical_toolset(
-                ["read", "write", "edit", "shell", "grep", "ls", "find"]
+                [
+                    "read",
+                    "write",
+                    "edit",
+                    "shell",
+                    "grep",
+                    "ls",
+                    "find",
+                    "work_list",
+                    "work_read",
+                    "work_create",
+                    "work_update",
+                    "work_status",
+                ]
             )
         ],
         deps_type=WorkspaceDeps,
@@ -258,4 +314,25 @@ def test_build_canonical_toolset_exposes_rich_model_facing_tool_descriptions(
     assert (
         function_tools["find"].parameters_json_schema["properties"]["limit"]["minimum"]
         == 1
+    )
+
+    assert function_tools["work_list"].description == (
+        "List durable workspace work items. Can scope to one parent project by slug "
+        "and optionally include archived items."
+    )
+    assert function_tools["work_read"].description == (
+        "Read one durable work item by slug, including current state, creation "
+        "session provenance, and appended updates."
+    )
+    assert function_tools["work_create"].description == (
+        "Create a durable work item. New tasks must be created under an explicit "
+        "parent project slug."
+    )
+    assert function_tools["work_update"].description == (
+        "Append a durable note, decision, verification, status_change, or "
+        "completion update to a work item."
+    )
+    assert function_tools["work_status"].description == (
+        "Update a work item's durable status. Can also append an explanatory note "
+        "for the status change."
     )

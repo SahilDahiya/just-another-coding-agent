@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import replace
 from pathlib import Path
@@ -47,6 +48,8 @@ from just_another_coding_agent.session.jsonl import (
 )
 from just_another_coding_agent.tools._workspace import normalize_workspace_root
 from just_another_coding_agent.tools.deps import WorkspaceDeps
+
+_SESSION_ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
 
 
 def _strip_unresolved_tool_calls_from_messages(
@@ -135,6 +138,13 @@ def _sanitize_failed_run_messages(
     return _strip_failed_correction_tail_from_messages(
         _strip_unresolved_tool_calls_from_messages(messages)
     )
+
+
+def _session_id_from_path(path: Path) -> str | None:
+    candidate = path.stem
+    if _SESSION_ID_PATTERN.fullmatch(candidate) is None:
+        return None
+    return candidate
 
 
 async def stream_session_run_events(
@@ -226,6 +236,7 @@ async def stream_session_run_events(
                 deps=WorkspaceDeps(
                     workspace_root=normalized_workspace_root,
                     shell_family=shell_family,
+                    session_id=_session_id_from_path(session_path),
                 ),
                 message_history_sink=_record_message_history,
             ):

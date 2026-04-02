@@ -184,7 +184,7 @@ The important boundary is:
   - session load/save helpers
 - `src/just_another_coding_agent/work_graph/`
   - workspace-native durable work state
-  - backend-owned SQLite store for work items, updates, and session links
+  - backend-owned SQLite store for work items and updates with session provenance
   - thin CLI surface for human/operator access to backend-owned work operations
 - `src/just_another_coding_agent/rpc/`
   - JSON-over-stdio protocol

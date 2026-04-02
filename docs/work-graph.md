@@ -88,16 +88,17 @@ Work graph answers:
 - how the work is decomposed
 - what is blocked
 - what remains unresolved
-- which sessions contributed to it
+- which session created it
+- which session produced important updates
 
 The work graph is durable workspace state, not transcript state.
 
 These systems should be linked, not merged.
 
 The linkage is part of the product differentiation. The work graph should
-eventually connect work items to real coding evidence such as sessions,
-verification breadcrumbs, and touched files. That is more useful for a coding
-agent than a generic tracker that only stores prose.
+eventually connect work items to real coding evidence such as session
+provenance, verification breadcrumbs, and touched files. That is more useful
+for a coding agent than a generic tracker that only stores prose.
 
 ## Boundary With Docs
 
@@ -135,7 +136,7 @@ For JACA, the work graph needs to support:
 - parent/child decomposition
 - status tracking
 - durable rationale and notes
-- explicit links from work items to sessions
+- session provenance on work items and updates
 - archiving without losing history
 
 That is enough to support the agent offloading cognitive burden without hiding it.
@@ -170,6 +171,7 @@ Recommended fields:
 - `status`
 - `parent_id`
 - `body_md`
+- `created_session_id`
 - `created_at`
 - `updated_at`
 - `archived_at`
@@ -191,6 +193,8 @@ Recommended `status` values in v1:
 The durable history of how the item changed belongs in `work_updates`.
 `updated_at` should advance whenever the current visible state of the item
 changes, including appended updates.
+`created_session_id` records which session originally created the item when
+known.
 
 ### Work Update
 
@@ -217,21 +221,6 @@ Recommended fields:
 
 This is the durable narrative of the item. It replaces the need for a separate
 comments subsystem in v1.
-
-### Work Session Link
-
-Sessions should be linkable to work items so the agent and user can see which
-threads contributed to which work.
-
-This is a link, not a merge of storage systems.
-
-Recommended fields:
-
-- `work_item_id`
-- `session_id`
-- `created_at`
-
-Session links should start explicit, not automatic.
 
 ## Storage Direction
 
@@ -260,6 +249,8 @@ The v1 storage contract should be strict and small.
 - `slug` must be unique within a workspace database
 - `parent_id` is nullable
 - top-level `project` items group child tasks
+- `created_session_id` is optional and records the session that created the
+  work item when known
 - `archived_at` records archive time rather than deleting data
 - `updated_at` advances on any meaningful mutation to the item, including:
   - body changes
@@ -269,11 +260,10 @@ The v1 storage contract should be strict and small.
 - `work_updates` are append-only
 - `work_updates.session_id` is optional and records which session produced a
   specific update when known
-- `work_session_links` are for broader work-to-session association and are not a
-  substitute for session history
 - SQL constraints should enforce the allowed `kind` and `status` values
 - backend validation should enforce the same rules before writes
-- `work_session_links` should be unique on `(work_item_id, session_id)`
+- `created_session_id` should stay nullable text and should not depend on a
+  foreign key into session JSONL storage
 - `work_updates.session_id` should stay nullable text and should not depend on a
   foreign key into session JSONL storage
 
@@ -281,7 +271,7 @@ If an item is marked `done`, the preferred path is:
 
 - update `work_items.status`
 - append a `completion` update explaining how it was finished
-- optionally attach the producing session through `session_id` or a broader link
+- optionally attach the producing session through `session_id`
 
 For v1, `archived` should remain a status value rather than becoming a separate
 orthogonal state machine. That keeps the first implementation smaller and the
@@ -291,7 +281,7 @@ queries simpler.
 
 The first implementation should be backend-first.
 
-The initial human command surface should be CLI-only:
+The initial human command surface is CLI:
 
 - `jaca work new <title>`
 - `jaca work list`
@@ -303,21 +293,36 @@ These commands should remain thin wrappers over backend-owned Python
 operations. They are for users and operators, not the canonical semantic
 interface for the agent itself.
 
+The initial agent-facing surface is a small backend-owned toolset:
+
+- `work_list`
+- `work_read`
+- `work_create`
+- `work_update`
+- `work_status`
+
+These tools are also thin wrappers over backend-owned Python operations. They
+exist so the agent can use durable work state directly without shelling out to
+CLI commands and parsing text.
+
 This should not begin as a large TUI surface. The important part is durable
-state and clear backend ownership.
+state, bounded agent behavior, and clear backend ownership.
 
 ## What The Agent May Do
 
 The agent may:
 
-- create or update work items when the user explicitly asks for it
+- read work items freely
+- autonomously create child `task` items when there is an explicit `project` or
+  active work context
 - append durable notes and verification breadcrumbs
-- link sessions to work items
+- check existing work items before creating a new task to avoid obvious
+  duplicates
 - update status as part of explicit work management flows
 
 The agent should not, by default:
 
-- silently invent long-lived work items
+- silently create new top-level `project` items
 - silently close or archive work
 - treat the work graph as hidden memory
 - dump the entire work graph into prompts
@@ -344,7 +349,7 @@ agent continuity.
 
 If this subsystem proves useful, the strongest future differentiators are:
 
-- explicit links from work items to sessions that contributed to the work
+- explicit session provenance on work items and work updates
 - durable verification breadcrumbs on work items
 - workspace-native handles and decomposition designed around code work
 - bounded prompt use that improves continuation quality without becoming hidden
@@ -360,7 +365,7 @@ and inspectable. It is safer than hidden memory because it is:
 
 - structured
 - durable
-- linked to sessions
+- grounded in explicit session provenance
 - auditable by the user
 
 That makes it a better place for durable active-work state than transcript
@@ -371,7 +376,7 @@ compaction or invisible background notes.
 The first implementation slice should be:
 
 1. workspace-local SQLite store
-2. minimal schema for work items, updates, and session links
+2. minimal schema for work items and updates with session provenance
 3. backend-owned create/list/read/update operations
 4. exact slug uniqueness within a workspace
 5. no automatic prompt injection

@@ -17,8 +17,14 @@ _TITLE_KEY_BY_TOOL = {
     "edit": "path",
     "grep": "pattern",
     "find": "pattern",
+    "work_read": "slug",
+    "work_create": "title",
+    "work_update": "slug",
+    "work_status": "slug",
 }
-_EXPLORATION_TOOL_NAMES = frozenset({"read", "grep", "ls", "find"})
+_EXPLORATION_TOOL_NAMES = frozenset(
+    {"read", "grep", "ls", "find", "work_list", "work_read"}
+)
 
 
 def _group_kind_for_tool(tool_name: str) -> str | None:
@@ -138,10 +144,17 @@ def _build_tool_title(*, tool_name: str, args: Any, args_valid: bool | None) -> 
             return f"ls {truncate_activity_label(path)}"
         return "ls ."
 
+    if tool_name == "work_list":
+        parent_slug = args.get("parent_slug")
+        if isinstance(parent_slug, str) and parent_slug.strip():
+            return f"work list {truncate_activity_label(parent_slug)}"
+        return "work list"
+
     key = _TITLE_KEY_BY_TOOL.get(tool_name)
     value = args.get(key) if key is not None else None
     if isinstance(value, str) and value.strip():
-        return f"{tool_name} {truncate_activity_label(value)}"
+        title_prefix = tool_name.replace("_", " ")
+        return f"{title_prefix} {truncate_activity_label(value)}"
     return tool_name
 
 
@@ -164,6 +177,11 @@ def _build_fallback_success_summary(*, tool_name: str, result: Any) -> str | Non
         "grep": "search completed",
         "ls": "listing completed",
         "find": "find completed",
+        "work_list": "work items listed",
+        "work_read": "work item loaded",
+        "work_create": "work item created",
+        "work_update": "work item updated",
+        "work_status": "work status updated",
     }
     return summaries.get(tool_name)
 

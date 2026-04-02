@@ -18,7 +18,19 @@ from just_another_coding_agent.tools.read_only_worker.runtime import (
     ReadOnlyWorkerRuntime,
 )
 from just_another_coding_agent.tools.shell import shell
+from just_another_coding_agent.tools.work_graph import (
+    work_create,
+    work_list,
+    work_read,
+    work_status,
+    work_update,
+)
 from just_another_coding_agent.tools.write import write
+from just_another_coding_agent.work_graph import (
+    create_work_item,
+    get_work_item_by_slug,
+    list_work_updates,
+)
 
 
 def _write_fake_read_only_worker(tmp_path):
@@ -94,13 +106,14 @@ for line in sys.stdin:
     return [sys.executable, "-u", str(script_path)]
 
 
-def _ctx(tmp_path, *, read_only_worker_command=None):
+def _ctx(tmp_path, *, read_only_worker_command=None, session_id=None):
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
     return SimpleNamespace(
         deps=WorkspaceDeps(
             workspace_root=workspace_root,
             shell_family=detect_default_shell_family(),
+            session_id=session_id,
             read_only_worker=ReadOnlyWorkerRuntime(command=read_only_worker_command),
         ),
         tool_call_id="call-1",
@@ -287,3 +300,121 @@ async def test_shell_returns_tool_owned_activity_metadata(
             "exit_code": 0,
         },
     }
+
+
+async def test_work_list_returns_tool_owned_activity_metadata(tmp_path) -> None:
+    ctx = _ctx(tmp_path)
+    create_work_item(
+        workspace_root=ctx.deps.workspace_root,
+        kind="project",
+        title="Bloat and Rot",
+    )
+
+    result = await work_list(ctx, parent_slug=None, include_archived=False)
+
+    assert isinstance(result, ToolReturn)
+    assert "bloat-and-rot" in result.return_value
+    assert result.metadata == {
+        "title": "work list",
+        "summary": "work items listed",
+    }
+
+
+async def test_work_create_stamps_created_session_id(tmp_path) -> None:
+    ctx = _ctx(tmp_path, session_id="a" * 32)
+    create_work_item(
+        workspace_root=ctx.deps.workspace_root,
+        kind="project",
+        title="Bloat and Rot",
+    )
+
+    result = await work_create(
+        ctx,
+        "Trim Dead Re-exports",
+        parent_slug="bloat-and-rot",
+    )
+
+    assert isinstance(result, ToolReturn)
+    assert (
+        result.return_value
+        == "Created task trim-dead-re-exports under bloat-and-rot"
+    )
+    assert result.metadata == {
+        "title": "work create Trim Dead Re-exports",
+        "summary": "work item created",
+    }
+    item = get_work_item_by_slug(
+        workspace_root=ctx.deps.workspace_root,
+        slug="trim-dead-re-exports",
+    )
+    assert item.created_session_id == "a" * 32
+
+
+async def test_work_read_returns_tool_owned_activity_metadata(tmp_path) -> None:
+    ctx = _ctx(tmp_path, session_id="a" * 32)
+    project = create_work_item(
+        workspace_root=ctx.deps.workspace_root,
+        kind="project",
+        title="Bloat and Rot",
+    )
+    create_work_item(
+        workspace_root=ctx.deps.workspace_root,
+        kind="task",
+        title="Trim Dead Re-exports",
+        parent_id=project.id,
+    )
+
+    result = await work_read(ctx, "trim-dead-re-exports")
+
+    assert isinstance(result, ToolReturn)
+    assert "slug: trim-dead-re-exports" in result.return_value
+    assert result.metadata == {
+        "title": "work read trim-dead-re-exports",
+        "summary": "work item loaded",
+    }
+
+
+async def test_work_update_and_status_stamp_update_session_ids(tmp_path) -> None:
+    ctx = _ctx(tmp_path, session_id="b" * 32)
+    project = create_work_item(
+        workspace_root=ctx.deps.workspace_root,
+        kind="project",
+        title="Bloat and Rot",
+    )
+    item = create_work_item(
+        workspace_root=ctx.deps.workspace_root,
+        kind="task",
+        title="Trim Dead Re-exports",
+        parent_id=project.id,
+    )
+
+    update_result = await work_update(
+        ctx,
+        "trim-dead-re-exports",
+        "verification",
+        "Verified duplicate helper cleanup.",
+    )
+    status_result = await work_status(
+        ctx,
+        "trim-dead-re-exports",
+        "done",
+        note="Finished cleanup and tests.",
+    )
+
+    assert isinstance(update_result, ToolReturn)
+    assert update_result.metadata == {
+        "title": "work update trim-dead-re-exports",
+        "summary": "work item updated",
+    }
+    assert isinstance(status_result, ToolReturn)
+    assert status_result.metadata == {
+        "title": "work status trim-dead-re-exports",
+        "summary": "work status updated",
+    }
+
+    updates = list_work_updates(
+        workspace_root=ctx.deps.workspace_root,
+        work_item_id=item.id,
+    )
+    assert [update.kind for update in updates] == ["verification", "completion"]
+    assert all(update.session_id == "b" * 32 for update in updates)

@@ -6,7 +6,6 @@ from just_another_coding_agent.work_graph import (
     append_work_update,
     create_work_item,
     get_work_item_by_slug,
-    link_session_to_work_item,
     list_work_updates,
 )
 
@@ -55,17 +54,25 @@ def test_main_work_new_and_list(tmp_path, monkeypatch, capsys) -> None:
             "new",
             "Auth",
             "Store",
-            "Cleanup",
-            "--workspace-root",
-            str(workspace_root),
-            "--workspaces-root",
-            str(workspaces_root),
-        ]
+                "Cleanup",
+                "--session-id",
+                "a" * 32,
+                "--workspace-root",
+                str(workspace_root),
+                "--workspaces-root",
+                str(workspaces_root),
+            ]
     )
 
     assert exit_code == 0
     created_output = capsys.readouterr().out
     assert "Created task auth-store-cleanup" in created_output
+    created_item = get_work_item_by_slug(
+        workspaces_root=workspaces_root,
+        workspace_root=workspace_root,
+        slug="auth-store-cleanup",
+    )
+    assert created_item.created_session_id == "a" * 32
 
     exit_code = main(
         [
@@ -100,6 +107,7 @@ def test_main_work_show_displays_updates_and_links(
         kind="task",
         title="Auth Store Cleanup",
         body_md="Tighten auth storage behavior.",
+        created_session_id="c" * 32,
     )
     append_work_update(
         workspaces_root=workspaces_root,
@@ -109,13 +117,6 @@ def test_main_work_show_displays_updates_and_links(
         body_md="Ran auth store contract tests.",
         session_id="a" * 32,
     )
-    link_session_to_work_item(
-        workspaces_root=workspaces_root,
-        workspace_root=workspace_root,
-        work_item_id=item.id,
-        session_id="b" * 32,
-    )
-
     monkeypatch.setattr(entry, "load_config", lambda: {})
 
     exit_code = main(
@@ -134,11 +135,10 @@ def test_main_work_show_displays_updates_and_links(
     output = capsys.readouterr().out
     assert "slug: auth-store-cleanup" in output
     assert "title: Auth Store Cleanup" in output
+    assert f"created_session_id: {'c' * 32}" in output
     assert "Tighten auth storage behavior." in output
     assert "verification" in output
     assert "Ran auth store contract tests." in output
-    assert "linked sessions:" in output
-    assert "b" * 32 in output
 
 
 def test_main_work_note_and_status_update_store(tmp_path, monkeypatch, capsys) -> None:
