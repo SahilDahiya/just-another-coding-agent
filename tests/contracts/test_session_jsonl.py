@@ -1,7 +1,6 @@
 import json
 
 import pytest
-from pydantic import TypeAdapter
 from pydantic_ai import Agent, capture_run_messages
 from pydantic_ai.messages import (
     ModelMessage,
@@ -40,34 +39,7 @@ from just_another_coding_agent.session.jsonl import (
     load_session,
     read_session_metadata,
 )
-
-_MODEL_MESSAGES_ADAPTER = TypeAdapter(list[ModelMessage])
-
-
-def _compaction_entry_payload(
-    *,
-    summarized_through_run_id: str,
-    summary: SessionCompactionSummary,
-    first_kept_run_id: str | None = None,
-    checkpoint_through_run_id: str,
-    checkpoint_messages: list[ModelMessage] | None = None,
-) -> dict[str, object]:
-    return {
-        "type": "session_compaction",
-        "compaction_id": "compact-1",
-        "summarized_through_run_id": summarized_through_run_id,
-        "first_kept_run_id": first_kept_run_id,
-        "checkpoint_through_run_id": checkpoint_through_run_id,
-        "checkpoint_messages": _MODEL_MESSAGES_ADAPTER.dump_python(
-            (
-                checkpoint_messages
-                if checkpoint_messages is not None
-                else []
-            ),
-            mode="json",
-        ),
-        "summary": summary.model_dump(mode="json"),
-    }
+from tests.session_test_helpers import _compaction_entry_payload
 
 
 async def successful_tool_stream(

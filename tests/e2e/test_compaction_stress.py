@@ -51,27 +51,7 @@ from just_another_coding_agent.session import (
     initialize_session,
     load_session,
 )
-
-
-def _all_parts(messages: list[ModelMessage]):
-    for message in messages:
-        for part in message.parts:
-            yield part
-
-
-def _user_prompts(messages: list[ModelMessage]) -> list[str]:
-    return [
-        part.content
-        for part in _all_parts(messages)
-        if isinstance(part, UserPromptPart)
-    ]
-
-
-def _message_shapes(messages: list[ModelMessage]) -> list[str]:
-    return [
-        f"{type(message).__name__}:{[type(part).__name__ for part in message.parts]}"
-        for message in messages
-    ]
+from tests.session_test_helpers import _all_parts, _message_shapes, _user_prompts
 
 
 async def _text_only_stream(

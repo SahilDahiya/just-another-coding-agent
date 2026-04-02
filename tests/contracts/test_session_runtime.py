@@ -4,7 +4,6 @@ from collections.abc import AsyncIterator
 from contextlib import contextmanager
 
 import pytest
-from pydantic import TypeAdapter
 from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
@@ -54,14 +53,7 @@ from just_another_coding_agent.session import (
     update_session_auto_compaction_failures,
 )
 from just_another_coding_agent.tools.deps import WorkspaceDeps
-
-_MODEL_MESSAGES_ADAPTER = TypeAdapter(list[ModelMessage])
-
-
-def _all_parts(messages: list[ModelMessage]):
-    for message in messages:
-        for part in message.parts:
-            yield part
+from tests.session_test_helpers import _all_parts, _compaction_entry_payload
 
 
 def _last_user_prompt(messages: list[ModelMessage]) -> str | None:
@@ -85,34 +77,6 @@ def _system_prompt_contents(messages: list[ModelMessage]) -> list[str]:
         for part in _all_parts(messages)
         if isinstance(part, SystemPromptPart)
     ]
-
-
-def _compaction_entry_payload(
-    *,
-    summarized_through_run_id: str,
-    summary: SessionCompactionSummary,
-    first_kept_run_id: str | None = None,
-    checkpoint_through_run_id: str,
-    checkpoint_messages: list[ModelMessage] | None = None,
-) -> dict[str, object]:
-    return {
-        "type": "session_compaction",
-        "compaction_id": "compact-1",
-        "summarized_through_run_id": summarized_through_run_id,
-        "first_kept_run_id": first_kept_run_id,
-        "checkpoint_through_run_id": checkpoint_through_run_id,
-        "checkpoint_messages": _MODEL_MESSAGES_ADAPTER.dump_python(
-            (
-                checkpoint_messages
-                if checkpoint_messages is not None
-                else []
-            ),
-            mode="json",
-        ),
-        "summary": summary.model_dump(mode="json"),
-    }
-
-
 def make_write_stream():
     call_count = 0
 
@@ -1463,29 +1427,17 @@ def test_build_resume_message_history_uses_persisted_checkpoint_messages(
     session_path.write_text(
         session_path.read_text(encoding="utf-8")
         + json.dumps(
-            {
-                "type": "session_compaction",
-                "compaction_id": "compact-1",
-                "summarized_through_run_id": "run-1",
-                "first_kept_run_id": "run-2",
-                "checkpoint_through_run_id": "run-2",
-                "checkpoint_messages": _MODEL_MESSAGES_ADAPTER.dump_python(
-                    custom_checkpoint_messages,
-                    mode="json",
+            _compaction_entry_payload(
+                summarized_through_run_id="run-1",
+                first_kept_run_id="run-2",
+                checkpoint_through_run_id="run-2",
+                checkpoint_messages=custom_checkpoint_messages,
+                summary=SessionCompactionSummary(
+                    current_objective="continue from the retained runs",
+                    established_facts=["first is summarized"],
+                    unresolved_work=["finish the task"],
                 ),
-                "summary": {
-                    "current_objective": "continue from the retained runs",
-                    "established_facts": ["first is summarized"],
-                    "user_preferences": [],
-                    "important_paths": [],
-                    "read_paths": [],
-                    "modified_paths": [],
-                    "recent_shell_commands": [],
-                    "recent_failures": [],
-                    "open_questions": [],
-                    "unresolved_work": ["finish the task"],
-                },
-            }
+            )
         )
         + "\n",
         encoding="utf-8",

@@ -433,6 +433,8 @@ __all__ = [
     "compact_in_run_message_history",
     "restore_in_run_compaction_from_messages",
 ]
+
+
 def _truncate_shell_label(command: str, *, limit: int = 56) -> str:
     normalized = " ".join(command.split())
     if len(normalized) <= limit:
