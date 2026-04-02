@@ -34,6 +34,7 @@ from just_another_coding_agent.runtime.observability import (
     configure_observability,
 )
 from just_another_coding_agent.tools._workspace import normalize_workspace_root
+from just_another_coding_agent.work_graph.cli import run_work_mode
 
 
 def main(
@@ -43,9 +44,13 @@ def main(
     output_stream: TextIO | None = None,
 ) -> int:
     config = load_config()
+    raw_args = list(argv) if argv is not None else sys.argv[1:]
+
+    if raw_args and raw_args[0] == "work":
+        return run_work_mode(argv=raw_args[1:])
+
     with _scoped_config_env(config):
         default_model = resolve_default_model(config)
-        raw_args = list(argv) if argv is not None else sys.argv[1:]
 
         if raw_args and raw_args[0] == "resume":
             return _run_resume_mode(

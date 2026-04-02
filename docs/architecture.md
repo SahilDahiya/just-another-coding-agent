@@ -185,6 +185,7 @@ The important boundary is:
 - `src/just_another_coding_agent/work_graph/`
   - workspace-native durable work state
   - backend-owned SQLite store for work items, updates, and session links
+  - thin CLI surface for human/operator access to backend-owned work operations
 - `src/just_another_coding_agent/rpc/`
   - JSON-over-stdio protocol
   - command handlers

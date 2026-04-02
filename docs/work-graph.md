@@ -291,14 +291,17 @@ queries simpler.
 
 The first implementation should be backend-first.
 
-Candidate command family:
+The initial human command surface should be CLI-only:
 
-- `/work new <title>`
-- `/work list`
-- `/work show <slug>`
-- `/work use <slug>`
-- `/work note <slug> <text>`
-- `/work done <slug>`
+- `jaca work new <title>`
+- `jaca work list`
+- `jaca work show <slug>`
+- `jaca work note <slug> <text>`
+- `jaca work status <slug> <status>`
+
+These commands should remain thin wrappers over backend-owned Python
+operations. They are for users and operators, not the canonical semantic
+interface for the agent itself.
 
 This should not begin as a large TUI surface. The important part is durable
 state and clear backend ownership.
