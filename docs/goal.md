@@ -67,3 +67,8 @@ Use PydanticAI primitives wherever they already solve the problem. Local code sh
 5. Protect public contracts first: tools, events, sessions, RPC, failure semantics.
 6. Default to TDD for maintained code.
 7. Treat the Go TUI as a shell over the backend, not a second implementation of backend logic.
+8. Code is read far more often than it is written. Optimize for the reader:
+   - Clarity over cleverness — don't write a dense one-liner when a few clear lines communicate intent better.
+   - Names that explain why, not what — `max_compaction_reserve` over `val` or `n`.
+   - Structure that reveals intent — a cold reader should understand *why* code exists, not just *what* it does.
+   - Don't compress for the sake of fewer lines — shorter isn't always more readable.
