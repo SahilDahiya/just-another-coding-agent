@@ -38,9 +38,18 @@ COMPACTION_SUMMARY_INSTRUCTIONS = "\n".join(
         "Do not invent facts, files, preferences, or unresolved work.",
         "Prefer short concrete items over verbose prose.",
         "Use current_objective for the active user goal at the compaction boundary.",
+        "Use current_plan for the active plan that should still guide continuation.",
         (
             "Use established_facts for confirmed outcomes, code changes, "
             "and verified behavior."
+        ),
+        (
+            "Use completed_work for important finished milestones that should "
+            "not be redone."
+        ),
+        (
+            "Use key_decisions for durable implementation or workflow "
+            "decisions already made."
         ),
         "Use user_preferences only for stable user instructions or preferences.",
         (
@@ -58,7 +67,10 @@ class _NarrativeCompactionSummary(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     current_objective: str | None = None
+    current_plan: list[str] = Field(default_factory=list)
     established_facts: list[str] = Field(default_factory=list)
+    completed_work: list[str] = Field(default_factory=list)
+    key_decisions: list[str] = Field(default_factory=list)
     user_preferences: list[str] = Field(default_factory=list)
     important_paths: list[str] = Field(default_factory=list)
     open_questions: list[str] = Field(default_factory=list)
@@ -85,12 +97,16 @@ async def summarize_session_for_compaction(
     )
     if (
         normalized.current_objective is None
+        and not normalized.current_plan
         and not normalized.established_facts
+        and not normalized.completed_work
+        and not normalized.key_decisions
         and not normalized.user_preferences
         and not normalized.important_paths
         and not normalized.read_paths
         and not normalized.modified_paths
         and not normalized.recent_shell_commands
+        and not normalized.recent_verifications
         and not normalized.recent_failures
         and not normalized.open_questions
         and not normalized.unresolved_work
@@ -139,7 +155,10 @@ def _normalize_compaction_summary(
     current_objective = _normalize_optional_text(summary.current_objective)
     return SessionCompactionSummary(
         current_objective=current_objective,
+        current_plan=_normalize_summary_items(summary.current_plan),
         established_facts=_normalize_summary_items(summary.established_facts),
+        completed_work=_normalize_summary_items(summary.completed_work),
+        key_decisions=_normalize_summary_items(summary.key_decisions),
         user_preferences=_normalize_summary_items(summary.user_preferences),
         important_paths=_normalize_summary_items(summary.important_paths),
         open_questions=_normalize_summary_items(summary.open_questions),

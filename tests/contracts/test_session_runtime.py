@@ -1532,10 +1532,16 @@ async def test_summarize_session_for_compaction_uses_model_output_and_prior_summ
         model=_test_summary_model(
             custom_output_args={
                 "current_objective": "finish the second run",
+                "current_plan": [
+                    "Patch src/app.py.",
+                    "Run the final acceptance check.",
+                ],
                 "established_facts": [
                     "The earlier draft was shipped.",
                     "The second run is now the active context.",
                 ],
+                "completed_work": ["Shipped the earlier draft."],
+                "key_decisions": ["Keep note.txt as the canonical scratch file."],
                 "user_preferences": ["be concise"],
                 "important_paths": ["note.txt", "src/app.py"],
                 "open_questions": ["Should we add retries?"],
@@ -1546,10 +1552,16 @@ async def test_summarize_session_for_compaction_uses_model_output_and_prior_summ
     )
 
     assert summary.current_objective == "finish the second run"
+    assert summary.current_plan == [
+        "Patch src/app.py.",
+        "Run the final acceptance check.",
+    ]
     assert summary.established_facts == [
         "The earlier draft was shipped.",
         "The second run is now the active context.",
     ]
+    assert summary.completed_work == ["Shipped the earlier draft."]
+    assert summary.key_decisions == ["Keep note.txt as the canonical scratch file."]
     assert summary.user_preferences == ["be concise"]
     assert summary.important_paths == ["note.txt", "src/app.py"]
     assert summary.open_questions == ["Should we add retries?"]
@@ -1585,6 +1597,7 @@ async def test_summarize_session_for_compaction_carries_recent_shell_and_failure
             read_paths=[],
             modified_paths=[],
             recent_shell_commands=["pytest -q (exit 0)"],
+            recent_verifications=["pytest -q (exit 0)"],
             recent_failures=["shell pytest -q failed: exit 1"],
             open_questions=[],
             unresolved_work=["Handle the next run."],
@@ -1651,7 +1664,10 @@ async def test_summarize_session_for_compaction_carries_recent_shell_and_failure
         model=_test_summary_model(
             custom_output_args={
                 "current_objective": "repair the failing verifier",
+                "current_plan": ["Fix the failing test run.", "Re-run pytest -q."],
                 "established_facts": ["The second run failed after verifier work."],
+                "completed_work": ["Ran go test ./... before the failure."],
+                "key_decisions": ["Use shell-based verification before concluding."],
                 "user_preferences": [],
                 "important_paths": [],
                 "open_questions": [],
@@ -1661,7 +1677,17 @@ async def test_summarize_session_for_compaction_carries_recent_shell_and_failure
         loaded_session=loaded,
     )
 
+    assert summary.current_plan == ["Fix the failing test run.", "Re-run pytest -q."]
+    assert summary.completed_work == ["Ran go test ./... before the failure."]
+    assert summary.key_decisions == [
+        "Use shell-based verification before concluding."
+    ]
     assert summary.recent_shell_commands == [
+        "pytest -q (exit 0)",
+        "go test ./... (exit 0)",
+        "pytest -q (failed)",
+    ]
+    assert summary.recent_verifications == [
         "pytest -q (exit 0)",
         "go test ./... (exit 0)",
         "pytest -q (failed)",
@@ -1964,11 +1990,14 @@ async def test_summarize_session_for_compaction_normalizes_summary_content(
         model=_test_summary_model(
             custom_output_args={
                 "current_objective": "  finish the draft  ",
+                "current_plan": [" patch src/app.py ", "", "patch src/app.py"],
                 "established_facts": [
                     "  The draft exists.  ",
                     "",
                     "The draft exists.",
                 ],
+                "completed_work": [" ran pytest ", "ran pytest", " "],
+                "key_decisions": [" use edit ", "use edit", ""],
                 "user_preferences": [" concise ", "concise", " "],
                 "important_paths": [" src/app.py ", "src/app.py"],
                 "open_questions": ["  Should we ship?  ", ""],
@@ -1979,7 +2008,10 @@ async def test_summarize_session_for_compaction_normalizes_summary_content(
     )
 
     assert summary.current_objective == "finish the draft"
+    assert summary.current_plan == ["patch src/app.py"]
     assert summary.established_facts == ["The draft exists."]
+    assert summary.completed_work == ["ran pytest"]
+    assert summary.key_decisions == ["use edit"]
     assert summary.user_preferences == ["concise"]
     assert summary.important_paths == ["src/app.py"]
     assert summary.open_questions == ["Should we ship?"]
@@ -2014,7 +2046,10 @@ async def test_summarize_session_for_compaction_rejects_empty_summary(
             model=_test_summary_model(
                 custom_output_args={
                     "current_objective": None,
+                    "current_plan": [],
                     "established_facts": [],
+                    "completed_work": [],
+                    "key_decisions": [],
                     "user_preferences": [],
                     "important_paths": [],
                     "open_questions": [],

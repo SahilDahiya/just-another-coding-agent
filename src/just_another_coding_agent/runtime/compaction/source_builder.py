@@ -105,13 +105,19 @@ def render_summary(summary: SessionCompactionSummary) -> str:
     lines: list[str] = []
     if summary.current_objective is not None:
         lines.append(f"Current objective: {compact_text(summary.current_objective)}")
+    _append_rendered_section(lines, "Current plan", summary.current_plan)
     _append_rendered_section(lines, "Established facts", summary.established_facts)
+    _append_rendered_section(lines, "Completed work", summary.completed_work)
+    _append_rendered_section(lines, "Key decisions", summary.key_decisions)
     _append_rendered_section(lines, "User preferences", summary.user_preferences)
     _append_rendered_section(lines, "Important paths", summary.important_paths)
     _append_rendered_section(lines, "Read paths", summary.read_paths)
     _append_rendered_section(lines, "Modified paths", summary.modified_paths)
     _append_rendered_section(
         lines, "Recent shell commands", summary.recent_shell_commands
+    )
+    _append_rendered_section(
+        lines, "Recent verifications", summary.recent_verifications
     )
     _append_rendered_section(lines, "Recent failures", summary.recent_failures)
     _append_rendered_section(lines, "Open questions", summary.open_questions)

@@ -16,6 +16,7 @@ from just_another_coding_agent.runtime.compaction.boundary import (
 from just_another_coding_agent.runtime.compaction.constants import (
     MAX_COMPACTION_RECENT_FAILURES,
     MAX_COMPACTION_RECENT_SHELL_COMMANDS,
+    MAX_COMPACTION_RECENT_VERIFICATIONS,
 )
 from just_another_coding_agent.runtime.compaction.source_builder import compact_text
 from just_another_coding_agent.tools._activity import shorten_path
@@ -40,6 +41,11 @@ def with_deterministic_survival_state(
         if latest_compaction is not None
         else []
     )
+    previous_recent_verifications = (
+        latest_compaction.summary.recent_verifications
+        if latest_compaction is not None
+        else []
+    )
     previous_recent_failures = (
         latest_compaction.summary.recent_failures
         if latest_compaction is not None
@@ -48,7 +54,10 @@ def with_deterministic_survival_state(
 
     return SessionCompactionSummary(
         current_objective=summary.current_objective,
+        current_plan=summary.current_plan,
         established_facts=summary.established_facts,
+        completed_work=summary.completed_work,
+        key_decisions=summary.key_decisions,
         user_preferences=summary.user_preferences,
         important_paths=summary.important_paths,
         read_paths=merge_summary_paths(
@@ -69,6 +78,11 @@ def with_deterministic_survival_state(
             previous_recent_shell_commands,
             _collect_recent_shell_commands(loaded_session),
             limit=MAX_COMPACTION_RECENT_SHELL_COMMANDS,
+        ),
+        recent_verifications=_merge_recent_summary_items(
+            previous_recent_verifications,
+            _collect_recent_verifications(loaded_session),
+            limit=MAX_COMPACTION_RECENT_VERIFICATIONS,
         ),
         recent_failures=_merge_recent_summary_items(
             previous_recent_failures,
@@ -200,10 +214,82 @@ def _collect_recent_failures(loaded_session: LoadedSession) -> list[str]:
     return _merge_recent_summary_items(failures, limit=MAX_COMPACTION_RECENT_FAILURES)
 
 
+def _collect_recent_verifications(loaded_session: LoadedSession) -> list[str]:
+    verifications: list[str] = []
+    for run in runs_since_latest_compaction_boundary(loaded_session):
+        for event in run.events:
+            if isinstance(event, ToolCallSucceededEvent) and event.tool_name == "shell":
+                verification = _format_recent_verification(event)
+                if verification is not None:
+                    verifications.append(verification)
+                continue
+            if isinstance(event, ToolCallFailedEvent) and event.tool_name == "shell":
+                verification = _format_failed_verification(event)
+                if verification is not None:
+                    verifications.append(verification)
+    return _merge_recent_summary_items(
+        verifications,
+        limit=MAX_COMPACTION_RECENT_VERIFICATIONS,
+    )
+
+
 def _format_recent_tool_failure(event: ToolCallFailedEvent) -> str:
     activity = event.activity
     title = activity.title if activity is not None else event.tool_name
     return compact_text(f"{title} failed: {event.message}")
+
+
+def _format_recent_verification(event: ToolCallSucceededEvent) -> str | None:
+    activity = event.activity
+    if activity is None:
+        return None
+
+    command_preview = _shell_command_preview(
+        title=activity.title,
+        details=activity.details,
+    )
+    if command_preview is None or not _looks_like_verification_command(command_preview):
+        return None
+
+    details = activity.details
+    if isinstance(details, ShellActivityDetails) and details.exit_code is not None:
+        return compact_text(f"{command_preview} (exit {details.exit_code})")
+    if activity.summary:
+        return compact_text(f"{command_preview} ({activity.summary})")
+    return compact_text(command_preview)
+
+
+def _format_failed_verification(event: ToolCallFailedEvent) -> str | None:
+    activity = event.activity
+    title = activity.title if activity is not None else event.tool_name
+    command_preview = _shell_command_preview(
+        title=title,
+        details=activity.details if activity is not None else None,
+    )
+    if command_preview is None or not _looks_like_verification_command(command_preview):
+        return None
+    return compact_text(f"{command_preview} (failed)")
+
+
+def _looks_like_verification_command(command_preview: str) -> bool:
+    normalized = " ".join(command_preview.split()).lower()
+    verification_prefixes = (
+        "pytest",
+        "py.test",
+        "python -m pytest",
+        "uv run pytest",
+        "go test",
+        "cargo test",
+        "npm test",
+        "pnpm test",
+        "yarn test",
+        "tox",
+        "ruff check",
+        "mypy",
+        "make test",
+        "just test",
+    )
+    return normalized.startswith(verification_prefixes)
 
 
 def merge_summary_paths(*groups: list[str]) -> list[str]:

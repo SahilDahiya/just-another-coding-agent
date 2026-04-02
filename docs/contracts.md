@@ -480,13 +480,14 @@ Ordering rules for the session slice:
 - Durable compaction summaries must carry backend-owned deterministic survival
   state in addition to model-written prose: `read_paths` for explicitly read
   files, `modified_paths` for explicitly written or edited files,
-  `recent_shell_commands` for recent shell command/outcome snapshots, and
-  `recent_failures` for recent failed tool calls or terminal run failures
+  `recent_shell_commands` for recent shell command/outcome snapshots,
+  `recent_verifications` for recent deterministic verification/test outcomes,
+  and `recent_failures` for recent failed tool calls or terminal run failures
 - Durable compaction summary generation must use the model only for narrative
-  fields such as `current_objective`, `established_facts`, `user_preferences`,
-  `important_paths`, `open_questions`, and `unresolved_work`; backend-owned
-  deterministic fields must be derived from persisted run events instead of
-  model recall
+  fields such as `current_objective`, `current_plan`, `established_facts`,
+  `completed_work`, `key_decisions`, `user_preferences`, `important_paths`,
+  `open_questions`, and `unresolved_work`; backend-owned deterministic fields
+  must be derived from persisted run events instead of model recall
 - Run-local history processors may compact current-run tool-return content for
   the model when context pressure grows, but the persistence layer must restore
   the original raw tool-return content before writing `session_messages`

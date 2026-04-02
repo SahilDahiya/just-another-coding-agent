@@ -60,12 +60,16 @@ class SessionEventEntry(_SessionEntryBase):
 
 class SessionCompactionSummary(_SessionEntryBase):
     current_objective: str | None = None
+    current_plan: list[str] = Field(default_factory=list)
     established_facts: list[str] = Field(default_factory=list)
+    completed_work: list[str] = Field(default_factory=list)
+    key_decisions: list[str] = Field(default_factory=list)
     user_preferences: list[str] = Field(default_factory=list)
     important_paths: list[str] = Field(default_factory=list)
     read_paths: list[str] = Field(default_factory=list)
     modified_paths: list[str] = Field(default_factory=list)
     recent_shell_commands: list[str] = Field(default_factory=list)
+    recent_verifications: list[str] = Field(default_factory=list)
     recent_failures: list[str] = Field(default_factory=list)
     open_questions: list[str] = Field(default_factory=list)
     unresolved_work: list[str] = Field(default_factory=list)

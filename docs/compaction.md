@@ -78,7 +78,10 @@ The durable summary now carries two kinds of state:
 
 - model-written narrative state:
   - `current_objective`
+  - `current_plan`
   - `established_facts`
+  - `completed_work`
+  - `key_decisions`
   - `user_preferences`
   - `important_paths`
   - `open_questions`
@@ -87,6 +90,7 @@ The durable summary now carries two kinds of state:
   - `read_paths`
   - `modified_paths`
   - `recent_shell_commands`
+  - `recent_verifications`
   - `recent_failures`
 
 The deterministic fields are derived from actual persisted run events and
@@ -103,6 +107,8 @@ The operational portion of deterministic survival state includes:
 
 - `recent_shell_commands` for concise command/outcome snapshots from recent
   `shell` tool activity
+- `recent_verifications` for recent test/lint-like verification commands and
+  their outcomes when the backend can identify them deterministically
 - `recent_failures` for recent failed tool calls and terminal run failures
 
 If the source would exceed the active model context window, oldest run sections
