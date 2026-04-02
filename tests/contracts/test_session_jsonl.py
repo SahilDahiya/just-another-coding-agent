@@ -168,6 +168,7 @@ def test_append_session_name_to_session_normalizes_and_persists_name(tmp_path) -
     metadata = read_session_metadata(path=path.with_suffix(".meta.json"))
     assert metadata.session_id == path.stem
     assert metadata.name == "auth-store-cleanup"
+    assert metadata.consecutive_auto_compaction_failures == 0
 
 
 def test_initialize_session_creates_metadata_sidecar(tmp_path) -> None:
@@ -181,6 +182,7 @@ def test_initialize_session_creates_metadata_sidecar(tmp_path) -> None:
     assert metadata.session_id == path.stem
     assert metadata.name is None
     assert metadata.forked_from_session_id is None
+    assert metadata.consecutive_auto_compaction_failures == 0
 
 
 def test_load_session_uses_latest_session_name_entry(tmp_path) -> None:
@@ -1091,6 +1093,39 @@ def test_append_compaction_to_session_appends_provided_summary(tmp_path) -> None
     assert compaction.summarized_through_run_id == "run-1"
     assert compaction.first_kept_run_id is None
     assert compaction.summary == summary
+    assert loaded.compactions == [compaction]
+
+
+def test_append_compaction_to_session_accepts_explicit_kept_boundary(tmp_path) -> None:
+    path = tmp_path / "session.jsonl"
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    for run_id, prompt in [("run-1", "first"), ("run-2", "second")]:
+        append_run_to_session(
+            path=path,
+            workspace_root=workspace_root,
+            prompt=prompt,
+            thinking=None,
+            messages=[ModelRequest(parts=[UserPromptPart(content=prompt)])],
+            events=[
+                RunStartedEvent(run_id=run_id),
+                RunSucceededEvent(run_id=run_id, output_text="done"),
+            ],
+        )
+
+    compaction = append_compaction_to_session(
+        path=path,
+        workspace_root=workspace_root,
+        summary=SessionCompactionSummary(current_objective="continue"),
+        summarized_through_run_id="run-1",
+        first_kept_run_id="run-2",
+    )
+
+    loaded = load_session(path=path, workspace_root=workspace_root)
+
+    assert compaction.summarized_through_run_id == "run-1"
+    assert compaction.first_kept_run_id == "run-2"
     assert loaded.compactions == [compaction]
 
 

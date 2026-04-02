@@ -16,6 +16,9 @@ from just_another_coding_agent.contracts.session import (
 from just_another_coding_agent.runtime.compaction.boundary import (
     runs_since_latest_compaction_boundary,
 )
+from just_another_coding_agent.runtime.compaction.budget import (
+    build_effective_compaction_context_window_tokens,
+)
 from just_another_coding_agent.runtime.compaction.constants import (
     DEFAULT_SESSION_COMPACTION_SOURCE_CHAR_LIMIT,
     MAX_COMPACTION_TEXT_FIELD_CHARS,
@@ -39,8 +42,11 @@ def _compaction_source_char_limit(model: Any) -> int:
     if context_window_tokens is None:
         return DEFAULT_SESSION_COMPACTION_SOURCE_CHAR_LIMIT
 
-    return int(
+    effective_context_window_tokens = build_effective_compaction_context_window_tokens(
         context_window_tokens
+    )
+    return int(
+        effective_context_window_tokens
         * SESSION_COMPACTION_CONTEXT_WINDOW_UTILIZATION
         * SESSION_COMPACTION_CHARS_PER_TOKEN_HEURISTIC
     )

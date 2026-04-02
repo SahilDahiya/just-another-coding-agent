@@ -132,7 +132,7 @@ Current sequence:
 1. Add manual session compaction first.
 2. Persist a compaction entry alongside existing session entries.
 3. Rebuild resumed `message_history` from a compaction summary plus retained recent native messages.
-4. Add deterministic automatic compaction before resumed runs when measured local resume history plus reserve crosses a fraction of the active model context window.
+4. Add deterministic automatic compaction before resumed runs when measured local resume history plus reserve crosses a fraction of the effective model context window after compaction-output headroom is reserved.
 5. Keep live-run recovery at the canonical streamed-run boundary when it must preserve a clean public event contract.
 
 The important boundary is:
@@ -144,6 +144,10 @@ The important boundary is:
   lookup in `runtime/models.py` when canonical context metadata is known; the
   current heuristic uses about 80% of the context window and approximates one
   token as four characters
+- durable auto-compaction now prefers persisted measured response usage plus a
+  trailing estimate over a pure whole-history heuristic, preserves one bounded
+  raw tail run when possible, and counts only runs beyond that kept boundary as
+  new work for future automatic compaction
 - if no canonical context metadata is known for the active model, live-run
   compaction falls back to one conservative default soft char limit
   should leave the current model step and resume with explicit results

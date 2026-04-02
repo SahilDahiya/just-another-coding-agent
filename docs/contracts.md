@@ -485,7 +485,9 @@ Ordering rules for the session slice:
 - Persisted `session_event` payloads must preserve any tool `activity` metadata unchanged
 - Appending a new run must preserve all existing lines and write the header only once
 - Synthetic compaction-summary messages used at runtime must not be persisted back into `session_messages`
-- Before a resumed run starts, the runtime may append one automatic `session_compaction` entry when measured local resume history plus reserve crosses the configured fraction of the active model context window
+- Before a resumed run starts, the runtime may append one automatic `session_compaction` entry when measured local resume history plus reserve crosses the configured fraction of the effective active model context window after compaction-output headroom is reserved
+- Automatic durable compaction may preserve one bounded raw tail run via `first_kept_run_id`; future automatic trigger decisions must then count only completed runs beyond that retained boundary as new work
+- After three consecutive automatic compaction failures for one session, the runtime blocks further automatic compaction attempts for that session and fails hard until the user reduces context or starts a new session
 
 ## RPC Contract
 

@@ -130,6 +130,7 @@ class SessionMetadata(_SessionEntryBase):
     created_at: datetime
     updated_at: datetime
     forked_from_session_id: str | None = None
+    consecutive_auto_compaction_failures: int = 0
 
 
 class SessionPreviewEntry(_SessionEntryBase):

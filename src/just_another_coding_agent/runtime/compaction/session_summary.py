@@ -11,6 +11,9 @@ from just_another_coding_agent.contracts.session import (
     SessionCompactionEntry,
     SessionCompactionSummary,
 )
+from just_another_coding_agent.runtime.compaction.boundary import (
+    runs_since_latest_compaction_boundary,
+)
 from just_another_coding_agent.runtime.compaction.working_set import (
     merge_summary_paths,
     with_deterministic_survival_state,
@@ -113,14 +116,20 @@ async def summarize_and_append_compaction_to_session(
     if not loaded_session.runs:
         raise SessionFormatError("Cannot compact a session with no completed runs")
 
+    summary_session, summarized_through_run_id, first_kept_run_id = (
+        _build_auto_compaction_target(loaded_session)
+    )
+
     summary = await summarize_session_for_compaction(
         model=model,
-        loaded_session=loaded_session,
+        loaded_session=summary_session,
     )
     return append_compaction_to_session(
         path=path,
         workspace_root=workspace_root,
         summary=summary,
+        summarized_through_run_id=summarized_through_run_id,
+        first_kept_run_id=first_kept_run_id,
     )
 
 
@@ -147,6 +156,24 @@ def _normalize_optional_text(value: str | None) -> str | None:
 
 def _normalize_summary_items(values: list[str]) -> list[str]:
     return merge_summary_paths(values)
+
+
+def _build_auto_compaction_target(
+    loaded_session: LoadedSession,
+) -> tuple[LoadedSession, str, str | None]:
+    retained_runs = runs_since_latest_compaction_boundary(loaded_session)
+    if len(retained_runs) < 2:
+        return loaded_session, loaded_session.runs[-1].run_id, None
+
+    first_kept_run_id = retained_runs[-1].run_id
+    summary_session = LoadedSession(
+        header=loaded_session.header,
+        fork=loaded_session.fork,
+        name=loaded_session.name,
+        runs=list(loaded_session.runs[:-1]),
+        compactions=list(loaded_session.compactions),
+    )
+    return summary_session, summary_session.runs[-1].run_id, first_kept_run_id
 
 
 def should_auto_compact_session(

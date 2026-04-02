@@ -43,28 +43,26 @@ The current automatic trigger is pre-run and token-budget-aware:
 
 - it estimates tokens for the exact local resume history built from durable
   session state
+- it prefers the latest persisted measured response usage when available and
+  only estimates the unmeasured trailing history after that point
+- it reserves explicit headroom for compaction-summary output before deriving
+  the effective context window budget
 - it adds a conservative reserve for the next prompt and wrapper overhead
 - it compacts when that total crosses the configured fraction of the active
-  model context window
-- it requires at least one completed run after the latest compaction boundary
-  so a just-compacted session does not immediately compact again
+  effective model context window
+- it counts only completed runs beyond the retained compaction boundary as
+  genuinely new work, so a just-compacted session with one kept raw tail run
+  does not immediately compact again
 - shipped default and picker-visible model ids are required to carry explicit
   context-window metadata so this trigger cannot silently degrade when the
   model surface changes
+- after three consecutive automatic compaction failures, the runtime blocks
+  further automatic compaction attempts for that session and fails hard until
+  the user reduces context pressure or starts a new session
 - after a second-or-later durable automatic compaction, the runtime emits one
   explicit warning event before `run_started` so clients can surface the real
   continuity risk instead of treating repeated compactions as silent
   maintenance
-
-One explicit limitation remains:
-
-- if a compaction entry keeps native runs via `first_kept_run_id`, the current
-  auto-compaction trigger fails hard when that retained-run boundary would
-  otherwise need automatic compaction, instead of guessing how many runs are
-  genuinely new since the partial-kept boundary
-- that retained-run trigger policy will need a later contract extension before
-  partial-kept durable compaction can participate in automatic pre-run
-  compaction safely
 
 The compaction source is intentionally not a raw transcript dump. It uses:
 
@@ -160,7 +158,7 @@ This is the only compaction path that still uses a PydanticAI
 
 ## Durable Boundary Model
 
-Durable session compaction currently uses a whole-run kept boundary:
+Durable session compaction uses a whole-run kept boundary:
 
 - `summarized_through_run_id` marks the last run folded into the summary
 - `first_kept_run_id`, when present, marks the first retained native run
@@ -173,6 +171,14 @@ Resume history is therefore:
 
 This is intentional. JACA does not currently support durable boundaries inside a
 single persisted run.
+
+Automatic durable compaction now preserves a bounded raw tail when possible:
+
+- if there are at least two completed runs after the latest compaction boundary,
+  auto-compaction summarizes through the second-to-last eligible run
+- the latest eligible run is kept raw via `first_kept_run_id`
+- if there is only one eligible completed run, summary-only compaction remains
+  necessary because there is no earlier run boundary to summarize through
 
 ## Oversized Single Runs
 

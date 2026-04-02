@@ -28,6 +28,13 @@ def runs_since_latest_compaction(loaded_session: LoadedSession) -> int:
     if latest_compaction is None:
         return len(loaded_session.runs)
 
+    if latest_compaction.first_kept_run_id is not None:
+        retained_start_index = run_index_for_id(
+            loaded_session,
+            latest_compaction.first_kept_run_id,
+        )
+        return len(loaded_session.runs[retained_start_index + 1 :])
+
     summary_run_index = run_index_for_id(
         loaded_session,
         latest_compaction.summarized_through_run_id,

@@ -197,6 +197,8 @@ def append_compaction_to_session(
     workspace_root: Path | str,
     shell_family: ShellFamily | None = None,
     summary: SessionCompactionSummary,
+    summarized_through_run_id: str | None = None,
+    first_kept_run_id: str | None = None,
 ) -> SessionCompactionEntry:
     normalized_workspace_root = normalize_workspace_root(workspace_root)
     loaded = load_session(
@@ -208,10 +210,16 @@ def append_compaction_to_session(
     if not loaded.runs:
         raise SessionFormatError("Cannot compact a session with no completed runs")
 
+    resolved_summarized_through_run_id = (
+        summarized_through_run_id
+        if summarized_through_run_id is not None
+        else loaded.runs[-1].run_id
+    )
+
     entry = SessionCompactionEntry(
         compaction_id=uuid4().hex,
-        summarized_through_run_id=loaded.runs[-1].run_id,
-        first_kept_run_id=None,
+        summarized_through_run_id=resolved_summarized_through_run_id,
+        first_kept_run_id=first_kept_run_id,
         summary=summary,
     )
 
@@ -260,6 +268,19 @@ def append_session_name_to_session(
         updated_at=_utc_now(),
     )
     return normalized_name
+
+
+def update_session_auto_compaction_failures(
+    *,
+    path: Path,
+    consecutive_auto_compaction_failures: int,
+) -> SessionMetadata:
+    if consecutive_auto_compaction_failures < 0:
+        raise ValueError("Auto-compaction failure count must be non-negative")
+    return _update_session_metadata(
+        path=path,
+        consecutive_auto_compaction_failures=consecutive_auto_compaction_failures,
+    )
 
 
 def fork_session(
@@ -778,6 +799,7 @@ def _update_session_metadata(
     path: Path,
     name: SessionName | None | object = _UNSET,
     updated_at: datetime | object = _UNSET,
+    consecutive_auto_compaction_failures: int | object = _UNSET,
 ) -> SessionMetadata:
     metadata_path = _metadata_path_for_session_path(path)
     existing = read_session_metadata(path=metadata_path)
@@ -787,6 +809,9 @@ def _update_session_metadata(
             for key, value in {
                 "name": name,
                 "updated_at": updated_at,
+                "consecutive_auto_compaction_failures": (
+                    consecutive_auto_compaction_failures
+                ),
             }.items()
             if value is not _UNSET
         }

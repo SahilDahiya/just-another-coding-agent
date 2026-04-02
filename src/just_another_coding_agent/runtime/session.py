@@ -6,6 +6,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
+from pydantic import TypeAdapter
 from pydantic_ai import capture_run_messages
 from pydantic_ai.messages import (
     ModelMessage,
@@ -43,10 +44,15 @@ from just_another_coding_agent.runtime.compaction import (
 from just_another_coding_agent.runtime.run import stream_run_events
 from just_another_coding_agent.session.jsonl import (
     load_session,
+    read_session_metadata,
     start_run_to_session,
+    update_session_auto_compaction_failures,
 )
 from just_another_coding_agent.tools._workspace import normalize_workspace_root
 from just_another_coding_agent.tools.deps import WorkspaceDeps
+
+_MODEL_MESSAGES_ADAPTER = TypeAdapter(list[ModelMessage])
+MAX_CONSECUTIVE_AUTO_COMPACTION_FAILURES = 3
 
 
 def _strip_unresolved_tool_calls_from_messages(
@@ -137,6 +143,53 @@ def _sanitize_failed_run_messages(
     )
 
 
+def _strip_resumed_history_prefix(
+    messages: Sequence[ModelMessage],
+    *,
+    loaded_session: Any,
+) -> list[ModelMessage]:
+    if loaded_session is None:
+        return list(messages)
+
+    resumed_history = strip_compaction_summary_from_messages(
+        build_resume_message_history(loaded_session)
+    )
+    if not resumed_history:
+        return list(messages)
+
+    candidate_messages = list(messages)
+    if len(candidate_messages) < len(resumed_history):
+        return candidate_messages
+
+    candidate_prefix = candidate_messages[: len(resumed_history)]
+    if _normalize_messages_for_prefix_match(
+        candidate_prefix
+    ) != _normalize_messages_for_prefix_match(resumed_history):
+        return candidate_messages
+
+    return candidate_messages[len(resumed_history) :]
+
+
+def _normalize_messages_for_prefix_match(
+    messages: Sequence[ModelMessage],
+) -> list[object]:
+    return _strip_run_ids_from_json_value(
+        _MODEL_MESSAGES_ADAPTER.dump_python(list(messages), mode="json")
+    )
+
+
+def _strip_run_ids_from_json_value(value: object) -> object:
+    if isinstance(value, dict):
+        return {
+            key: _strip_run_ids_from_json_value(item)
+            for key, item in value.items()
+            if key != "run_id"
+        }
+    if isinstance(value, list):
+        return [_strip_run_ids_from_json_value(item) for item in value]
+    return value
+
+
 async def stream_session_run_events(
     *,
     model: Any,
@@ -164,14 +217,38 @@ async def stream_session_run_events(
             workspace_root=normalized_workspace_root,
         )
         if should_auto_compact_session(loaded_session, model=model):
+            metadata = read_session_metadata(
+                path=session_path.with_suffix(".meta.json")
+            )
+            if (
+                metadata.consecutive_auto_compaction_failures
+                >= MAX_CONSECUTIVE_AUTO_COMPACTION_FAILURES
+            ):
+                raise RuntimeError(
+                    "Auto-compaction blocked after repeated failures. "
+                    "Start a new session or reduce context before retrying."
+                )
             # Auto-compaction is pre-run session maintenance, not part of the
             # streamed run event contract. Failures here surface as an
             # exception to the caller rather than as a run_failed event.
             yield SessionCompactionStartedEvent()
-            compaction_entry = await summarize_and_append_compaction_to_session(
-                model=model,
+            try:
+                compaction_entry = await summarize_and_append_compaction_to_session(
+                    model=model,
+                    path=session_path,
+                    workspace_root=normalized_workspace_root,
+                )
+            except Exception:
+                update_session_auto_compaction_failures(
+                    path=session_path,
+                    consecutive_auto_compaction_failures=(
+                        metadata.consecutive_auto_compaction_failures + 1
+                    ),
+                )
+                raise
+            update_session_auto_compaction_failures(
                 path=session_path,
-                workspace_root=normalized_workspace_root,
+                consecutive_auto_compaction_failures=0,
             )
             loaded_session = load_session(
                 path=session_path,
@@ -289,6 +366,10 @@ async def stream_session_run_events(
                         if authoritative_messages is not None
                         else list(messages)
                     )
+                )
+                finalized_messages = _strip_resumed_history_prefix(
+                    finalized_messages,
+                    loaded_session=loaded_session,
                 )
                 if failed_terminal:
                     finalized_messages = _sanitize_failed_run_messages(
