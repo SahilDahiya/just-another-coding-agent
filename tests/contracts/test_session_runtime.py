@@ -1089,6 +1089,101 @@ async def test_stream_session_run_events_does_not_reappend_resumed_history(
     ]
 
 
+async def test_stream_session_run_events_does_not_reappend_retained_history(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    session_path = tmp_path / "session.jsonl"
+    large_prompt = "y" * 1_000
+
+    for index in range(2):
+        run_id = f"run-{index + 1}"
+        append_run_to_session(
+            path=session_path,
+            workspace_root=workspace_root,
+            prompt=large_prompt,
+            thinking=None,
+            messages=[ModelRequest(parts=[UserPromptPart(content=large_prompt)])],
+            events=[
+                RunStartedEvent(run_id=run_id),
+                RunSucceededEvent(run_id=run_id, output_text="done"),
+            ],
+        )
+
+    monkeypatch = pytest.MonkeyPatch()
+
+    async def fake_summarize_and_append_compaction_to_session(
+        *,
+        model,
+        path,
+        workspace_root,
+    ):
+        del model
+        loaded = load_session(path=path, workspace_root=workspace_root)
+        summary_session, summarized_through_run_id, first_kept_run_id = (
+            session_summary_module._build_auto_compaction_target(loaded)
+        )
+        return append_compaction_to_session(
+            path=path,
+            workspace_root=workspace_root,
+            summary=SessionCompactionSummary(
+                current_objective="continue after auto compaction",
+                established_facts=["The oversized runs were summarized."],
+                user_preferences=[],
+                important_paths=["note.txt"],
+                open_questions=[],
+                unresolved_work=["Handle the follow-up prompt."],
+            ),
+            summarized_through_run_id=summarized_through_run_id,
+            first_kept_run_id=first_kept_run_id,
+        )
+
+    monkeypatch.setattr(
+        "just_another_coding_agent.runtime.session.summarize_and_append_compaction_to_session",
+        fake_summarize_and_append_compaction_to_session,
+    )
+    monkeypatch.setattr(
+        "just_another_coding_agent.runtime.compaction.session_summary.get_model_context_window_tokens",
+        lambda model: 200,
+    )
+    try:
+        async for _ in stream_session_run_events(
+            model=FunctionModel(stream_function=text_only_stream),
+            workspace_root=workspace_root,
+            session_path=session_path,
+            prompt="follow-up",
+        ):
+            pass
+    finally:
+        monkeypatch.undo()
+
+    async for _ in stream_session_run_events(
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        session_path=session_path,
+        prompt="fourth",
+    ):
+        pass
+
+    loaded = load_session(path=session_path, workspace_root=workspace_root)
+
+    assert [
+        [
+            part.content
+            for message in run.messages
+            for part in message.parts
+            if isinstance(part, UserPromptPart)
+        ]
+        for run in loaded.runs
+    ] == [
+        [large_prompt],
+        [large_prompt],
+        ["follow-up"],
+        ["fourth"],
+    ]
+
+
 def test_build_resume_message_history_uses_summary_plus_retained_runs(tmp_path) -> None:
     session_path = tmp_path / "session.jsonl"
     workspace_root = tmp_path / "workspace"

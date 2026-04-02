@@ -158,24 +158,47 @@ def _strip_resumed_history_prefix(
         return list(messages)
 
     candidate_messages = list(messages)
-    if len(candidate_messages) < len(resumed_history):
-        return candidate_messages
+    normalized_resumed_history = _normalize_messages_for_prefix_match(
+        resumed_history
+    )
 
-    candidate_prefix = candidate_messages[: len(resumed_history)]
-    if _normalize_messages_for_prefix_match(
-        candidate_prefix
-    ) != _normalize_messages_for_prefix_match(resumed_history):
-        return candidate_messages
+    for prefix_end in range(1, len(candidate_messages) + 1):
+        candidate_prefix = candidate_messages[:prefix_end]
+        if (
+            _normalize_messages_for_prefix_match(candidate_prefix)
+            == normalized_resumed_history
+        ):
+            return candidate_messages[prefix_end:]
 
-    return candidate_messages[len(resumed_history) :]
+    return candidate_messages
 
 
 def _normalize_messages_for_prefix_match(
     messages: Sequence[ModelMessage],
 ) -> list[object]:
+    coalesced_messages = _coalesce_messages_for_prefix_match(messages)
     return _strip_run_ids_from_json_value(
-        _MODEL_MESSAGES_ADAPTER.dump_python(list(messages), mode="json")
+        _MODEL_MESSAGES_ADAPTER.dump_python(coalesced_messages, mode="json")
     )
+
+
+def _coalesce_messages_for_prefix_match(
+    messages: Sequence[ModelMessage],
+) -> list[ModelMessage]:
+    coalesced: list[ModelMessage] = []
+
+    for message in messages:
+        if not coalesced or type(coalesced[-1]) is not type(message):
+            coalesced.append(message)
+            continue
+
+        previous_message = coalesced[-1]
+        coalesced[-1] = replace(
+            previous_message,
+            parts=[*previous_message.parts, *message.parts],
+        )
+
+    return coalesced
 
 
 def _strip_run_ids_from_json_value(value: object) -> object:
@@ -183,7 +206,7 @@ def _strip_run_ids_from_json_value(value: object) -> object:
         return {
             key: _strip_run_ids_from_json_value(item)
             for key, item in value.items()
-            if key != "run_id"
+            if key not in {"run_id", "timestamp", "instructions"}
         }
     if isinstance(value, list):
         return [_strip_run_ids_from_json_value(item) for item in value]
