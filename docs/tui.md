@@ -85,6 +85,7 @@ The core architectural risk is semantic drift between the Go shell and the Pytho
 - When the backend emits `tool_call_updated`, the grouped live tool block should show that partial progress in place instead of waiting for final success or failure.
 - The transcript should use stable row units and reuse unchanged prefix content when only later rows change; do not rebuild the whole visible transcript from the top for every live update.
 - Transcript memory should stay bounded by keeping heavy row bodies disciplined: cap tool/detail preview width, keep live tool output to bounded previews, and allow immutable assistant rows to drop row-local rendered caches once their content has been incorporated into the transcript buffer.
+- The live transcript is a bounded visible surface, not a full session replay buffer: keep the current run plus only the most recent completed runs in terminal view, collapse older completed runs behind a small omission marker, and leave full durable continuity to the backend session history.
 - Exploratory misses that are clearly resolved later in the same turn should be muted or downgraded instead of rendered with the same red emphasis as unresolved failures.
 - Consecutive exploration-tagged read/search rows may settle into a grouped
   `Exploring` / `Explored` transcript block with coalesced file/search labels,

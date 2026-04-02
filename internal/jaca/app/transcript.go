@@ -58,6 +58,10 @@ type Transcript struct {
 	liveDeltaBuf     strings.Builder
 	streamCollector  *StreamCollector
 	toolGroup        *toolGroup
+	completedRuns    []transcriptRun
+	currentRunStart  int
+	omissionBlockIdx int
+	omittedRunCount  int
 	renderedCache    string
 	renderOffsets    []int
 	dirtyFrom        int
@@ -65,9 +69,18 @@ type Transcript struct {
 	MotionTick       int
 }
 
+type transcriptRun struct {
+	start int
+	end   int
+}
+
+const transcriptMaxCompletedRuns = 10
+
 func NewTranscript() *Transcript {
 	return &Transcript{
 		liveAssistantIdx: -1,
+		currentRunStart:  -1,
+		omissionBlockIdx: -1,
 		dirtyFrom:        -1,
 	}
 }
@@ -265,10 +278,13 @@ func (t *Transcript) WriteUserTurn(prompt string) {
 		Background(defaultTheme.border).
 		Width(width).
 		Render(plainLine)
-	t.appendBlock(&rawCell{
+	index := t.appendBlock(&rawCell{
 		plain:    plainLine + "\n",
 		rendered: rendered + "\n",
 	})
+	if t.currentRunStart == -1 {
+		t.currentRunStart = index
+	}
 }
 
 func (t *Transcript) WriteLine(line string) {
@@ -278,7 +294,13 @@ func (t *Transcript) WriteLine(line string) {
 }
 
 func (t *Transcript) WriteError(message string) {
-	t.WriteLine("ERROR: " + message)
+	t.endToolGroup()
+	t.endLiveAssistant()
+	t.appendBlock(&rawCell{
+		plain:    "ERROR: " + message + "\n",
+		rendered: "ERROR: " + message + "\n",
+	})
+	t.finalizeCurrentRun()
 }
 
 func (t *Transcript) WriteCompactionStarted() {
@@ -349,6 +371,7 @@ func (t *Transcript) ApplyRunEvent(event rpc.RunEvent) {
 			plain:    "error  " + event.Message + "\n",
 			rendered: "error  " + event.Message + "\n",
 		})
+		t.finalizeCurrentRun()
 	case "run_succeeded":
 		t.completeAssistant(event.OutputText)
 	}
@@ -390,9 +413,11 @@ func (t *Transcript) completeAssistant(markdown string) {
 	if t.liveAssistantIdx != -1 {
 		t.replaceBlock(t.liveAssistantIdx, cell)
 		t.liveAssistantIdx = -1
+		t.finalizeCurrentRun()
 		return
 	}
 	t.appendBlock(cell)
+	t.finalizeCurrentRun()
 }
 
 func (t *Transcript) endLiveAssistant() {
@@ -408,6 +433,122 @@ func (t *Transcript) endLiveAssistant() {
 	t.liveDeltaBuf.Reset()
 	if t.streamCollector != nil {
 		t.streamCollector.Reset()
+	}
+}
+
+func (t *Transcript) finalizeCurrentRun() {
+	if t.currentRunStart < 0 {
+		return
+	}
+	end := len(t.blocks)
+	if end <= t.currentRunStart {
+		t.currentRunStart = -1
+		return
+	}
+	t.completedRuns = append(t.completedRuns, transcriptRun{
+		start: t.currentRunStart,
+		end:   end,
+	})
+	t.currentRunStart = -1
+	t.trimCompletedRuns()
+}
+
+func (t *Transcript) trimCompletedRuns() {
+	excess := len(t.completedRuns) - transcriptMaxCompletedRuns
+	if excess <= 0 {
+		return
+	}
+
+	dropStart := t.completedRuns[0].start
+	dropEnd := t.completedRuns[excess-1].end
+	if dropStart < 0 || dropEnd > len(t.blocks) || dropStart >= dropEnd {
+		return
+	}
+
+	removed := dropEnd - dropStart
+	t.blocks = append(t.blocks[:dropStart], t.blocks[dropEnd:]...)
+	t.invalidateRenderCache(dropStart)
+
+	retained := append([]transcriptRun(nil), t.completedRuns[excess:]...)
+	for i := range retained {
+		retained[i].start -= removed
+		retained[i].end -= removed
+	}
+	t.completedRuns = retained
+	t.adjustTrackedIndexesAfterRemoval(dropStart, removed)
+
+	t.omittedRunCount += excess
+	if t.omissionBlockIdx == -1 {
+		t.insertBlock(dropStart, newOmissionCell(t.omittedRunCount))
+		t.adjustTrackedIndexesAfterInsertion(dropStart)
+		t.omissionBlockIdx = dropStart
+		return
+	}
+	t.replaceBlock(t.omissionBlockIdx, newOmissionCell(t.omittedRunCount))
+}
+
+func (t *Transcript) insertBlock(index int, block Cell) {
+	if index < 0 {
+		index = 0
+	}
+	if index > len(t.blocks) {
+		index = len(t.blocks)
+	}
+	t.blocks = append(t.blocks, nil)
+	copy(t.blocks[index+1:], t.blocks[index:])
+	t.blocks[index] = block
+	t.markDirty(index)
+}
+
+func (t *Transcript) invalidateRenderCache(index int) {
+	t.renderedCache = ""
+	t.renderOffsets = nil
+	t.markDirty(index)
+}
+
+func (t *Transcript) adjustTrackedIndexesAfterRemoval(start int, removed int) {
+	if removed <= 0 {
+		return
+	}
+	if t.liveAssistantIdx >= start {
+		t.liveAssistantIdx -= removed
+	}
+	if t.currentRunStart >= start {
+		t.currentRunStart -= removed
+	}
+	if t.omissionBlockIdx >= start {
+		t.omissionBlockIdx -= removed
+	}
+	if t.toolGroup != nil && t.toolGroup.index >= start {
+		t.toolGroup.index -= removed
+	}
+}
+
+func (t *Transcript) adjustTrackedIndexesAfterInsertion(index int) {
+	for i := range t.completedRuns {
+		if t.completedRuns[i].start >= index {
+			t.completedRuns[i].start++
+			t.completedRuns[i].end++
+		}
+	}
+	if t.liveAssistantIdx >= index {
+		t.liveAssistantIdx++
+	}
+	if t.currentRunStart >= index {
+		t.currentRunStart++
+	}
+	if t.toolGroup != nil && t.toolGroup.index >= index {
+		t.toolGroup.index++
+	}
+}
+
+func newOmissionCell(runCount int) *rawCell {
+	header := lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render("note") +
+		"  " + lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Bold(true).Render("history")
+	line := fmt.Sprintf("older completed runs omitted (%d)", runCount)
+	return &rawCell{
+		plain:    "note  history\n" + line + "\n\n",
+		rendered: header + "\n" + line + "\n\n",
 	}
 }
 

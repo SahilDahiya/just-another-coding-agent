@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -1105,6 +1106,88 @@ func TestStreamingAssistantShowsMarkdown(t *testing.T) {
 	markerCount := strings.Count(plain, "●")
 	if markerCount != 1 {
 		t.Fatalf("expected exactly 1 marker, got %d in: %q", markerCount, plain)
+	}
+}
+
+func TestTranscriptKeepsOnlyRecentCompletedRuns(t *testing.T) {
+	transcript := NewTranscript()
+	transcript.WriteStartupBanner("0.1.0", "openai:gpt-5.4", "/workspace", "")
+
+	for i := 1; i <= 12; i++ {
+		transcript.WriteUserTurn(fmt.Sprintf("prompt %02d", i))
+		transcript.ApplyRunEvent(rpc.RunEvent{Type: "run_succeeded", OutputText: fmt.Sprintf("answer %02d", i)})
+	}
+
+	rendered := stripANSI(transcript.Render())
+	if !strings.Contains(rendered, "older completed runs omitted (2)") {
+		t.Fatalf("missing omission marker in %q", rendered)
+	}
+	for _, absent := range []string{"prompt 01", "answer 01", "prompt 02", "answer 02"} {
+		if strings.Contains(rendered, absent) {
+			t.Fatalf("old run content %q should be omitted from %q", absent, rendered)
+		}
+	}
+	for _, want := range []string{"prompt 03", "answer 03", "prompt 12", "answer 12"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("recent run content %q missing from %q", want, rendered)
+		}
+	}
+}
+
+func TestTranscriptPrunesOldToolRowsWithCompletedRuns(t *testing.T) {
+	transcript := NewTranscript()
+
+	for i := 1; i <= 11; i++ {
+		transcript.WriteUserTurn(fmt.Sprintf("prompt %02d", i))
+		transcript.ApplyRunEvent(rpc.RunEvent{
+			Type:       "tool_call_started",
+			ToolName:   "shell",
+			ToolCallID: fmt.Sprintf("call-%02d", i),
+			Args:       map[string]any{"command": fmt.Sprintf("echo run-%02d", i)},
+		})
+		transcript.ApplyRunEvent(rpc.RunEvent{
+			Type:       "tool_call_succeeded",
+			ToolName:   "shell",
+			ToolCallID: fmt.Sprintf("call-%02d", i),
+			Result:     map[string]any{"output": fmt.Sprintf("run-%02d", i)},
+		})
+		transcript.ApplyRunEvent(rpc.RunEvent{Type: "run_succeeded", OutputText: fmt.Sprintf("answer %02d", i)})
+	}
+
+	rendered := stripANSI(transcript.Render())
+	if strings.Contains(rendered, "echo run-01") {
+		t.Fatalf("old tool row should be omitted from %q", rendered)
+	}
+	if !strings.Contains(rendered, "echo run-11") {
+		t.Fatalf("recent tool row missing from %q", rendered)
+	}
+}
+
+func TestTranscriptKeepsCurrentLiveRunVisibleBeyondCompletedRunLimit(t *testing.T) {
+	transcript := NewTranscript()
+
+	for i := 1; i <= 10; i++ {
+		transcript.WriteUserTurn(fmt.Sprintf("prompt %02d", i))
+		transcript.ApplyRunEvent(rpc.RunEvent{Type: "run_succeeded", OutputText: fmt.Sprintf("answer %02d", i)})
+	}
+
+	transcript.WriteUserTurn("prompt 11")
+	transcript.ApplyRunEvent(rpc.RunEvent{
+		Type:       "tool_call_started",
+		ToolName:   "shell",
+		ToolCallID: "call-live",
+		Args:       map[string]any{"command": "echo live"},
+	})
+	transcript.ApplyRunEvent(rpc.RunEvent{Type: "assistant_text_delta", Delta: "working"})
+
+	rendered := stripANSI(transcript.Render())
+	if strings.Contains(rendered, "older completed runs omitted") {
+		t.Fatalf("current live run should not trigger pruning before completion: %q", rendered)
+	}
+	for _, want := range []string{"prompt 01", "answer 01", "prompt 10", "answer 10", "prompt 11", "echo live", "working"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("visible transcript missing %q in %q", want, rendered)
+		}
 	}
 }
 
