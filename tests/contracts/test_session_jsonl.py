@@ -28,9 +28,6 @@ from just_another_coding_agent.contracts.session import (
     SESSION_FORMAT_VERSION,
     SessionCompactionSummary,
 )
-from just_another_coding_agent.runtime.compaction import (
-    build_compaction_summary_message,
-)
 from just_another_coding_agent.runtime.run import stream_run_events
 from just_another_coding_agent.session import build_session_preview
 from just_another_coding_agent.session.jsonl import (
@@ -65,7 +62,7 @@ def _compaction_entry_payload(
             (
                 checkpoint_messages
                 if checkpoint_messages is not None
-                else [build_compaction_summary_message(summary)]
+                else []
             ),
             mode="json",
         ),
@@ -1085,6 +1082,34 @@ def test_load_session_requires_workspace_root(tmp_path) -> None:
         load_session(path=path)
 
 
+def test_append_run_to_session_rejects_persisted_internal_instructions(
+    tmp_path,
+) -> None:
+    path = tmp_path / "session.jsonl"
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    with pytest.raises(
+        SessionFormatError,
+        match="Session messages must not persist internal instructions",
+    ):
+        append_run_to_session(
+            path=path,
+            workspace_root=workspace_root,
+            prompt="go",
+            events=[
+                RunStartedEvent(run_id="run-1"),
+                RunSucceededEvent(run_id="run-1", output_text="done"),
+            ],
+            messages=[
+                ModelRequest(
+                    parts=[UserPromptPart(content="go")],
+                    instructions="internal only",
+                )
+            ],
+        )
+
+
 def test_append_compaction_to_session_appends_provided_summary(tmp_path) -> None:
     path = tmp_path / "session.jsonl"
     workspace_root = tmp_path / "workspace"
@@ -1189,12 +1214,9 @@ def test_append_compaction_to_session_persists_checkpoint_messages(tmp_path) -> 
     )
 
     assert compaction.checkpoint_through_run_id == "run-2"
-    assert compaction.checkpoint_messages[0].parts[0].content == (
-        build_compaction_summary_message(summary).parts[0].content
-    )
     assert [
         part.content
-        for message in compaction.checkpoint_messages[1:]
+        for message in compaction.checkpoint_messages
         for part in message.parts
         if isinstance(part, UserPromptPart)
     ] == ["second"]
@@ -1222,7 +1244,6 @@ def test_append_compaction_to_session_accepts_custom_checkpoint_messages(
 
     summary = SessionCompactionSummary(current_objective="continue")
     custom_checkpoint_messages = [
-        build_compaction_summary_message(summary),
         ModelResponse(parts=[TextPart(content="retained tail")], model_name="test"),
     ]
     compaction = append_compaction_to_session(
@@ -1266,7 +1287,6 @@ def test_load_session_allows_split_turn_compaction_boundary(tmp_path) -> None:
                 first_kept_run_id="run-2",
                 checkpoint_through_run_id="run-2",
                 checkpoint_messages=[
-                    build_compaction_summary_message(summary),
                     ModelResponse(
                         parts=[TextPart(content="retained tail")],
                         model_name="test",

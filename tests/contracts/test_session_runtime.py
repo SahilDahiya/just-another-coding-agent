@@ -35,7 +35,7 @@ from just_another_coding_agent.contracts.run_events import (
 from just_another_coding_agent.contracts.session import SessionCompactionSummary
 from just_another_coding_agent.runtime import stream_session_run_events
 from just_another_coding_agent.runtime.compaction import (
-    build_compaction_summary_message,
+    build_resume_instructions,
     build_resume_message_history,
     summarize_session_for_compaction,
 )
@@ -105,7 +105,7 @@ def _compaction_entry_payload(
             (
                 checkpoint_messages
                 if checkpoint_messages is not None
-                else [build_compaction_summary_message(summary)]
+                else []
             ),
             mode="json",
         ),
@@ -182,8 +182,6 @@ async def compacted_history_probe_stream(
         for part in _all_parts(messages)
         if isinstance(part, UserPromptPart)
     ]
-    system_prompts = _system_prompt_contents(messages)
-
     if "first" in all_user_prompts:
         raise AssertionError("raw pre-compaction history should not be replayed")
     if "second" not in all_user_prompts:
@@ -192,10 +190,6 @@ async def compacted_history_probe_stream(
         raise AssertionError("current prompt should be present")
     if not _has_tool_return(messages, tool_name="write"):
         raise AssertionError("retained post-compaction tool history should be replayed")
-    if not any(
-        prompt.startswith("Session compaction summary:") for prompt in system_prompts
-    ):
-        raise AssertionError("compaction summary should be injected")
 
     yield "done"
 
@@ -209,16 +203,10 @@ async def compacted_real_persisted_history_probe_stream(
         for part in _all_parts(messages)
         if isinstance(part, UserPromptPart)
     ]
-    system_prompts = _system_prompt_contents(messages)
-
     if "first" in all_user_prompts:
         raise AssertionError("raw summarized history should not be replayed")
     if "second" not in all_user_prompts:
         raise AssertionError("current prompt should be present")
-    if not any(
-        prompt.startswith("Session compaction summary:") for prompt in system_prompts
-    ):
-        raise AssertionError("compaction summary should be injected")
 
     yield "done"
 
@@ -270,7 +258,6 @@ def make_resumed_live_compaction_probe_stream():
             for part in _all_parts(messages)
             if isinstance(part, UserPromptPart)
         ]
-        system_prompts = _system_prompt_contents(messages)
         read_returns = [
             part
             for part in _all_parts(messages)
@@ -280,10 +267,6 @@ def make_resumed_live_compaction_probe_stream():
         assert "summarized-first" not in prompts
         assert "retained-second" in prompts
         assert "inspect current big file" in prompts
-        assert any(
-            prompt.startswith("Session compaction summary:")
-            for prompt in system_prompts
-        )
 
         if call_count == 1:
             assert len(read_returns) == 1
@@ -353,6 +336,15 @@ async def test_stream_session_run_events_persists_authoritative_session(
     assert loaded.runs[0].thinking is None
     assert loaded.runs[0].events == events
     assert loaded.runs[0].messages
+    assert all(
+        not isinstance(part, SystemPromptPart)
+        for message in loaded.runs[0].messages
+        for part in message.parts
+    )
+    assert all(
+        not isinstance(message, ModelRequest) or message.instructions is None
+        for message in loaded.runs[0].messages
+    )
     assert loaded.message_history == loaded.runs[0].messages
 
 
@@ -420,6 +412,7 @@ async def test_stream_session_run_events_resumes_session_created_on_other_shell_
         agent,
         prompt,
         message_history=None,
+        instructions=None,
         thinking=None,
         deps=None,
         message_history_sink=None,
@@ -428,6 +421,7 @@ async def test_stream_session_run_events_resumes_session_created_on_other_shell_
             agent,
             prompt,
             message_history,
+            instructions,
             thinking,
             message_history_sink,
         )
@@ -517,6 +511,7 @@ async def test_stream_session_run_events_persists_partial_run_before_completion(
         agent,
         prompt,
         message_history=None,
+        instructions=None,
         thinking=None,
         deps=None,
         message_history_sink=None,
@@ -525,6 +520,7 @@ async def test_stream_session_run_events_persists_partial_run_before_completion(
             agent,
             prompt,
             message_history,
+            instructions,
             thinking,
             deps,
             message_history_sink,
@@ -599,11 +595,13 @@ async def test_stream_session_run_events_inherits_last_persisted_thinking_when_o
         agent,
         prompt,
         message_history=None,
+        instructions=None,
         thinking=None,
         deps=None,
         message_history_sink=None,
     ):
         captured["prompt"] = prompt
+        captured["instructions"] = instructions
         captured["thinking"] = thinking
         captured["message_history"] = message_history
         captured["deps"] = deps
@@ -842,16 +840,6 @@ def test_should_auto_compact_with_retained_run_boundary(
                 first_kept_run_id="run-2",
                 checkpoint_through_run_id="run-3",
                 checkpoint_messages=[
-                    build_compaction_summary_message(
-                        SessionCompactionSummary(
-                            current_objective="continue from retained runs",
-                            established_facts=["run-1 is summarized"],
-                            user_preferences=[],
-                            important_paths=[],
-                            open_questions=[],
-                            unresolved_work=["finish the task"],
-                        )
-                    ),
                     ModelRequest(parts=[UserPromptPart(content=large_prompt)]),
                     ModelRequest(parts=[UserPromptPart(content=large_prompt)]),
                 ],
@@ -1307,19 +1295,7 @@ async def test_stream_session_run_events_does_not_reappend_retained_history(
             checkpoint_messages=(
                 None
                 if target.checkpoint_messages is None
-                else [
-                    build_compaction_summary_message(
-                        SessionCompactionSummary(
-                            current_objective="continue after auto compaction",
-                            established_facts=["The oversized runs were summarized."],
-                            user_preferences=[],
-                            important_paths=["note.txt"],
-                            open_questions=[],
-                            unresolved_work=["Handle the follow-up prompt."],
-                        )
-                    ),
-                    *target.checkpoint_messages,
-                ]
+                else target.checkpoint_messages
             ),
         )
 
@@ -1415,16 +1391,6 @@ def test_build_resume_message_history_uses_summary_plus_retained_runs(tmp_path) 
                 first_kept_run_id="run-2",
                 checkpoint_through_run_id="run-3",
                 checkpoint_messages=[
-                    build_compaction_summary_message(
-                        SessionCompactionSummary(
-                            current_objective="continue from the retained runs",
-                            established_facts=["first is summarized"],
-                            user_preferences=[],
-                            important_paths=[],
-                            open_questions=[],
-                            unresolved_work=["finish the task"],
-                        )
-                    ),
                     ModelRequest(parts=[UserPromptPart(content="second")]),
                     ModelRequest(parts=[UserPromptPart(content="third")]),
                 ],
@@ -1444,15 +1410,15 @@ def test_build_resume_message_history_uses_summary_plus_retained_runs(tmp_path) 
 
     loaded = load_session(path=session_path, workspace_root=workspace_root)
     resume_history = build_resume_message_history(loaded)
+    resume_instructions = build_resume_instructions(loaded)
 
-    assert _system_prompt_contents(resume_history) == [
-        "Session compaction summary:\n"
-        "Current objective: continue from the retained runs\n"
-        "Established facts:\n"
-        "- first is summarized\n"
-        "Unresolved work:\n"
-        "- finish the task"
-    ]
+    assert _system_prompt_contents(resume_history) == []
+    assert resume_instructions is not None
+    assert "Current objective: continue from the retained runs" in resume_instructions
+    assert "Established facts:" in resume_instructions
+    assert "- first is summarized" in resume_instructions
+    assert "Unresolved work:" in resume_instructions
+    assert "- finish the task" in resume_instructions
     assert [
         part.content
         for part in _all_parts(resume_history)
@@ -1539,8 +1505,11 @@ def test_build_resume_message_history_uses_persisted_checkpoint_messages(
 
     loaded = load_session(path=session_path, workspace_root=workspace_root)
     resume_history = build_resume_message_history(loaded)
+    resume_instructions = build_resume_instructions(loaded)
 
-    assert _system_prompt_contents(resume_history) == ["checkpoint marker"]
+    assert _system_prompt_contents(resume_history) == []
+    assert resume_instructions is not None
+    assert "Current objective: continue from the retained runs" in resume_instructions
     assert [
         part.content
         for part in _all_parts(resume_history)
@@ -1580,16 +1549,6 @@ def test_build_post_compaction_continuity_boundary_uses_kept_run_boundary(
                 first_kept_run_id="run-2",
                 checkpoint_through_run_id="run-3",
                 checkpoint_messages=[
-                    build_compaction_summary_message(
-                        SessionCompactionSummary(
-                            current_objective="continue from retained runs",
-                            established_facts=["run-1 is summarized"],
-                            user_preferences=[],
-                            important_paths=[],
-                            open_questions=[],
-                            unresolved_work=["finish the task"],
-                        )
-                    ),
                     ModelRequest(parts=[UserPromptPart(content="second")]),
                     ModelRequest(parts=[UserPromptPart(content="third")]),
                 ],
@@ -2404,19 +2363,7 @@ async def test_stream_session_run_events_auto_compacts_stale_session_before_resu
             checkpoint_messages=(
                 None
                 if target.checkpoint_messages is None
-                else [
-                    build_compaction_summary_message(
-                        SessionCompactionSummary(
-                            current_objective="continue after auto compaction",
-                            established_facts=["The oversized runs were summarized."],
-                            user_preferences=[],
-                            important_paths=["note.txt"],
-                            open_questions=[],
-                            unresolved_work=["Handle the follow-up prompt."],
-                        )
-                    ),
-                    *target.checkpoint_messages,
-                ]
+                else target.checkpoint_messages
             ),
         )
 
@@ -2553,27 +2500,7 @@ async def test_stream_session_run_events_warns_after_repeated_auto_compaction(
             checkpoint_messages=(
                 None
                 if target.checkpoint_messages is None
-                else [
-                    build_compaction_summary_message(
-                        SessionCompactionSummary(
-                            current_objective=(
-                                "continue after repeated auto compaction"
-                            ),
-                            established_facts=[
-                                "The later oversized runs were summarized."
-                            ],
-                            user_preferences=[],
-                            important_paths=[],
-                            read_paths=[],
-                            modified_paths=[],
-                            recent_shell_commands=[],
-                            recent_failures=[],
-                            open_questions=[],
-                            unresolved_work=["Handle the next prompt."],
-                        )
-                    ),
-                    *target.checkpoint_messages,
-                ]
+                else target.checkpoint_messages
             ),
         )
 
@@ -2728,12 +2655,7 @@ async def test_stream_session_run_events_resets_auto_compaction_failures_on_succ
             checkpoint_messages=(
                 None
                 if target.checkpoint_messages is None
-                else [
-                    build_compaction_summary_message(
-                        SessionCompactionSummary(current_objective="continue")
-                    ),
-                    *target.checkpoint_messages,
-                ]
+                else target.checkpoint_messages
             ),
         )
 
@@ -2849,6 +2771,7 @@ async def test_stream_session_run_events_does_not_recompact_without_new_complete
         agent,
         prompt,
         message_history=None,
+        instructions=None,
         thinking=None,
         deps=None,
         message_history_sink=None,
@@ -2857,6 +2780,7 @@ async def test_stream_session_run_events_does_not_recompact_without_new_complete
             agent,
             prompt,
             message_history,
+            instructions,
             thinking,
             deps,
             message_history_sink,
@@ -3010,16 +2934,6 @@ async def test_resumed_compacted_session_still_applies_live_in_run_compaction(
                 first_kept_run_id="run-2",
                 checkpoint_through_run_id="run-2",
                 checkpoint_messages=[
-                    build_compaction_summary_message(
-                        SessionCompactionSummary(
-                            current_objective="continue from the retained run",
-                            established_facts=["run-1 is summarized"],
-                            user_preferences=[],
-                            important_paths=["retained-big.txt", "current-big.txt"],
-                            open_questions=[],
-                            unresolved_work=["inspect the current big file"],
-                        )
-                    ),
                     ModelRequest(parts=[UserPromptPart(content="retained-second")]),
                     ModelResponse(
                         parts=[
@@ -3120,6 +3034,7 @@ async def test_stream_session_run_events_finalizes_cancelled_run(
         agent,
         prompt,
         message_history=None,
+        instructions=None,
         thinking=None,
         deps=None,
         message_history_sink=None,
@@ -3128,6 +3043,7 @@ async def test_stream_session_run_events_finalizes_cancelled_run(
             agent,
             prompt,
             message_history,
+            instructions,
             thinking,
             deps,
             message_history_sink,
@@ -3206,6 +3122,7 @@ async def test_stream_session_run_events_sanitize_cancelled_run_messages(
         agent,
         prompt,
         message_history=None,
+        instructions=None,
         thinking=None,
         deps=None,
         message_history_sink=None,
@@ -3214,6 +3131,7 @@ async def test_stream_session_run_events_sanitize_cancelled_run_messages(
             agent,
             prompt,
             message_history,
+            instructions,
             thinking,
             deps,
             message_history_sink,
@@ -3302,6 +3220,7 @@ async def test_stream_session_run_events_trim_failed_correction_tail_from_histor
         agent,
         prompt,
         message_history=None,
+        instructions=None,
         thinking=None,
         deps=None,
         message_history_sink=None,
@@ -3310,6 +3229,7 @@ async def test_stream_session_run_events_trim_failed_correction_tail_from_histor
             agent,
             prompt,
             message_history,
+            instructions,
             thinking,
             deps,
             message_history_sink,
@@ -3426,6 +3346,7 @@ async def test_stream_session_run_events_resume_after_failed_correction_is_clean
         agent,
         prompt,
         message_history=None,
+        instructions=None,
         thinking=None,
         deps=None,
         message_history_sink=None,
@@ -3434,6 +3355,7 @@ async def test_stream_session_run_events_resume_after_failed_correction_is_clean
             agent,
             prompt,
             message_history,
+            instructions,
             thinking,
             deps,
             message_history_sink,

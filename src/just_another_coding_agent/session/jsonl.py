@@ -12,7 +12,9 @@ from uuid import uuid4
 from pydantic import TypeAdapter, ValidationError
 from pydantic_ai.messages import (
     ModelMessage,
+    ModelRequest,
     RetryPromptPart,
+    SystemPromptPart,
     ToolCallPart,
     ToolReturnPart,
 )
@@ -229,14 +231,9 @@ def append_compaction_to_session(
         list(checkpoint_messages)
         if checkpoint_messages is not None
         else build_compaction_checkpoint_messages(
-            summary=summary,
             retained_runs=loaded.runs[retained_start_index:],
         )
     )
-    if not resolved_checkpoint_messages:
-        raise SessionFormatError(
-            "Compaction checkpoint must include at least one message"
-        )
 
     entry = SessionCompactionEntry(
         compaction_id=uuid4().hex,
@@ -666,6 +663,15 @@ def _validate_run_messages(messages: Sequence[ModelMessage]) -> None:
     pending_tool_calls: dict[str, str] = {}
 
     for message in messages:
+        if isinstance(message, ModelRequest):
+            if message.instructions is not None:
+                raise SessionFormatError(
+                    "Session messages must not persist internal instructions"
+                )
+            if any(isinstance(part, SystemPromptPart) for part in message.parts):
+                raise SessionFormatError(
+                    "Session messages must not persist system prompt parts"
+                )
         for part in message.parts:
             if isinstance(part, ToolCallPart):
                 if part.tool_call_id in pending_tool_calls:

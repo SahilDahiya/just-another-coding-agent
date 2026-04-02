@@ -51,6 +51,7 @@ The canonical agent assembly must take an explicit workspace root. Tool behavior
 Persisted sessions must also bind to that explicit workspace root and store native PydanticAI message history so later runs can resume through `message_history` instead of reconstructing context from public events.
 Persisted sessions must also record the effective per-run thinking setting so later runs can inherit it when the caller omits `thinking`.
 The canonical runtime is unbounded within a single run and does not impose backend-level request or tool-call ceilings.
+Do not use PydanticAI `UsageLimits` as a JACA design primitive. If a framework call requires `UsageLimits`, keep it explicitly unbounded and treat it as an internal adapter detail rather than product policy.
 The canonical prompt should inject the current date and resolved workspace root dynamically at agent-build time so the model can reason about time and paths without inferring hidden process state.
 The canonical prompt must also enforce side-effect truthfulness and verification discipline: the model must not claim to have created or modified files without tool evidence, and it should run the smallest relevant verification step before concluding after code changes or required file outputs.
 The canonical runtime should expose `thinking` as an explicit run setting and pass it through PydanticAI model settings rather than encoding reasoning level in prompt text.

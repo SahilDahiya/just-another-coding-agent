@@ -12,8 +12,8 @@ from .in_run import (
     restore_in_run_compaction_from_messages,
 )
 from .resume import (
-    COMPACTION_SUMMARY_DYNAMIC_REF,
-    build_compaction_summary_message,
+    build_compaction_summary_instructions,
+    build_resume_instructions,
     build_resume_message_history,
 )
 from .session_summary import (
@@ -25,17 +25,17 @@ from .session_summary import (
 )
 
 __all__ = [
-    "COMPACTION_SUMMARY_DYNAMIC_REF",
     "COMPACTION_SUMMARY_INSTRUCTIONS",
     "IN_RUN_COMPACTION_SOFT_CHAR_LIMIT",
     "ModelHistoryProcessor",
     "SESSION_AUTO_COMPACTION_CONTEXT_WINDOW_UTILIZATION",
     "SESSION_AUTO_COMPACTION_PROMPT_RESERVE_TOKENS",
     "build_compaction_history_processors",
-    "build_compaction_summary_message",
+    "build_compaction_summary_instructions",
     "build_auto_compact_session_budget_report",
     "build_in_run_history_processor",
     "build_resume_message_history",
+    "build_resume_instructions",
     "restore_in_run_compaction_from_messages",
     "should_auto_compact_session",
     "summarize_and_append_compaction_to_session",

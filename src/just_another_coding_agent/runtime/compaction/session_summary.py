@@ -25,7 +25,6 @@ from just_another_coding_agent.runtime.models import (
     resolve_canonical_model,
 )
 from just_another_coding_agent.session.checkpoint import (
-    build_compaction_summary_message,
     select_compaction_checkpoint_tail,
 )
 from just_another_coding_agent.session.jsonl import (
@@ -159,14 +158,7 @@ async def summarize_and_append_compaction_to_session(
         summary=summary,
         summarized_through_run_id=target.summarized_through_run_id,
         first_kept_run_id=target.first_kept_run_id,
-        checkpoint_messages=(
-            None
-            if target.checkpoint_messages is None
-            else [
-                build_compaction_summary_message(summary),
-                *target.checkpoint_messages,
-            ]
-        ),
+        checkpoint_messages=target.checkpoint_messages,
     )
 
 

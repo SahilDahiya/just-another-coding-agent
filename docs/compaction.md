@@ -134,10 +134,14 @@ Responsibilities:
 
 - define the canonical post-compaction continuity boundary:
   - latest durable compaction checkpoint messages
+  - latest durable compaction summary rendered as ephemeral resume instructions
   - native run deltas written after that checkpoint
 - rebuild effective `message_history` from checkpoint messages plus later run deltas
+- rebuild per-run resume instructions from the durable compaction summary
 - avoid semantic prefix surgery when persisting successful resumed runs by
   storing only PydanticAI `new_messages()` deltas
+- strip internal instruction state from replayed and persisted `ModelMessage`
+  history so system-role policy never becomes durable conversation content
 
 This is deterministic replay from authoritative checkpoint state, not prefix
 matching or synthetic-summary regeneration.
@@ -181,13 +185,22 @@ token-budgeted raw tail:
   checkpoint tail messages
 - `checkpoint_through_run_id` marks the latest run already represented inside
   the persisted compaction checkpoint
-- `checkpoint_messages` stores the authoritative model-facing history at the
-  compaction boundary: the summary message plus any retained raw tail messages
+- `checkpoint_messages` stores only the authoritative raw checkpoint tail at
+  the compaction boundary
+- `summary` remains the durable structured continuity record and is rendered
+  into ephemeral resume instructions at run time rather than persisted as a
+  system-role message
 
 Resume history is therefore:
 
 - `checkpoint_messages`
 - all native messages strictly after `checkpoint_through_run_id`
+
+Resume instructions are therefore:
+
+- canonical backend instructions rebuilt for the current run
+- plus one ephemeral continuity note rendered from the latest compaction
+  `summary`
 
 Automatic durable compaction now preserves a bounded raw tail by message-token
 budget when possible:
@@ -218,6 +231,8 @@ So today:
 One important consequence:
 
 - the retained checkpoint tail is replayed in raw form at resume time
+- the durable compaction summary is not replayed as conversation history; it is
+  injected as internal per-run instructions instead
 - later model requests in that same resumed run may still compact those retained
   historical tool returns through the live in-run processor once context
   pressure grows
@@ -231,8 +246,12 @@ One important consequence:
 - `checkpoint_through_run_id` must reference an existing run and must not
   precede either the summary boundary or the kept boundary
 - resumed runs must materialize effective history before the run starts
+- resumed runs must rebuild continuity instructions from the durable summary
+  instead of replaying summary text as a persisted system prompt
 - successful resumed runs must persist only new run deltas, not checkpoint
   history copied back out of the replayed prefix
+- persisted `session_messages` must not contain internal instructions or
+  `SystemPromptPart` content
 - live in-run compaction must restore original raw tool-return content before
   persistence
 

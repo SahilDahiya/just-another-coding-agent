@@ -3,7 +3,6 @@ from collections.abc import AsyncIterator
 from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
-    SystemPromptPart,
     UserPromptPart,
 )
 from pydantic_ai.models.function import FunctionModel
@@ -22,6 +21,7 @@ from just_another_coding_agent.contracts.run_events import (
 )
 from just_another_coding_agent.runtime import stream_session_run_events
 from just_another_coding_agent.runtime.compaction import (
+    build_resume_instructions,
     summarize_session_for_compaction,
 )
 from just_another_coding_agent.session import (
@@ -35,14 +35,6 @@ def _all_parts(messages: list[ModelMessage]):
     for message in messages:
         for part in message.parts:
             yield part
-
-
-def _system_prompt_contents(messages: list[ModelMessage]) -> list[str]:
-    return [
-        part.content
-        for part in _all_parts(messages)
-        if isinstance(part, SystemPromptPart)
-    ]
 
 
 def _test_summary_model(*, custom_output_args: dict[str, object]) -> TestModel:
@@ -299,44 +291,7 @@ async def test_auto_compaction_preserves_multi_compaction_continuity(
             for part in _all_parts(messages)
             if isinstance(part, UserPromptPart)
         ]
-        system_prompts = _system_prompt_contents(messages)
-
         assert user_prompts == ["what should we do next?"]
-        assert len(system_prompts) >= 1
-
-        summary_prompt = next(
-            prompt
-            for prompt in system_prompts
-            if prompt.startswith("Session compaction summary:")
-        )
-        assert "Current objective: ship the verified app fix" in summary_prompt
-        assert "Established facts:" in summary_prompt
-        assert (
-            "- src/app.py was updated after the earlier verifier failure."
-            in summary_prompt
-        )
-        assert "- go test ./... passed on the latest run." in summary_prompt
-        assert "User preferences:" in summary_prompt
-        assert "- be concise" in summary_prompt
-        assert "Important paths:" in summary_prompt
-        assert "- src/app.py" in summary_prompt
-        assert "- tests/test_app.py" in summary_prompt
-        assert "Read paths:" in summary_prompt
-        assert "- docs/plan.md" in summary_prompt
-        assert "- src/app.py" in summary_prompt
-        assert "- tests/test_app.py" in summary_prompt
-        assert "Modified paths:" in summary_prompt
-        assert "- src/app.py" in summary_prompt
-        assert "Recent shell commands:" in summary_prompt
-        assert "- pytest -q (failed)" in summary_prompt
-        assert "- go test ./... (exit 0)" in summary_prompt
-        assert "Recent failures:" in summary_prompt
-        assert (
-            "- shell pytest -q failed: Command exited with code 1"
-            in summary_prompt
-        )
-        assert "Unresolved work:" in summary_prompt
-        assert "- Send the user a final status update." in summary_prompt
 
         yield (
             "We fixed src/app.py, the latest go test ./... passed, and the "
@@ -378,6 +333,30 @@ async def test_auto_compaction_preserves_multi_compaction_continuity(
 
     loaded = load_session(path=session_path, workspace_root=workspace_root)
     assert loaded.latest_compaction is not None
+    resume_instructions = build_resume_instructions(loaded)
+    assert resume_instructions is not None
+    assert "Current objective: ship the verified app fix" in resume_instructions
+    assert "Established facts:" in resume_instructions
+    assert (
+        "- src/app.py was updated after the earlier verifier failure."
+        in resume_instructions
+    )
+    assert "- go test ./... passed on the latest run." in resume_instructions
+    assert "User preferences:" in resume_instructions
+    assert "- be concise" in resume_instructions
+    assert "Important paths:" in resume_instructions
+    assert "- src/app.py" in resume_instructions
+    assert "- tests/test_app.py" in resume_instructions
+    assert "Read paths:" in resume_instructions
+    assert "- docs/plan.md" in resume_instructions
+    assert "Modified paths:" in resume_instructions
+    assert "Recent shell commands:" in resume_instructions
+    assert "- pytest -q (failed)" in resume_instructions
+    assert "- go test ./... (exit 0)" in resume_instructions
+    assert "Recent failures:" in resume_instructions
+    assert "- shell pytest -q failed: Command exited with code 1" in resume_instructions
+    assert "Unresolved work:" in resume_instructions
+    assert "- Send the user a final status update." in resume_instructions
     assert loaded.latest_compaction.summarized_through_run_id == "run-4"
     assert loaded.latest_compaction.summary.read_paths == [
         "docs/plan.md",

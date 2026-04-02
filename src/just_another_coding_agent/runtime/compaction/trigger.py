@@ -25,6 +25,7 @@ from just_another_coding_agent.runtime.compaction.constants import (
     SESSION_AUTO_COMPACTION_PROMPT_RESERVE_TOKENS,
 )
 from just_another_coding_agent.runtime.compaction.resume import (
+    build_resume_instructions,
     build_resume_message_history,
 )
 from just_another_coding_agent.runtime.models import get_model_context_window_tokens
@@ -156,6 +157,7 @@ def _estimate_resume_history_budget_components(
     loaded_session: LoadedSession,
 ) -> tuple[int, int | None, int | None]:
     resume_history = build_resume_message_history(loaded_session)
+    resume_instructions = build_resume_instructions(loaded_session)
     measured_usage = _find_last_measured_usage_tokens(resume_history)
     if measured_usage is not None:
         usage_tokens, last_usage_index = measured_usage
@@ -168,7 +170,10 @@ def _estimate_resume_history_budget_components(
 
     return (
         math.ceil(
-            _estimate_message_history_chars(resume_history)
+            (
+                _estimate_message_history_chars(resume_history)
+                + _estimate_text_chars(resume_instructions)
+            )
             / COMPACTION_CHARS_PER_TOKEN_HEURISTIC
         ),
         None,
@@ -202,6 +207,12 @@ def _estimate_message_history_chars(messages: list[ModelMessage]) -> int:
             ensure_ascii=False,
         )
     )
+
+
+def _estimate_text_chars(value: str | None) -> int:
+    if value is None:
+        return 0
+    return len(value)
 
 
 __all__ = [

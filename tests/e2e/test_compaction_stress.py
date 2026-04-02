@@ -7,7 +7,6 @@ from pydantic_ai.messages import (
     ModelRequest,
     ModelResponse,
     RetryPromptPart,
-    SystemPromptPart,
     TextPart,
     ToolCallPart,
     ToolReturnPart,
@@ -23,7 +22,7 @@ from just_another_coding_agent.contracts.session import SessionCompactionSummary
 from just_another_coding_agent.rpc import serve_rpc_stdio
 from just_another_coding_agent.rpc.session_store import session_path_for_id
 from just_another_coding_agent.runtime.compaction import (
-    build_compaction_summary_message,
+    build_resume_instructions,
     build_resume_message_history,
 )
 from just_another_coding_agent.runtime.compaction import (
@@ -57,14 +56,6 @@ def _message_shapes(messages: list[ModelMessage]) -> list[str]:
         f"{type(message).__name__}:{[type(part).__name__ for part in message.parts]}"
         for message in messages
     ]
-
-
-def _summary_prompt_present(messages: list[ModelMessage]) -> bool:
-    return any(
-        isinstance(part, SystemPromptPart)
-        and part.content.startswith("Session compaction summary:")
-        for part in _all_parts(messages)
-    )
 
 
 async def _text_only_stream(
@@ -108,18 +99,13 @@ async def _append_auto_compaction_summary(
         established_facts=["Older history was compacted."],
         unresolved_work=["answer the new prompt"],
     )
-    checkpoint_messages = (
-        None
-        if target.checkpoint_messages is None
-        else [build_compaction_summary_message(summary), *target.checkpoint_messages]
-    )
     return append_compaction_to_session(
         path=path,
         workspace_root=workspace_root,
         summary=summary,
         summarized_through_run_id=target.summarized_through_run_id,
         first_kept_run_id=target.first_kept_run_id,
-        checkpoint_messages=checkpoint_messages,
+        checkpoint_messages=target.checkpoint_messages,
     )
 
 
@@ -232,6 +218,9 @@ async def test_e2e_stdio_auto_compaction_keeps_recent_tail_and_new_run_is_delta_
         "third",
         "follow-up",
     ]
+    resume_instructions = build_resume_instructions(loaded)
+    assert resume_instructions is not None
+    assert "Current objective: continue after compaction" in resume_instructions
     assert _user_prompts(loaded.runs[-1].messages) == ["follow-up"]
 
 
@@ -316,7 +305,6 @@ async def test_e2e_stdio_resume_uses_same_run_split_tail_checkpoint(
     ) -> AsyncIterator[str]:
         observed["incoming_shapes"] = _message_shapes(messages)
         observed["incoming_user_prompts"] = _user_prompts(messages)
-        observed["has_summary"] = _summary_prompt_present(messages)
         yield "done"
 
     messages = await _serve_lines(
@@ -347,15 +335,15 @@ async def test_e2e_stdio_resume_uses_same_run_split_tail_checkpoint(
     assert loaded.latest_compaction.summarized_through_run_id == "run-2"
     assert loaded.latest_compaction.first_kept_run_id == "run-2"
     assert _message_shapes(loaded.latest_compaction.checkpoint_messages) == [
-        "ModelRequest:['SystemPromptPart']",
         "ModelResponse:['ToolCallPart']",
         "ModelRequest:['ToolReturnPart']",
         "ModelResponse:['TextPart']",
     ]
     assert observed["incoming_user_prompts"] == ["after-split-tail"]
-    assert observed["has_summary"] is True
-    assert observed["incoming_shapes"][:4] == [
-        "ModelRequest:['SystemPromptPart']",
+    resume_instructions = build_resume_instructions(loaded)
+    assert resume_instructions is not None
+    assert "Current objective: continue after compaction" in resume_instructions
+    assert observed["incoming_shapes"][:3] == [
         "ModelResponse:['ToolCallPart']",
         "ModelRequest:['ToolReturnPart']",
         "ModelResponse:['TextPart']",
@@ -425,7 +413,6 @@ async def test_e2e_stdio_unsafe_suffix_falls_back_to_summary_only_checkpoint(
     ) -> AsyncIterator[str]:
         observed["incoming_shapes"] = _message_shapes(messages)
         observed["incoming_user_prompts"] = _user_prompts(messages)
-        observed["has_summary"] = _summary_prompt_present(messages)
         yield "done"
 
     await _serve_lines(
@@ -447,14 +434,12 @@ async def test_e2e_stdio_unsafe_suffix_falls_back_to_summary_only_checkpoint(
     loaded = load_session(path=session_path, workspace_root=workspace_root)
     assert loaded.latest_compaction is not None
     assert loaded.latest_compaction.first_kept_run_id is None
-    assert _message_shapes(loaded.latest_compaction.checkpoint_messages) == [
-        "ModelRequest:['SystemPromptPart']"
-    ]
+    assert _message_shapes(loaded.latest_compaction.checkpoint_messages) == []
     assert observed["incoming_user_prompts"] == ["after-unsafe"]
-    assert observed["has_summary"] is True
-    assert observed["incoming_shapes"] == [
-        "ModelRequest:['SystemPromptPart', 'UserPromptPart']"
-    ]
+    resume_instructions = build_resume_instructions(loaded)
+    assert resume_instructions is not None
+    assert "Current objective: continue after compaction" in resume_instructions
+    assert observed["incoming_shapes"] == ["ModelRequest:['UserPromptPart']"]
     assert _user_prompts(loaded.runs[-1].messages) == ["after-unsafe"]
 
 

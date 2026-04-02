@@ -449,6 +449,8 @@ Initial executable session slice:
 - `session_messages`
   - fields: `type`, `run_id`, `messages`
   - `messages` must be the native PydanticAI `ModelMessage` list for that run
+  - `messages` must exclude internal instructions and `SystemPromptPart`
+    content; those are ephemeral runtime state, not durable conversation state
 - `session_event`
   - fields: `type`, `run_id`, `event`
   - `event` must be one canonical streamed run event payload
@@ -459,9 +461,9 @@ Initial executable session slice:
     `run_id` that does not precede `summarized_through_run_id`
   - `checkpoint_through_run_id` must reference an existing persisted `run_id`
     and must not precede either the summary boundary or the kept boundary
-  - `checkpoint_messages` is the authoritative model-facing history at the
-    compaction boundary: the summary checkpoint plus any retained raw tail
-    messages
+  - `checkpoint_messages` is the authoritative raw checkpoint tail at the
+    compaction boundary; durable summary text is stored only in `summary`
+    and rendered into ephemeral resume instructions at run time
   - automatic compaction may keep a safe raw suffix that starts inside one run;
     in that case `first_kept_run_id == summarized_through_run_id`
   - `summary` is structured durable compaction state, not arbitrary untyped metadata
@@ -478,7 +480,7 @@ Ordering rules for the session slice:
 - `session_compaction` may appear only at a completed run boundary, never in the middle of a run
 - `session_compaction` entries are append-only and must not move the summary boundary backward
 - Authoritative session loads must provide the expected workspace root and it must match the persisted `session_header.workspace_root` exactly
-- Session resume semantics must reconstruct effective conversation context from the latest compaction `checkpoint_messages` plus later `session_messages` strictly after `checkpoint_through_run_id`
+- Session resume semantics must reconstruct effective conversation context from the latest compaction `checkpoint_messages` plus later `session_messages` strictly after `checkpoint_through_run_id`, and rebuild ephemeral continuity instructions from the latest compaction `summary`
 - Durable cross-run compaction must be materialized into resume `message_history` before the next run starts; only run-local compaction uses PydanticAI `history_processors`
 - Durable compaction summaries must carry backend-owned deterministic survival
   state in addition to model-written prose: `read_paths` for explicitly read
@@ -499,6 +501,8 @@ Ordering rules for the session slice:
 - Session-backed runtime streaming must append `session_run` and `session_event` entries incrementally as the run streams and append `session_messages` only after terminal completion
 - If cancellation unwinds through `stream_session_run_events()`, the runtime must persist terminal `tool_call_failed` events for any still-pending tool calls and then persist terminal `run_failed` before finalization
 - Persisted `session_messages` for a terminal run must remain replay-safe; they must not contain unresolved tool calls
+- Persisted `session_messages` for a terminal run must not persist internal
+  instructions or `SystemPromptPart` content
 - Persisted `session_messages` for a failed terminal run must also exclude unresolved failed-correction tails such as trailing `RetryPromptPart` repair prompts and the matching invalid `ToolCallPart` suffix that caused a provider-side abort; future resumed runs must continue only from the last known-good message boundary
 - Trimming poisoned failed-correction tails from persisted `session_messages` must not delete observability data: the original streamed `session_event` sequence and provider traces remain authoritative for failure forensics
 - If cancellation interrupts message capture mid-tool-call, finalization must strip those unresolved tool parts before writing `session_messages`

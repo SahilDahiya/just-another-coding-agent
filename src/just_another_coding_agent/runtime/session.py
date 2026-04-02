@@ -36,11 +36,13 @@ from just_another_coding_agent.runtime.agent import build_canonical_agent
 from just_another_coding_agent.runtime.compaction import (
     build_auto_compact_session_budget_report,
     build_compaction_history_processors,
+    build_resume_instructions,
     build_resume_message_history,
     restore_in_run_compaction_from_messages,
     summarize_and_append_compaction_to_session,
 )
 from just_another_coding_agent.runtime.run import stream_run_events
+from just_another_coding_agent.session.checkpoint import strip_internal_prompt_state
 from just_another_coding_agent.session.jsonl import (
     load_session,
     read_session_metadata,
@@ -239,6 +241,11 @@ async def stream_session_run_events(
         if loaded_session is not None
         else []
     )
+    preexisting_instructions = (
+        build_resume_instructions(loaded_session)
+        if loaded_session is not None
+        else None
+    )
     preexisting_history_count = len(preexisting_history)
 
     agent = build_canonical_agent(
@@ -265,6 +272,7 @@ async def stream_session_run_events(
                 agent=agent,
                 prompt=prompt,
                 message_history=(preexisting_history or None),
+                instructions=preexisting_instructions,
                 thinking=resolved_thinking,
                 deps=WorkspaceDeps(
                     workspace_root=normalized_workspace_root,
@@ -337,6 +345,7 @@ async def stream_session_run_events(
                     finalized_messages = _sanitize_failed_run_messages(
                         finalized_messages
                     )
+                finalized_messages = strip_internal_prompt_state(finalized_messages)
                 run_appender.finalize(messages=finalized_messages)
 
 

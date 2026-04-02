@@ -12,8 +12,9 @@ from just_another_coding_agent.contracts.run_events import (
 )
 from just_another_coding_agent.contracts.session import SessionCompactionSummary
 from just_another_coding_agent.runtime.compaction import (
-    build_compaction_summary_message,
+    build_compaction_summary_instructions,
     build_in_run_history_processor,
+    build_resume_instructions,
     build_resume_message_history,
     in_run,
     restore_in_run_compaction_from_messages,
@@ -42,7 +43,11 @@ def test_compaction_public_api_is_split_across_submodules() -> None:
     )
 
     assert resume.build_resume_message_history is build_resume_message_history
-    assert resume.build_compaction_summary_message is build_compaction_summary_message
+    assert (
+        resume.build_compaction_summary_instructions
+        is build_compaction_summary_instructions
+    )
+    assert resume.build_resume_instructions is build_resume_instructions
 
     assert (
         session_summary.summarize_session_for_compaction
@@ -217,6 +222,46 @@ def test_build_auto_compaction_budget_report_records_trigger_inputs(
     assert report.measured_usage_tokens == 120
     assert report.estimated_trailing_tokens == 42_880
     assert report.runs_since_latest_compaction == 1
+
+
+def test_build_resume_instructions_uses_latest_compaction_summary(tmp_path) -> None:
+    session_path = tmp_path / "session.jsonl"
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    append_run_to_session(
+        path=session_path,
+        workspace_root=workspace_root,
+        prompt="first",
+        thinking=None,
+        messages=[ModelRequest(parts=[UserPromptPart(content="first")])],
+        events=[
+            RunStartedEvent(run_id="run-1"),
+            RunSucceededEvent(run_id="run-1", output_text="done"),
+        ],
+    )
+    append_compaction_to_session(
+        path=session_path,
+        workspace_root=workspace_root,
+        summary=SessionCompactionSummary(
+            current_objective="ship the fix",
+            current_plan=["run tests"],
+            unresolved_work=["send the final update"],
+        ),
+    )
+
+    loaded = load_session(path=session_path, workspace_root=workspace_root)
+    instructions = build_resume_instructions(loaded)
+
+    assert instructions is not None
+    assert instructions.startswith(
+        "Continue from this internal session continuity state."
+    )
+    assert "Current objective: ship the fix" in instructions
+    assert "Current plan:" in instructions
+    assert "- run tests" in instructions
+    assert "Unresolved work:" in instructions
+    assert "- send the final update" in instructions
 
 
 def test_build_auto_compaction_budget_report_explains_no_new_work(

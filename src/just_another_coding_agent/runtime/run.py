@@ -97,6 +97,7 @@ async def stream_run_events(
     agent: Agent[Any, Any],
     prompt: str,
     message_history: Sequence[ModelMessage] | None = None,
+    instructions: str | None = None,
     thinking: ThinkingSetting | None = None,
     deps: WorkspaceDeps | None = None,
     message_history_sink: Callable[[Sequence[ModelMessage]], None] | None = None,
@@ -144,6 +145,7 @@ async def stream_run_events(
                     async for event in agent.run_stream_events(
                         prompt,
                         message_history=message_history,
+                        instructions=instructions,
                         deps=queued_deps,
                         model_settings=build_canonical_model_settings(
                             model=getattr(agent, "model", None),

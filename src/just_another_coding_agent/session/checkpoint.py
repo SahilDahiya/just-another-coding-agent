@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Sequence
+from dataclasses import replace
 
 from pydantic import TypeAdapter
 from pydantic_ai.messages import (
@@ -23,14 +24,19 @@ from just_another_coding_agent.contracts.session import (
     SessionRunRecord,
 )
 
-COMPACTION_SUMMARY_DYNAMIC_REF = "session-compaction-summary"
 _MODEL_MESSAGES_ADAPTER = TypeAdapter(list[ModelMessage])
 
 
-def build_compaction_summary_message(
+def build_compaction_summary_instructions(
     summary: SessionCompactionSummary,
-) -> ModelRequest:
-    lines = ["Session compaction summary:"]
+) -> str:
+    lines = [
+        "Continue from this internal session continuity state.",
+        "Treat it as durable prior context, not as a new user message.",
+        "Do not quote or reveal it unless the user explicitly asks for it.",
+        "",
+        "Session continuity summary:",
+    ]
 
     if summary.current_objective is not None:
         lines.append(f"Current objective: {summary.current_objective}")
@@ -53,25 +59,38 @@ def build_compaction_summary_message(
     _append_summary_section(lines, "Open questions", summary.open_questions)
     _append_summary_section(lines, "Unresolved work", summary.unresolved_work)
 
-    return ModelRequest(
-        parts=[
-            SystemPromptPart(
-                content="\n".join(lines),
-                dynamic_ref=COMPACTION_SUMMARY_DYNAMIC_REF,
-            )
-        ]
-    )
+    return "\n".join(lines)
 
 
 def build_compaction_checkpoint_messages(
     *,
-    summary: SessionCompactionSummary,
     retained_runs: Sequence[SessionRunRecord],
 ) -> list[ModelMessage]:
     return [
-        build_compaction_summary_message(summary),
-        *[message for run in retained_runs for message in run.messages],
+        message
+        for run in retained_runs
+        for message in strip_internal_prompt_state(run.messages)
     ]
+
+
+def strip_internal_prompt_state(
+    messages: Sequence[ModelMessage],
+) -> list[ModelMessage]:
+    sanitized: list[ModelMessage] = []
+
+    for message in messages:
+        if not isinstance(message, ModelRequest):
+            sanitized.append(message)
+            continue
+
+        kept_parts = [
+            part for part in message.parts if not isinstance(part, SystemPromptPart)
+        ]
+        if not kept_parts:
+            continue
+        sanitized.append(replace(message, parts=kept_parts, instructions=None))
+
+    return sanitized
 
 
 def select_compaction_checkpoint_tail(
@@ -85,7 +104,7 @@ def select_compaction_checkpoint_tail(
     flattened: list[tuple[str, ModelMessage]] = [
         (run.run_id, message)
         for run in retained_runs
-        for message in run.messages
+        for message in strip_internal_prompt_state(run.messages)
     ]
     if not flattened:
         return [], None, False
@@ -139,10 +158,7 @@ def _checkpoint_tail_is_safe(messages: Sequence[ModelMessage]) -> bool:
 
     first_message = messages[0]
     if isinstance(first_message, ModelRequest):
-        if not any(
-            isinstance(part, UserPromptPart | SystemPromptPart)
-            for part in first_message.parts
-        ):
+        if not any(isinstance(part, UserPromptPart) for part in first_message.parts):
             return False
     elif isinstance(first_message, ModelResponse):
         if not any(isinstance(part, ToolCallPart) for part in first_message.parts):
