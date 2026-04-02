@@ -188,6 +188,18 @@ def should_auto_compact_session(
     )
 
 
+def build_auto_compact_session_budget_report(
+    loaded_session: LoadedSession,
+    *,
+    model: Any,
+):
+    return trigger_module.build_auto_compact_session_budget_report(
+        loaded_session,
+        model=model,
+        get_context_window_tokens=get_model_context_window_tokens,
+    )
+
+
 def _build_compaction_source(loaded_session: LoadedSession, *, model: Any) -> str:
     return source_builder_module.build_compaction_source(loaded_session, model=model)
 
@@ -204,6 +216,7 @@ def _build_bounded_compaction_source(
 
 
 __all__ = [
+    "build_auto_compact_session_budget_report",
     "COMPACTION_SUMMARY_INSTRUCTIONS",
     "should_auto_compact_session",
     "summarize_and_append_compaction_to_session",

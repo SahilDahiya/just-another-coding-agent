@@ -148,6 +148,9 @@ The important boundary is:
   trailing estimate over a pure whole-history heuristic, preserves one bounded
   raw tail run when possible, and counts only runs beyond that kept boundary as
   new work for future automatic compaction
+- automatic compaction decisions now produce explicit backend-owned budget
+  reports so clients and tests can inspect why compaction did or did not
+  trigger without reverse-engineering token heuristics locally
 - durable compaction entries now also persist authoritative checkpoint messages
   plus `checkpoint_through_run_id`, so resumed history rebuilds from explicit
   checkpoint state rather than reconstructing a synthetic summary boundary at

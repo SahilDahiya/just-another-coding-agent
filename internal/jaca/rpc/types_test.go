@@ -89,7 +89,35 @@ func TestDecodeEnvelopePreservesSessionCompactionCompletedFields(t *testing.T) {
 		"event":{
 			"type":"session_compaction_completed",
 			"compaction_id":"compact-1",
-			"summarized_through_run_id":"run-5"
+			"summarized_through_run_id":"run-5",
+			"first_kept_run_id":"run-6",
+			"checkpoint_through_run_id":"run-6",
+			"budget_before":{
+				"should_compact":true,
+				"reason":"over_budget",
+				"context_window_tokens":100000,
+				"effective_context_window_tokens":92000,
+				"output_headroom_tokens":8000,
+				"trigger_budget_tokens":64400,
+				"prompt_reserve_tokens":24000,
+				"estimated_resume_history_tokens":43000,
+				"estimated_pre_run_tokens":67000,
+				"measured_usage_tokens":120,
+				"estimated_trailing_tokens":42880,
+				"runs_since_latest_compaction":2
+			},
+			"budget_after":{
+				"should_compact":false,
+				"reason":"no_new_work",
+				"context_window_tokens":100000,
+				"effective_context_window_tokens":92000,
+				"output_headroom_tokens":8000,
+				"trigger_budget_tokens":64400,
+				"prompt_reserve_tokens":24000,
+				"estimated_resume_history_tokens":12000,
+				"estimated_pre_run_tokens":36000,
+				"runs_since_latest_compaction":0
+			}
 		}
 	}`)
 

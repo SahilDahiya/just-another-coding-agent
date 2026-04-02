@@ -63,6 +63,10 @@ The current automatic trigger is pre-run and token-budget-aware:
   explicit warning event before `run_started` so clients can surface the real
   continuity risk instead of treating repeated compactions as silent
   maintenance
+- every automatic compaction decision now has a typed
+  `CompactionBudgetReport`, and the runtime emits that report on
+  `session_compaction_started` plus `budget_before` / `budget_after` on
+  `session_compaction_completed`
 
 The compaction source is intentionally not a raw transcript dump. It uses:
 

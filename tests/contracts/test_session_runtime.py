@@ -2254,6 +2254,16 @@ async def test_stream_session_run_events_auto_compacts_stale_session_before_resu
         "assistant_text_delta",
         "run_succeeded",
     ]
+    assert events[0].budget.should_compact is True
+    assert events[0].budget.reason == "over_budget"
+    assert events[0].budget.runs_since_latest_compaction == 2
+    assert events[1].first_kept_run_id == "run-2"
+    assert events[1].checkpoint_through_run_id == "run-2"
+    assert events[1].budget_before.should_compact is True
+    assert events[1].budget_before.reason == "over_budget"
+    assert events[1].budget_after.should_compact is False
+    assert events[1].budget_after.reason == "no_new_work"
+    assert events[1].budget_after.runs_since_latest_compaction == 0
 
     loaded = load_session(path=session_path, workspace_root=workspace_root)
     assert len(loaded.compactions) == 1
@@ -2379,6 +2389,10 @@ async def test_stream_session_run_events_warns_after_repeated_auto_compaction(
         "assistant_text_delta",
         "run_succeeded",
     ]
+    assert events[0].budget.should_compact is True
+    assert events[1].budget_before.should_compact is True
+    assert events[1].budget_after.should_compact is False
+    assert events[1].budget_after.reason == "no_new_work"
     assert events[2].message == (
         "Session has been compacted multiple times; continuity quality may "
         "degrade."

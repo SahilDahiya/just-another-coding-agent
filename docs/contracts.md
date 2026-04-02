@@ -287,9 +287,16 @@ Rules:
 Initial executable run slice:
 
 - `session_compaction_started`
-  - fields: `type`
+  - fields: `type`, `budget`
 - `session_compaction_completed`
-  - fields: `type`, `compaction_id`, `summarized_through_run_id`
+  - fields:
+    - `type`
+    - `compaction_id`
+    - `summarized_through_run_id`
+    - `first_kept_run_id`
+    - `checkpoint_through_run_id`
+    - `budget_before`
+    - `budget_after`
 - `session_compaction_warning`
   - fields: `type`, `compaction_count`, `message`
 - `run_started`
@@ -309,6 +316,9 @@ Ordering rules for the initial slice:
 - `run_succeeded` may also carry optional additive usage metadata when the model/provider reports it
 - `input_tokens`, `output_tokens`, and `total_tokens` are optional integer token counts on `run_succeeded`
 - `context_window_used` is an optional float ratio on `run_succeeded` and is omitted when the backend cannot determine the active model context window
+- `budget`, `budget_before`, and `budget_after` are backend-owned
+  `CompactionBudgetReport` objects. They are additive observability payloads
+  for compaction decisions and must not require Go-side reinterpretation.
 - After a second-or-later durable automatic compaction, the runtime emits one
   explicit `session_compaction_warning` before `run_started` so clients can
   surface potential continuity degradation without inventing local heuristics
@@ -566,6 +576,19 @@ Ordering rules for the RPC slice:
 - If model-driven compaction summary generation fails, `session.compact` fails hard; it does not append a placeholder summary
 - A valid `run.start` request must reference an existing `session_id` and yields zero or more `rpc_event` lines whose embedded events satisfy the streamed run contract
 - Session lifecycle `rpc_event` payloads such as `session_compaction_started` and `session_compaction_completed` may appear before `run_started`
+- `CompactionBudgetReport` fields are:
+  - `should_compact`
+  - `reason`
+  - `context_window_tokens`
+  - `effective_context_window_tokens`
+  - `output_headroom_tokens`
+  - `trigger_budget_tokens`
+  - `prompt_reserve_tokens`
+  - `estimated_resume_history_tokens`
+  - `estimated_pre_run_tokens`
+  - `measured_usage_tokens`
+  - `estimated_trailing_tokens`
+  - `runs_since_latest_compaction`
 - `run.start` on an existing session is the canonical continue operation; there is no separate `session.continue` command
 - Forking is a wrapper-level session-store operation today: the Python launcher
   may create a new session file with one `session_fork` entry before the TUI

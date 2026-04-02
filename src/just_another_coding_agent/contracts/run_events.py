@@ -4,6 +4,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from just_another_coding_agent.contracts.compaction import CompactionBudgetReport
 from just_another_coding_agent.contracts.platform import ShellFamily
 
 type JsonValue = (
@@ -164,6 +165,7 @@ class SessionCompactionStartedEvent(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     type: Literal["session_compaction_started"] = "session_compaction_started"
+    budget: CompactionBudgetReport
 
 
 class SessionCompactionCompletedEvent(BaseModel):
@@ -172,6 +174,10 @@ class SessionCompactionCompletedEvent(BaseModel):
     type: Literal["session_compaction_completed"] = "session_compaction_completed"
     compaction_id: str
     summarized_through_run_id: str
+    first_kept_run_id: str | None = None
+    checkpoint_through_run_id: str
+    budget_before: CompactionBudgetReport
+    budget_after: CompactionBudgetReport
 
 
 class SessionCompactionWarningEvent(BaseModel):

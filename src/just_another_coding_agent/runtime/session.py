@@ -34,9 +34,9 @@ from just_another_coding_agent.contracts.tools import CANONICAL_TOOL_NAMES
 from just_another_coding_agent.runtime.activity import build_failed_tool_activity
 from just_another_coding_agent.runtime.agent import build_canonical_agent
 from just_another_coding_agent.runtime.compaction import (
+    build_auto_compact_session_budget_report,
     build_resume_message_history,
     restore_in_run_compaction_from_messages,
-    should_auto_compact_session,
     summarize_and_append_compaction_to_session,
 )
 from just_another_coding_agent.runtime.run import stream_run_events
@@ -166,7 +166,11 @@ async def stream_session_run_events(
             path=session_path,
             workspace_root=normalized_workspace_root,
         )
-        if should_auto_compact_session(loaded_session, model=model):
+        compaction_budget_before = build_auto_compact_session_budget_report(
+            loaded_session,
+            model=model,
+        )
+        if compaction_budget_before.should_compact:
             metadata = read_session_metadata(
                 path=session_path.with_suffix(".meta.json")
             )
@@ -181,7 +185,7 @@ async def stream_session_run_events(
             # Auto-compaction is pre-run session maintenance, not part of the
             # streamed run event contract. Failures here surface as an
             # exception to the caller rather than as a run_failed event.
-            yield SessionCompactionStartedEvent()
+            yield SessionCompactionStartedEvent(budget=compaction_budget_before)
             try:
                 compaction_entry = await summarize_and_append_compaction_to_session(
                     model=model,
@@ -204,9 +208,17 @@ async def stream_session_run_events(
                 path=session_path,
                 workspace_root=normalized_workspace_root,
             )
+            compaction_budget_after = build_auto_compact_session_budget_report(
+                loaded_session,
+                model=model,
+            )
             yield SessionCompactionCompletedEvent(
                 compaction_id=compaction_entry.compaction_id,
                 summarized_through_run_id=compaction_entry.summarized_through_run_id,
+                first_kept_run_id=compaction_entry.first_kept_run_id,
+                checkpoint_through_run_id=compaction_entry.checkpoint_through_run_id,
+                budget_before=compaction_budget_before,
+                budget_after=compaction_budget_after,
             )
             if len(loaded_session.compactions) >= 2:
                 yield SessionCompactionWarningEvent(

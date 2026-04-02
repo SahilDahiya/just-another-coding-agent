@@ -10,6 +10,7 @@ from just_another_coding_agent.contracts.run_events import (
     RunStartedEvent,
     RunSucceededEvent,
 )
+from just_another_coding_agent.contracts.session import SessionCompactionSummary
 from just_another_coding_agent.runtime.compaction import (
     build_compaction_summary_message,
     build_in_run_history_processor,
@@ -26,7 +27,11 @@ from just_another_coding_agent.runtime.compaction import (
 from just_another_coding_agent.runtime.compaction.budget import (
     build_effective_compaction_context_window_tokens,
 )
-from just_another_coding_agent.session import append_run_to_session, load_session
+from just_another_coding_agent.session import (
+    append_compaction_to_session,
+    append_run_to_session,
+    load_session,
+)
 
 
 def test_compaction_public_api_is_split_across_submodules() -> None:
@@ -157,8 +162,8 @@ def test_should_auto_compact_session_uses_effective_context_window_budget(
     loaded = load_session(path=session_path, workspace_root=workspace_root)
     monkeypatch.setattr(
         trigger,
-        "_estimate_resume_history_tokens",
-        lambda loaded_session: 43_000,
+        "_estimate_resume_history_budget_components",
+        lambda loaded_session: (43_000, None, None),
     )
 
     assert trigger.should_auto_compact_session(
@@ -166,3 +171,101 @@ def test_should_auto_compact_session_uses_effective_context_window_budget(
         model="test:model",
         get_context_window_tokens=lambda _model: 100_000,
     )
+
+
+def test_build_auto_compaction_budget_report_records_trigger_inputs(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    session_path = tmp_path / "session.jsonl"
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    append_run_to_session(
+        path=session_path,
+        workspace_root=workspace_root,
+        prompt="only",
+        thinking=None,
+        messages=[ModelRequest(parts=[UserPromptPart(content="only")])],
+        events=[
+            RunStartedEvent(run_id="run-1"),
+            RunSucceededEvent(run_id="run-1", output_text="done"),
+        ],
+    )
+
+    loaded = load_session(path=session_path, workspace_root=workspace_root)
+    monkeypatch.setattr(
+        trigger,
+        "_estimate_resume_history_budget_components",
+        lambda loaded_session: (43_000, 120, 42_880),
+    )
+
+    report = trigger.build_auto_compact_session_budget_report(
+        loaded,
+        model="test:model",
+        get_context_window_tokens=lambda _model: 100_000,
+    )
+
+    assert report.should_compact is True
+    assert report.reason == "over_budget"
+    assert report.context_window_tokens == 100_000
+    assert report.effective_context_window_tokens == 92_000
+    assert report.output_headroom_tokens == 8_000
+    assert report.trigger_budget_tokens == 64_400
+    assert report.prompt_reserve_tokens == 24_000
+    assert report.estimated_resume_history_tokens == 43_000
+    assert report.measured_usage_tokens == 120
+    assert report.estimated_trailing_tokens == 42_880
+    assert report.runs_since_latest_compaction == 1
+
+
+def test_build_auto_compaction_budget_report_explains_no_new_work(
+    tmp_path,
+) -> None:
+    session_path = tmp_path / "session.jsonl"
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    large_prompt = "z" * 400_000
+
+    for run_id in ["run-1", "run-2"]:
+        append_run_to_session(
+            path=session_path,
+            workspace_root=workspace_root,
+            prompt=large_prompt,
+            thinking=None,
+            messages=[ModelRequest(parts=[UserPromptPart(content=large_prompt)])],
+            events=[
+                RunStartedEvent(run_id=run_id),
+                RunSucceededEvent(run_id=run_id, output_text="done"),
+            ],
+        )
+
+    append_compaction_to_session(
+        path=session_path,
+        workspace_root=workspace_root,
+        summary=SessionCompactionSummary(
+            current_objective="continue from retained runs",
+            established_facts=["run-1 is summarized"],
+            user_preferences=[],
+            important_paths=[],
+            read_paths=[],
+            modified_paths=[],
+            recent_shell_commands=[],
+            recent_failures=[],
+            open_questions=[],
+            unresolved_work=["finish the task"],
+        ),
+        summarized_through_run_id="run-1",
+        first_kept_run_id="run-2",
+    )
+
+    loaded = load_session(path=session_path, workspace_root=workspace_root)
+    report = trigger.build_auto_compact_session_budget_report(
+        loaded,
+        model="test:model",
+        get_context_window_tokens=lambda _model: 100_000,
+    )
+
+    assert report.should_compact is False
+    assert report.reason == "no_new_work"
+    assert report.runs_since_latest_compaction == 0

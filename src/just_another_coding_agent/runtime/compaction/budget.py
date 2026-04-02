@@ -5,14 +5,23 @@ from just_another_coding_agent.runtime.compaction.constants import (
 )
 
 
-def build_effective_compaction_context_window_tokens(
+def build_compaction_output_headroom_tokens(
     context_window_tokens: int,
 ) -> int:
-    reserve_tokens = min(
+    return min(
         SESSION_COMPACTION_OUTPUT_RESERVE_TOKENS,
         max(context_window_tokens // 4, 1),
     )
+
+
+def build_effective_compaction_context_window_tokens(
+    context_window_tokens: int,
+) -> int:
+    reserve_tokens = build_compaction_output_headroom_tokens(context_window_tokens)
     return max(context_window_tokens - reserve_tokens, 0)
 
 
-__all__ = ["build_effective_compaction_context_window_tokens"]
+__all__ = [
+    "build_compaction_output_headroom_tokens",
+    "build_effective_compaction_context_window_tokens",
+]
