@@ -148,6 +148,15 @@ and statuses are stored.
 
 V1 should stay small and explicit.
 
+There should be no separate `projects` table in v1.
+
+The workspace is already the outer project boundary. Inside a workspace, a
+top-level work item can represent a major workstream such as `work-graph`,
+`session-continuity`, or `bloat-and-rot`.
+
+To support that without growing a second hierarchy system, `work_items` should
+carry a small `kind` field in v1.
+
 ### Work Item
 
 A work item is the main unit.
@@ -155,6 +164,7 @@ A work item is the main unit.
 Recommended fields:
 
 - `id`
+- `kind`
 - `slug`
 - `title`
 - `status`
@@ -164,9 +174,29 @@ Recommended fields:
 - `updated_at`
 - `archived_at`
 
+Recommended `kind` values in v1:
+
+- `project`
+- `task`
+
+Recommended `status` values in v1:
+
+- `todo`
+- `in_progress`
+- `blocked`
+- `done`
+- `archived`
+
+`body_md` is the canonical current description of the work item. It is mutable.
+The durable history of how the item changed belongs in `work_updates`.
+`updated_at` should advance whenever the current visible state of the item
+changes, including appended updates.
+
 ### Work Update
 
 A work item should have an append-only update log for important changes.
+
+One work item may have many updates.
 
 Recommended update kinds:
 
@@ -176,12 +206,32 @@ Recommended update kinds:
 - status_change
 - completion
 
+Recommended fields:
+
+- `id`
+- `work_item_id`
+- `kind`
+- `body_md`
+- `session_id` nullable
+- `created_at`
+
+This is the durable narrative of the item. It replaces the need for a separate
+comments subsystem in v1.
+
 ### Work Session Link
 
 Sessions should be linkable to work items so the agent and user can see which
 threads contributed to which work.
 
 This is a link, not a merge of storage systems.
+
+Recommended fields:
+
+- `work_item_id`
+- `session_id`
+- `created_at`
+
+Session links should start explicit, not automatic.
 
 ## Storage Direction
 
@@ -201,6 +251,41 @@ Why SQLite:
 
 JSONL is the right shape for append-only session history. It is not the right
 shape for mutable workspace work state.
+
+## V1 Storage Rules
+
+The v1 storage contract should be strict and small.
+
+- ids are opaque text ids, not integer sequences
+- `slug` must be unique within a workspace database
+- `parent_id` is nullable
+- top-level `project` items group child tasks
+- `archived_at` records archive time rather than deleting data
+- `updated_at` advances on any meaningful mutation to the item, including:
+  - body changes
+  - status changes
+  - archive transitions
+  - appended `work_updates`
+- `work_updates` are append-only
+- `work_updates.session_id` is optional and records which session produced a
+  specific update when known
+- `work_session_links` are for broader work-to-session association and are not a
+  substitute for session history
+- SQL constraints should enforce the allowed `kind` and `status` values
+- backend validation should enforce the same rules before writes
+- `work_session_links` should be unique on `(work_item_id, session_id)`
+- `work_updates.session_id` should stay nullable text and should not depend on a
+  foreign key into session JSONL storage
+
+If an item is marked `done`, the preferred path is:
+
+- update `work_items.status`
+- append a `completion` update explaining how it was finished
+- optionally attach the producing session through `session_id` or a broader link
+
+For v1, `archived` should remain a status value rather than becoming a separate
+orthogonal state machine. That keeps the first implementation smaller and the
+queries simpler.
 
 ## Commands And Surfaces
 
@@ -238,6 +323,7 @@ The agent should not, by default:
 
 Do not build these in the first slice:
 
+- a separate `projects` table
 - labels
 - assignees
 - cycles
