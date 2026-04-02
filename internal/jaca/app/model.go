@@ -94,50 +94,78 @@ type onboardingState struct {
 	Selected int
 }
 
-type model struct {
-	options               Options
-	phase                 Phase
+type sessionState struct {
 	sessionID             string
 	sessionName           string
 	forkedFromSessionID   string
 	forkedFromSessionName string
-	textInput             textinput.Model
-	viewport              viewport.Model
-	transcript            *Transcript
-	width                 int
-	height                int
-	visibleZones          int
-	motionTick            int
-	streaming             bool
-	activeRunSucceeded    bool
-	promptHistory         []string
-	historyIndex          int
-	historyDraft          string
-	lastInterrupt         time.Time
-	activeRunCancel       context.CancelFunc
-	editPreviousArmed     bool
-	promptFooterNotice    string
-	runStartTime          time.Time
-	lastDeltaTime         time.Time
-	linePulse             int
-	pendingAssistant      string
-	liveFlushScheduled    bool
-	asyncCh               chan tea.Msg
-	slashMenu             slashMenuState
-	auth                  authState
-	configErrLogged       bool
-	lastUsage             usageSnapshot
-	modelCatalog          *rpc.ModelCatalogResponse
-	modelCatalogLoading   bool
-	authStatus            *rpc.AuthStatusResponse
-	authStatusLoading     bool
 	sessionPreviewLoading bool
 	sessionPreviewLoaded  bool
-	startupOnboardingSet  bool
-	onboarding            onboardingState
-	appVersion            string
-	skippedUpdateVersion  string
-	updatePrompt          updatePromptState
+}
+
+type promptState struct {
+	promptHistory      []string
+	historyIndex       int
+	historyDraft       string
+	editPreviousArmed  bool
+	promptFooterNotice string
+	slashMenu          slashMenuState
+}
+
+type runState struct {
+	phase              Phase
+	streaming          bool
+	activeRunSucceeded bool
+	lastInterrupt      time.Time
+	activeRunCancel    context.CancelFunc
+	runStartTime       time.Time
+	lastDeltaTime      time.Time
+	pendingAssistant   string
+	liveFlushScheduled bool
+	asyncCh            chan tea.Msg
+	lastUsage          usageSnapshot
+}
+
+type layoutState struct {
+	width        int
+	height       int
+	visibleZones int
+	motionTick   int
+	linePulse    int
+}
+
+type backendState struct {
+	configErrLogged     bool
+	modelCatalog        *rpc.ModelCatalogResponse
+	modelCatalogLoading bool
+	authStatus          *rpc.AuthStatusResponse
+	authStatusLoading   bool
+}
+
+type overlayState struct {
+	auth                 authState
+	startupOnboardingSet bool
+	onboarding           onboardingState
+	updatePrompt         updatePromptState
+}
+
+type installState struct {
+	appVersion           string
+	skippedUpdateVersion string
+}
+
+type model struct {
+	options Options
+	sessionState
+	promptState
+	runState
+	layoutState
+	backendState
+	overlayState
+	installState
+	textInput  textinput.Model
+	viewport   viewport.Model
+	transcript *Transcript
 }
 
 func New(options Options) tea.Model {
@@ -173,20 +201,30 @@ func New(options Options) tea.Model {
 	}
 
 	return &model{
-		options:               options,
-		phase:                 PhaseIdle,
-		sessionID:             options.SessionID,
-		sessionName:           options.SessionName,
-		forkedFromSessionID:   options.ForkedFromSessionID,
-		forkedFromSessionName: options.ForkedFromSessionName,
-		textInput:             input,
-		viewport:              newViewport(),
-		transcript:            transcript,
-		historyIndex:          -1,
-		startupOnboardingSet:  startupOnboardingSet,
-		onboarding:            onboarding,
-		appVersion:            options.AppVersion,
-		skippedUpdateVersion:  options.SkippedUpdateVersion,
+		options: options,
+		sessionState: sessionState{
+			sessionID:             options.SessionID,
+			sessionName:           options.SessionName,
+			forkedFromSessionID:   options.ForkedFromSessionID,
+			forkedFromSessionName: options.ForkedFromSessionName,
+		},
+		promptState: promptState{
+			historyIndex: -1,
+		},
+		runState: runState{
+			phase: PhaseIdle,
+		},
+		overlayState: overlayState{
+			startupOnboardingSet: startupOnboardingSet,
+			onboarding:           onboarding,
+		},
+		installState: installState{
+			appVersion:           options.AppVersion,
+			skippedUpdateVersion: options.SkippedUpdateVersion,
+		},
+		textInput:  input,
+		viewport:   newViewport(),
+		transcript: transcript,
 	}
 }
 
