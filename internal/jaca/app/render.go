@@ -26,6 +26,13 @@ type theme struct {
 	errSoft     lipgloss.TerminalColor
 }
 
+type usageSnapshot struct {
+	InputTokens   *int
+	OutputTokens  *int
+	TotalTokens   *int
+	ContextWindow *float64
+}
+
 var defaultTheme = theme{
 	background:  themeColor("#0f1115", "233", "0"),
 	border:      themeColor("#2a313c", "238", "8"),
@@ -65,10 +72,7 @@ type viewModel struct {
 	PromptValue    string
 	PromptFooter   string
 	RunElapsed     time.Duration
-	InputTokens    *int
-	OutputTokens   *int
-	TotalTokens    *int
-	ContextWindow  *float64
+	Usage          usageSnapshot
 	LinePulse      int
 	SinceLastDelta time.Duration
 	DetachedLive   bool
@@ -608,25 +612,25 @@ func buildIdleFooterText(vm viewModel) string {
 func buildUsageFooterText(vm viewModel, detailed bool) string {
 	parts := []string{}
 	if detailed {
-		if vm.InputTokens != nil {
-			parts = append(parts, fmt.Sprintf("%d in", *vm.InputTokens))
+		if vm.Usage.InputTokens != nil {
+			parts = append(parts, fmt.Sprintf("%d in", *vm.Usage.InputTokens))
 		}
-		if vm.OutputTokens != nil {
-			parts = append(parts, fmt.Sprintf("%d out", *vm.OutputTokens))
+		if vm.Usage.OutputTokens != nil {
+			parts = append(parts, fmt.Sprintf("%d out", *vm.Usage.OutputTokens))
 		}
 	}
-	if vm.TotalTokens != nil {
-		parts = append(parts, fmt.Sprintf("%d tok", *vm.TotalTokens))
+	if vm.Usage.TotalTokens != nil {
+		parts = append(parts, fmt.Sprintf("%d tok", *vm.Usage.TotalTokens))
 	} else if !detailed {
-		if vm.InputTokens != nil {
-			parts = append(parts, fmt.Sprintf("%d in", *vm.InputTokens))
+		if vm.Usage.InputTokens != nil {
+			parts = append(parts, fmt.Sprintf("%d in", *vm.Usage.InputTokens))
 		}
-		if vm.OutputTokens != nil {
-			parts = append(parts, fmt.Sprintf("%d out", *vm.OutputTokens))
+		if vm.Usage.OutputTokens != nil {
+			parts = append(parts, fmt.Sprintf("%d out", *vm.Usage.OutputTokens))
 		}
 	}
-	if vm.ContextWindow != nil {
-		parts = append(parts, fmt.Sprintf("%d%% ctx", int(math.Round(*vm.ContextWindow*100))))
+	if vm.Usage.ContextWindow != nil {
+		parts = append(parts, fmt.Sprintf("%d%% ctx", int(math.Round(*vm.Usage.ContextWindow*100))))
 	}
 	return joinFooterParts(parts...)
 }

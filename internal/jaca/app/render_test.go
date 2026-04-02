@@ -261,11 +261,13 @@ func TestBuildPromptFooterTextShowsDetailedUsageWhenCompleted(t *testing.T) {
 	context := 0.413
 
 	got := buildPromptFooterText(viewModel{
-		Phase:         PhaseCompleted,
-		InputTokens:   &input,
-		OutputTokens:  &output,
-		TotalTokens:   &total,
-		ContextWindow: &context,
+		Phase: PhaseCompleted,
+		Usage: usageSnapshot{
+			InputTokens:   &input,
+			OutputTokens:  &output,
+			TotalTokens:   &total,
+			ContextWindow: &context,
+		},
 	})
 
 	for _, want := range []string{"completed", "120 in", "45 out", "165 tok", "41% ctx"} {
@@ -283,8 +285,10 @@ func TestBuildPromptFooterTextShowsCompactUsageWhenIdle(t *testing.T) {
 		Phase:         PhaseIdle,
 		Model:         "ollama:kimi-k2:1t-cloud",
 		WorkspaceRoot: "/workspace",
-		TotalTokens:   &total,
-		ContextWindow: &context,
+		Usage: usageSnapshot{
+			TotalTokens:   &total,
+			ContextWindow: &context,
+		},
 	})
 
 	for _, want := range []string{"ollama:kimi-k2:1t-cloud", "/workspace", "165 tok", "41% ctx"} {

@@ -32,6 +32,140 @@ type toolGroup struct {
 	entries map[string]*toolEntry
 }
 
+func newToolGroup(index int) *toolGroup {
+	return &toolGroup{
+		index:   index,
+		entries: map[string]*toolEntry{},
+	}
+}
+
+func (g *toolGroup) start(event rpc.RunEvent) {
+	g.order = append(g.order, event.ToolCallID)
+	g.entries[event.ToolCallID] = &toolEntry{
+		toolName:  event.ToolName,
+		preview:   buildToolPreview(event.ToolName, event.Args, event.ArgsValid, event.Activity),
+		groupKind: buildToolGroupKind(event.Activity),
+		activity:  event.Activity,
+	}
+}
+
+func (g *toolGroup) finish(event rpc.RunEvent) bool {
+	entry := g.entries[event.ToolCallID]
+	if entry == nil {
+		return false
+	}
+	miss := isOperationalMiss(event.Result)
+	entry.operationalMiss = miss
+	if miss {
+		entry.outcome = ""
+	} else {
+		entry.outcome = "ok"
+	}
+	entry.resultLines = nil
+	entry.resultTruncated = false
+	entry.detailLines = nil
+	if entry.preview == "" {
+		entry.message = buildToolSummary(event.Activity, "")
+	} else {
+		entry.message = ""
+	}
+	entry.duration = buildToolDuration(event.Activity)
+	entry.detailLines = buildToolDetailLines(event.Activity)
+	if len(entry.detailLines) == 0 {
+		entry.resultLines, entry.resultTruncated, entry.resultOmittedLines, entry.resultHeadCount = extractToolResultLines(event.Result)
+	}
+	if len(entry.detailLines) == 0 && len(entry.resultLines) == 0 && entry.message == "" {
+		entry.message = buildToolSummary(event.Activity, "")
+	}
+	entry.groupKind = buildToolGroupKind(event.Activity)
+	if event.Activity != nil {
+		entry.activity = event.Activity
+	}
+	return true
+}
+
+func (g *toolGroup) update(event rpc.RunEvent) bool {
+	entry := g.entries[event.ToolCallID]
+	if entry == nil {
+		return false
+	}
+	entry.outcome = "running"
+	entry.message = buildToolSummary(event.Activity, "")
+	entry.duration = buildToolDuration(event.Activity)
+	entry.groupKind = buildToolGroupKind(event.Activity)
+	if event.Activity != nil {
+		entry.activity = event.Activity
+	}
+	entry.detailLines = nil
+	entry.resultLines, entry.resultTruncated, entry.resultOmittedLines, entry.resultHeadCount = extractToolResultLines(event.Partial)
+	return true
+}
+
+func (g *toolGroup) fail(event rpc.RunEvent) bool {
+	entry := g.entries[event.ToolCallID]
+	if entry == nil {
+		return false
+	}
+	entry.outcome = "error"
+	entry.message = buildToolSummary(event.Activity, event.Message)
+	entry.duration = buildToolDuration(event.Activity)
+	entry.groupKind = buildToolGroupKind(event.Activity)
+	if event.Activity != nil {
+		entry.activity = event.Activity
+	}
+	entry.detailLines = nil
+	entry.resultLines = nil
+	entry.resultTruncated = false
+	return true
+}
+
+func (g *toolGroup) render() (string, string) {
+	if isExplorationGroup(g.order, g.entries) &&
+		!hasExplorationErrors(g.order, g.entries) &&
+		!hasExplorationOperationalMisses(g.order, g.entries) {
+		return renderExplorationGroup(g.order, g.entries)
+	}
+
+	var plain strings.Builder
+	var rendered strings.Builder
+	prevHadDetail := false
+	for _, toolCallID := range g.order {
+		entry := g.entries[toolCallID]
+		if prevHadDetail {
+			plain.WriteByte('\n')
+			rendered.WriteByte('\n')
+		}
+		plain.WriteString(formatToolActivityLine(entry))
+		rendered.WriteString(renderToolActivityLine(entry))
+		for _, line := range entry.detailLines {
+			plain.WriteString(line + "\n")
+			rendered.WriteString(styleToolDetailLine(line) + "\n")
+		}
+		resultColor := defaultTheme.textMuted
+		if entry.operationalMiss {
+			resultColor = defaultTheme.errSoft
+		}
+		for idx, line := range entry.resultLines {
+			prefix := "    "
+			if idx == 0 {
+				prefix = "  └ "
+			}
+			plain.WriteString(prefix + line + "\n")
+			rendered.WriteString(lipgloss.NewStyle().Foreground(resultColor).Render(prefix+line) + "\n")
+			if entry.resultTruncated && idx == entry.resultHeadCount-1 {
+				truncMsg := "    ..."
+				if entry.resultOmittedLines > 0 {
+					truncMsg = fmt.Sprintf("    ... +%d more lines", entry.resultOmittedLines)
+				}
+				plain.WriteString(truncMsg + "\n")
+				rendered.WriteString(lipgloss.NewStyle().Foreground(resultColor).Render(truncMsg) + "\n")
+			}
+		}
+		prevHadDetail = len(entry.detailLines) > 0 || len(entry.resultLines) > 0 || entry.resultTruncated
+	}
+	return plain.String(), rendered.String()
+}
+
 const (
 	maxToolResultLines     = 6
 	maxToolResultLineChars = 160

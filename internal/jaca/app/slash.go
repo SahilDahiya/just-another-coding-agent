@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"jaca/internal/jaca/config"
 	"jaca/internal/jaca/rpc"
 )
@@ -31,16 +33,35 @@ type slashMenuState struct {
 	Selected int
 }
 
+type slashCommandSpec struct {
+	Value          string
+	Description    string
+	AcceptsArgs    bool
+	ArgSuggestions func(*model) []slashSuggestion
+	Execute        func(*model, string) (tea.Model, tea.Cmd)
+}
+
+var slashCommands = []slashCommandSpec{
+	{Value: "/provider", Description: "Switch active provider", AcceptsArgs: true, ArgSuggestions: (*model).providerSlashSuggestions, Execute: (*model).executeProviderSlash},
+	{Value: "/auth", Description: "Authenticate a cloud provider", AcceptsArgs: true, ArgSuggestions: (*model).authSlashSuggestions, Execute: (*model).executeAuthSlash},
+	{Value: "/model", Description: "Switch active model", AcceptsArgs: true, ArgSuggestions: (*model).modelSlashSuggestions, Execute: (*model).executeModelSlash},
+	{Value: "/trace", Description: "Set tracing mode", AcceptsArgs: true, ArgSuggestions: (*model).traceSlashSuggestions, Execute: (*model).executeTraceSlash},
+	{Value: "/thinking", Description: "Set thinking effort", AcceptsArgs: true, Execute: (*model).executeThinkingSlash},
+	{Value: "/workspace", Description: "Show current workspace", Execute: (*model).executeWorkspaceSlash},
+	{Value: "/session", Description: "Show active session", Execute: (*model).executeSessionSlash},
+	{Value: "/name", Description: "Name active session", AcceptsArgs: true, Execute: (*model).executeNameSlash},
+	{Value: "/compact", Description: "Compact current session", Execute: (*model).executeCompactSlash},
+	{Value: "/new", Description: "Clear active session", Execute: (*model).executeNewSlash},
+	{Value: "/help", Description: "Show available commands", Execute: (*model).executeHelpSlash},
+	{Value: "/quit", Description: "Quit JACA", Execute: (*model).executeQuitSlash},
+}
+
 func (m *model) syncSlashMenu() {
 	if m.streaming {
 		m.clearSlashMenu()
 		return
 	}
-	state := buildSlashMenuState(
-		m.textInput.Value(),
-		m.currentProvider(),
-		m.catalogModelSuggestions(m.currentProvider()),
-	)
+	state := buildSlashMenuState(m.textInput.Value(), m)
 	if state.Mode == slashMenuHidden {
 		m.clearSlashMenu()
 		return
@@ -145,11 +166,7 @@ func (m *model) providerFromModel() string {
 	}
 }
 
-func buildSlashMenuState(
-	input string,
-	provider string,
-	modelRows []slashSuggestion,
-) slashMenuState {
+func buildSlashMenuState(input string, m *model) slashMenuState {
 	if input == "" || !strings.HasPrefix(input, "/") {
 		return slashMenuState{}
 	}
@@ -174,19 +191,11 @@ func buildSlashMenuState(
 	}
 
 	rawArg := strings.TrimSpace(input[len(parts[0]):])
-	var rows []slashSuggestion
-	switch commandToken {
-	case "/provider":
-		rows = filterSuggestions(providerSuggestions(), rawArg)
-	case "/auth":
-		rows = filterSuggestions(authSuggestions(), rawArg)
-	case "/model":
-		rows = filterSuggestions(modelRows, rawArg)
-	case "/trace":
-		rows = filterSuggestions(traceSuggestions(), rawArg)
-	default:
+	spec, ok := lookupSlashCommand(commandToken)
+	if !ok || spec.ArgSuggestions == nil {
 		return slashMenuState{}
 	}
+	rows := filterSuggestions(spec.ArgSuggestions(m), rawArg)
 	if len(rows) == 1 && strings.EqualFold(rawArg, rows[0].Value) && !hasTrailingSpace {
 		return slashMenuState{}
 	}
@@ -199,20 +208,15 @@ func buildSlashMenuState(
 }
 
 func slashCommandSuggestions() []slashSuggestion {
-	return []slashSuggestion{
-		{Value: "/provider", Description: "Switch active provider", AcceptsArgs: true},
-		{Value: "/auth", Description: "Authenticate a cloud provider", AcceptsArgs: true},
-		{Value: "/model", Description: "Switch active model", AcceptsArgs: true},
-		{Value: "/trace", Description: "Set tracing mode", AcceptsArgs: true},
-		{Value: "/thinking", Description: "Set thinking effort", AcceptsArgs: true},
-		{Value: "/workspace", Description: "Show current workspace"},
-		{Value: "/session", Description: "Show active session"},
-		{Value: "/name", Description: "Name active session", AcceptsArgs: true},
-		{Value: "/compact", Description: "Compact current session"},
-		{Value: "/new", Description: "Clear active session"},
-		{Value: "/help", Description: "Show available commands"},
-		{Value: "/quit", Description: "Quit JACA"},
+	rows := make([]slashSuggestion, 0, len(slashCommands))
+	for _, command := range slashCommands {
+		rows = append(rows, slashSuggestion{
+			Value:       command.Value,
+			Description: command.Description,
+			AcceptsArgs: command.AcceptsArgs,
+		})
 	}
+	return rows
 }
 
 func providerSuggestions() []slashSuggestion {
@@ -239,6 +243,157 @@ func traceSuggestions() []slashSuggestion {
 		{Value: "local", Description: "Store traces locally"},
 		{Value: "logfire", Description: "Send traces to Logfire"},
 	}
+}
+
+func lookupSlashCommand(name string) (slashCommandSpec, bool) {
+	for _, command := range slashCommands {
+		if command.Value == name {
+			return command, true
+		}
+	}
+	return slashCommandSpec{}, false
+}
+
+func (m *model) providerSlashSuggestions() []slashSuggestion {
+	return providerSuggestions()
+}
+
+func (m *model) authSlashSuggestions() []slashSuggestion {
+	return authSuggestions()
+}
+
+func (m *model) modelSlashSuggestions() []slashSuggestion {
+	return m.catalogModelSuggestions(m.currentProvider())
+}
+
+func (m *model) traceSlashSuggestions() []slashSuggestion {
+	return traceSuggestions()
+}
+
+func (m *model) handleSlashCommand(command string) (tea.Model, tea.Cmd) {
+	parts := strings.Fields(command)
+	if len(parts) == 0 {
+		return m, nil
+	}
+	cmdName := strings.ToLower(parts[0])
+	arg := ""
+	if len(parts) > 1 {
+		arg = strings.TrimSpace(command[len(parts[0]):])
+	}
+	spec, ok := lookupSlashCommand(cmdName)
+	if !ok {
+		m.transcript.WriteNote("command", nil)
+		m.transcript.WriteError(fmt.Sprintf("unknown: %s", cmdName))
+		m.refreshViewport()
+		return m, nil
+	}
+	return spec.Execute(m, arg)
+}
+
+func (m *model) executeHelpSlash(_ string) (tea.Model, tea.Cmd) {
+	m.transcript.WriteHelp()
+	m.refreshViewport()
+	return m, nil
+}
+
+func (m *model) executeModelSlash(arg string) (tea.Model, tea.Cmd) {
+	return m.handleModelCommand(arg)
+}
+
+func (m *model) executeThinkingSlash(arg string) (tea.Model, tea.Cmd) {
+	m.transcript.WriteNote("thinking", nil)
+	value := strings.TrimSpace(arg)
+	if value == "" {
+		current := m.options.Thinking
+		if current == "" {
+			current = "default"
+		}
+		m.transcript.WriteLine(fmt.Sprintf("thinking: %s", current))
+		m.refreshViewport()
+		return m, nil
+	}
+	switch value {
+	case "true", "false", "minimal", "low", "medium", "high", "xhigh":
+		m.options.Thinking = value
+		m.transcript.WriteLine(fmt.Sprintf("thinking set to %s", value))
+	default:
+		m.transcript.WriteError("invalid. use: false, high, low, medium, minimal, true, xhigh")
+	}
+	m.refreshViewport()
+	return m, nil
+}
+
+func (m *model) executeWorkspaceSlash(_ string) (tea.Model, tea.Cmd) {
+	m.transcript.WriteNote("workspace", nil)
+	m.transcript.WriteLine(fmt.Sprintf("workspace: %s", displayPath(m.options.WorkspaceRoot)))
+	m.refreshViewport()
+	return m, nil
+}
+
+func (m *model) executeSessionSlash(_ string) (tea.Model, tea.Cmd) {
+	m.writeSessionInfo()
+	m.refreshViewport()
+	return m, nil
+}
+
+func (m *model) executeNameSlash(arg string) (tea.Model, tea.Cmd) {
+	m.handleSessionNameCommand(strings.TrimSpace(arg))
+	m.refreshViewport()
+	return m, nil
+}
+
+func (m *model) executeProviderSlash(arg string) (tea.Model, tea.Cmd) {
+	m.handleProviderCommand(strings.TrimSpace(arg))
+	m.refreshViewport()
+	return m, nil
+}
+
+func (m *model) executeAuthSlash(arg string) (tea.Model, tea.Cmd) {
+	m.handleAuthCommand(strings.TrimSpace(arg))
+	m.refreshViewport()
+	return m, nil
+}
+
+func (m *model) executeTraceSlash(arg string) (tea.Model, tea.Cmd) {
+	m.handleTraceCommand(arg)
+	m.refreshViewport()
+	return m, nil
+}
+
+func (m *model) executeCompactSlash(_ string) (tea.Model, tea.Cmd) {
+	if m.sessionID == "" {
+		m.transcript.WriteNote("compact", nil)
+		m.transcript.WriteError("no active session")
+		m.refreshViewport()
+		return m, nil
+	}
+	m.phase = PhaseCompacting
+	m.streaming = true
+	m.textInput.Blur()
+	m.transcript.WriteNote("compact", nil)
+	m.transcript.WriteLine("compacting...")
+	m.refreshViewport()
+	m.asyncCh = make(chan tea.Msg, 4)
+	backend := m.options.Backend
+	sessionID := m.sessionID
+	go m.compactSession(sessionID, backend, m.asyncCh)
+	return m, listenAsync(m.asyncCh)
+}
+
+func (m *model) executeNewSlash(_ string) (tea.Model, tea.Cmd) {
+	m.transcript.WriteNote("session", nil)
+	m.sessionID = ""
+	m.sessionName = ""
+	m.forkedFromSessionID = ""
+	m.forkedFromSessionName = ""
+	m.phase = PhaseIdle
+	m.transcript.WriteLine("session cleared")
+	m.refreshViewport()
+	return m, nil
+}
+
+func (m *model) executeQuitSlash(_ string) (tea.Model, tea.Cmd) {
+	return m, tea.Quit
 }
 
 func (m *model) catalogModelSuggestions(provider string) []slashSuggestion {

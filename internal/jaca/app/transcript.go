@@ -610,18 +610,9 @@ func (t *Transcript) startTool(event rpc.RunEvent) {
 			t.ensureBlockGap()
 		}
 		index := t.appendBlock(&toolGroupCell{})
-		t.toolGroup = &toolGroup{
-			index:   index,
-			entries: map[string]*toolEntry{},
-		}
+		t.toolGroup = newToolGroup(index)
 	}
-	t.toolGroup.order = append(t.toolGroup.order, event.ToolCallID)
-	t.toolGroup.entries[event.ToolCallID] = &toolEntry{
-		toolName:  event.ToolName,
-		preview:   buildToolPreview(event.ToolName, event.Args, event.ArgsValid, event.Activity),
-		groupKind: buildToolGroupKind(event.Activity),
-		activity:  event.Activity,
-	}
+	t.toolGroup.start(event)
 	t.rewriteToolGroup()
 }
 
@@ -629,36 +620,8 @@ func (t *Transcript) finishTool(event rpc.RunEvent) {
 	if t.toolGroup == nil {
 		return
 	}
-	entry := t.toolGroup.entries[event.ToolCallID]
-	if entry == nil {
+	if !t.toolGroup.finish(event) {
 		return
-	}
-	miss := isOperationalMiss(event.Result)
-	entry.operationalMiss = miss
-	if miss {
-		entry.outcome = ""
-	} else {
-		entry.outcome = "ok"
-	}
-	entry.resultLines = nil
-	entry.resultTruncated = false
-	entry.detailLines = nil
-	if entry.preview == "" {
-		entry.message = buildToolSummary(event.Activity, "")
-	} else {
-		entry.message = ""
-	}
-	entry.duration = buildToolDuration(event.Activity)
-	entry.detailLines = buildToolDetailLines(event.Activity)
-	if len(entry.detailLines) == 0 {
-		entry.resultLines, entry.resultTruncated, entry.resultOmittedLines, entry.resultHeadCount = extractToolResultLines(event.Result)
-	}
-	if len(entry.detailLines) == 0 && len(entry.resultLines) == 0 && entry.message == "" {
-		entry.message = buildToolSummary(event.Activity, "")
-	}
-	entry.groupKind = buildToolGroupKind(event.Activity)
-	if event.Activity != nil {
-		entry.activity = event.Activity
 	}
 	t.rewriteToolGroup()
 }
@@ -667,19 +630,9 @@ func (t *Transcript) updateTool(event rpc.RunEvent) {
 	if t.toolGroup == nil {
 		return
 	}
-	entry := t.toolGroup.entries[event.ToolCallID]
-	if entry == nil {
+	if !t.toolGroup.update(event) {
 		return
 	}
-	entry.outcome = "running"
-	entry.message = buildToolSummary(event.Activity, "")
-	entry.duration = buildToolDuration(event.Activity)
-	entry.groupKind = buildToolGroupKind(event.Activity)
-	if event.Activity != nil {
-		entry.activity = event.Activity
-	}
-	entry.detailLines = nil
-	entry.resultLines, entry.resultTruncated, entry.resultOmittedLines, entry.resultHeadCount = extractToolResultLines(event.Partial)
 	t.rewriteToolGroup()
 }
 
@@ -687,20 +640,9 @@ func (t *Transcript) failTool(event rpc.RunEvent) {
 	if t.toolGroup == nil {
 		return
 	}
-	entry := t.toolGroup.entries[event.ToolCallID]
-	if entry == nil {
+	if !t.toolGroup.fail(event) {
 		return
 	}
-	entry.outcome = "error"
-	entry.message = buildToolSummary(event.Activity, event.Message)
-	entry.duration = buildToolDuration(event.Activity)
-	entry.groupKind = buildToolGroupKind(event.Activity)
-	if event.Activity != nil {
-		entry.activity = event.Activity
-	}
-	entry.detailLines = nil
-	entry.resultLines = nil
-	entry.resultTruncated = false
 	t.rewriteToolGroup()
 }
 
@@ -712,56 +654,10 @@ func (t *Transcript) rewriteToolGroup() {
 	if t.toolGroup == nil {
 		return
 	}
-	if isExplorationGroup(t.toolGroup.order, t.toolGroup.entries) &&
-		!hasExplorationErrors(t.toolGroup.order, t.toolGroup.entries) &&
-		!hasExplorationOperationalMisses(t.toolGroup.order, t.toolGroup.entries) {
-		plainText, renderedText := renderExplorationGroup(t.toolGroup.order, t.toolGroup.entries)
-		t.replaceBlock(t.toolGroup.index, &toolGroupCell{
-			plain:    plainText,
-			rendered: renderedText,
-		})
-		return
-	}
-	var plain strings.Builder
-	var rendered strings.Builder
-	prevHadDetail := false
-	for _, toolCallID := range t.toolGroup.order {
-		entry := t.toolGroup.entries[toolCallID]
-		if prevHadDetail {
-			plain.WriteByte('\n')
-			rendered.WriteByte('\n')
-		}
-		plain.WriteString(formatToolActivityLine(entry))
-		rendered.WriteString(renderToolActivityLine(entry))
-		for _, line := range entry.detailLines {
-			plain.WriteString(line + "\n")
-			rendered.WriteString(styleToolDetailLine(line) + "\n")
-		}
-		resultColor := defaultTheme.textMuted
-		if entry.operationalMiss {
-			resultColor = defaultTheme.errSoft
-		}
-		for idx, line := range entry.resultLines {
-			prefix := "    "
-			if idx == 0 {
-				prefix = "  └ "
-			}
-			plain.WriteString(prefix + line + "\n")
-			rendered.WriteString(lipgloss.NewStyle().Foreground(resultColor).Render(prefix+line) + "\n")
-			if entry.resultTruncated && idx == entry.resultHeadCount-1 {
-				truncMsg := "    ..."
-				if entry.resultOmittedLines > 0 {
-					truncMsg = fmt.Sprintf("    ... +%d more lines", entry.resultOmittedLines)
-				}
-				plain.WriteString(truncMsg + "\n")
-				rendered.WriteString(lipgloss.NewStyle().Foreground(resultColor).Render(truncMsg) + "\n")
-			}
-		}
-		prevHadDetail = len(entry.detailLines) > 0 || len(entry.resultLines) > 0 || entry.resultTruncated
-	}
+	plain, rendered := t.toolGroup.render()
 	t.replaceBlock(t.toolGroup.index, &toolGroupCell{
-		plain:    plain.String(),
-		rendered: rendered.String(),
+		plain:    plain,
+		rendered: rendered,
 	})
 }
 

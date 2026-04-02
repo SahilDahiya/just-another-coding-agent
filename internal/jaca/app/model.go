@@ -126,10 +126,7 @@ type model struct {
 	slashMenu             slashMenuState
 	auth                  authState
 	configErrLogged       bool
-	lastInputTokens       *int
-	lastOutputTokens      *int
-	lastTotalTokens       *int
-	lastContextWindow     *float64
+	lastUsage             usageSnapshot
 	modelCatalog          *rpc.ModelCatalogResponse
 	modelCatalogLoading   bool
 	authStatus            *rpc.AuthStatusResponse
@@ -316,10 +313,12 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if msg.Event.Type == "run_succeeded" {
 			m.activeRunSucceeded = true
-			m.lastInputTokens = msg.Event.InputTokens
-			m.lastOutputTokens = msg.Event.OutputTokens
-			m.lastTotalTokens = msg.Event.TotalTokens
-			m.lastContextWindow = msg.Event.ContextWindowUsed
+			m.lastUsage = usageSnapshot{
+				InputTokens:   msg.Event.InputTokens,
+				OutputTokens:  msg.Event.OutputTokens,
+				TotalTokens:   msg.Event.TotalTokens,
+				ContextWindow: msg.Event.ContextWindowUsed,
+			}
 		}
 		if msg.Event.Type == "run_failed" {
 			m.phase = PhaseError
@@ -460,10 +459,7 @@ func (m *model) currentViewModel() viewModel {
 		PromptValue:    m.promptView(),
 		PromptFooter:   m.currentPromptFooter(),
 		RunElapsed:     elapsed,
-		InputTokens:    m.lastInputTokens,
-		OutputTokens:   m.lastOutputTokens,
-		TotalTokens:    m.lastTotalTokens,
-		ContextWindow:  m.lastContextWindow,
+		Usage:          m.lastUsage,
 		LinePulse:      m.linePulse,
 		SinceLastDelta: sinceLastDelta,
 		DetachedLive:   m.streaming && !m.viewport.AtBottom(),
@@ -784,84 +780,6 @@ func (m *model) handleEnter() (tea.Model, tea.Cmd) {
 	m.activeRunCancel = cancel
 	go m.runPrompt(runCtx, prompt, sessionID, thinking, backend, m.asyncCh)
 	return m, listenAsync(m.asyncCh)
-}
-
-func (m *model) handleSlashCommand(command string) (tea.Model, tea.Cmd) {
-	parts := strings.Fields(command)
-	cmdName := strings.ToLower(parts[0])
-	arg := ""
-	if len(parts) > 1 {
-		arg = strings.TrimSpace(command[len(parts[0]):])
-	}
-	switch cmdName {
-	case "/help":
-		m.transcript.WriteHelp()
-	case "/model":
-		return m.handleModelCommand(arg)
-	case "/thinking":
-		m.transcript.WriteNote("thinking", nil)
-		value := strings.TrimSpace(arg)
-		if value == "" {
-			current := m.options.Thinking
-			if current == "" {
-				current = "default"
-			}
-			m.transcript.WriteLine(fmt.Sprintf("thinking: %s", current))
-			break
-		}
-		switch value {
-		case "true", "false", "minimal", "low", "medium", "high", "xhigh":
-			m.options.Thinking = value
-			m.transcript.WriteLine(fmt.Sprintf("thinking set to %s", value))
-		default:
-			m.transcript.WriteError("invalid. use: false, high, low, medium, minimal, true, xhigh")
-		}
-	case "/workspace":
-		m.transcript.WriteNote("workspace", nil)
-		m.transcript.WriteLine(fmt.Sprintf("workspace: %s", displayPath(m.options.WorkspaceRoot)))
-	case "/session":
-		m.writeSessionInfo()
-	case "/name":
-		m.handleSessionNameCommand(strings.TrimSpace(arg))
-	case "/provider":
-		m.handleProviderCommand(strings.TrimSpace(arg))
-	case "/auth":
-		m.handleAuthCommand(strings.TrimSpace(arg))
-	case "/trace":
-		m.handleTraceCommand(arg)
-	case "/compact":
-		if m.sessionID == "" {
-			m.transcript.WriteNote("compact", nil)
-			m.transcript.WriteError("no active session")
-			break
-		}
-		m.phase = PhaseCompacting
-		m.streaming = true
-		m.textInput.Blur()
-		m.transcript.WriteNote("compact", nil)
-		m.transcript.WriteLine("compacting...")
-		m.refreshViewport()
-		m.asyncCh = make(chan tea.Msg, 4)
-		backend := m.options.Backend
-		sessionID := m.sessionID
-		go m.compactSession(sessionID, backend, m.asyncCh)
-		return m, listenAsync(m.asyncCh)
-	case "/new":
-		m.transcript.WriteNote("session", nil)
-		m.sessionID = ""
-		m.sessionName = ""
-		m.forkedFromSessionID = ""
-		m.forkedFromSessionName = ""
-		m.phase = PhaseIdle
-		m.transcript.WriteLine("session cleared")
-	case "/quit":
-		return m, tea.Quit
-	default:
-		m.transcript.WriteNote("command", nil)
-		m.transcript.WriteError(fmt.Sprintf("unknown: %s", cmdName))
-	}
-	m.refreshViewport()
-	return m, nil
 }
 
 func (m *model) runPrompt(
