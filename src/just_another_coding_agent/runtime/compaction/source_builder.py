@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from just_another_coding_agent.contracts.compaction import (
+    COMPACTION_CHARS_PER_TOKEN_HEURISTIC,
+)
 from just_another_coding_agent.contracts.run_events import (
     RunFailedEvent,
     RunSucceededEvent,
@@ -23,7 +26,6 @@ from just_another_coding_agent.runtime.compaction.constants import (
     DEFAULT_SESSION_COMPACTION_SOURCE_CHAR_LIMIT,
     MAX_COMPACTION_TEXT_FIELD_CHARS,
     MAX_COMPACTION_TOOL_ACTIVITY_LINES,
-    SESSION_COMPACTION_CHARS_PER_TOKEN_HEURISTIC,
     SESSION_COMPACTION_CONTEXT_WINDOW_UTILIZATION,
 )
 from just_another_coding_agent.runtime.models import get_model_context_window_tokens
@@ -48,7 +50,7 @@ def _compaction_source_char_limit(model: Any) -> int:
     return int(
         effective_context_window_tokens
         * SESSION_COMPACTION_CONTEXT_WINDOW_UTILIZATION
-        * SESSION_COMPACTION_CHARS_PER_TOKEN_HEURISTIC
+        * COMPACTION_CHARS_PER_TOKEN_HEURISTIC
     )
 
 

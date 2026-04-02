@@ -15,12 +15,12 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 
+from just_another_coding_agent.contracts.compaction import (
+    COMPACTION_CHARS_PER_TOKEN_HEURISTIC,
+)
 from just_another_coding_agent.contracts.session import (
     SessionCompactionSummary,
     SessionRunRecord,
-)
-from just_another_coding_agent.runtime.compaction.constants import (
-    SESSION_COMPACTION_CHARS_PER_TOKEN_HEURISTIC,
 )
 
 COMPACTION_SUMMARY_DYNAMIC_REF = "session-compaction-summary"
@@ -128,7 +128,7 @@ def _estimate_message_tokens(message: ModelMessage) -> int:
                     ensure_ascii=False,
                 )
             )
-            // SESSION_COMPACTION_CHARS_PER_TOKEN_HEURISTIC
+            // COMPACTION_CHARS_PER_TOKEN_HEURISTIC
         ),
     )
 

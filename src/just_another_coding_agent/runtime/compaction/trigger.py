@@ -8,7 +8,10 @@ from typing import Any
 from pydantic import TypeAdapter
 from pydantic_ai.messages import ModelMessage, ModelResponse
 
-from just_another_coding_agent.contracts.compaction import CompactionBudgetReport
+from just_another_coding_agent.contracts.compaction import (
+    COMPACTION_CHARS_PER_TOKEN_HEURISTIC,
+    CompactionBudgetReport,
+)
 from just_another_coding_agent.contracts.session import LoadedSession
 from just_another_coding_agent.runtime.compaction.boundary import (
     runs_since_latest_compaction,
@@ -20,7 +23,6 @@ from just_another_coding_agent.runtime.compaction.budget import (
 from just_another_coding_agent.runtime.compaction.constants import (
     SESSION_AUTO_COMPACTION_CONTEXT_WINDOW_UTILIZATION,
     SESSION_AUTO_COMPACTION_PROMPT_RESERVE_TOKENS,
-    SESSION_COMPACTION_CHARS_PER_TOKEN_HEURISTIC,
 )
 from just_another_coding_agent.runtime.compaction.resume import (
     build_resume_message_history,
@@ -160,14 +162,14 @@ def _estimate_resume_history_budget_components(
         trailing_messages = resume_history[last_usage_index + 1 :]
         trailing_tokens = math.ceil(
             _estimate_message_history_chars(trailing_messages)
-            / SESSION_COMPACTION_CHARS_PER_TOKEN_HEURISTIC
+            / COMPACTION_CHARS_PER_TOKEN_HEURISTIC
         )
         return usage_tokens + trailing_tokens, usage_tokens, trailing_tokens
 
     return (
         math.ceil(
             _estimate_message_history_chars(resume_history)
-            / SESSION_COMPACTION_CHARS_PER_TOKEN_HEURISTIC
+            / COMPACTION_CHARS_PER_TOKEN_HEURISTIC
         ),
         None,
         None,

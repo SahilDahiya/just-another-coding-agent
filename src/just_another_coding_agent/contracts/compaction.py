@@ -4,6 +4,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
+COMPACTION_CHARS_PER_TOKEN_HEURISTIC = 4
+
 type CompactionBudgetReason = Literal[
     "no_runs",
     "unknown_context_window",
@@ -29,5 +31,8 @@ class CompactionBudgetReport(BaseModel):
     estimated_trailing_tokens: int | None = None
     runs_since_latest_compaction: int = 0
 
-
-__all__ = ["CompactionBudgetReason", "CompactionBudgetReport"]
+__all__ = [
+    "COMPACTION_CHARS_PER_TOKEN_HEURISTIC",
+    "CompactionBudgetReason",
+    "CompactionBudgetReport",
+]
