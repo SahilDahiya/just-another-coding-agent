@@ -284,17 +284,16 @@ def make_resumed_live_compaction_probe_stream():
 
         assert len(read_returns) == 2
         compacted_retained_read = read_returns[0].content
-        compacted_current_read = read_returns[1].content
+        current_read = read_returns[1].content
         assert isinstance(compacted_retained_read, str)
-        assert isinstance(compacted_current_read, str)
+        assert isinstance(current_read, str)
         assert compacted_retained_read.startswith(
             "Compacted historical read result for retained-big.txt"
         )
         assert "80 lines" in compacted_retained_read
-        assert compacted_current_read.startswith(
-            "Compacted historical read result for current-big.txt"
+        assert current_read.startswith(
+            "current-0000 abcdefghijklmnopqrstuvwxyz"
         )
-        assert "80 lines" in compacted_current_read
         yield "done"
 
     return resumed_live_compaction_probe_stream

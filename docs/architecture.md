@@ -145,6 +145,10 @@ The important boundary is:
   lookup in `runtime/models.py` when canonical context metadata is known; the
   current heuristic uses about 80% of the context window and approximates one
   token as four characters
+- run-local compaction now produces an explicit replacement history for the
+  active run, preferring to compact older tool-return-heavy history before the
+  freshest live tail and keeping original raw payloads in controller-owned
+  restore state rather than model-facing history metadata
 - durable auto-compaction now prefers persisted measured response usage plus a
   trailing estimate over a pure whole-history heuristic, preserves a
   token-budgeted safe raw tail when possible, and counts only runs beyond that
@@ -185,9 +189,10 @@ The important boundary is:
     - `session_summary.py` for durable cross-run compaction orchestration
     - `constants.py`, `boundary.py`, `trigger.py`, `source_builder.py`, and
       `working_set.py` for focused durable-compaction helpers
-    - `history_processors.py` for explicit model-facing compaction shaping
+    - `history_processors.py` for explicit model-facing compaction shaping and
+      live restore ownership
     - `resume.py` for compacted session replay helpers
-    - `in_run.py` for live-run tool-return compaction
+    - `in_run.py` for live-run history replacement and tool-return compaction
   - orchestration entrypoints
   - event translation from PydanticAI into the public contract
 - `src/just_another_coding_agent/tools/`

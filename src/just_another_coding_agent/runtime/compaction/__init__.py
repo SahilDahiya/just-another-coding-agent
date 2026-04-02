@@ -3,11 +3,14 @@ from .constants import (
     SESSION_AUTO_COMPACTION_PROMPT_RESERVE_TOKENS,
 )
 from .history_processors import (
+    CompactionHistoryRuntime,
     ModelHistoryProcessor,
     build_compaction_history_processors,
+    build_compaction_history_runtime,
 )
 from .in_run import (
     IN_RUN_COMPACTION_SOFT_CHAR_LIMIT,
+    build_in_run_compaction_controller,
     build_in_run_history_processor,
     restore_in_run_compaction_from_messages,
 )
@@ -26,13 +29,16 @@ from .session_summary import (
 
 __all__ = [
     "COMPACTION_SUMMARY_INSTRUCTIONS",
+    "CompactionHistoryRuntime",
     "IN_RUN_COMPACTION_SOFT_CHAR_LIMIT",
     "ModelHistoryProcessor",
     "SESSION_AUTO_COMPACTION_CONTEXT_WINDOW_UTILIZATION",
     "SESSION_AUTO_COMPACTION_PROMPT_RESERVE_TOKENS",
     "build_compaction_history_processors",
+    "build_compaction_history_runtime",
     "build_compaction_summary_instructions",
     "build_auto_compact_session_budget_report",
+    "build_in_run_compaction_controller",
     "build_in_run_history_processor",
     "build_resume_message_history",
     "build_resume_instructions",

@@ -143,14 +143,21 @@ def test_build_compaction_history_processors_uses_model_aware_live_compaction_li
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     observed: dict[str, int] = {}
 
-    def fake_build_in_run_history_processor(*, soft_char_limit: int):
+    class _FakeController:
+        async def apply(self, messages):
+            return messages
+
+        def restore(self, messages):
+            return messages
+
+    def fake_build_in_run_compaction_controller(*, soft_char_limit: int):
         observed["soft_char_limit"] = soft_char_limit
-        return lambda messages: messages
+        return _FakeController()
 
     monkeypatch.setattr(
         "just_another_coding_agent.runtime.compaction.history_processors."
-        "build_in_run_history_processor",
-        fake_build_in_run_history_processor,
+        "build_in_run_compaction_controller",
+        fake_build_in_run_compaction_controller,
     )
 
     processors = build_compaction_history_processors(
