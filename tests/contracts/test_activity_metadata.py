@@ -39,10 +39,21 @@ _EXPECTED_STARTED_TITLE_BY_TOOL = {
     "find": "find *.py",
 }
 
+_EXPECTED_DISPLAY_LABEL_BY_TOOL = {
+    "read": "Read",
+    "write": "Write",
+    "edit": "Edit",
+    "shell": "Shell",
+    "grep": "Search",
+    "ls": "List",
+    "find": "Find",
+}
+
 
 def test_started_activity_uses_backend_owned_titles_only() -> None:
     assert set(_SAMPLE_ARGS_BY_TOOL) == set(CANONICAL_TOOL_NAMES)
     assert set(_EXPECTED_STARTED_TITLE_BY_TOOL) == set(CANONICAL_TOOL_NAMES)
+    assert set(_EXPECTED_DISPLAY_LABEL_BY_TOOL) == set(CANONICAL_TOOL_NAMES)
 
     for tool_name in CANONICAL_TOOL_NAMES:
         activity = build_started_tool_activity(
@@ -56,6 +67,7 @@ def test_started_activity_uses_backend_owned_titles_only() -> None:
         )
         assert activity == ToolActivity(
             title=_EXPECTED_STARTED_TITLE_BY_TOOL[tool_name],
+            display_label=_EXPECTED_DISPLAY_LABEL_BY_TOOL[tool_name],
             group_kind=expected_group_kind,
         )
 
@@ -81,6 +93,7 @@ def test_succeeded_activity_prefers_tool_owned_metadata() -> None:
 
     assert activity == ToolActivity(
         title="read note.txt",
+        display_label="Read",
         summary="read completed",
         duration_ms=12,
         details={

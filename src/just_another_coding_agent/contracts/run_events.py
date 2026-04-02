@@ -95,6 +95,7 @@ class ToolActivity(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     title: str
+    display_label: str | None = None
     summary: str | None = None
     duration_ms: int | None = None
     details: ToolActivityDetails | None = None

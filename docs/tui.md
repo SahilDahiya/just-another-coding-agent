@@ -74,6 +74,7 @@ The core architectural risk is semantic drift between the Go shell and the Pytho
 - Tool activity should collapse into terse, useful rows instead of printing repetitive lifecycle noise.
 - Tool rows should prefer one row per action with a short preview and outcome, not anonymous repeated tool labels.
 - Tool rows should treat backend `activity.title` and `activity.summary` as the authoritative label/summary when those fields are present.
+- Grouped exploration rows should treat backend `activity.display_label` as the authoritative short verb instead of mapping raw tool names locally.
 - Finished tool rows may show backend `activity.duration_ms` when it adds timing context without crowding the transcript.
 - Backend `activity.group_kind` may drive transcript grouping and calmer grouped
   presentation, but the grouping semantics still come from backend fields

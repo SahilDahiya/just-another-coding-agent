@@ -178,11 +178,12 @@ type RunEvent struct {
 }
 
 type ToolActivity struct {
-	Title      string         `json:"title"`
-	Summary    *string        `json:"summary"`
-	DurationMS *int           `json:"duration_ms"`
-	Details    map[string]any `json:"details"`
-	GroupKind  *string        `json:"group_kind"`
+	Title        string         `json:"title"`
+	DisplayLabel *string        `json:"display_label,omitempty"`
+	Summary      *string        `json:"summary"`
+	DurationMS   *int           `json:"duration_ms"`
+	Details      map[string]any `json:"details"`
+	GroupKind    *string        `json:"group_kind"`
 }
 
 func decodeEnvelope(line []byte) (any, error) {

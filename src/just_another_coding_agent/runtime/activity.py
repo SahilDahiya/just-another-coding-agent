@@ -18,6 +18,15 @@ _TITLE_KEY_BY_TOOL = {
     "grep": "pattern",
     "find": "pattern",
 }
+_DISPLAY_LABEL_BY_TOOL = {
+    "read": "Read",
+    "write": "Write",
+    "edit": "Edit",
+    "shell": "Shell",
+    "grep": "Search",
+    "ls": "List",
+    "find": "Find",
+}
 _EXPLORATION_TOOL_NAMES = frozenset({"read", "grep", "ls", "find"})
 
 
@@ -25,6 +34,10 @@ def _group_kind_for_tool(tool_name: str) -> str | None:
     if tool_name in _EXPLORATION_TOOL_NAMES:
         return "exploration"
     return None
+
+
+def _display_label_for_tool(tool_name: str) -> str | None:
+    return _DISPLAY_LABEL_BY_TOOL.get(tool_name)
 
 
 def build_started_tool_activity(
@@ -40,6 +53,7 @@ def build_started_tool_activity(
             args=args,
             args_valid=args_valid,
         ),
+        display_label=_display_label_for_tool(tool_name),
         group_kind=group_kind,
     )
 
@@ -61,6 +75,8 @@ def build_succeeded_tool_activity(
             duration_ms=duration_ms,
         )
         updates: dict[str, Any] = {}
+        if activity.display_label is None:
+            updates["display_label"] = _display_label_for_tool(tool_name)
         if activity.group_kind is None:
             updates["group_kind"] = group_kind
         if updates:
@@ -73,6 +89,7 @@ def build_succeeded_tool_activity(
             args=args,
             args_valid=args_valid,
         ),
+        display_label=_display_label_for_tool(tool_name),
         summary=_build_fallback_success_summary(tool_name=tool_name, result=result),
         duration_ms=duration_ms,
         group_kind=group_kind,
@@ -95,6 +112,7 @@ def build_updated_tool_activity(
             args=args,
             args_valid=args_valid,
         ),
+        display_label=_display_label_for_tool(tool_name),
         summary="command still running" if tool_name == "shell" else None,
         duration_ms=duration_ms,
         group_kind=group_kind,
@@ -116,6 +134,7 @@ def build_failed_tool_activity(
             args=args,
             args_valid=args_valid,
         ),
+        display_label=_display_label_for_tool(tool_name),
         summary=message,
         duration_ms=duration_ms,
         group_kind=group_kind,
@@ -184,6 +203,10 @@ def _build_tool_activity_from_metadata(
     if summary is not None and not isinstance(summary, str):
         raise TypeError("Tool activity metadata summary must be a string or None")
 
+    display_label = result_metadata.get("display_label")
+    if display_label is not None and not isinstance(display_label, str):
+        raise TypeError("Tool activity metadata display_label must be a string or None")
+
     details = result_metadata.get("details")
     validated_details = None
     if details is not None:
@@ -191,6 +214,7 @@ def _build_tool_activity_from_metadata(
 
     return ToolActivity(
         title=title,
+        display_label=display_label,
         summary=summary,
         duration_ms=duration_ms,
         details=validated_details,

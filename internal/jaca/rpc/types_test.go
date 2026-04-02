@@ -52,6 +52,7 @@ func TestDecodeEnvelopePreservesToolActivityGroupKind(t *testing.T) {
 			"tool_name":"read",
 			"activity":{
 				"title":"read AGENTS.md",
+				"display_label":"Read",
 				"group_kind":"exploration",
 				"details":{
 					"kind":"read",
@@ -72,6 +73,9 @@ func TestDecodeEnvelopePreservesToolActivityGroupKind(t *testing.T) {
 	}
 	if envelope.Event.Activity == nil {
 		t.Fatal("Activity = nil, want non-nil")
+	}
+	if envelope.Event.Activity.DisplayLabel == nil || *envelope.Event.Activity.DisplayLabel != "Read" {
+		t.Fatalf("DisplayLabel = %v, want Read", envelope.Event.Activity.DisplayLabel)
 	}
 	if envelope.Event.Activity.GroupKind == nil || *envelope.Event.Activity.GroupKind != "exploration" {
 		t.Fatalf("GroupKind = %v, want exploration", envelope.Event.Activity.GroupKind)

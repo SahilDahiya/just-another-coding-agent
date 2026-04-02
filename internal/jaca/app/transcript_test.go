@@ -316,56 +316,56 @@ func TestExplorationGroupRendersCoalescedExploredBlock(t *testing.T) {
 		ToolName:   "read",
 		ToolCallID: "read-1",
 		Args:       map[string]any{"path": "/workspace/README.md"},
-		Activity:   explorationActivity(map[string]any{"short_path": "README.md"}),
+		Activity:   explorationActivity("read", map[string]any{"short_path": "README.md"}),
 	})
 	transcript.ApplyRunEvent(rpc.RunEvent{
 		Type:       "tool_call_succeeded",
 		ToolName:   "read",
 		ToolCallID: "read-1",
 		Result:     "read README",
-		Activity:   explorationActivity(map[string]any{"short_path": "README.md"}),
+		Activity:   explorationActivity("read", map[string]any{"short_path": "README.md"}),
 	})
 	transcript.ApplyRunEvent(rpc.RunEvent{
 		Type:       "tool_call_started",
 		ToolName:   "read",
 		ToolCallID: "read-2",
 		Args:       map[string]any{"path": "/workspace/AGENTS.md"},
-		Activity:   explorationActivity(map[string]any{"short_path": "AGENTS.md"}),
+		Activity:   explorationActivity("read", map[string]any{"short_path": "AGENTS.md"}),
 	})
 	transcript.ApplyRunEvent(rpc.RunEvent{
 		Type:       "tool_call_succeeded",
 		ToolName:   "read",
 		ToolCallID: "read-2",
 		Result:     "read AGENTS",
-		Activity:   explorationActivity(map[string]any{"short_path": "AGENTS.md"}),
+		Activity:   explorationActivity("read", map[string]any{"short_path": "AGENTS.md"}),
 	})
 	transcript.ApplyRunEvent(rpc.RunEvent{
 		Type:       "tool_call_started",
 		ToolName:   "ls",
 		ToolCallID: "ls-1",
 		Args:       map[string]any{"path": "/workspace/src"},
-		Activity:   explorationActivity(map[string]any{"short_path": "src"}),
+		Activity:   explorationActivity("ls", map[string]any{"short_path": "src"}),
 	})
 	transcript.ApplyRunEvent(rpc.RunEvent{
 		Type:       "tool_call_succeeded",
 		ToolName:   "ls",
 		ToolCallID: "ls-1",
 		Result:     "listed src",
-		Activity:   explorationActivity(map[string]any{"short_path": "src"}),
+		Activity:   explorationActivity("ls", map[string]any{"short_path": "src"}),
 	})
 	transcript.ApplyRunEvent(rpc.RunEvent{
 		Type:       "tool_call_started",
 		ToolName:   "grep",
 		ToolCallID: "grep-1",
 		Args:       map[string]any{"pattern": "build_canonical_agent(", "path": "/workspace/tests"},
-		Activity:   explorationActivity(map[string]any{"pattern": "build_canonical_agent(", "short_path": "tests"}),
+		Activity:   explorationActivity("grep", map[string]any{"pattern": "build_canonical_agent(", "short_path": "tests"}),
 	})
 	transcript.ApplyRunEvent(rpc.RunEvent{
 		Type:       "tool_call_succeeded",
 		ToolName:   "grep",
 		ToolCallID: "grep-1",
 		Result:     "matched tests",
-		Activity:   explorationActivity(map[string]any{"pattern": "build_canonical_agent(", "short_path": "tests"}),
+		Activity:   explorationActivity("grep", map[string]any{"pattern": "build_canonical_agent(", "short_path": "tests"}),
 	})
 
 	plain := transcript.blocks[len(transcript.blocks)-1].Plain()
@@ -389,14 +389,14 @@ func TestExplorationGroupShowsExploringWhileInFlight(t *testing.T) {
 		ToolName:   "read",
 		ToolCallID: "read-1",
 		Args:       map[string]any{"path": "/workspace/README.md"},
-		Activity:   explorationActivity(map[string]any{"short_path": "README.md"}),
+		Activity:   explorationActivity("read", map[string]any{"short_path": "README.md"}),
 	})
 	transcript.ApplyRunEvent(rpc.RunEvent{
 		Type:       "tool_call_started",
 		ToolName:   "grep",
 		ToolCallID: "grep-1",
 		Args:       map[string]any{"pattern": "RetryPromptPart", "path": "/workspace/src"},
-		Activity:   explorationActivity(map[string]any{"pattern": "RetryPromptPart", "short_path": "src"}),
+		Activity:   explorationActivity("grep", map[string]any{"pattern": "RetryPromptPart", "short_path": "src"}),
 	})
 
 	plain := transcript.blocks[len(transcript.blocks)-1].Plain()
@@ -436,14 +436,14 @@ func TestExplorationGroupTruncatesHeadAndTail(t *testing.T) {
 			ToolName:   event.toolName,
 			ToolCallID: event.id,
 			Args:       event.args,
-			Activity:   explorationActivity(event.details),
+			Activity:   explorationActivity(event.toolName, event.details),
 		})
 		transcript.ApplyRunEvent(rpc.RunEvent{
 			Type:       "tool_call_succeeded",
 			ToolName:   event.toolName,
 			ToolCallID: event.id,
 			Result:     "done",
-			Activity:   explorationActivity(event.details),
+			Activity:   explorationActivity(event.toolName, event.details),
 		})
 	}
 
@@ -481,7 +481,7 @@ func TestExplorationOperationalMissFallsBackToPerToolRendering(t *testing.T) {
 		ToolName:   "read",
 		ToolCallID: "read-miss",
 		Args:       map[string]any{"path": "/workspace/agents.md"},
-		Activity:   explorationActivity(map[string]any{"short_path": "agents.md"}),
+		Activity:   explorationActivity("read", map[string]any{"short_path": "agents.md"}),
 	})
 	transcript.ApplyRunEvent(rpc.RunEvent{
 		Type:       "tool_call_succeeded",
@@ -503,14 +503,14 @@ func TestExplorationOperationalMissFallsBackToPerToolRendering(t *testing.T) {
 		ToolName:   "read",
 		ToolCallID: "read-hit",
 		Args:       map[string]any{"path": "/workspace/AGENTS.md"},
-		Activity:   explorationActivity(map[string]any{"short_path": "AGENTS.md"}),
+		Activity:   explorationActivity("read", map[string]any{"short_path": "AGENTS.md"}),
 	})
 	transcript.ApplyRunEvent(rpc.RunEvent{
 		Type:       "tool_call_succeeded",
 		ToolName:   "read",
 		ToolCallID: "read-hit",
 		Result:     map[string]any{"output": "# Repository Guidelines"},
-		Activity:   explorationActivity(map[string]any{"short_path": "AGENTS.md"}),
+		Activity:   explorationActivity("read", map[string]any{"short_path": "AGENTS.md"}),
 	})
 
 	plain := transcript.blocks[len(transcript.blocks)-1].Plain()
@@ -536,28 +536,28 @@ func TestExplorationHardErrorFallsBackToPerToolRendering(t *testing.T) {
 		ToolName:   "read",
 		ToolCallID: "read-1",
 		Args:       map[string]any{"path": "/workspace/run.py"},
-		Activity:   explorationActivity(map[string]any{"short_path": "run.py"}),
+		Activity:   explorationActivity("read", map[string]any{"short_path": "run.py"}),
 	})
 	transcript.ApplyRunEvent(rpc.RunEvent{
 		Type:       "tool_call_succeeded",
 		ToolName:   "read",
 		ToolCallID: "read-1",
 		Result:     "read run.py",
-		Activity:   explorationActivity(map[string]any{"short_path": "run.py"}),
+		Activity:   explorationActivity("read", map[string]any{"short_path": "run.py"}),
 	})
 	transcript.ApplyRunEvent(rpc.RunEvent{
 		Type:       "tool_call_started",
 		ToolName:   "grep",
 		ToolCallID: "grep-1",
 		Args:       map[string]any{"pattern": "RetryPromptPart", "path": "/workspace/src"},
-		Activity:   explorationActivity(map[string]any{"pattern": "RetryPromptPart", "short_path": "src"}),
+		Activity:   explorationActivity("grep", map[string]any{"pattern": "RetryPromptPart", "short_path": "src"}),
 	})
 	transcript.ApplyRunEvent(rpc.RunEvent{
 		Type:       "tool_call_failed",
 		ToolName:   "grep",
 		ToolCallID: "grep-1",
 		Message:    "ripgrep (rg) is not installed",
-		Activity:   explorationActivity(map[string]any{"pattern": "RetryPromptPart", "short_path": "src"}),
+		Activity:   explorationActivity("grep", map[string]any{"pattern": "RetryPromptPart", "short_path": "src"}),
 	})
 
 	plain := transcript.blocks[len(transcript.blocks)-1].Plain()
@@ -1200,12 +1200,19 @@ func explorationGroupKindPtr() *string {
 	return &value
 }
 
-func explorationActivity(details map[string]any) *rpc.ToolActivity {
+func explorationActivity(toolName string, details map[string]any) *rpc.ToolActivity {
 	if details == nil {
 		details = map[string]any{}
 	}
+	displayLabel := map[string]string{
+		"read": "Read",
+		"grep": "Search",
+		"find": "Find",
+		"ls":   "List",
+	}[toolName]
 	return &rpc.ToolActivity{
-		GroupKind: explorationGroupKindPtr(),
-		Details:   details,
+		DisplayLabel: &displayLabel,
+		GroupKind:    explorationGroupKindPtr(),
+		Details:      details,
 	}
 }

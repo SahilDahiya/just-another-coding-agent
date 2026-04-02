@@ -334,11 +334,13 @@ Initial tool lifecycle slice:
 - when present, it must be typed and stable enough for non-TUI clients to consume without tool-specific heuristics
 - v1 common fields:
   - `title`
+  - `display_label`
   - `summary`
   - `duration_ms`
   - `details`
   - `group_kind`
 - `title` is a terse backend-owned label for the tool action
+- `display_label` is an optional backend-owned short verb for rendering, such as `Read`, `Search`, or `List`
 - `summary` is optional and should stay trustworthy rather than aspirational
 - `duration_ms` belongs on finished tool events and may also appear on `tool_call_updated`
 - `details` is optional and, when present, must use typed per-tool metadata rather than an untyped bag
@@ -367,6 +369,7 @@ Rules for the initial activity slice:
 - `activity` must be derived from canonical tool semantics in the backend, not guessed in the frontend
 - canonical tool success activity should be owned by the tools themselves and passed through an internal carrier such as `ToolReturn.metadata`; the runtime validates and normalizes that metadata before emitting public events
 - started, updated, and failed/error-result activity should stay minimal: backend-owned `title`, optional `summary`, and `duration_ms` when applicable
+- exploration-style rendering labels should come from backend `display_label`, not frontend tool-name maps
 - the runtime should not re-parse typed tool args into structured `details` for started, updated, or failed/error-result activity
 - `group_kind` is the only current coarse grouping hint in the public contract; the backend does not expose a public `group_id`
 - the current canonical `group_kind` value is `exploration` for exploration-style tools

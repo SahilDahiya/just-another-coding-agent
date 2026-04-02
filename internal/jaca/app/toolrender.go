@@ -12,6 +12,7 @@ import (
 
 type toolEntry struct {
 	toolName           string
+	displayLabel       string
 	preview            string
 	outcome            string
 	message            string
@@ -42,10 +43,11 @@ func newToolGroup(index int) *toolGroup {
 func (g *toolGroup) start(event rpc.RunEvent) {
 	g.order = append(g.order, event.ToolCallID)
 	g.entries[event.ToolCallID] = &toolEntry{
-		toolName:  event.ToolName,
-		preview:   buildToolPreview(event.ToolName, event.Args, event.ArgsValid, event.Activity),
-		groupKind: buildToolGroupKind(event.Activity),
-		activity:  event.Activity,
+		toolName:     event.ToolName,
+		displayLabel: buildToolDisplayLabel(event.ToolName, event.Activity),
+		preview:      buildToolPreview(event.ToolName, event.Args, event.ArgsValid, event.Activity),
+		groupKind:    buildToolGroupKind(event.Activity),
+		activity:     event.Activity,
 	}
 }
 
@@ -80,6 +82,7 @@ func (g *toolGroup) finish(event rpc.RunEvent) bool {
 	entry.groupKind = buildToolGroupKind(event.Activity)
 	if event.Activity != nil {
 		entry.activity = event.Activity
+		entry.displayLabel = buildToolDisplayLabel(entry.toolName, event.Activity)
 	}
 	return true
 }
@@ -95,6 +98,7 @@ func (g *toolGroup) update(event rpc.RunEvent) bool {
 	entry.groupKind = buildToolGroupKind(event.Activity)
 	if event.Activity != nil {
 		entry.activity = event.Activity
+		entry.displayLabel = buildToolDisplayLabel(entry.toolName, event.Activity)
 	}
 	entry.detailLines = nil
 	entry.resultLines, entry.resultTruncated, entry.resultOmittedLines, entry.resultHeadCount = extractToolResultLines(event.Partial)
@@ -112,6 +116,7 @@ func (g *toolGroup) fail(event rpc.RunEvent) bool {
 	entry.groupKind = buildToolGroupKind(event.Activity)
 	if event.Activity != nil {
 		entry.activity = event.Activity
+		entry.displayLabel = buildToolDisplayLabel(entry.toolName, event.Activity)
 	}
 	entry.detailLines = nil
 	entry.resultLines = nil
@@ -302,13 +307,6 @@ const (
 	maxExplorationQueryLen = 40
 )
 
-var explorationLabels = map[string]string{
-	"read": "Read",
-	"grep": "Search",
-	"find": "Find",
-	"ls":   "List",
-}
-
 type explorationLine struct {
 	label string
 	args  string
@@ -332,7 +330,7 @@ func coalesceExplorationEntries(order []string, entries map[string]*toolEntry) [
 
 	for _, id := range order {
 		entry := entries[id]
-		label := explorationLabels[entry.toolName]
+		label := entry.displayLabel
 		if label == "" {
 			label = capitalizeFirst(entry.toolName)
 		}
@@ -426,6 +424,13 @@ func capitalizeFirst(s string) string {
 		return s
 	}
 	return strings.ToUpper(s[:1]) + s[1:]
+}
+
+func buildToolDisplayLabel(toolName string, activity *rpc.ToolActivity) string {
+	if activity != nil && activity.DisplayLabel != nil && *activity.DisplayLabel != "" {
+		return *activity.DisplayLabel
+	}
+	return capitalizeFirst(toolName)
 }
 
 func renderExplorationGroup(order []string, entries map[string]*toolEntry) (string, string) {

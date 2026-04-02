@@ -731,6 +731,7 @@ async def test_stream_run_events_recovers_from_missing_read_within_one_run(
     assert isinstance(events[1], ToolCallStartedEvent)
     assert events[1].activity is not None
     assert events[1].activity.title == "read missing.txt"
+    assert events[1].activity.display_label == "Read"
     assert events[1].activity.group_kind == "exploration"
     assert isinstance(events[2], ToolCallSucceededEvent)
     assert events[2].result["ok"] is False
@@ -738,6 +739,7 @@ async def test_stream_run_events_recovers_from_missing_read_within_one_run(
     assert "missing.txt" in events[2].result["message"]
     assert events[2].activity is not None
     assert events[2].activity.title == "read missing.txt"
+    assert events[2].activity.display_label == "Read"
     assert "missing.txt" in events[2].activity.summary
     assert events[2].activity.duration_ms is not None
     assert events[2].activity.duration_ms >= 0
@@ -745,11 +747,13 @@ async def test_stream_run_events_recovers_from_missing_read_within_one_run(
     assert isinstance(events[3], ToolCallStartedEvent)
     assert events[3].activity is not None
     assert events[3].activity.title == "read note.txt"
+    assert events[3].activity.display_label == "Read"
     assert events[3].activity.group_kind == "exploration"
     assert isinstance(events[4], ToolCallSucceededEvent)
     assert events[4].result == "hello\nworld\n"
     assert events[4].activity is not None
     assert events[4].activity.title == "read note.txt"
+    assert events[4].activity.display_label == "Read"
     assert events[4].activity.summary == "read completed"
     assert events[4].activity.duration_ms is not None
     assert events[4].activity.duration_ms >= 0
@@ -892,6 +896,7 @@ async def test_stream_run_events_recovers_from_invalid_tool_args_within_one_run(
     assert events[1].args_valid is False
     assert events[1].activity is not None
     assert events[1].activity.title == "ls"
+    assert events[1].activity.display_label == "List"
     assert isinstance(events[2], ToolCallSucceededEvent)
     assert events[2].result["ok"] is False
     assert events[2].result["error_type"] == "RetryPromptPart"
@@ -974,7 +979,10 @@ async def test_stream_run_events_recovers_from_bash_timeout_within_one_run(
     assert events[-2].type == "assistant_text_delta"
     assert events[-1].type == "run_succeeded"
     assert isinstance(events[1], ToolCallStartedEvent)
-    assert events[1].activity == ToolActivity(title=f"shell {_sleep_command()}")
+    assert events[1].activity == ToolActivity(
+        title=f"shell {_sleep_command()}",
+        display_label="Shell",
+    )
     first_result_index = next(
         index
         for index, event in enumerate(events)
@@ -1002,7 +1010,8 @@ async def test_stream_run_events_recovers_from_bash_timeout_within_one_run(
     )
     assert isinstance(events[second_started_index], ToolCallStartedEvent)
     assert events[second_started_index].activity == ToolActivity(
-        title=f"shell {_ok_command()}"
+        title=f"shell {_ok_command()}",
+        display_label="Shell",
     )
     second_result_index = next(
         index
