@@ -20,6 +20,7 @@ from pydantic_ai.models.test import TestModel
 
 import just_another_coding_agent.runtime.session as runtime_session_module
 from just_another_coding_agent.contracts.run_events import (
+    InRunCompactionAppliedEvent,
     ReadActivityDetails,
     RunFailedEvent,
     RunStartedEvent,
@@ -77,6 +78,8 @@ def _system_prompt_contents(messages: list[ModelMessage]) -> list[str]:
         for part in _all_parts(messages)
         if isinstance(part, SystemPromptPart)
     ]
+
+
 def make_write_stream():
     call_count = 0
 
@@ -2795,9 +2798,23 @@ async def test_live_compaction_preserves_raw_persisted_messages(
         "run_started",
         "tool_call_started",
         "tool_call_succeeded",
+        "in_run_compaction_applied",
         "assistant_text_delta",
         "run_succeeded",
     ]
+    in_run_compaction_event = events[3]
+    assert in_run_compaction_event.compacted_tool_result_count == 1
+    assert in_run_compaction_event.original_size_chars is not None
+    assert in_run_compaction_event.compacted_size_chars is not None
+    assert (
+        in_run_compaction_event.original_size_chars
+        > in_run_compaction_event.compacted_size_chars
+    )
+    assert in_run_compaction_event.message.startswith("Live history compacted")
+    if in_run_compaction_event.used_full_history_fallback:
+        assert "full-history fallback used" in in_run_compaction_event.message
+    else:
+        assert "full-history fallback used" not in in_run_compaction_event.message
 
     compacted_tool_return = observed["compacted_tool_return"]
     assert isinstance(compacted_tool_return, str)
@@ -2935,6 +2952,7 @@ async def test_resumed_compacted_session_still_applies_live_in_run_compaction(
         "run_started",
         "tool_call_started",
         "tool_call_succeeded",
+        "in_run_compaction_applied",
         "assistant_text_delta",
         "run_succeeded",
     ]
@@ -3130,6 +3148,108 @@ async def test_stream_session_run_events_sanitize_cancelled_run_messages(
         for part in _all_parts(loaded.message_history)
         if isinstance(part, ToolCallPart)
     ] == []
+
+
+async def test_stream_session_run_events_persists_pending_in_run_compaction_on_cancel(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    session_path = tmp_path / "session.jsonl"
+    big_lines = [
+        f"line-{index:04d} abcdefghijklmnopqrstuvwxyz" for index in range(80)
+    ]
+    big_content = "\n".join(big_lines) + "\n"
+    (workspace_root / "big.txt").write_text(big_content, encoding="utf-8")
+    started = asyncio.Event()
+    call_count = 0
+
+    monkeypatch.setattr(
+        "just_another_coding_agent.runtime.compaction.history_processors."
+        "build_in_run_compaction_soft_char_limit",
+        lambda _model: 400,
+    )
+
+    async def cancellable_after_live_compaction_stream(
+        messages: list[ModelMessage],
+        _agent_info: object,
+    ) -> AsyncIterator[dict[int, DeltaToolCall] | str]:
+        nonlocal call_count
+        call_count += 1
+
+        if call_count == 1:
+            yield {
+                0: DeltaToolCall(
+                    name="read",
+                    json_args='{"path": "big.txt"}',
+                    tool_call_id="call-read",
+                )
+            }
+            return
+
+        tool_returns = [
+            part
+            for part in _all_parts(messages)
+            if isinstance(part, ToolReturnPart) and part.tool_name == "read"
+        ]
+        assert len(tool_returns) == 1
+        assert isinstance(tool_returns[0].content, str)
+        assert tool_returns[0].content.startswith(
+            "Compacted historical read result"
+        )
+        started.set()
+        await asyncio.Event().wait()
+        yield "unreachable"
+
+    async def consume() -> list[object]:
+        return [
+            event
+            async for event in stream_session_run_events(
+                model=FunctionModel(
+                    stream_function=cancellable_after_live_compaction_stream
+                ),
+                workspace_root=workspace_root,
+                session_path=session_path,
+                prompt="inspect the big file",
+            )
+        ]
+
+    task = asyncio.create_task(consume())
+    await started.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    loaded = load_session(path=session_path, workspace_root=workspace_root)
+    events = loaded.runs[0].events
+    assert [event.type for event in events] == [
+        "run_started",
+        "tool_call_started",
+        "tool_call_succeeded",
+        "in_run_compaction_applied",
+        "run_failed",
+    ]
+    in_run_event = events[3]
+    assert isinstance(in_run_event, InRunCompactionAppliedEvent)
+    assert in_run_event.compacted_tool_result_count == 1
+    assert in_run_event.original_size_chars > in_run_event.compacted_size_chars
+    if in_run_event.used_full_history_fallback:
+        assert "full-history fallback used" in in_run_event.message
+    else:
+        assert "full-history fallback used" not in in_run_event.message
+
+    persisted_read_returns = [
+        part
+        for part in _all_parts(loaded.message_history)
+        if isinstance(part, ToolReturnPart) and part.tool_name == "read"
+    ]
+    assert len(persisted_read_returns) == 1
+    assert persisted_read_returns[0].content == big_content
+    assert not (
+        isinstance(persisted_read_returns[0].metadata, dict)
+        and "_jaca_in_run_compaction" in persisted_read_returns[0].metadata
+    )
 
 
 async def test_stream_session_run_events_trim_failed_correction_tail_from_history(

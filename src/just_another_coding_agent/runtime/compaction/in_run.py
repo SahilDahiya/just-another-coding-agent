@@ -40,15 +40,19 @@ class InRunCompactionResult:
 class InRunCompactionController:
     soft_char_limit: int
     preserved_tail_messages: int = IN_RUN_COMPACTION_PRESERVED_TAIL_MESSAGES
+    _on_applied: Callable[[InRunCompactionResult], None] | None = None
     _original_content_by_storage_key: dict[str, Any] = field(default_factory=dict)
 
     async def apply(self, messages: list[ModelMessage]) -> list[ModelMessage]:
-        return compact_in_run_message_history(
+        result = compact_in_run_message_history(
             messages,
             soft_char_limit=self.soft_char_limit,
             preserved_tail_messages=self.preserved_tail_messages,
             original_content_store=self._original_content_by_storage_key,
-        ).messages
+        )
+        if result.was_compacted and self._on_applied is not None:
+            self._on_applied(result)
+        return result.messages
 
     def restore(self, messages: list[ModelMessage]) -> list[ModelMessage]:
         return restore_in_run_compaction_from_messages(
@@ -60,9 +64,11 @@ class InRunCompactionController:
 def build_in_run_history_processor(
     *,
     soft_char_limit: int | None = None,
+    on_applied: Callable[[InRunCompactionResult], None] | None = None,
 ) -> Callable[[list[ModelMessage]], Awaitable[list[ModelMessage]]]:
     return build_in_run_compaction_controller(
-        soft_char_limit=soft_char_limit
+        soft_char_limit=soft_char_limit,
+        on_applied=on_applied,
     ).apply
 
 
@@ -70,6 +76,7 @@ def build_in_run_compaction_controller(
     *,
     soft_char_limit: int | None = None,
     preserved_tail_messages: int = IN_RUN_COMPACTION_PRESERVED_TAIL_MESSAGES,
+    on_applied: Callable[[InRunCompactionResult], None] | None = None,
 ) -> InRunCompactionController:
     effective_soft_char_limit = (
         IN_RUN_COMPACTION_SOFT_CHAR_LIMIT
@@ -79,6 +86,7 @@ def build_in_run_compaction_controller(
     return InRunCompactionController(
         soft_char_limit=effective_soft_char_limit,
         preserved_tail_messages=preserved_tail_messages,
+        _on_applied=on_applied,
     )
 
 

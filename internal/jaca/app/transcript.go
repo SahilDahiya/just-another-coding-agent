@@ -325,6 +325,15 @@ func (t *Transcript) WriteCompactionWarning(message string) {
 	t.WriteLine(message)
 }
 
+func (t *Transcript) WriteInRunCompactionApplied(message string) {
+	t.endToolGroup()
+	t.endLiveAssistant()
+	t.appendBlock(&rawCell{
+		plain:    message + "\n",
+		rendered: message + "\n",
+	})
+}
+
 func (t *Transcript) ApplySessionPreview(preview rpc.SessionPreviewResponse) {
 	if len(preview.Entries) == 0 {
 		return
@@ -355,6 +364,8 @@ func (t *Transcript) ApplyRunEvent(event rpc.RunEvent) {
 		t.WriteCompactionCompleted()
 	case "session_compaction_warning":
 		t.WriteCompactionWarning(event.Message)
+	case "in_run_compaction_applied":
+		t.WriteInRunCompactionApplied(event.Message)
 	case "assistant_text_delta":
 		t.appendAssistantDelta(event.Delta)
 	case "tool_call_started":

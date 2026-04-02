@@ -180,6 +180,9 @@ Policy:
   durable-style budget engine for in-run compaction
 - treat the replacement history as authoritative for the live run once
   compaction applies
+- emit one explicit `in_run_compaction_applied` run event each time live
+  compaction actually replaces history so Harbor, traces, and the TUI can
+  confirm it happened without inferring from restored session artifacts later
 - fail hard if live compaction or raw-history restore cannot complete safely;
   do not silently continue with partially compacted or lossy durable state
 

@@ -308,6 +308,20 @@ func TestSessionCompactionLifecycleEventsRenderInTranscript(t *testing.T) {
 	}
 }
 
+func TestInRunCompactionEventRendersInTranscript(t *testing.T) {
+	transcript := NewTranscript()
+
+	transcript.ApplyRunEvent(rpc.RunEvent{
+		Type:    "in_run_compaction_applied",
+		Message: "Live history compacted (2 tool results, 2000 -> 400 chars)",
+	})
+
+	plain := stripANSI(transcript.Render())
+	if !strings.Contains(plain, "Live history compacted (2 tool results, 2000 -> 400 chars)") {
+		t.Fatalf("in-run compaction transcript missing message in %q", plain)
+	}
+}
+
 func TestExplorationGroupRendersCoalescedExploredBlock(t *testing.T) {
 	transcript := NewTranscript()
 

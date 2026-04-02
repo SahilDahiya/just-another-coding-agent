@@ -640,13 +640,36 @@ async def test_e2e_repeated_in_run_compaction_restores_raw_history(
         "run_started",
         "tool_call_started",
         "tool_call_succeeded",
+        "in_run_compaction_applied",
         "tool_call_started",
         "tool_call_succeeded",
+        "in_run_compaction_applied",
         "tool_call_started",
         "tool_call_succeeded",
+        "in_run_compaction_applied",
         "assistant_text_delta",
         "run_succeeded",
     ]
+    in_run_events = [
+        event for event in events if event.type == "in_run_compaction_applied"
+    ]
+    assert len(in_run_events) == 3
+    assert all(
+        event.compacted_tool_result_count >= 1 for event in in_run_events
+    )
+    assert all(
+        event.original_size_chars > event.compacted_size_chars
+        for event in in_run_events
+    )
+    assert all(
+        event.message.startswith("Live history compacted")
+        for event in in_run_events
+    )
+    for event in in_run_events:
+        if event.used_full_history_fallback:
+            assert "full-history fallback used" in event.message
+        else:
+            assert "full-history fallback used" not in event.message
     assert len(observed_rounds) == 4
     assert observed_rounds[0] == []
     assert len(observed_rounds[1]) == 1
@@ -757,7 +780,7 @@ async def test_e2e_in_run_compaction_restore_state_failure_fails_hard(
     monkeypatch.setattr(
         runtime_session_module,
         "build_compaction_history_runtime",
-        lambda *, model: CompactionHistoryRuntime(
+        lambda *, model, on_in_run_compaction_applied=None: CompactionHistoryRuntime(
             history_processors=[],
             restore_messages=broken_restore,
         ),
@@ -865,7 +888,7 @@ async def test_e2e_cancelled_run_after_live_compaction_restores_raw_history(
     monkeypatch.setattr(
         runtime_session_module,
         "build_compaction_history_runtime",
-        lambda *, model: CompactionHistoryRuntime(
+        lambda *, model, on_in_run_compaction_applied=None: CompactionHistoryRuntime(
             history_processors=[],
             restore_messages=controller.restore,
         ),
@@ -901,7 +924,10 @@ async def test_e2e_cancelled_run_after_live_compaction_restores_raw_history(
     ]
     assert len(persisted_read_returns) == 1
     assert persisted_read_returns[0].content == big_content
-    assert persisted_read_returns[0].metadata is None
+    assert not (
+        isinstance(persisted_read_returns[0].metadata, dict)
+        and IN_RUN_COMPACTION_METADATA_KEY in persisted_read_returns[0].metadata
+    )
 
     events = loaded.runs[0].events
     assert isinstance(events[0], RunStartedEvent)
@@ -954,7 +980,7 @@ async def test_e2e_live_compaction_failure_aborts_run_hard(
     monkeypatch.setattr(
         runtime_session_module,
         "build_compaction_history_runtime",
-        lambda *, model: CompactionHistoryRuntime(
+        lambda *, model, on_in_run_compaction_applied=None: CompactionHistoryRuntime(
             history_processors=[failing_history_processor],
             restore_messages=lambda messages: messages,
         ),

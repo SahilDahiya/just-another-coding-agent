@@ -301,6 +301,15 @@ Initial executable run slice:
   - fields: `type`, `compaction_count`, `message`
 - `run_started`
   - fields: `type`, `run_id`
+- `in_run_compaction_applied`
+  - fields:
+    - `type`
+    - `run_id`
+    - `compacted_tool_result_count`
+    - `original_size_chars`
+    - `compacted_size_chars`
+    - `used_full_history_fallback`
+    - `message`
 - `assistant_text_delta`
   - fields: `type`, `run_id`, `delta`
 - `run_succeeded`
@@ -312,6 +321,9 @@ Ordering rules for the initial slice:
 
 - Successful text-only run: `run_started`, zero or more `assistant_text_delta`, `run_succeeded`
 - Failed run: `run_started`, zero or more `assistant_text_delta`, `run_failed`
+- `in_run_compaction_applied` may appear any time after `run_started` when
+  live in-run history shaping actually replaces the active model-facing
+  history; it is additive observability, not a second compaction lifecycle
 - `run_succeeded` and `run_failed` are mutually exclusive and terminal
 - `run_succeeded` may also carry optional additive usage metadata when the model/provider reports it
 - `input_tokens`, `output_tokens`, and `total_tokens` are optional integer token counts on `run_succeeded`
@@ -587,6 +599,8 @@ Ordering rules for the RPC slice:
 - If model-driven compaction summary generation fails, `session.compact` fails hard; it does not append a placeholder summary
 - A valid `run.start` request must reference an existing `session_id` and yields zero or more `rpc_event` lines whose embedded events satisfy the streamed run contract
 - Session lifecycle `rpc_event` payloads such as `session_compaction_started` and `session_compaction_completed` may appear before `run_started`
+- Live run `rpc_event` payloads such as `in_run_compaction_applied` may appear
+  after `run_started` and before the next assistant or tool lifecycle event
 - `CompactionBudgetReport` fields are:
   - `should_compact`
   - `reason`

@@ -10,7 +10,7 @@ from just_another_coding_agent.runtime.models import (
     build_in_run_compaction_soft_char_limit,
 )
 
-from .in_run import build_in_run_compaction_controller
+from .in_run import InRunCompactionResult, build_in_run_compaction_controller
 
 type ModelHistoryProcessor = Callable[
     [list[ModelMessage]],
@@ -28,9 +28,13 @@ def build_compaction_history_runtime(
     *,
     model: Any,
     history_processors: Sequence[ModelHistoryProcessor] | None = None,
+    on_in_run_compaction_applied: (
+        Callable[[InRunCompactionResult], None] | None
+    ) = None,
 ) -> CompactionHistoryRuntime:
     controller = build_in_run_compaction_controller(
-        soft_char_limit=build_in_run_compaction_soft_char_limit(model)
+        soft_char_limit=build_in_run_compaction_soft_char_limit(model),
+        on_applied=on_in_run_compaction_applied,
     )
     effective_history_processors = list(history_processors or [])
     effective_history_processors.append(controller.apply)
