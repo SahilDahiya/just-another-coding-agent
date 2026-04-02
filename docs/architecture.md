@@ -182,6 +182,9 @@ The important boundary is:
 - `src/just_another_coding_agent/session/`
   - session persistence
   - session load/save helpers
+- `src/just_another_coding_agent/work_graph/`
+  - workspace-native durable work state
+  - backend-owned SQLite store for work items, updates, and session links
 - `src/just_another_coding_agent/rpc/`
   - JSON-over-stdio protocol
   - command handlers

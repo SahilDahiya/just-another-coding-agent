@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import hashlib
-import re
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -18,7 +16,7 @@ from just_another_coding_agent.session import (
     normalize_session_name,
     read_session_metadata,
 )
-from just_another_coding_agent.tools._workspace import normalize_workspace_root
+from just_another_coding_agent.workspace_storage import workspace_key
 
 _SESSION_ID_ADAPTER = TypeAdapter(SessionId)
 
@@ -207,7 +205,7 @@ def workspace_sessions_dir(
     sessions_root: Path | str,
     workspace_root: Path | str,
 ) -> Path:
-    return Path(sessions_root) / _workspace_key(workspace_root)
+    return Path(sessions_root) / workspace_key(workspace_root)
 
 
 def _iter_workspace_session_metadata(
@@ -245,14 +243,6 @@ def _ensure_workspace_session_name_available(
             raise SessionLookupError(
                 f"Session name already in use in this workspace: {normalized_name}"
             )
-
-
-def _workspace_key(workspace_root: Path | str) -> str:
-    normalized_workspace_root = str(normalize_workspace_root(workspace_root))
-    slug = re.sub(r"[^a-z0-9]+", "-", Path(normalized_workspace_root).name.lower())
-    normalized_slug = slug.strip("-") or "workspace"
-    digest = hashlib.sha256(normalized_workspace_root.encode("utf-8")).hexdigest()[:16]
-    return f"{normalized_slug}-{digest}"
 
 
 __all__ = [
