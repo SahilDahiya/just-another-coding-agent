@@ -456,11 +456,14 @@ Initial executable session slice:
   - fields: `type`, `compaction_id`, `summarized_through_run_id`, `first_kept_run_id`, `checkpoint_through_run_id`, `checkpoint_messages`, `summary`
   - `summarized_through_run_id` must reference an existing persisted `run_id`
   - `first_kept_run_id`, when present, must reference an existing persisted
-    `run_id` strictly after `summarized_through_run_id`
+    `run_id` that does not precede `summarized_through_run_id`
   - `checkpoint_through_run_id` must reference an existing persisted `run_id`
     and must not precede either the summary boundary or the kept boundary
   - `checkpoint_messages` is the authoritative model-facing history at the
     compaction boundary: the summary checkpoint plus any retained raw tail
+    messages
+  - automatic compaction may keep a safe raw suffix that starts inside one run;
+    in that case `first_kept_run_id == summarized_through_run_id`
   - `summary` is structured durable compaction state, not arbitrary untyped metadata
 
 Ordering rules for the session slice:
@@ -504,7 +507,10 @@ Ordering rules for the session slice:
 - Appending a new run must preserve all existing lines and write the header only once
 - Successful resumed runs must persist only new run deltas instead of replaying checkpoint history back into trailing `session_messages`
 - Before a resumed run starts, the runtime may append one automatic `session_compaction` entry when measured local resume history plus reserve crosses the configured fraction of the effective active model context window after compaction-output headroom is reserved
-- Automatic durable compaction may preserve one bounded raw tail run via `first_kept_run_id`; future automatic trigger decisions must then count only completed runs beyond that retained boundary as new work
+- Automatic durable compaction may preserve a bounded raw tail by
+  message-token budget via `first_kept_run_id`; future automatic trigger
+  decisions must then count only completed runs beyond that retained boundary
+  as new work
 - After three consecutive automatic compaction failures for one session, the runtime blocks further automatic compaction attempts for that session and fails hard until the user reduces context or starts a new session
 
 ## RPC Contract

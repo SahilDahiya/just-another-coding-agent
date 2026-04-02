@@ -1200,6 +1200,91 @@ def test_append_compaction_to_session_persists_checkpoint_messages(tmp_path) -> 
     ] == ["second"]
 
 
+def test_append_compaction_to_session_accepts_custom_checkpoint_messages(
+    tmp_path,
+) -> None:
+    path = tmp_path / "session.jsonl"
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    for run_id, prompt in [("run-1", "first"), ("run-2", "second")]:
+        append_run_to_session(
+            path=path,
+            workspace_root=workspace_root,
+            prompt=prompt,
+            thinking=None,
+            messages=[ModelRequest(parts=[UserPromptPart(content=prompt)])],
+            events=[
+                RunStartedEvent(run_id=run_id),
+                RunSucceededEvent(run_id=run_id, output_text="done"),
+            ],
+        )
+
+    summary = SessionCompactionSummary(current_objective="continue")
+    custom_checkpoint_messages = [
+        build_compaction_summary_message(summary),
+        ModelResponse(parts=[TextPart(content="retained tail")], model_name="test"),
+    ]
+    compaction = append_compaction_to_session(
+        path=path,
+        workspace_root=workspace_root,
+        summary=summary,
+        summarized_through_run_id="run-2",
+        first_kept_run_id="run-2",
+        checkpoint_messages=custom_checkpoint_messages,
+    )
+
+    assert compaction.first_kept_run_id == "run-2"
+    assert compaction.summarized_through_run_id == "run-2"
+    assert compaction.checkpoint_messages == custom_checkpoint_messages
+
+
+def test_load_session_allows_split_turn_compaction_boundary(tmp_path) -> None:
+    path = tmp_path / "session.jsonl"
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    for run_id, prompt in [("run-1", "first"), ("run-2", "second")]:
+        append_run_to_session(
+            path=path,
+            workspace_root=workspace_root,
+            prompt=prompt,
+            thinking=None,
+            messages=[ModelRequest(parts=[UserPromptPart(content=prompt)])],
+            events=[
+                RunStartedEvent(run_id=run_id),
+                RunSucceededEvent(run_id=run_id, output_text="done"),
+            ],
+        )
+
+    summary = SessionCompactionSummary(current_objective="continue")
+    path.write_text(
+        path.read_text(encoding="utf-8")
+        + json.dumps(
+            _compaction_entry_payload(
+                summarized_through_run_id="run-2",
+                first_kept_run_id="run-2",
+                checkpoint_through_run_id="run-2",
+                checkpoint_messages=[
+                    build_compaction_summary_message(summary),
+                    ModelResponse(
+                        parts=[TextPart(content="retained tail")],
+                        model_name="test",
+                    ),
+                ],
+                summary=summary,
+            )
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    loaded = load_session(path=path, workspace_root=workspace_root)
+    assert loaded.latest_compaction is not None
+    assert loaded.latest_compaction.summarized_through_run_id == "run-2"
+    assert loaded.latest_compaction.first_kept_run_id == "run-2"
+
+
 def test_append_compaction_to_session_rejects_empty_session(tmp_path) -> None:
     path = tmp_path / "session.jsonl"
     workspace_root = tmp_path / "workspace"
@@ -1407,7 +1492,7 @@ def test_load_session_fails_when_compaction_kept_boundary_is_not_after_summary_b
 
     with pytest.raises(
         SessionFormatError,
-        match="Session compaction kept boundary must be after the summary boundary",
+        match="Session compaction kept boundary must not precede the summary boundary",
     ):
         load_session(path=path, workspace_root=workspace_root)
 

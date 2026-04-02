@@ -145,9 +145,9 @@ The important boundary is:
   current heuristic uses about 80% of the context window and approximates one
   token as four characters
 - durable auto-compaction now prefers persisted measured response usage plus a
-  trailing estimate over a pure whole-history heuristic, preserves one bounded
-  raw tail run when possible, and counts only runs beyond that kept boundary as
-  new work for future automatic compaction
+  trailing estimate over a pure whole-history heuristic, preserves a
+  token-budgeted safe raw tail when possible, and counts only runs beyond that
+  kept boundary as new work for future automatic compaction
 - automatic compaction decisions now produce explicit backend-owned budget
   reports so clients and tests can inspect why compaction did or did not
   trigger without reverse-engineering token heuristics locally

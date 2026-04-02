@@ -202,6 +202,7 @@ def append_compaction_to_session(
     summary: SessionCompactionSummary,
     summarized_through_run_id: str | None = None,
     first_kept_run_id: str | None = None,
+    checkpoint_messages: list[ModelMessage] | None = None,
 ) -> SessionCompactionEntry:
     normalized_workspace_root = normalize_workspace_root(workspace_root)
     loaded = load_session(
@@ -224,17 +225,25 @@ def append_compaction_to_session(
         if first_kept_run_id is not None
         else len(loaded.runs)
     )
-    checkpoint_messages = build_compaction_checkpoint_messages(
-        summary=summary,
-        retained_runs=loaded.runs[retained_start_index:],
+    resolved_checkpoint_messages = (
+        list(checkpoint_messages)
+        if checkpoint_messages is not None
+        else build_compaction_checkpoint_messages(
+            summary=summary,
+            retained_runs=loaded.runs[retained_start_index:],
+        )
     )
+    if not resolved_checkpoint_messages:
+        raise SessionFormatError(
+            "Compaction checkpoint must include at least one message"
+        )
 
     entry = SessionCompactionEntry(
         compaction_id=uuid4().hex,
         summarized_through_run_id=resolved_summarized_through_run_id,
         first_kept_run_id=first_kept_run_id,
         checkpoint_through_run_id=resolved_checkpoint_through_run_id,
-        checkpoint_messages=checkpoint_messages,
+        checkpoint_messages=resolved_checkpoint_messages,
         summary=summary,
     )
 
@@ -477,9 +486,9 @@ def load_session(
                         "an existing run_id"
                     ) from error
 
-                if first_kept_run_index <= compaction_run_index:
+                if first_kept_run_index < compaction_run_index:
                     raise SessionFormatError(
-                        "Session compaction kept boundary must be after "
+                        "Session compaction kept boundary must not precede "
                         "the summary boundary"
                     )
 

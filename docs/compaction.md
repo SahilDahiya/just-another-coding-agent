@@ -173,58 +173,60 @@ runtime instead of being hidden inside canonical agent construction.
 
 ## Durable Boundary Model
 
-Durable session compaction uses a whole-run kept boundary:
+Durable session compaction now uses an authoritative checkpoint boundary with a
+token-budgeted raw tail:
 
 - `summarized_through_run_id` marks the last run folded into the summary
-- `first_kept_run_id`, when present, marks the first retained native run
+- `first_kept_run_id`, when present, marks the first run contributing raw
+  checkpoint tail messages
 - `checkpoint_through_run_id` marks the latest run already represented inside
   the persisted compaction checkpoint
 - `checkpoint_messages` stores the authoritative model-facing history at the
-  compaction boundary: the summary message plus any retained raw tail runs
+  compaction boundary: the summary message plus any retained raw tail messages
 
 Resume history is therefore:
 
 - `checkpoint_messages`
 - all native messages strictly after `checkpoint_through_run_id`
 
-This is intentional. JACA does not currently support durable boundaries inside a
-single persisted run.
+Automatic durable compaction now preserves a bounded raw tail by message-token
+budget when possible:
 
-Automatic durable compaction now preserves a bounded raw tail when possible:
-
-- if there are at least two completed runs after the latest compaction boundary,
-  auto-compaction summarizes through the second-to-last eligible run
-- the latest eligible run is kept raw via `first_kept_run_id`
-- if there is only one eligible completed run, summary-only compaction remains
-  necessary because there is no earlier run boundary to summarize through
+- it selects the largest safe raw suffix that fits the retained-tail budget
+- that suffix may span multiple recent runs
+- when necessary, it may start inside a run at a message boundary that preserves
+  valid user/assistant/tool structure
+- if the kept suffix starts inside a summarized run,
+  `first_kept_run_id == summarized_through_run_id`
+- if no safe raw suffix fits the retained-tail budget, summary-only compaction
+  remains necessary
 
 ## Oversized Single Runs
 
-If one retained run is still very large, durable compaction does not split it.
-That large run is replayed whole on resume, and live in-run compaction remains
-responsible for reducing context pressure during the new run.
+If one retained run is still very large, durable compaction now attempts to keep
+a safe suffix from inside that run rather than only whole-run tails. The
+checkpoint still remains authoritative, and live in-run compaction remains
+responsible for shrinking historical tool payloads during the next run.
 
 So today:
 
-- between-run compaction is whole-run only
+- between-run compaction can keep a message-token-budgeted raw tail, including a
+  safe suffix from inside one run when needed
 - live in-run compaction handles oversized historical tool output inside the new
   run
 
 One important consequence:
 
-- a retained run is replayed in raw form at resume time
+- the retained checkpoint tail is replayed in raw form at resume time
 - later model requests in that same resumed run may still compact those retained
   historical tool returns through the live in-run processor once context
   pressure grows
-
-If the product later needs durable boundaries inside one run, the next step is
-stable persisted message IDs, not inferred message indexes.
 
 ## Invariants
 
 - `session_compaction` is append-only durable session state
 - a compaction entry must reference existing run IDs
-- `first_kept_run_id`, when present, must come strictly after
+- `first_kept_run_id`, when present, must not precede
   `summarized_through_run_id`
 - `checkpoint_through_run_id` must reference an existing run and must not
   precede either the summary boundary or the kept boundary

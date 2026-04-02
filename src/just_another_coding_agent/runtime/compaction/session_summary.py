@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic_ai import Agent
+from pydantic_ai.messages import ModelMessage
 
 from just_another_coding_agent.contracts.platform import detect_default_shell_family
 from just_another_coding_agent.contracts.session import (
@@ -22,6 +24,10 @@ from just_another_coding_agent.runtime.models import (
     get_model_context_window_tokens,
     resolve_canonical_model,
 )
+from just_another_coding_agent.session.checkpoint import (
+    build_compaction_summary_message,
+    select_compaction_checkpoint_tail,
+)
 from just_another_coding_agent.session.jsonl import (
     SessionFormatError,
     append_compaction_to_session,
@@ -30,6 +36,7 @@ from just_another_coding_agent.session.jsonl import (
 
 from . import source_builder as source_builder_module
 from . import trigger as trigger_module
+from .constants import SESSION_AUTO_COMPACTION_RETAINED_TAIL_TOKENS
 
 COMPACTION_SUMMARY_INSTRUCTIONS = "\n".join(
     [
@@ -75,6 +82,14 @@ class _NarrativeCompactionSummary(BaseModel):
     important_paths: list[str] = Field(default_factory=list)
     open_questions: list[str] = Field(default_factory=list)
     unresolved_work: list[str] = Field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class _AutoCompactionTarget:
+    summary_session: LoadedSession
+    summarized_through_run_id: str
+    first_kept_run_id: str | None
+    checkpoint_messages: list[ModelMessage] | None = None
 
 
 async def summarize_session_for_compaction(
@@ -132,20 +147,26 @@ async def summarize_and_append_compaction_to_session(
     if not loaded_session.runs:
         raise SessionFormatError("Cannot compact a session with no completed runs")
 
-    summary_session, summarized_through_run_id, first_kept_run_id = (
-        _build_auto_compaction_target(loaded_session)
-    )
+    target = _build_auto_compaction_target(loaded_session)
 
     summary = await summarize_session_for_compaction(
         model=model,
-        loaded_session=summary_session,
+        loaded_session=target.summary_session,
     )
     return append_compaction_to_session(
         path=path,
         workspace_root=workspace_root,
         summary=summary,
-        summarized_through_run_id=summarized_through_run_id,
-        first_kept_run_id=first_kept_run_id,
+        summarized_through_run_id=target.summarized_through_run_id,
+        first_kept_run_id=target.first_kept_run_id,
+        checkpoint_messages=(
+            None
+            if target.checkpoint_messages is None
+            else [
+                build_compaction_summary_message(summary),
+                *target.checkpoint_messages,
+            ]
+        ),
     )
 
 
@@ -179,20 +200,49 @@ def _normalize_summary_items(values: list[str]) -> list[str]:
 
 def _build_auto_compaction_target(
     loaded_session: LoadedSession,
-) -> tuple[LoadedSession, str, str | None]:
+) -> _AutoCompactionTarget:
     retained_runs = runs_since_latest_compaction_boundary(loaded_session)
-    if len(retained_runs) < 2:
-        return loaded_session, loaded_session.runs[-1].run_id, None
+    retained_messages, first_kept_run_id, split_within_run = (
+        select_compaction_checkpoint_tail(
+            retained_runs,
+            token_budget=SESSION_AUTO_COMPACTION_RETAINED_TAIL_TOKENS,
+        )
+    )
+    if first_kept_run_id is None:
+        return _AutoCompactionTarget(
+            summary_session=loaded_session,
+            summarized_through_run_id=loaded_session.runs[-1].run_id,
+            first_kept_run_id=None,
+            checkpoint_messages=None,
+        )
 
-    first_kept_run_id = retained_runs[-1].run_id
+    kept_run_index = next(
+        index
+        for index, run in enumerate(loaded_session.runs)
+        if run.run_id == first_kept_run_id
+    )
+    summarized_run_index = kept_run_index if split_within_run else kept_run_index - 1
+    if summarized_run_index < 0:
+        return _AutoCompactionTarget(
+            summary_session=loaded_session,
+            summarized_through_run_id=loaded_session.runs[-1].run_id,
+            first_kept_run_id=None,
+            checkpoint_messages=None,
+        )
+
     summary_session = LoadedSession(
         header=loaded_session.header,
         fork=loaded_session.fork,
         name=loaded_session.name,
-        runs=list(loaded_session.runs[:-1]),
+        runs=list(loaded_session.runs[: summarized_run_index + 1]),
         compactions=list(loaded_session.compactions),
     )
-    return summary_session, summary_session.runs[-1].run_id, first_kept_run_id
+    return _AutoCompactionTarget(
+        summary_session=summary_session,
+        summarized_through_run_id=summary_session.runs[-1].run_id,
+        first_kept_run_id=first_kept_run_id,
+        checkpoint_messages=retained_messages,
+    )
 
 
 def should_auto_compact_session(

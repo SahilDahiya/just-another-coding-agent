@@ -11,6 +11,7 @@ from pydantic_ai.messages import (
     ModelResponse,
     RetryPromptPart,
     SystemPromptPart,
+    TextPart,
     ToolCallPart,
     ToolReturnPart,
     UserPromptPart,
@@ -930,6 +931,135 @@ def test_should_not_auto_compact_again_without_new_runs_beyond_retained_boundary
     )
 
 
+def test_build_auto_compaction_target_keeps_multiple_recent_runs_within_tail_budget(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    session_path = tmp_path / "session.jsonl"
+
+    append_run_to_session(
+        path=session_path,
+        workspace_root=workspace_root,
+        prompt="x" * 25_000,
+        thinking=None,
+        messages=[ModelRequest(parts=[UserPromptPart(content="x" * 25_000)])],
+        events=[
+            RunStartedEvent(run_id="run-1"),
+            RunSucceededEvent(run_id="run-1", output_text="done"),
+        ],
+    )
+    for run_id, prompt in [("run-2", "second"), ("run-3", "third")]:
+        append_run_to_session(
+            path=session_path,
+            workspace_root=workspace_root,
+            prompt=prompt,
+            thinking=None,
+            messages=[ModelRequest(parts=[UserPromptPart(content=prompt)])],
+            events=[
+                RunStartedEvent(run_id=run_id),
+                RunSucceededEvent(run_id=run_id, output_text="done"),
+            ],
+        )
+
+    loaded = load_session(path=session_path, workspace_root=workspace_root)
+    monkeypatch.setattr(
+        session_summary_module,
+        "SESSION_AUTO_COMPACTION_RETAINED_TAIL_TOKENS",
+        400,
+    )
+
+    target = session_summary_module._build_auto_compaction_target(loaded)
+
+    assert target.summarized_through_run_id == "run-1"
+    assert target.first_kept_run_id == "run-2"
+    assert [run.run_id for run in target.summary_session.runs] == ["run-1"]
+    assert [
+        part.content
+        for message in target.checkpoint_messages or []
+        for part in message.parts
+        if isinstance(part, UserPromptPart)
+    ] == ["second", "third"]
+
+
+def test_build_auto_compaction_target_can_keep_partial_tail_from_large_run(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    session_path = tmp_path / "session.jsonl"
+
+    append_run_to_session(
+        path=session_path,
+        workspace_root=workspace_root,
+        prompt="first",
+        thinking=None,
+        messages=[ModelRequest(parts=[UserPromptPart(content="first")])],
+        events=[
+            RunStartedEvent(run_id="run-1"),
+            RunSucceededEvent(run_id="run-1", output_text="done"),
+        ],
+    )
+    append_run_to_session(
+        path=session_path,
+        workspace_root=workspace_root,
+        prompt="second",
+        thinking=None,
+        messages=[
+            ModelRequest(parts=[UserPromptPart(content="y" * 25_000)]),
+            ModelResponse(
+                parts=[
+                    ToolCallPart(
+                        tool_name="read",
+                        args='{"path":"note.txt"}',
+                        tool_call_id="call-read",
+                    )
+                ],
+                model_name="test",
+            ),
+            ModelRequest(
+                parts=[
+                    ToolReturnPart(
+                        tool_name="read",
+                        tool_call_id="call-read",
+                        content="note body",
+                    )
+                ]
+            ),
+            ModelResponse(parts=[TextPart(content="done")], model_name="test"),
+        ],
+        events=[
+            RunStartedEvent(run_id="run-2"),
+            RunSucceededEvent(run_id="run-2", output_text="done"),
+        ],
+    )
+
+    loaded = load_session(path=session_path, workspace_root=workspace_root)
+    monkeypatch.setattr(
+        session_summary_module,
+        "SESSION_AUTO_COMPACTION_RETAINED_TAIL_TOKENS",
+        400,
+    )
+
+    target = session_summary_module._build_auto_compaction_target(loaded)
+
+    assert target.summarized_through_run_id == "run-2"
+    assert target.first_kept_run_id == "run-2"
+    assert [run.run_id for run in target.summary_session.runs] == ["run-1", "run-2"]
+    assert target.checkpoint_messages is not None
+    assert isinstance(target.checkpoint_messages[0], ModelResponse)
+    assert any(
+        isinstance(part, ToolCallPart)
+        for part in target.checkpoint_messages[0].parts
+    )
+    assert not any(
+        isinstance(part, UserPromptPart)
+        for part in target.checkpoint_messages[0].parts
+    )
+
+
 async def test_stream_session_run_events_replays_compacted_history_keeps_messages_raw(
     tmp_path,
 ) -> None:
@@ -1160,9 +1290,7 @@ async def test_stream_session_run_events_does_not_reappend_retained_history(
     ):
         del model
         loaded = load_session(path=path, workspace_root=workspace_root)
-        summary_session, summarized_through_run_id, first_kept_run_id = (
-            session_summary_module._build_auto_compaction_target(loaded)
-        )
+        target = session_summary_module._build_auto_compaction_target(loaded)
         return append_compaction_to_session(
             path=path,
             workspace_root=workspace_root,
@@ -1174,8 +1302,25 @@ async def test_stream_session_run_events_does_not_reappend_retained_history(
                 open_questions=[],
                 unresolved_work=["Handle the follow-up prompt."],
             ),
-            summarized_through_run_id=summarized_through_run_id,
-            first_kept_run_id=first_kept_run_id,
+            summarized_through_run_id=target.summarized_through_run_id,
+            first_kept_run_id=target.first_kept_run_id,
+            checkpoint_messages=(
+                None
+                if target.checkpoint_messages is None
+                else [
+                    build_compaction_summary_message(
+                        SessionCompactionSummary(
+                            current_objective="continue after auto compaction",
+                            established_facts=["The oversized runs were summarized."],
+                            user_preferences=[],
+                            important_paths=["note.txt"],
+                            open_questions=[],
+                            unresolved_work=["Handle the follow-up prompt."],
+                        )
+                    ),
+                    *target.checkpoint_messages,
+                ]
+            ),
         )
 
     monkeypatch.setattr(
@@ -2242,9 +2387,7 @@ async def test_stream_session_run_events_auto_compacts_stale_session_before_resu
             max_chars=10_000,
         )
         assert "Run run-2" in source
-        summary_session, summarized_through_run_id, first_kept_run_id = (
-            session_summary_module._build_auto_compaction_target(loaded)
-        )
+        target = session_summary_module._build_auto_compaction_target(loaded)
         return append_compaction_to_session(
             path=path,
             workspace_root=workspace_root,
@@ -2256,8 +2399,25 @@ async def test_stream_session_run_events_auto_compacts_stale_session_before_resu
                 open_questions=[],
                 unresolved_work=["Handle the follow-up prompt."],
             ),
-            summarized_through_run_id=summarized_through_run_id,
-            first_kept_run_id=first_kept_run_id,
+            summarized_through_run_id=target.summarized_through_run_id,
+            first_kept_run_id=target.first_kept_run_id,
+            checkpoint_messages=(
+                None
+                if target.checkpoint_messages is None
+                else [
+                    build_compaction_summary_message(
+                        SessionCompactionSummary(
+                            current_objective="continue after auto compaction",
+                            established_facts=["The oversized runs were summarized."],
+                            user_preferences=[],
+                            important_paths=["note.txt"],
+                            open_questions=[],
+                            unresolved_work=["Handle the follow-up prompt."],
+                        )
+                    ),
+                    *target.checkpoint_messages,
+                ]
+            ),
         )
 
     monkeypatch = pytest.MonkeyPatch()
@@ -2292,7 +2452,7 @@ async def test_stream_session_run_events_auto_compacts_stale_session_before_resu
     assert events[0].budget.should_compact is True
     assert events[0].budget.reason == "over_budget"
     assert events[0].budget.runs_since_latest_compaction == 2
-    assert events[1].first_kept_run_id == "run-2"
+    assert events[1].first_kept_run_id is None
     assert events[1].checkpoint_through_run_id == "run-2"
     assert events[1].budget_before.should_compact is True
     assert events[1].budget_before.reason == "over_budget"
@@ -2303,8 +2463,8 @@ async def test_stream_session_run_events_auto_compacts_stale_session_before_resu
     loaded = load_session(path=session_path, workspace_root=workspace_root)
     assert len(loaded.compactions) == 1
     assert loaded.latest_compaction is not None
-    assert loaded.latest_compaction.summarized_through_run_id == "run-1"
-    assert loaded.latest_compaction.first_kept_run_id == "run-2"
+    assert loaded.latest_compaction.summarized_through_run_id == "run-2"
+    assert loaded.latest_compaction.first_kept_run_id is None
     assert (
         loaded.latest_compaction.summary.current_objective
         == "continue after auto compaction"
@@ -2372,9 +2532,7 @@ async def test_stream_session_run_events_warns_after_repeated_auto_compaction(
     ):
         del model
         loaded = load_session(path=path, workspace_root=workspace_root)
-        _, summarized_through_run_id, first_kept_run_id = (
-            session_summary_module._build_auto_compaction_target(loaded)
-        )
+        target = session_summary_module._build_auto_compaction_target(loaded)
         return append_compaction_to_session(
             path=path,
             workspace_root=workspace_root,
@@ -2390,8 +2548,33 @@ async def test_stream_session_run_events_warns_after_repeated_auto_compaction(
                 open_questions=[],
                 unresolved_work=["Handle the next prompt."],
             ),
-            summarized_through_run_id=summarized_through_run_id,
-            first_kept_run_id=first_kept_run_id,
+            summarized_through_run_id=target.summarized_through_run_id,
+            first_kept_run_id=target.first_kept_run_id,
+            checkpoint_messages=(
+                None
+                if target.checkpoint_messages is None
+                else [
+                    build_compaction_summary_message(
+                        SessionCompactionSummary(
+                            current_objective=(
+                                "continue after repeated auto compaction"
+                            ),
+                            established_facts=[
+                                "The later oversized runs were summarized."
+                            ],
+                            user_preferences=[],
+                            important_paths=[],
+                            read_paths=[],
+                            modified_paths=[],
+                            recent_shell_commands=[],
+                            recent_failures=[],
+                            open_questions=[],
+                            unresolved_work=["Handle the next prompt."],
+                        )
+                    ),
+                    *target.checkpoint_messages,
+                ]
+            ),
         )
 
     monkeypatch = pytest.MonkeyPatch()
@@ -2437,8 +2620,8 @@ async def test_stream_session_run_events_warns_after_repeated_auto_compaction(
     loaded = load_session(path=session_path, workspace_root=workspace_root)
     assert len(loaded.compactions) == 2
     assert loaded.latest_compaction is not None
-    assert loaded.latest_compaction.summarized_through_run_id == "run-3"
-    assert loaded.latest_compaction.first_kept_run_id == "run-4"
+    assert loaded.latest_compaction.summarized_through_run_id == "run-4"
+    assert loaded.latest_compaction.first_kept_run_id is None
     assert (
         loaded.latest_compaction.summary.current_objective
         == "continue after repeated auto compaction"
@@ -2535,15 +2718,23 @@ async def test_stream_session_run_events_resets_auto_compaction_failures_on_succ
     ):
         del model
         loaded = load_session(path=path, workspace_root=workspace_root)
-        _, summarized_through_run_id, first_kept_run_id = (
-            session_summary_module._build_auto_compaction_target(loaded)
-        )
+        target = session_summary_module._build_auto_compaction_target(loaded)
         return append_compaction_to_session(
             path=path,
             workspace_root=workspace_root,
             summary=SessionCompactionSummary(current_objective="continue"),
-            summarized_through_run_id=summarized_through_run_id,
-            first_kept_run_id=first_kept_run_id,
+            summarized_through_run_id=target.summarized_through_run_id,
+            first_kept_run_id=target.first_kept_run_id,
+            checkpoint_messages=(
+                None
+                if target.checkpoint_messages is None
+                else [
+                    build_compaction_summary_message(
+                        SessionCompactionSummary(current_objective="continue")
+                    ),
+                    *target.checkpoint_messages,
+                ]
+            ),
         )
 
     monkeypatch.setattr(
