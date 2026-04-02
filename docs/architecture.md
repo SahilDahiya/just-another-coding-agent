@@ -164,6 +164,9 @@ The important boundary is:
   next run starts
 - terminal successful runs persist only PydanticAI `new_messages()` deltas, not
   reconstructed full history with a later semantic strip step
+- canonical agent construction no longer hides compaction policy; session
+  runtime opts into model-facing compaction shaping explicitly through a
+  compaction-owned history-processor helper
 - if run-local history compaction rewrites current-run tool-return content for
   the model, the persistence layer must restore the original raw tool-return
   content before `session_messages` are written
@@ -181,6 +184,7 @@ The important boundary is:
     - `session_summary.py` for durable cross-run compaction orchestration
     - `constants.py`, `boundary.py`, `trigger.py`, `source_builder.py`, and
       `working_set.py` for focused durable-compaction helpers
+    - `history_processors.py` for explicit model-facing compaction shaping
     - `resume.py` for compacted session replay helpers
     - `in_run.py` for live-run tool-return compaction
   - orchestration entrypoints

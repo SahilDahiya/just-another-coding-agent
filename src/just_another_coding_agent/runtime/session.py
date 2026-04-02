@@ -35,6 +35,7 @@ from just_another_coding_agent.runtime.activity import build_failed_tool_activit
 from just_another_coding_agent.runtime.agent import build_canonical_agent
 from just_another_coding_agent.runtime.compaction import (
     build_auto_compact_session_budget_report,
+    build_compaction_history_processors,
     build_resume_message_history,
     restore_in_run_compaction_from_messages,
     summarize_and_append_compaction_to_session,
@@ -245,6 +246,7 @@ async def stream_session_run_events(
         workspace_root=normalized_workspace_root,
         shell_family=shell_family,
         tool_names=tool_names,
+        history_processors=build_compaction_history_processors(model=model),
     )
     run_appender = None
     authoritative_messages: list[ModelMessage] | None = None

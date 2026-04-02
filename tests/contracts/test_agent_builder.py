@@ -13,6 +13,9 @@ from just_another_coding_agent.runtime import (
     build_canonical_instructions,
     build_canonical_model_settings,
 )
+from just_another_coding_agent.runtime.compaction import (
+    build_compaction_history_processors,
+)
 from just_another_coding_agent.tools.deps import WorkspaceDeps
 
 
@@ -134,12 +137,9 @@ def test_build_canonical_agent_resolves_string_models(tmp_path, monkeypatch) -> 
     assert agent.model.model_name == "gpt-5.3-codex"
 
 
-def test_build_canonical_agent_uses_model_aware_live_compaction_limit(
-    tmp_path,
+def test_build_compaction_history_processors_uses_model_aware_live_compaction_limit(
     monkeypatch,
 ) -> None:
-    workspace_root = tmp_path / "workspace"
-    workspace_root.mkdir()
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     observed: dict[str, int] = {}
 
@@ -148,17 +148,32 @@ def test_build_canonical_agent_uses_model_aware_live_compaction_limit(
         return lambda messages: messages
 
     monkeypatch.setattr(
-        "just_another_coding_agent.runtime.agent.build_in_run_history_processor",
+        "just_another_coding_agent.runtime.compaction.history_processors."
+        "build_in_run_history_processor",
         fake_build_in_run_history_processor,
     )
 
-    build_canonical_agent(
+    processors = build_compaction_history_processors(
         model="openai-responses:gpt-5.3-codex",
+    )
+
+    assert observed["soft_char_limit"] == 1_280_000
+    assert len(processors) == 1
+
+
+def test_build_canonical_agent_uses_only_explicit_history_processors(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    agent = build_canonical_agent(
+        model=FunctionModel(stream_function=text_only_stream),
         workspace_root=workspace_root,
         tool_names=[],
     )
 
-    assert observed["soft_char_limit"] == 1_280_000
+    assert agent.history_processors == []
 
 
 def test_build_canonical_agent_documents_plain_text_output_retry_policy(

@@ -1,23 +1,19 @@
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Sequence
 from datetime import date
 from pathlib import Path
 from typing import Any
 
 from pydantic_ai import Agent
-from pydantic_ai.messages import ModelMessage
 
 from just_another_coding_agent.contracts.platform import (
     ShellFamily,
     detect_default_shell_family,
 )
 from just_another_coding_agent.contracts.tools import CANONICAL_TOOL_NAMES
-from just_another_coding_agent.runtime.compaction import build_in_run_history_processor
-from just_another_coding_agent.runtime.models import (
-    build_in_run_compaction_soft_char_limit,
-    resolve_canonical_model,
-)
+from just_another_coding_agent.runtime.compaction import ModelHistoryProcessor
+from just_another_coding_agent.runtime.models import resolve_canonical_model
 from just_another_coding_agent.tools._workspace import normalize_workspace_root
 from just_another_coding_agent.tools.deps import WorkspaceDeps
 from just_another_coding_agent.tools.registry import build_canonical_toolset
@@ -101,23 +97,11 @@ def build_canonical_agent(
     workspace_root: Path | str,
     shell_family: ShellFamily | None = None,
     tool_names: Sequence[str] = CANONICAL_TOOL_NAMES,
-    history_processors: Sequence[
-        Callable[
-            [list[ModelMessage]],
-            list[ModelMessage] | Awaitable[list[ModelMessage]],
-        ]
-    ]
-    | None = None,
+    history_processors: Sequence[ModelHistoryProcessor] | None = None,
 ) -> Agent[WorkspaceDeps, str]:
     root = normalize_workspace_root(workspace_root)
     effective_shell_family = shell_family or detect_default_shell_family()
     resolved_model = resolve_canonical_model(model)
-    effective_history_processors = list(history_processors or [])
-    effective_history_processors.append(
-        build_in_run_history_processor(
-            soft_char_limit=build_in_run_compaction_soft_char_limit(resolved_model)
-        )
-    )
 
     # The canonical agent returns plain assistant text, not structured output.
     # Codex/pi-style interaction keeps the run alive until the model chooses to
@@ -141,7 +125,7 @@ def build_canonical_agent(
         ),
         deps_type=WorkspaceDeps,
         toolsets=[build_canonical_toolset(tool_names)],
-        history_processors=effective_history_processors,
+        history_processors=list(history_processors or []),
     )
     if agent.output_type is not str:
         raise RuntimeError(

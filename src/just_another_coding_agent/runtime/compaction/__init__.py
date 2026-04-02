@@ -2,6 +2,10 @@ from .constants import (
     SESSION_AUTO_COMPACTION_CONTEXT_WINDOW_UTILIZATION,
     SESSION_AUTO_COMPACTION_PROMPT_RESERVE_TOKENS,
 )
+from .history_processors import (
+    ModelHistoryProcessor,
+    build_compaction_history_processors,
+)
 from .in_run import (
     IN_RUN_COMPACTION_SOFT_CHAR_LIMIT,
     build_in_run_history_processor,
@@ -24,8 +28,10 @@ __all__ = [
     "COMPACTION_SUMMARY_DYNAMIC_REF",
     "COMPACTION_SUMMARY_INSTRUCTIONS",
     "IN_RUN_COMPACTION_SOFT_CHAR_LIMIT",
+    "ModelHistoryProcessor",
     "SESSION_AUTO_COMPACTION_CONTEXT_WINDOW_UTILIZATION",
     "SESSION_AUTO_COMPACTION_PROMPT_RESERVE_TOKENS",
+    "build_compaction_history_processors",
     "build_compaction_summary_message",
     "build_auto_compact_session_budget_report",
     "build_in_run_history_processor",

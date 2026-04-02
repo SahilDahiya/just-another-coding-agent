@@ -151,15 +151,19 @@ context pressure grows.
 Code:
 
 - `runtime/compaction/in_run.py`
+- `runtime/compaction/history_processors.py`
 
 Responsibilities:
 
 - summarize oversized historical tool returns for the model
 - keep tool call / tool result pairing intact
 - restore original raw tool-return content before session persistence
+- provide the explicit model-facing `history_processors` seam the session
+  runtime uses before model calls
 
-This is the only compaction path that still uses a PydanticAI
-`history_processor`.
+This is the only compaction path that still uses PydanticAI
+`history_processors`, and that shaping is now attached explicitly by session
+runtime instead of being hidden inside canonical agent construction.
 
 ## Durable Boundary Model
 
