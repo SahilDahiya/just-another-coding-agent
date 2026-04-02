@@ -101,15 +101,15 @@ Today that means:
   `session_compaction` entries
 - the runtime generates each compaction summary through a separate model call
 - resumed runs build explicit resume history from the latest compaction entry:
-  one synthetic compaction-summary message plus retained native messages after
-  the compaction boundary
+  persisted checkpoint messages plus later native message deltas after the
+  checkpoint boundary
 - live runs may also compact historical tool-return content at runtime through a
   history processor when context pressure grows
 - if a live-run processor rewrites current-run tool-return content for the
   model, the persistence layer must restore the original raw tool-return
   content before `session_messages` are written
-- that synthetic summary is stripped back out before the new run's
-  `session_messages` are persisted
+- successful resumed runs persist only new PydanticAI message deltas rather
+  than replayed checkpoint history
 
 ## Continue Semantics
 

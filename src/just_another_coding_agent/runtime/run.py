@@ -302,7 +302,7 @@ async def stream_run_events(
 
                     terminal_emitted = True
                     if message_history_sink is not None:
-                        message_history_sink(event.result.all_messages())
+                        message_history_sink(event.result.new_messages())
                     usage = event.result.usage()
                     context_limit = _get_context_window_tokens(agent)
                     yield RunSucceededEvent(

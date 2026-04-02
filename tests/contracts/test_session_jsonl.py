@@ -1,6 +1,7 @@
 import json
 
 import pytest
+from pydantic import TypeAdapter
 from pydantic_ai import Agent, capture_run_messages
 from pydantic_ai.messages import (
     ModelMessage,
@@ -27,6 +28,9 @@ from just_another_coding_agent.contracts.session import (
     SESSION_FORMAT_VERSION,
     SessionCompactionSummary,
 )
+from just_another_coding_agent.runtime.compaction import (
+    build_compaction_summary_message,
+)
 from just_another_coding_agent.runtime.run import stream_run_events
 from just_another_coding_agent.session import build_session_preview
 from just_another_coding_agent.session.jsonl import (
@@ -39,6 +43,34 @@ from just_another_coding_agent.session.jsonl import (
     load_session,
     read_session_metadata,
 )
+
+_MODEL_MESSAGES_ADAPTER = TypeAdapter(list[ModelMessage])
+
+
+def _compaction_entry_payload(
+    *,
+    summarized_through_run_id: str,
+    summary: SessionCompactionSummary,
+    first_kept_run_id: str | None = None,
+    checkpoint_through_run_id: str,
+    checkpoint_messages: list[ModelMessage] | None = None,
+) -> dict[str, object]:
+    return {
+        "type": "session_compaction",
+        "compaction_id": "compact-1",
+        "summarized_through_run_id": summarized_through_run_id,
+        "first_kept_run_id": first_kept_run_id,
+        "checkpoint_through_run_id": checkpoint_through_run_id,
+        "checkpoint_messages": _MODEL_MESSAGES_ADAPTER.dump_python(
+            (
+                checkpoint_messages
+                if checkpoint_messages is not None
+                else [build_compaction_summary_message(summary)]
+            ),
+            mode="json",
+        ),
+        "summary": summary.model_dump(mode="json"),
+    }
 
 
 async def successful_tool_stream(
@@ -1129,6 +1161,45 @@ def test_append_compaction_to_session_accepts_explicit_kept_boundary(tmp_path) -
     assert loaded.compactions == [compaction]
 
 
+def test_append_compaction_to_session_persists_checkpoint_messages(tmp_path) -> None:
+    path = tmp_path / "session.jsonl"
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    for run_id, prompt in [("run-1", "first"), ("run-2", "second")]:
+        append_run_to_session(
+            path=path,
+            workspace_root=workspace_root,
+            prompt=prompt,
+            thinking=None,
+            messages=[ModelRequest(parts=[UserPromptPart(content=prompt)])],
+            events=[
+                RunStartedEvent(run_id=run_id),
+                RunSucceededEvent(run_id=run_id, output_text="done"),
+            ],
+        )
+
+    summary = SessionCompactionSummary(current_objective="continue")
+    compaction = append_compaction_to_session(
+        path=path,
+        workspace_root=workspace_root,
+        summary=summary,
+        summarized_through_run_id="run-1",
+        first_kept_run_id="run-2",
+    )
+
+    assert compaction.checkpoint_through_run_id == "run-2"
+    assert compaction.checkpoint_messages[0].parts[0].content == (
+        build_compaction_summary_message(summary).parts[0].content
+    )
+    assert [
+        part.content
+        for message in compaction.checkpoint_messages[1:]
+        for part in message.parts
+        if isinstance(part, UserPromptPart)
+    ] == ["second"]
+
+
 def test_append_compaction_to_session_rejects_empty_session(tmp_path) -> None:
     path = tmp_path / "session.jsonl"
     workspace_root = tmp_path / "workspace"
@@ -1179,24 +1250,19 @@ def test_load_session_tracks_compaction_entries_without_changing_message_history
     with path.open("a", encoding="utf-8") as file_handle:
         file_handle.write(
             json.dumps(
-                {
-                    "type": "session_compaction",
-                    "compaction_id": "compact-1",
-                    "summarized_through_run_id": "run-2",
-                    "first_kept_run_id": None,
-                    "summary": {
-                        "current_objective": "Continue the task",
-                        "established_facts": ["first and second completed"],
-                        "user_preferences": ["be concise"],
-                        "important_paths": ["src/app.py"],
-                        "read_paths": [],
-                        "modified_paths": [],
-                        "recent_shell_commands": [],
-                        "recent_failures": [],
-                        "open_questions": [],
-                        "unresolved_work": ["ship the fix"],
-                    },
-                }
+                _compaction_entry_payload(
+                    summarized_through_run_id="run-2",
+                    first_kept_run_id=None,
+                    checkpoint_through_run_id="run-2",
+                    summary=SessionCompactionSummary(
+                        current_objective="Continue the task",
+                        established_facts=["first and second completed"],
+                        user_preferences=["be concise"],
+                        important_paths=["src/app.py"],
+                        open_questions=[],
+                        unresolved_work=["ship the fix"],
+                    ),
+                )
             )
             + "\n"
         )
@@ -1243,24 +1309,12 @@ def test_load_session_fails_when_compaction_precedes_any_run(tmp_path) -> None:
                     }
                 ),
                 json.dumps(
-                    {
-                        "type": "session_compaction",
-                        "compaction_id": "compact-1",
-                        "summarized_through_run_id": "run-1",
-                        "first_kept_run_id": None,
-                        "summary": {
-                            "current_objective": None,
-                            "established_facts": [],
-                            "user_preferences": [],
-                            "important_paths": [],
-                            "read_paths": [],
-                            "modified_paths": [],
-                            "recent_shell_commands": [],
-                            "recent_failures": [],
-                            "open_questions": [],
-                            "unresolved_work": [],
-                        },
-                    }
+                    _compaction_entry_payload(
+                        summarized_through_run_id="run-1",
+                        first_kept_run_id=None,
+                        checkpoint_through_run_id="run-1",
+                        summary=SessionCompactionSummary(),
+                    )
                 ),
             ]
         )
@@ -1293,24 +1347,12 @@ def test_load_session_fails_when_compaction_references_unknown_run_id(tmp_path) 
     with path.open("a", encoding="utf-8") as file_handle:
         file_handle.write(
             json.dumps(
-                {
-                    "type": "session_compaction",
-                    "compaction_id": "compact-1",
-                    "summarized_through_run_id": "run-999",
-                    "first_kept_run_id": None,
-                    "summary": {
-                        "current_objective": "go",
-                        "established_facts": [],
-                        "user_preferences": [],
-                        "important_paths": [],
-                        "read_paths": [],
-                        "modified_paths": [],
-                        "recent_shell_commands": [],
-                        "recent_failures": [],
-                        "open_questions": [],
-                        "unresolved_work": [],
-                    },
-                }
+                _compaction_entry_payload(
+                    summarized_through_run_id="run-999",
+                    first_kept_run_id=None,
+                    checkpoint_through_run_id="run-1",
+                    summary=SessionCompactionSummary(current_objective="go"),
+                )
             )
             + "\n"
         )
@@ -1353,24 +1395,12 @@ def test_load_session_fails_when_compaction_kept_boundary_is_not_after_summary_b
     with path.open("a", encoding="utf-8") as file_handle:
         file_handle.write(
             json.dumps(
-                {
-                    "type": "session_compaction",
-                    "compaction_id": "compact-1",
-                    "summarized_through_run_id": "run-2",
-                    "first_kept_run_id": "run-1",
-                    "summary": {
-                        "current_objective": "go",
-                        "established_facts": [],
-                        "user_preferences": [],
-                        "important_paths": [],
-                        "read_paths": [],
-                        "modified_paths": [],
-                        "recent_shell_commands": [],
-                        "recent_failures": [],
-                        "open_questions": [],
-                        "unresolved_work": [],
-                    },
-                }
+                _compaction_entry_payload(
+                    summarized_through_run_id="run-2",
+                    first_kept_run_id="run-1",
+                    checkpoint_through_run_id="run-2",
+                    summary=SessionCompactionSummary(current_objective="go"),
+                )
             )
             + "\n"
         )
@@ -1413,24 +1443,12 @@ def test_load_session_fails_when_compaction_kept_boundary_references_unknown_run
     with path.open("a", encoding="utf-8") as file_handle:
         file_handle.write(
             json.dumps(
-                {
-                    "type": "session_compaction",
-                    "compaction_id": "compact-1",
-                    "summarized_through_run_id": "run-1",
-                    "first_kept_run_id": "run-999",
-                    "summary": {
-                        "current_objective": "go",
-                        "established_facts": [],
-                        "user_preferences": [],
-                        "important_paths": [],
-                        "read_paths": [],
-                        "modified_paths": [],
-                        "recent_shell_commands": [],
-                        "recent_failures": [],
-                        "open_questions": [],
-                        "unresolved_work": [],
-                    },
-                }
+                _compaction_entry_payload(
+                    summarized_through_run_id="run-1",
+                    first_kept_run_id="run-999",
+                    checkpoint_through_run_id="run-1",
+                    summary=SessionCompactionSummary(current_objective="go"),
+                )
             )
             + "\n"
         )

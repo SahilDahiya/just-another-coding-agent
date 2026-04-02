@@ -10,7 +10,7 @@ from .platform import ShellFamily
 from .run_events import RunEvent
 from .thinking import ThinkingSetting
 
-SESSION_FORMAT_VERSION = 8
+SESSION_FORMAT_VERSION = 9
 SessionName = Annotated[
     str,
     StringConstraints(pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$"),
@@ -76,6 +76,8 @@ class SessionCompactionEntry(_SessionEntryBase):
     compaction_id: str
     summarized_through_run_id: str
     first_kept_run_id: str | None = None
+    checkpoint_through_run_id: str
+    checkpoint_messages: list[ModelMessage]
     summary: SessionCompactionSummary
 
 

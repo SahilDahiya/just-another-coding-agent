@@ -11,7 +11,6 @@ from .resume import (
     COMPACTION_SUMMARY_DYNAMIC_REF,
     build_compaction_summary_message,
     build_resume_message_history,
-    strip_compaction_summary_from_messages,
 )
 from .session_summary import (
     COMPACTION_SUMMARY_INSTRUCTIONS,
@@ -31,7 +30,6 @@ __all__ = [
     "build_resume_message_history",
     "restore_in_run_compaction_from_messages",
     "should_auto_compact_session",
-    "strip_compaction_summary_from_messages",
     "summarize_and_append_compaction_to_session",
     "summarize_session_for_compaction",
 ]

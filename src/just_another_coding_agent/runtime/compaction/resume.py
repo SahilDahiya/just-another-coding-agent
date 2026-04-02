@@ -1,108 +1,34 @@
 from __future__ import annotations
 
-from dataclasses import replace
+from pydantic_ai.messages import ModelMessage
 
-from pydantic_ai.messages import (
-    ModelMessage,
-    ModelRequest,
-    ModelRequestPart,
-    SystemPromptPart,
+from just_another_coding_agent.contracts.session import LoadedSession
+from just_another_coding_agent.runtime.compaction.boundary import run_index_for_id
+from just_another_coding_agent.session.checkpoint import (
+    COMPACTION_SUMMARY_DYNAMIC_REF,
+    build_compaction_summary_message,
 )
-
-from just_another_coding_agent.contracts.session import (
-    LoadedSession,
-    SessionCompactionSummary,
-)
-from just_another_coding_agent.runtime.compaction.boundary import (
-    build_post_compaction_continuity_boundary,
-)
-
-COMPACTION_SUMMARY_DYNAMIC_REF = "session-compaction-summary"
 
 
 def build_resume_message_history(loaded_session: LoadedSession) -> list[ModelMessage]:
-    continuity_boundary = build_post_compaction_continuity_boundary(loaded_session)
-    if continuity_boundary.summary is None:
+    latest_compaction = loaded_session.latest_compaction
+    if latest_compaction is None:
         return loaded_session.message_history
 
-    retained_messages = [
+    checkpoint_run_index = run_index_for_id(
+        loaded_session,
+        latest_compaction.checkpoint_through_run_id,
+    )
+    later_messages = [
         message
-        for run in continuity_boundary.retained_runs
+        for run in loaded_session.runs[checkpoint_run_index + 1 :]
         for message in run.messages
     ]
-    return [
-        build_compaction_summary_message(continuity_boundary.summary),
-        *retained_messages,
-    ]
+    return [*latest_compaction.checkpoint_messages, *later_messages]
 
 
-def strip_compaction_summary_from_messages(
-    messages: list[ModelMessage],
-) -> list[ModelMessage]:
-    sanitized: list[ModelMessage] = []
-
-    for message in messages:
-        if not isinstance(message, ModelRequest):
-            sanitized.append(message)
-            continue
-
-        kept_parts = [
-            part for part in message.parts if not _is_compaction_summary_part(part)
-        ]
-        if not kept_parts:
-            continue
-
-        if len(kept_parts) == len(message.parts):
-            sanitized.append(message)
-            continue
-
-        sanitized.append(replace(message, parts=kept_parts))
-
-    return sanitized
-
-
-def build_compaction_summary_message(
-    summary: SessionCompactionSummary,
-) -> ModelRequest:
-    lines = ["Session compaction summary:"]
-
-    if summary.current_objective is not None:
-        lines.append(f"Current objective: {summary.current_objective}")
-
-    _append_summary_section(lines, "Established facts", summary.established_facts)
-    _append_summary_section(lines, "User preferences", summary.user_preferences)
-    _append_summary_section(lines, "Important paths", summary.important_paths)
-    _append_summary_section(lines, "Read paths", summary.read_paths)
-    _append_summary_section(lines, "Modified paths", summary.modified_paths)
-    _append_summary_section(
-        lines,
-        "Recent shell commands",
-        summary.recent_shell_commands,
-    )
-    _append_summary_section(lines, "Recent failures", summary.recent_failures)
-    _append_summary_section(lines, "Open questions", summary.open_questions)
-    _append_summary_section(lines, "Unresolved work", summary.unresolved_work)
-
-    return ModelRequest(
-        parts=[
-            SystemPromptPart(
-                content="\n".join(lines),
-                dynamic_ref=COMPACTION_SUMMARY_DYNAMIC_REF,
-            )
-        ]
-    )
-
-
-def _append_summary_section(lines: list[str], heading: str, values: list[str]) -> None:
-    if not values:
-        return
-
-    lines.append(f"{heading}:")
-    lines.extend(f"- {value}" for value in values)
-
-
-def _is_compaction_summary_part(part: ModelRequestPart) -> bool:
-    return (
-        isinstance(part, SystemPromptPart)
-        and part.dynamic_ref == COMPACTION_SUMMARY_DYNAMIC_REF
-    )
+__all__ = [
+    "COMPACTION_SUMMARY_DYNAMIC_REF",
+    "build_compaction_summary_message",
+    "build_resume_message_history",
+]

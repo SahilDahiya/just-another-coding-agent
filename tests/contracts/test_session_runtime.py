@@ -4,6 +4,7 @@ from collections.abc import AsyncIterator
 from contextlib import contextmanager
 
 import pytest
+from pydantic import TypeAdapter
 from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
@@ -33,6 +34,7 @@ from just_another_coding_agent.contracts.run_events import (
 from just_another_coding_agent.contracts.session import SessionCompactionSummary
 from just_another_coding_agent.runtime import stream_session_run_events
 from just_another_coding_agent.runtime.compaction import (
+    build_compaction_summary_message,
     build_resume_message_history,
     summarize_session_for_compaction,
 )
@@ -51,6 +53,8 @@ from just_another_coding_agent.session import (
     update_session_auto_compaction_failures,
 )
 from just_another_coding_agent.tools.deps import WorkspaceDeps
+
+_MODEL_MESSAGES_ADAPTER = TypeAdapter(list[ModelMessage])
 
 
 def _all_parts(messages: list[ModelMessage]):
@@ -80,6 +84,32 @@ def _system_prompt_contents(messages: list[ModelMessage]) -> list[str]:
         for part in _all_parts(messages)
         if isinstance(part, SystemPromptPart)
     ]
+
+
+def _compaction_entry_payload(
+    *,
+    summarized_through_run_id: str,
+    summary: SessionCompactionSummary,
+    first_kept_run_id: str | None = None,
+    checkpoint_through_run_id: str,
+    checkpoint_messages: list[ModelMessage] | None = None,
+) -> dict[str, object]:
+    return {
+        "type": "session_compaction",
+        "compaction_id": "compact-1",
+        "summarized_through_run_id": summarized_through_run_id,
+        "first_kept_run_id": first_kept_run_id,
+        "checkpoint_through_run_id": checkpoint_through_run_id,
+        "checkpoint_messages": _MODEL_MESSAGES_ADAPTER.dump_python(
+            (
+                checkpoint_messages
+                if checkpoint_messages is not None
+                else [build_compaction_summary_message(summary)]
+            ),
+            mode="json",
+        ),
+        "summary": summary.model_dump(mode="json"),
+    }
 
 
 def make_write_stream():
@@ -806,24 +836,33 @@ def test_should_auto_compact_with_retained_run_boundary(
     session_path.write_text(
         session_path.read_text(encoding="utf-8")
         + json.dumps(
-            {
-                "type": "session_compaction",
-                "compaction_id": "compact-1",
-                "summarized_through_run_id": "run-1",
-                "first_kept_run_id": "run-2",
-                "summary": {
-                    "current_objective": "continue from retained runs",
-                    "established_facts": ["run-1 is summarized"],
-                    "user_preferences": [],
-                    "important_paths": [],
-                    "read_paths": [],
-                    "modified_paths": [],
-                    "recent_shell_commands": [],
-                    "recent_failures": [],
-                    "open_questions": [],
-                    "unresolved_work": ["finish the task"],
-                },
-            }
+            _compaction_entry_payload(
+                summarized_through_run_id="run-1",
+                first_kept_run_id="run-2",
+                checkpoint_through_run_id="run-3",
+                checkpoint_messages=[
+                    build_compaction_summary_message(
+                        SessionCompactionSummary(
+                            current_objective="continue from retained runs",
+                            established_facts=["run-1 is summarized"],
+                            user_preferences=[],
+                            important_paths=[],
+                            open_questions=[],
+                            unresolved_work=["finish the task"],
+                        )
+                    ),
+                    ModelRequest(parts=[UserPromptPart(content=large_prompt)]),
+                    ModelRequest(parts=[UserPromptPart(content=large_prompt)]),
+                ],
+                summary=SessionCompactionSummary(
+                    current_objective="continue from retained runs",
+                    established_facts=["run-1 is summarized"],
+                    user_preferences=[],
+                    important_paths=[],
+                    open_questions=[],
+                    unresolved_work=["finish the task"],
+                ),
+            )
         )
         + "\n",
         encoding="utf-8",
@@ -1226,11 +1265,104 @@ def test_build_resume_message_history_uses_summary_plus_retained_runs(tmp_path) 
     session_path.write_text(
         session_path.read_text(encoding="utf-8")
         + json.dumps(
+            _compaction_entry_payload(
+                summarized_through_run_id="run-1",
+                first_kept_run_id="run-2",
+                checkpoint_through_run_id="run-3",
+                checkpoint_messages=[
+                    build_compaction_summary_message(
+                        SessionCompactionSummary(
+                            current_objective="continue from the retained runs",
+                            established_facts=["first is summarized"],
+                            user_preferences=[],
+                            important_paths=[],
+                            open_questions=[],
+                            unresolved_work=["finish the task"],
+                        )
+                    ),
+                    ModelRequest(parts=[UserPromptPart(content="second")]),
+                    ModelRequest(parts=[UserPromptPart(content="third")]),
+                ],
+                summary=SessionCompactionSummary(
+                    current_objective="continue from the retained runs",
+                    established_facts=["first is summarized"],
+                    user_preferences=[],
+                    important_paths=[],
+                    open_questions=[],
+                    unresolved_work=["finish the task"],
+                ),
+            )
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    loaded = load_session(path=session_path, workspace_root=workspace_root)
+    resume_history = build_resume_message_history(loaded)
+
+    assert _system_prompt_contents(resume_history) == [
+        "Session compaction summary:\n"
+        "Current objective: continue from the retained runs\n"
+        "Established facts:\n"
+        "- first is summarized\n"
+        "Unresolved work:\n"
+        "- finish the task"
+    ]
+    assert [
+        part.content
+        for part in _all_parts(resume_history)
+        if isinstance(part, UserPromptPart)
+    ] == ["second", "third"]
+
+
+def test_build_resume_message_history_uses_persisted_checkpoint_messages(
+    tmp_path,
+) -> None:
+    session_path = tmp_path / "session.jsonl"
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    for run_id, prompt in [
+        ("run-1", "first"),
+        ("run-2", "second"),
+    ]:
+        append_run_to_session(
+            path=session_path,
+            workspace_root=workspace_root,
+            prompt=prompt,
+            thinking=None,
+            messages=[ModelRequest(parts=[UserPromptPart(content=prompt)])],
+            events=[
+                RunStartedEvent(run_id=run_id),
+                RunSucceededEvent(run_id=run_id, output_text="done"),
+            ],
+        )
+
+    custom_checkpoint_messages = [
+        ModelRequest(
+            parts=[
+                SystemPromptPart(
+                    content="checkpoint marker",
+                    dynamic_ref="session-compaction-summary",
+                )
+            ]
+        ),
+        ModelRequest(parts=[UserPromptPart(content="second")]),
+    ]
+
+    session_path.write_text(
+        session_path.read_text(encoding="utf-8")
+        + json.dumps(
             {
                 "type": "session_compaction",
                 "compaction_id": "compact-1",
                 "summarized_through_run_id": "run-1",
                 "first_kept_run_id": "run-2",
+                "checkpoint_through_run_id": "run-2",
+                "checkpoint_messages": _MODEL_MESSAGES_ADAPTER.dump_python(
+                    custom_checkpoint_messages,
+                    mode="json",
+                ),
                 "summary": {
                     "current_objective": "continue from the retained runs",
                     "established_facts": ["first is summarized"],
@@ -1248,18 +1380,22 @@ def test_build_resume_message_history_uses_summary_plus_retained_runs(tmp_path) 
         + "\n",
         encoding="utf-8",
     )
+    append_run_to_session(
+        path=session_path,
+        workspace_root=workspace_root,
+        prompt="third",
+        thinking=None,
+        messages=[ModelRequest(parts=[UserPromptPart(content="third")])],
+        events=[
+            RunStartedEvent(run_id="run-3"),
+            RunSucceededEvent(run_id="run-3", output_text="done"),
+        ],
+    )
 
     loaded = load_session(path=session_path, workspace_root=workspace_root)
     resume_history = build_resume_message_history(loaded)
 
-    assert _system_prompt_contents(resume_history) == [
-        "Session compaction summary:\n"
-        "Current objective: continue from the retained runs\n"
-        "Established facts:\n"
-        "- first is summarized\n"
-        "Unresolved work:\n"
-        "- finish the task"
-    ]
+    assert _system_prompt_contents(resume_history) == ["checkpoint marker"]
     assert [
         part.content
         for part in _all_parts(resume_history)
@@ -1294,24 +1430,33 @@ def test_build_post_compaction_continuity_boundary_uses_kept_run_boundary(
     session_path.write_text(
         session_path.read_text(encoding="utf-8")
         + json.dumps(
-            {
-                "type": "session_compaction",
-                "compaction_id": "compact-1",
-                "summarized_through_run_id": "run-1",
-                "first_kept_run_id": "run-2",
-                "summary": {
-                    "current_objective": "continue from retained runs",
-                    "established_facts": ["run-1 is summarized"],
-                    "user_preferences": [],
-                    "important_paths": [],
-                    "read_paths": [],
-                    "modified_paths": [],
-                    "recent_shell_commands": [],
-                    "recent_failures": [],
-                    "open_questions": [],
-                    "unresolved_work": ["finish the task"],
-                },
-            }
+            _compaction_entry_payload(
+                summarized_through_run_id="run-1",
+                first_kept_run_id="run-2",
+                checkpoint_through_run_id="run-3",
+                checkpoint_messages=[
+                    build_compaction_summary_message(
+                        SessionCompactionSummary(
+                            current_objective="continue from retained runs",
+                            established_facts=["run-1 is summarized"],
+                            user_preferences=[],
+                            important_paths=[],
+                            open_questions=[],
+                            unresolved_work=["finish the task"],
+                        )
+                    ),
+                    ModelRequest(parts=[UserPromptPart(content="second")]),
+                    ModelRequest(parts=[UserPromptPart(content="third")]),
+                ],
+                summary=SessionCompactionSummary(
+                    current_objective="continue from retained runs",
+                    established_facts=["run-1 is summarized"],
+                    user_preferences=[],
+                    important_paths=[],
+                    open_questions=[],
+                    unresolved_work=["finish the task"],
+                ),
+            )
         )
         + "\n",
         encoding="utf-8",
@@ -2620,24 +2765,50 @@ async def test_resumed_compacted_session_still_applies_live_in_run_compaction(
     session_path.write_text(
         session_path.read_text(encoding="utf-8")
         + json.dumps(
-            {
-                "type": "session_compaction",
-                "compaction_id": "compact-1",
-                "summarized_through_run_id": "run-1",
-                "first_kept_run_id": "run-2",
-                "summary": {
-                    "current_objective": "continue from the retained run",
-                    "established_facts": ["run-1 is summarized"],
-                    "user_preferences": [],
-                    "important_paths": ["retained-big.txt", "current-big.txt"],
-                    "read_paths": [],
-                    "modified_paths": [],
-                    "recent_shell_commands": [],
-                    "recent_failures": [],
-                    "open_questions": [],
-                    "unresolved_work": ["inspect the current big file"],
-                },
-            }
+            _compaction_entry_payload(
+                summarized_through_run_id="run-1",
+                first_kept_run_id="run-2",
+                checkpoint_through_run_id="run-2",
+                checkpoint_messages=[
+                    build_compaction_summary_message(
+                        SessionCompactionSummary(
+                            current_objective="continue from the retained run",
+                            established_facts=["run-1 is summarized"],
+                            user_preferences=[],
+                            important_paths=["retained-big.txt", "current-big.txt"],
+                            open_questions=[],
+                            unresolved_work=["inspect the current big file"],
+                        )
+                    ),
+                    ModelRequest(parts=[UserPromptPart(content="retained-second")]),
+                    ModelResponse(
+                        parts=[
+                            ToolCallPart(
+                                tool_name="read",
+                                args={"path": "retained-big.txt"},
+                                tool_call_id="call-retained-read",
+                            )
+                        ]
+                    ),
+                    ModelRequest(
+                        parts=[
+                            ToolReturnPart(
+                                tool_name="read",
+                                content=retained_content,
+                                tool_call_id="call-retained-read",
+                            )
+                        ]
+                    ),
+                ],
+                summary=SessionCompactionSummary(
+                    current_objective="continue from the retained run",
+                    established_facts=["run-1 is summarized"],
+                    user_preferences=[],
+                    important_paths=["retained-big.txt", "current-big.txt"],
+                    open_questions=[],
+                    unresolved_work=["inspect the current big file"],
+                ),
+            )
         )
         + "\n",
         encoding="utf-8",

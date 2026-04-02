@@ -48,6 +48,9 @@ from just_another_coding_agent.contracts.session import (
     SessionRunRecord,
 )
 from just_another_coding_agent.contracts.thinking import ThinkingSetting
+from just_another_coding_agent.session.checkpoint import (
+    build_compaction_checkpoint_messages,
+)
 from just_another_coding_agent.tools._workspace import normalize_workspace_root
 
 _SESSION_ENTRY_ADAPTER = TypeAdapter(SessionEntry)
@@ -215,11 +218,23 @@ def append_compaction_to_session(
         if summarized_through_run_id is not None
         else loaded.runs[-1].run_id
     )
+    resolved_checkpoint_through_run_id = loaded.runs[-1].run_id
+    retained_start_index = (
+        _run_index_for_id(loaded, first_kept_run_id)
+        if first_kept_run_id is not None
+        else len(loaded.runs)
+    )
+    checkpoint_messages = build_compaction_checkpoint_messages(
+        summary=summary,
+        retained_runs=loaded.runs[retained_start_index:],
+    )
 
     entry = SessionCompactionEntry(
         compaction_id=uuid4().hex,
         summarized_through_run_id=resolved_summarized_through_run_id,
         first_kept_run_id=first_kept_run_id,
+        checkpoint_through_run_id=resolved_checkpoint_through_run_id,
+        checkpoint_messages=checkpoint_messages,
         summary=summary,
     )
 
@@ -468,6 +483,29 @@ def load_session(
                         "the summary boundary"
                     )
 
+            try:
+                checkpoint_run_index = run_order.index(
+                    entry.checkpoint_through_run_id
+                )
+            except ValueError as error:
+                raise SessionFormatError(
+                    "Session compaction checkpoint must reference an existing run_id"
+                ) from error
+
+            if checkpoint_run_index < compaction_run_index:
+                raise SessionFormatError(
+                    "Session compaction checkpoint must not precede "
+                    "the summary boundary"
+                )
+
+            if (
+                entry.first_kept_run_id is not None
+                and checkpoint_run_index < first_kept_run_index
+            ):
+                raise SessionFormatError(
+                    "Session compaction checkpoint must include the kept boundary"
+                )
+
             if compaction_run_index < latest_compaction_run_index:
                 raise SessionFormatError(
                     "Session compaction entries must not move the summary "
@@ -633,11 +671,11 @@ def _validate_run_messages(messages: Sequence[ModelMessage]) -> None:
                 expected_name = pending_tool_calls.get(part.tool_call_id)
                 if expected_name is None:
                     continue
-                pending_tool_calls.pop(part.tool_call_id, None)
                 if expected_name != part.tool_name:
                     raise SessionFormatError(
                         "Session message tool return tool_name must match the tool call"
                     )
+                pending_tool_calls.pop(part.tool_call_id, None)
                 continue
 
             if isinstance(part, RetryPromptPart):
@@ -647,6 +685,14 @@ def _validate_run_messages(messages: Sequence[ModelMessage]) -> None:
         raise SessionFormatError(
             "Session messages cannot contain unresolved tool calls"
         )
+
+
+def _run_index_for_id(loaded_session: LoadedSession, run_id: str) -> int:
+    for index, run in enumerate(loaded_session.runs):
+        if run.run_id == run_id:
+            return index
+
+    raise SessionFormatError(f"Unknown session run_id: {run_id}")
 
 
 def start_run_to_session(

@@ -443,10 +443,14 @@ Initial executable session slice:
   - fields: `type`, `run_id`, `event`
   - `event` must be one canonical streamed run event payload
 - `session_compaction`
-  - fields: `type`, `compaction_id`, `summarized_through_run_id`, `first_kept_run_id`, `summary`
+  - fields: `type`, `compaction_id`, `summarized_through_run_id`, `first_kept_run_id`, `checkpoint_through_run_id`, `checkpoint_messages`, `summary`
   - `summarized_through_run_id` must reference an existing persisted `run_id`
   - `first_kept_run_id`, when present, must reference an existing persisted
     `run_id` strictly after `summarized_through_run_id`
+  - `checkpoint_through_run_id` must reference an existing persisted `run_id`
+    and must not precede either the summary boundary or the kept boundary
+  - `checkpoint_messages` is the authoritative model-facing history at the
+    compaction boundary: the summary checkpoint plus any retained raw tail
   - `summary` is structured durable compaction state, not arbitrary untyped metadata
 
 Ordering rules for the session slice:
@@ -461,7 +465,7 @@ Ordering rules for the session slice:
 - `session_compaction` may appear only at a completed run boundary, never in the middle of a run
 - `session_compaction` entries are append-only and must not move the summary boundary backward
 - Authoritative session loads must provide the expected workspace root and it must match the persisted `session_header.workspace_root` exactly
-- Session resume semantics must reconstruct effective conversation context from the latest compaction summary plus retained `session_messages` when a compaction entry exists; retained messages start at `first_kept_run_id` when present, otherwise they start strictly after `summarized_through_run_id`
+- Session resume semantics must reconstruct effective conversation context from the latest compaction `checkpoint_messages` plus later `session_messages` strictly after `checkpoint_through_run_id`
 - Durable cross-run compaction must be materialized into resume `message_history` before the next run starts; only run-local compaction uses PydanticAI `history_processors`
 - Durable compaction summaries must carry backend-owned deterministic survival
   state in addition to model-written prose: `read_paths` for explicitly read
@@ -487,7 +491,7 @@ Ordering rules for the session slice:
 - Persisted events for a run must satisfy the streamed run contract, including exactly one terminal outcome
 - Persisted `session_event` payloads must preserve any tool `activity` metadata unchanged
 - Appending a new run must preserve all existing lines and write the header only once
-- Synthetic compaction-summary messages used at runtime must not be persisted back into `session_messages`
+- Successful resumed runs must persist only new run deltas instead of replaying checkpoint history back into trailing `session_messages`
 - Before a resumed run starts, the runtime may append one automatic `session_compaction` entry when measured local resume history plus reserve crosses the configured fraction of the effective active model context window after compaction-output headroom is reserved
 - Automatic durable compaction may preserve one bounded raw tail run via `first_kept_run_id`; future automatic trigger decisions must then count only completed runs beyond that retained boundary as new work
 - After three consecutive automatic compaction failures for one session, the runtime blocks further automatic compaction attempts for that session and fails hard until the user reduces context or starts a new session

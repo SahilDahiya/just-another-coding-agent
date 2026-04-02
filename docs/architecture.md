@@ -131,7 +131,7 @@ Current sequence:
 
 1. Add manual session compaction first.
 2. Persist a compaction entry alongside existing session entries.
-3. Rebuild resumed `message_history` from a compaction summary plus retained recent native messages.
+3. Persist an authoritative compaction checkpoint on that entry and rebuild resumed `message_history` from checkpoint messages plus later native run deltas.
 4. Add deterministic automatic compaction before resumed runs when measured local resume history plus reserve crosses a fraction of the effective model context window after compaction-output headroom is reserved.
 5. Keep live-run recovery at the canonical streamed-run boundary when it must preserve a clean public event contract.
 
@@ -148,6 +148,10 @@ The important boundary is:
   trailing estimate over a pure whole-history heuristic, preserves one bounded
   raw tail run when possible, and counts only runs beyond that kept boundary as
   new work for future automatic compaction
+- durable compaction entries now also persist authoritative checkpoint messages
+  plus `checkpoint_through_run_id`, so resumed history rebuilds from explicit
+  checkpoint state rather than reconstructing a synthetic summary boundary at
+  runtime
 - if no canonical context metadata is known for the active model, live-run
   compaction falls back to one conservative default soft char limit
   should leave the current model step and resume with explicit results
@@ -155,6 +159,8 @@ The important boundary is:
 - durable compaction state lives in our session file, and resumed runs
   materialize explicit compacted `message_history` from that state before the
   next run starts
+- terminal successful runs persist only PydanticAI `new_messages()` deltas, not
+  reconstructed full history with a later semantic strip step
 - if run-local history compaction rewrites current-run tool-return content for
   the model, the persistence layer must restore the original raw tool-return
   content before `session_messages` are written

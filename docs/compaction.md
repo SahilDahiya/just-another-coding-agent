@@ -123,13 +123,14 @@ Code:
 Responsibilities:
 
 - define the canonical post-compaction continuity boundary:
-  - latest durable summary, when present
-  - retained native runs after the durable compaction boundary
-- turn the latest `session_compaction` entry into one synthetic summary message
-- append retained native messages after the compaction boundary
-- strip synthetic summary messages back out before persistence
+  - latest durable compaction checkpoint messages
+  - native run deltas written after that checkpoint
+- rebuild effective `message_history` from checkpoint messages plus later run deltas
+- avoid semantic prefix surgery when persisting successful resumed runs by
+  storing only PydanticAI `new_messages()` deltas
 
-This is deterministic replay, not prefix matching or message-history surgery.
+This is deterministic replay from authoritative checkpoint state, not prefix
+matching or synthetic-summary regeneration.
 The canonical session runtime now treats this local materialized history as the
 authoritative source of truth for resumed runs instead of relying on
 provider-side server history.
@@ -162,12 +163,15 @@ Durable session compaction uses a whole-run kept boundary:
 
 - `summarized_through_run_id` marks the last run folded into the summary
 - `first_kept_run_id`, when present, marks the first retained native run
+- `checkpoint_through_run_id` marks the latest run already represented inside
+  the persisted compaction checkpoint
+- `checkpoint_messages` stores the authoritative model-facing history at the
+  compaction boundary: the summary message plus any retained raw tail runs
 
 Resume history is therefore:
 
-- one synthetic compaction-summary message
-- all native messages from `first_kept_run_id` onward when present
-- otherwise all native messages strictly after `summarized_through_run_id`
+- `checkpoint_messages`
+- all native messages strictly after `checkpoint_through_run_id`
 
 This is intentional. JACA does not currently support durable boundaries inside a
 single persisted run.
@@ -208,9 +212,11 @@ stable persisted message IDs, not inferred message indexes.
 - a compaction entry must reference existing run IDs
 - `first_kept_run_id`, when present, must come strictly after
   `summarized_through_run_id`
+- `checkpoint_through_run_id` must reference an existing run and must not
+  precede either the summary boundary or the kept boundary
 - resumed runs must materialize effective history before the run starts
-- synthetic compaction-summary messages must never be persisted back into
-  `session_messages`
+- successful resumed runs must persist only new run deltas, not checkpoint
+  history copied back out of the replayed prefix
 - live in-run compaction must restore original raw tool-return content before
   persistence
 

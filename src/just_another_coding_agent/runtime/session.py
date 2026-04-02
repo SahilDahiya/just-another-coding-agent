@@ -6,7 +6,6 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
-from pydantic import TypeAdapter
 from pydantic_ai import capture_run_messages
 from pydantic_ai.messages import (
     ModelMessage,
@@ -38,7 +37,6 @@ from just_another_coding_agent.runtime.compaction import (
     build_resume_message_history,
     restore_in_run_compaction_from_messages,
     should_auto_compact_session,
-    strip_compaction_summary_from_messages,
     summarize_and_append_compaction_to_session,
 )
 from just_another_coding_agent.runtime.run import stream_run_events
@@ -51,7 +49,6 @@ from just_another_coding_agent.session.jsonl import (
 from just_another_coding_agent.tools._workspace import normalize_workspace_root
 from just_another_coding_agent.tools.deps import WorkspaceDeps
 
-_MODEL_MESSAGES_ADAPTER = TypeAdapter(list[ModelMessage])
 MAX_CONSECUTIVE_AUTO_COMPACTION_FAILURES = 3
 
 
@@ -143,76 +140,6 @@ def _sanitize_failed_run_messages(
     )
 
 
-def _strip_resumed_history_prefix(
-    messages: Sequence[ModelMessage],
-    *,
-    loaded_session: Any,
-) -> list[ModelMessage]:
-    if loaded_session is None:
-        return list(messages)
-
-    resumed_history = strip_compaction_summary_from_messages(
-        build_resume_message_history(loaded_session)
-    )
-    if not resumed_history:
-        return list(messages)
-
-    candidate_messages = list(messages)
-    normalized_resumed_history = _normalize_messages_for_prefix_match(
-        resumed_history
-    )
-
-    for prefix_end in range(1, len(candidate_messages) + 1):
-        candidate_prefix = candidate_messages[:prefix_end]
-        if (
-            _normalize_messages_for_prefix_match(candidate_prefix)
-            == normalized_resumed_history
-        ):
-            return candidate_messages[prefix_end:]
-
-    return candidate_messages
-
-
-def _normalize_messages_for_prefix_match(
-    messages: Sequence[ModelMessage],
-) -> list[object]:
-    coalesced_messages = _coalesce_messages_for_prefix_match(messages)
-    return _strip_run_ids_from_json_value(
-        _MODEL_MESSAGES_ADAPTER.dump_python(coalesced_messages, mode="json")
-    )
-
-
-def _coalesce_messages_for_prefix_match(
-    messages: Sequence[ModelMessage],
-) -> list[ModelMessage]:
-    coalesced: list[ModelMessage] = []
-
-    for message in messages:
-        if not coalesced or type(coalesced[-1]) is not type(message):
-            coalesced.append(message)
-            continue
-
-        previous_message = coalesced[-1]
-        coalesced[-1] = replace(
-            previous_message,
-            parts=[*previous_message.parts, *message.parts],
-        )
-
-    return coalesced
-
-
-def _strip_run_ids_from_json_value(value: object) -> object:
-    if isinstance(value, dict):
-        return {
-            key: _strip_run_ids_from_json_value(item)
-            for key, item in value.items()
-            if key not in {"run_id", "timestamp", "instructions"}
-        }
-    if isinstance(value, list):
-        return [_strip_run_ids_from_json_value(item) for item in value]
-    return value
-
-
 async def stream_session_run_events(
     *,
     model: Any,
@@ -294,6 +221,12 @@ async def stream_session_run_events(
         if thinking is not None
         else (loaded_session.thinking if loaded_session is not None else None)
     )
+    preexisting_history = (
+        build_resume_message_history(loaded_session)
+        if loaded_session is not None
+        else []
+    )
+    preexisting_history_count = len(preexisting_history)
 
     agent = build_canonical_agent(
         model=model,
@@ -317,11 +250,7 @@ async def stream_session_run_events(
             async for event in stream_run_events(
                 agent=agent,
                 prompt=prompt,
-                message_history=(
-                    build_resume_message_history(loaded_session)
-                    if loaded_session is not None
-                    else None
-                ),
+                message_history=(preexisting_history or None),
                 thinking=resolved_thinking,
                 deps=WorkspaceDeps(
                     workspace_root=normalized_workspace_root,
@@ -384,15 +313,11 @@ async def stream_session_run_events(
         finally:
             if run_appender is not None and should_finalize:
                 finalized_messages = restore_in_run_compaction_from_messages(
-                    strip_compaction_summary_from_messages(
+                    (
                         authoritative_messages
                         if authoritative_messages is not None
-                        else list(messages)
+                        else list(messages)[preexisting_history_count:]
                     )
-                )
-                finalized_messages = _strip_resumed_history_prefix(
-                    finalized_messages,
-                    loaded_session=loaded_session,
                 )
                 if failed_terminal:
                     finalized_messages = _sanitize_failed_run_messages(
