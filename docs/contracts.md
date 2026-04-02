@@ -297,6 +297,9 @@ Initial executable run slice:
     - `checkpoint_through_run_id`
     - `budget_before`
     - `budget_after`
+    - `estimated_tokens_saved`
+    - `estimated_percent_saved`
+    - `estimated_headroom_gain_tokens`
 - `session_compaction_warning`
   - fields: `type`, `compaction_count`, `message`
 - `run_started`
@@ -609,8 +612,12 @@ Ordering rules for the RPC slice:
   - `output_headroom_tokens`
   - `trigger_budget_tokens`
   - `prompt_reserve_tokens`
+  - `estimated_resume_message_tokens`
   - `estimated_resume_history_tokens`
+  - `estimated_checkpoint_tokens`
+  - `estimated_summary_tokens`
   - `estimated_pre_run_tokens`
+  - `estimated_post_compaction_headroom_tokens`
   - `measured_usage_tokens`
   - `estimated_trailing_tokens`
   - `runs_since_latest_compaction`

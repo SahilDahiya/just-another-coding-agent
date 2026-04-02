@@ -25,8 +25,12 @@ class CompactionBudgetReport(BaseModel):
     output_headroom_tokens: int | None = None
     trigger_budget_tokens: int | None = None
     prompt_reserve_tokens: int
+    estimated_resume_message_tokens: int
     estimated_resume_history_tokens: int
+    estimated_checkpoint_tokens: int = 0
+    estimated_summary_tokens: int = 0
     estimated_pre_run_tokens: int
+    estimated_post_compaction_headroom_tokens: int | None = None
     measured_usage_tokens: int | None = None
     estimated_trailing_tokens: int | None = None
     runs_since_latest_compaction: int = 0

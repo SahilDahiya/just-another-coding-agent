@@ -187,6 +187,9 @@ class SessionCompactionCompletedEvent(BaseModel):
     checkpoint_through_run_id: str
     budget_before: CompactionBudgetReport
     budget_after: CompactionBudgetReport
+    estimated_tokens_saved: int
+    estimated_percent_saved: float
+    estimated_headroom_gain_tokens: int | None = None
 
 
 class SessionCompactionWarningEvent(BaseModel):

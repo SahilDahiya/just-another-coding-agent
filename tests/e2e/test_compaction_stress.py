@@ -200,6 +200,21 @@ async def test_e2e_stdio_auto_compaction_keeps_recent_tail_and_new_run_is_delta_
         "assistant_text_delta",
         "run_succeeded",
     ]
+    completed_event = next(
+        message["event"]
+        for message in messages
+        if message["type"] == "rpc_event"
+        and message["event"]["type"] == "session_compaction_completed"
+    )
+    assert completed_event["estimated_tokens_saved"] > 0
+    assert completed_event["estimated_percent_saved"] > 0
+    assert completed_event["estimated_headroom_gain_tokens"] > 0
+    assert (
+        completed_event["budget_after"]["estimated_post_compaction_headroom_tokens"]
+        > completed_event["budget_before"]["estimated_post_compaction_headroom_tokens"]
+    )
+    assert completed_event["budget_after"]["estimated_summary_tokens"] > 0
+    assert completed_event["budget_after"]["estimated_checkpoint_tokens"] > 0
 
     loaded = load_session(path=session_path, workspace_root=workspace_root)
     assert loaded.latest_compaction is not None
@@ -536,6 +551,22 @@ async def test_e2e_stdio_repeated_compactions_do_not_repersist_checkpoint_histor
         if message["type"] == "rpc_event"
     ]
     assert event_types.count("session_compaction_completed") == 2
+    completed_events = [
+        message["event"]
+        for message in messages
+        if message["type"] == "rpc_event"
+        and message["event"]["type"] == "session_compaction_completed"
+    ]
+    assert all(event["estimated_tokens_saved"] > 0 for event in completed_events)
+    assert all(event["estimated_percent_saved"] > 0 for event in completed_events)
+    assert all(
+        event["estimated_headroom_gain_tokens"] > 0 for event in completed_events
+    )
+    assert all(
+        event["budget_after"]["estimated_post_compaction_headroom_tokens"]
+        > event["budget_before"]["estimated_post_compaction_headroom_tokens"]
+        for event in completed_events
+    )
 
     loaded = load_session(path=session_path, workspace_root=workspace_root)
     assert len(loaded.compactions) == 2
@@ -664,6 +695,13 @@ async def test_e2e_repeated_in_run_compaction_restores_raw_history(
     assert all(
         event.message.startswith("Live history compacted")
         for event in in_run_events
+    )
+    assert (
+        sum(
+            event.original_size_chars - event.compacted_size_chars
+            for event in in_run_events
+        )
+        > 100
     )
     for event in in_run_events:
         if event.used_full_history_fallback:

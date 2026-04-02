@@ -112,6 +112,17 @@ def _drain_pending_in_run_compactions(
     return events
 
 
+def _estimated_compaction_percent_saved(
+    *,
+    before_tokens: int,
+    after_tokens: int,
+) -> float:
+    if before_tokens <= 0:
+        return 0.0
+    saved_tokens = max(0, before_tokens - after_tokens)
+    return saved_tokens / before_tokens
+
+
 def _strip_unresolved_tool_calls_from_messages(
     messages: Sequence[ModelMessage],
 ) -> list[ModelMessage]:
@@ -272,6 +283,22 @@ async def stream_session_run_events(
                 loaded_session,
                 model=model,
             )
+            estimated_tokens_saved = max(
+                0,
+                compaction_budget_before.estimated_resume_history_tokens
+                - compaction_budget_after.estimated_resume_history_tokens,
+            )
+            estimated_headroom_gain_tokens = None
+            if (
+                compaction_budget_before.estimated_post_compaction_headroom_tokens
+                is not None
+                and compaction_budget_after.estimated_post_compaction_headroom_tokens
+                is not None
+            ):
+                estimated_headroom_gain_tokens = (
+                    compaction_budget_after.estimated_post_compaction_headroom_tokens
+                    - compaction_budget_before.estimated_post_compaction_headroom_tokens
+                )
             yield SessionCompactionCompletedEvent(
                 compaction_id=compaction_entry.compaction_id,
                 summarized_through_run_id=compaction_entry.summarized_through_run_id,
@@ -279,6 +306,16 @@ async def stream_session_run_events(
                 checkpoint_through_run_id=compaction_entry.checkpoint_through_run_id,
                 budget_before=compaction_budget_before,
                 budget_after=compaction_budget_after,
+                estimated_tokens_saved=estimated_tokens_saved,
+                estimated_percent_saved=_estimated_compaction_percent_saved(
+                    before_tokens=(
+                        compaction_budget_before.estimated_resume_history_tokens
+                    ),
+                    after_tokens=(
+                        compaction_budget_after.estimated_resume_history_tokens
+                    ),
+                ),
+                estimated_headroom_gain_tokens=estimated_headroom_gain_tokens,
             )
             if len(loaded_session.compactions) >= 2:
                 yield SessionCompactionWarningEvent(

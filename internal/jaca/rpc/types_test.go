@@ -92,6 +92,9 @@ func TestDecodeEnvelopePreservesSessionCompactionCompletedFields(t *testing.T) {
 			"summarized_through_run_id":"run-5",
 			"first_kept_run_id":"run-6",
 			"checkpoint_through_run_id":"run-6",
+			"estimated_tokens_saved":31000,
+			"estimated_percent_saved":0.7209,
+			"estimated_headroom_gain_tokens":31000,
 			"budget_before":{
 				"should_compact":true,
 				"reason":"over_budget",
@@ -100,8 +103,12 @@ func TestDecodeEnvelopePreservesSessionCompactionCompletedFields(t *testing.T) {
 				"output_headroom_tokens":8000,
 				"trigger_budget_tokens":64400,
 				"prompt_reserve_tokens":24000,
+				"estimated_resume_message_tokens":42700,
 				"estimated_resume_history_tokens":43000,
+				"estimated_checkpoint_tokens":900,
+				"estimated_summary_tokens":300,
 				"estimated_pre_run_tokens":67000,
+				"estimated_post_compaction_headroom_tokens":25000,
 				"measured_usage_tokens":120,
 				"estimated_trailing_tokens":42880,
 				"runs_since_latest_compaction":2
@@ -114,8 +121,12 @@ func TestDecodeEnvelopePreservesSessionCompactionCompletedFields(t *testing.T) {
 				"output_headroom_tokens":8000,
 				"trigger_budget_tokens":64400,
 				"prompt_reserve_tokens":24000,
+				"estimated_resume_message_tokens":11000,
 				"estimated_resume_history_tokens":12000,
+				"estimated_checkpoint_tokens":6000,
+				"estimated_summary_tokens":1000,
 				"estimated_pre_run_tokens":36000,
+				"estimated_post_compaction_headroom_tokens":56000,
 				"runs_since_latest_compaction":0
 			}
 		}

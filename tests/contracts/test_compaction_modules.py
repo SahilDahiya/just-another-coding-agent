@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 from pydantic_ai.messages import (
     ModelRequest,
     ModelResponse,
@@ -145,6 +147,38 @@ def test_estimate_resume_history_tokens_falls_back_to_whole_history_heuristic(
     )
 
 
+def test_estimate_resume_history_tokens_counts_resume_instructions_with_measured_usage(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        trigger,
+        "build_resume_message_history",
+        lambda _loaded_session: [
+            ModelResponse(parts=[TextPart(content="done")], model_name="test"),
+        ],
+    )
+    monkeypatch.setattr(
+        trigger,
+        "build_resume_instructions",
+        lambda _loaded_session: "x" * 40,
+    )
+    monkeypatch.setattr(
+        trigger,
+        "_find_last_measured_usage_tokens",
+        lambda _messages: (120, 0),
+    )
+
+    estimate = trigger._estimate_resume_history_budget_components(
+        SimpleNamespace(latest_compaction=None)
+    )
+
+    assert estimate.estimated_resume_message_tokens == 120
+    assert estimate.estimated_summary_tokens == 10
+    assert estimate.estimated_resume_history_tokens == 130
+    assert estimate.measured_usage_tokens == 120
+    assert estimate.estimated_trailing_tokens == 0
+
+
 def test_effective_compaction_context_window_reserves_output_headroom() -> None:
     assert build_effective_compaction_context_window_tokens(200_000) == 192_000
     assert build_effective_compaction_context_window_tokens(20_000) == 15_000
@@ -174,7 +208,12 @@ def test_should_auto_compact_session_uses_effective_context_window_budget(
     monkeypatch.setattr(
         trigger,
         "_estimate_resume_history_budget_components",
-        lambda loaded_session: (43_000, None, None),
+        lambda loaded_session: trigger._ResumeHistoryBudgetEstimate(
+            estimated_resume_message_tokens=43_000,
+            estimated_resume_history_tokens=43_000,
+            estimated_checkpoint_tokens=0,
+            estimated_summary_tokens=0,
+        ),
     )
 
     assert trigger.should_auto_compact_session(
@@ -208,7 +247,14 @@ def test_build_auto_compaction_budget_report_records_trigger_inputs(
     monkeypatch.setattr(
         trigger,
         "_estimate_resume_history_budget_components",
-        lambda loaded_session: (43_000, 120, 42_880),
+        lambda loaded_session: trigger._ResumeHistoryBudgetEstimate(
+            estimated_resume_message_tokens=42_700,
+            estimated_resume_history_tokens=43_000,
+            estimated_checkpoint_tokens=900,
+            estimated_summary_tokens=300,
+            measured_usage_tokens=120,
+            estimated_trailing_tokens=42_880,
+        ),
     )
 
     report = trigger.build_auto_compact_session_budget_report(
@@ -224,9 +270,13 @@ def test_build_auto_compaction_budget_report_records_trigger_inputs(
     assert report.output_headroom_tokens == 8_000
     assert report.trigger_budget_tokens == 64_400
     assert report.prompt_reserve_tokens == 24_000
+    assert report.estimated_resume_message_tokens == 42_700
     assert report.estimated_resume_history_tokens == 43_000
+    assert report.estimated_checkpoint_tokens == 900
+    assert report.estimated_summary_tokens == 300
     assert report.measured_usage_tokens == 120
     assert report.estimated_trailing_tokens == 42_880
+    assert report.estimated_post_compaction_headroom_tokens == 25_000
     assert report.runs_since_latest_compaction == 1
 
 

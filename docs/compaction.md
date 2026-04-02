@@ -67,6 +67,17 @@ The current automatic trigger is pre-run and token-budget-aware:
   `CompactionBudgetReport`, and the runtime emits that report on
   `session_compaction_started` plus `budget_before` / `budget_after` on
   `session_compaction_completed`
+- durable compaction completion also emits explicit usefulness metrics:
+  - `estimated_tokens_saved`
+  - `estimated_percent_saved`
+  - `estimated_headroom_gain_tokens`
+- the durable budget report now breaks out:
+  - `estimated_resume_message_tokens`
+  - `estimated_checkpoint_tokens`
+  - `estimated_summary_tokens`
+  - `estimated_post_compaction_headroom_tokens`
+  so compaction can be evaluated by headroom created, not only by whether it
+  triggered
 
 The compaction source is intentionally not a raw transcript dump. It uses:
 
