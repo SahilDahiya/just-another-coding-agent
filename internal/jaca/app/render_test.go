@@ -142,6 +142,27 @@ func TestBuildWorkingWaveBreathesBetweenHighlights(t *testing.T) {
 	}
 }
 
+func TestBuildCompactingWaveBreathesAndReturns(t *testing.T) {
+	if got := buildCompactingWave(0); got != "Compacting" {
+		t.Fatalf("buildCompactingWave(0) = %q, want %q", got, "Compacting")
+	}
+	if got := buildCompactingWave(1); got != "compacting" {
+		t.Fatalf("buildCompactingWave(1) = %q, want %q", got, "compacting")
+	}
+	if got := buildCompactingWave(2); got != "cOmpacting" {
+		t.Fatalf("buildCompactingWave(2) = %q, want %q", got, "cOmpacting")
+	}
+	if got := buildCompactingWave(16); got != "compactiNg" {
+		t.Fatalf("buildCompactingWave(16) = %q, want %q", got, "compactiNg")
+	}
+	if got := buildCompactingWave(20); got != "compactiNg" {
+		t.Fatalf("buildCompactingWave(20) = %q, want %q", got, "compactiNg")
+	}
+	if got := buildCompactingWave(22); got != "compactIng" {
+		t.Fatalf("buildCompactingWave(22) = %q, want %q", got, "compactIng")
+	}
+}
+
 func TestBuildTopRailIndicatorHiddenWhenIdle(t *testing.T) {
 	got := buildTopRailIndicator(viewModel{
 		Phase:      PhaseIdle,
@@ -183,6 +204,22 @@ func TestRenderTopRailShowsDetachedWorkingState(t *testing.T) {
 		t.Fatalf("renderTopRail() missing detached working label: %q", rendered)
 	}
 	if !strings.Contains(rendered, "00:12") {
+		t.Fatalf("renderTopRail() missing elapsed indicator: %q", rendered)
+	}
+}
+
+func TestRenderTopRailShowsCompactingWave(t *testing.T) {
+	tick := 2
+	rendered := stripANSI(renderTopRail(viewModel{
+		Phase:      PhaseCompacting,
+		MotionTick: tick,
+		RunElapsed: 9 * time.Second,
+	}))
+
+	if !strings.Contains(rendered, buildCompactingWave(tick)) {
+		t.Fatalf("renderTopRail() missing compacting wave: %q", rendered)
+	}
+	if !strings.Contains(rendered, "00:09") {
 		t.Fatalf("renderTopRail() missing elapsed indicator: %q", rendered)
 	}
 }

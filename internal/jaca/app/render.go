@@ -369,7 +369,17 @@ func renderTopRail(vm viewModel) string {
 	if vm.Phase == PhaseStreaming {
 		return lipgloss.JoinHorizontal(
 			lipgloss.Left,
-			renderWorkingWave(vm.MotionTick),
+			renderWordWave(buildWorkingWave(vm.MotionTick)),
+			" ",
+			lipgloss.NewStyle().
+				Foreground(defaultTheme.accentSoft).
+				Render(formatElapsedClock(vm.RunElapsed)),
+		)
+	}
+	if vm.Phase == PhaseCompacting {
+		return lipgloss.JoinHorizontal(
+			lipgloss.Left,
+			renderWordWave(buildCompactingWave(vm.MotionTick)),
 			" ",
 			lipgloss.NewStyle().
 				Foreground(defaultTheme.accentSoft).
@@ -427,41 +437,42 @@ func buildTopRailIndicator(vm viewModel) string {
 	if vm.Phase == PhaseStreaming {
 		return fmt.Sprintf("%s %s", buildWorkingWave(vm.MotionTick), formatElapsedClock(vm.RunElapsed))
 	}
-	return fmt.Sprintf("Compacting %s", formatElapsedClock(vm.RunElapsed))
+	return fmt.Sprintf("%s %s", buildCompactingWave(vm.MotionTick), formatElapsedClock(vm.RunElapsed))
 }
 
 func buildWorkingWave(motionTick int) string {
+	return buildWordWave("Working", motionTick)
+}
+
+func buildCompactingWave(motionTick int) string {
+	return buildWordWave("Compacting", motionTick)
+}
+
+func buildWordWave(word string, motionTick int) string {
 	frames := []string{
-		"Working",
-		"working",
-		"wOrking",
-		"working",
-		"woRking",
-		"working",
-		"worKing",
-		"working",
-		"workIng",
-		"working",
-		"workiNg",
-		"working",
-		"workinG",
-		"working",
-		"workiNg",
-		"working",
-		"workIng",
-		"working",
-		"worKing",
-		"working",
-		"woRking",
-		"working",
-		"wOrking",
-		"working",
+		word,
+		strings.ToLower(word),
+	}
+	runes := []rune(word)
+	for i := 1; i < len(runes); i++ {
+		frames = append(frames, highlightRune(runes, i), strings.ToLower(word))
+	}
+	for i := len(runes) - 2; i >= 1; i-- {
+		frames = append(frames, highlightRune(runes, i), strings.ToLower(word))
 	}
 	return frames[motionTick%len(frames)]
 }
 
-func renderWorkingWave(motionTick int) string {
-	frame := buildWorkingWave(motionTick)
+func highlightRune(runes []rune, index int) string {
+	highlighted := make([]rune, len(runes))
+	for i, r := range runes {
+		highlighted[i] = unicode.ToLower(r)
+	}
+	highlighted[index] = unicode.ToUpper(highlighted[index])
+	return string(highlighted)
+}
+
+func renderWordWave(frame string) string {
 	base := lipgloss.NewStyle().Foreground(defaultTheme.accentSoft)
 	active := lipgloss.NewStyle().Foreground(defaultTheme.textSoft).Bold(true)
 	parts := make([]string, 0, len(frame))
