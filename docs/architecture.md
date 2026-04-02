@@ -127,6 +127,9 @@ Compaction has two distinct roles:
 - durable compaction manages long-lived session growth across runs
 - run-local compaction uses `history_processors` to reduce live-run context
   pressure without changing the durable session record
+- run-local compaction should stay simpler than durable compaction: use a
+  model-aware live threshold, authoritative replacement history, and fail-hard
+  behavior when compaction or restore cannot complete safely
 
 Current sequence:
 

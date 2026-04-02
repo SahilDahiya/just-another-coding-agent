@@ -929,3 +929,88 @@ async def test_e2e_cancelled_run_after_live_compaction_restores_raw_history(
     assert isinstance(events[2], ToolCallFailedEvent)
     assert isinstance(events[3], RunFailedEvent)
     assert events[3].error_type == "CancelledError"
+
+
+async def test_e2e_live_compaction_failure_aborts_run_hard(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    session_path = tmp_path / "session.jsonl"
+    (workspace_root / "README.md").write_text("hello\n" * 80, encoding="utf-8")
+
+    async def failing_history_processor(
+        messages: list[ModelMessage],
+    ) -> list[ModelMessage]:
+        if any(
+            isinstance(part, ToolReturnPart)
+            for message in messages
+            for part in message.parts
+        ):
+            raise RuntimeError("live compaction exploded")
+        return messages
+
+    call_count = 0
+
+    async def tool_then_follow_up_stream(
+        _messages: list[ModelMessage],
+        _agent_info: object,
+    ) -> AsyncIterator[dict[int, DeltaToolCall] | str]:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            yield {
+                0: DeltaToolCall(
+                    name="read",
+                    json_args='{"path": "README.md"}',
+                    tool_call_id="call-read",
+                )
+            }
+            return
+
+        yield "done"
+
+    monkeypatch.setattr(
+        runtime_session_module,
+        "build_compaction_history_runtime",
+        lambda *, model: CompactionHistoryRuntime(
+            history_processors=[failing_history_processor],
+            restore_messages=lambda messages: messages,
+        ),
+    )
+
+    events = [
+        event
+        async for event in stream_session_run_events(
+            model=FunctionModel(stream_function=tool_then_follow_up_stream),
+            workspace_root=workspace_root,
+            session_path=session_path,
+            prompt="go",
+        )
+    ]
+
+    assert [event.type for event in events] == [
+        "run_started",
+        "tool_call_started",
+        "tool_call_succeeded",
+        "run_failed",
+    ]
+    assert isinstance(events[-1], RunFailedEvent)
+    assert events[-1].error_type == "RuntimeError"
+    assert events[-1].message == "live compaction exploded"
+
+    loaded = load_session(path=session_path, workspace_root=workspace_root)
+    assert [event.type for event in loaded.runs[0].events] == [
+        "run_started",
+        "tool_call_started",
+        "tool_call_succeeded",
+        "run_failed",
+    ]
+    persisted_read_returns = [
+        part
+        for part in _all_parts(loaded.runs[0].messages)
+        if isinstance(part, ToolReturnPart) and part.tool_name == "read"
+    ]
+    assert len(persisted_read_returns) == 1
+    assert persisted_read_returns[0].content == ("hello\n" * 80)

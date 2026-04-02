@@ -174,6 +174,15 @@ Responsibilities:
 - provide the explicit model-facing `history_processors` seam the session
   runtime uses before model calls
 
+Policy:
+
+- keep the live trigger simple and model-aware; do not build a second
+  durable-style budget engine for in-run compaction
+- treat the replacement history as authoritative for the live run once
+  compaction applies
+- fail hard if live compaction or raw-history restore cannot complete safely;
+  do not silently continue with partially compacted or lossy durable state
+
 This is the only compaction path that still uses PydanticAI
 `history_processors`, and that shaping is now attached explicitly by session
 runtime instead of being hidden inside canonical agent construction.
