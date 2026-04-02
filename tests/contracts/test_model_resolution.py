@@ -249,6 +249,7 @@ def test_get_model_context_window_tokens_for_supported_models(monkeypatch) -> No
     assert get_model_context_window_tokens("github:openai/gpt-5-mini") == 200_000
     assert get_model_context_window_tokens("github:openai/gpt-4.1") == 1_048_576
     assert get_model_context_window_tokens("ollama:glm-5:cloud") == 198_000
+    assert get_model_context_window_tokens("ollama:gemma4:e4b") == 128_000
     assert get_model_context_window_tokens("ollama:kimi-k2:1t-cloud") == 262_144
     assert get_model_context_window_tokens("ollama:qwen3.5:397b-cloud") == 262_144
     assert get_model_context_window_tokens("ollama:qwen3-coder-next") == 262_144
@@ -277,6 +278,7 @@ def test_build_in_run_compaction_soft_char_limit_scales_with_model_context(
         == 3_355_443
     )
     assert build_in_run_compaction_soft_char_limit("ollama:glm-5:cloud") == 633_600
+    assert build_in_run_compaction_soft_char_limit("ollama:gemma4:e4b") == 409_600
     assert build_in_run_compaction_soft_char_limit("ollama:kimi-k2:1t-cloud") == 838_860
     assert (
         build_in_run_compaction_soft_char_limit("ollama:qwen3.5:397b-cloud")

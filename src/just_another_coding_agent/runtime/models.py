@@ -53,6 +53,7 @@ OLLAMA_CONTEXT_WINDOW_TOKENS_BY_PREFIX: tuple[tuple[str, int], ...] = (
     ("qwen3.5", 262_144),
     ("qwen3-coder-next", 262_144),
     ("glm-5", 198_000),
+    ("gemma4:e4b", 128_000),
     ("kimi-k2", 262_144),
 )
 DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434/v1"

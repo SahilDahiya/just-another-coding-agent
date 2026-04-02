@@ -222,6 +222,7 @@ func testModelCatalog() *rpc.ModelCatalogResponse {
 				Models: []rpc.ModelCatalogModel{
 					{ModelID: "ollama:kimi-k2:1t-cloud", Description: "Current default Kimi K2"},
 					{ModelID: "ollama:glm-5:cloud", Description: "GLM-5 cloud path"},
+					{ModelID: "ollama:gemma4:e4b", Description: "Gemma 4 E4B"},
 					{ModelID: "ollama:qwen3.5:397b-cloud", Description: "Qwen 3.5 397B cloud"},
 					{ModelID: "ollama:qwen3-coder-next", Description: "Qwen3 Coder Next"},
 				},

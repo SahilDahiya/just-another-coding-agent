@@ -39,6 +39,11 @@ SHIPPED_MODELS: tuple[ShippedModel, ...] = (
     ),
     ShippedModel(
         provider="ollama",
+        model_id="ollama:gemma4:e4b",
+        description="Gemma 4 E4B",
+    ),
+    ShippedModel(
+        provider="ollama",
         model_id="ollama:qwen3.5:397b-cloud",
         description="Qwen 3.5 397B cloud",
     ),

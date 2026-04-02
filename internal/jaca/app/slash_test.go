@@ -40,6 +40,7 @@ func TestModelSuggestionsIncludeExpandedOllamaModels(t *testing.T) {
 	want := map[string]bool{
 		"ollama:kimi-k2:1t-cloud":   false,
 		"ollama:glm-5:cloud":        false,
+		"ollama:gemma4:e4b":         false,
 		"ollama:qwen3.5:397b-cloud": false,
 		"ollama:qwen3-coder-next":   false,
 	}
