@@ -389,10 +389,6 @@ async def test_handle_rpc_json_line_returns_backend_owned_model_catalog(
                                 "description": "GLM-5 cloud path",
                             },
                             {
-                                "model_id": "ollama:gemma4:e4b",
-                                "description": "Gemma 4 E4B",
-                            },
-                            {
                                 "model_id": "ollama:qwen3.5:397b-cloud",
                                 "description": "Qwen 3.5 397B cloud",
                             },

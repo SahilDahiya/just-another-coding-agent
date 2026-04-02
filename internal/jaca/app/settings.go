@@ -59,20 +59,40 @@ func (m *model) handleModelCommand(arg string) (tea.Model, tea.Cmd) {
 		m.refreshViewport()
 		return m, cmd
 	}
-	hasCreds, err := m.providerHasCredentials(provider)
-	if err != nil {
-		m.transcript.WriteError(err.Error())
-		m.refreshViewport()
-		return m, cmd
-	}
-	if !hasCreds {
-		if err := m.startCredentialSetup(provider, provider, value, "", ""); err != nil {
+	if provider == "ollama" {
+		if m.isHostedOllamaModel(value) {
+			hasCreds, err := m.ollamaCloudAuthConfigured()
+			if err != nil {
+				m.transcript.WriteError(err.Error())
+				m.refreshViewport()
+				return m, cmd
+			}
+			if !hasCreds {
+				if err := m.startCredentialSetup(provider, provider, value, "", ""); err != nil {
+					m.transcript.WriteError(err.Error())
+					m.refreshViewport()
+					return m, cmd
+				}
+				m.refreshViewport()
+				return m, cmd
+			}
+		}
+	} else {
+		hasCreds, err := m.providerHasCredentials(provider)
+		if err != nil {
 			m.transcript.WriteError(err.Error())
 			m.refreshViewport()
 			return m, cmd
 		}
-		m.refreshViewport()
-		return m, cmd
+		if !hasCreds {
+			if err := m.startCredentialSetup(provider, provider, value, "", ""); err != nil {
+				m.transcript.WriteError(err.Error())
+				m.refreshViewport()
+				return m, cmd
+			}
+			m.refreshViewport()
+			return m, cmd
+		}
 	}
 	lines, restart, err := m.applyModelSelection(value, provider)
 	if err != nil {
@@ -151,6 +171,11 @@ func (m *model) handleAuthCommand(arg string) {
 }
 
 func (m *model) handleProviderCommand(arg string) {
+	if canonicalProviderName(strings.TrimSpace(arg)) == "ollama" {
+		m.transcript.WriteNote("provider", nil)
+		m.onboarding = onboardingState{Active: true, Kind: "ollama", Selected: 0}
+		return
+	}
 	lines, restart, startAuth, err := m.handleProvider(arg)
 	if err != nil {
 		m.transcript.WriteError(err.Error())
@@ -180,7 +205,7 @@ func (m *model) handleProvider(arg string) (
 	if strings.TrimSpace(arg) == "" {
 		return []string{
 			"usage",
-			"  /provider ollama                  select shipped Ollama cloud models",
+			"  /provider ollama                  choose local or cloud Ollama",
 			"  /model ollama:<local-model>       use local Ollama with no key",
 			"  /provider github                  select GitHub Models",
 			"  /provider openai                  select OpenAI",
@@ -223,11 +248,23 @@ func (m *model) handleProvider(arg string) (
 }
 
 func (m *model) applyProviderSelection(provider string) ([]string, bool, error) {
-	if err := config.SaveDefaultProvider(provider); err != nil {
-		return nil, false, err
+	if provider == "ollama" {
+		if err := config.SaveProvider(config.ProviderUpdate{
+			Provider: "ollama",
+			BaseURL:  config.OllamaCloudBaseURL,
+		}); err != nil {
+			return nil, false, err
+		}
+	} else {
+		if err := config.SaveDefaultProvider(provider); err != nil {
+			return nil, false, err
+		}
 	}
 
 	lines := []string{fmt.Sprintf("provider set to %s", provider)}
+	if provider == "ollama" {
+		lines = append(lines, "Ollama mode set to cloud")
+	}
 	if !modelMatchesProvider(m.options.Model, provider) {
 		nextModel, err := m.defaultModelForProvider(provider)
 		if err != nil {
@@ -262,8 +299,24 @@ func (m *model) defaultModelForProvider(provider string) (string, error) {
 
 func (m *model) applyModelSelection(model string, provider string) ([]string, bool, error) {
 	previousProvider := m.currentProvider()
-	if err := config.SaveDefaultProvider(provider); err != nil {
-		return nil, false, err
+	modeLine := ""
+	if provider == "ollama" {
+		update := config.ProviderUpdate{Provider: "ollama"}
+		if m.isHostedOllamaModel(model) {
+			update.BaseURL = config.OllamaCloudBaseURL
+			if modeLine != "Ollama mode set to cloud" {
+				modeLine = "Ollama mode set to cloud"
+			}
+		} else {
+			modeLine = "Ollama mode set to local"
+		}
+		if err := config.SaveProvider(update); err != nil {
+			return nil, false, err
+		}
+	} else {
+		if err := config.SaveDefaultProvider(provider); err != nil {
+			return nil, false, err
+		}
 	}
 	if err := config.SaveDefaultModel(model); err != nil {
 		return nil, false, err
@@ -272,6 +325,9 @@ func (m *model) applyModelSelection(model string, provider string) ([]string, bo
 	lines := []string{}
 	if previousProvider != provider {
 		lines = append(lines, fmt.Sprintf("provider set to %s", provider))
+	}
+	if modeLine != "" {
+		lines = append(lines, modeLine)
 	}
 
 	m.options.Model = model
@@ -284,7 +340,7 @@ func (m *model) applyModelSelection(model string, provider string) ([]string, bo
 
 func (m *model) providerHasCredentials(provider string) (bool, error) {
 	if provider == "ollama" {
-		return true, nil
+		return m.ollamaCloudConfigured()
 	}
 	statuses, err := m.availableAuthStatus()
 	if err != nil {
@@ -300,7 +356,24 @@ func (m *model) providerHasCredentials(provider string) (bool, error) {
 
 func (m *model) providerHasCredentialsFresh(provider string) (bool, error) {
 	if provider == "ollama" {
-		return true, nil
+		hosted, err := m.ollamaUsesHostedEndpoint()
+		if err != nil {
+			return false, err
+		}
+		if !hosted {
+			return true, nil
+		}
+		statuses, err := m.fetchAuthStatus()
+		if err != nil {
+			return false, err
+		}
+		m.authStatus = &statuses
+		for _, status := range statuses.Providers {
+			if status.Provider == "ollama" {
+				return status.Configured, nil
+			}
+		}
+		return false, errors.New("missing ollama auth status")
 	}
 	statuses, err := m.fetchAuthStatus()
 	if err != nil {
@@ -357,6 +430,13 @@ func (m *model) startCredentialSetup(
 }
 
 func (m *model) ollamaCloudConfigured() (bool, error) {
+	hosted, err := m.ollamaUsesHostedEndpoint()
+	if err != nil {
+		return false, err
+	}
+	if !hosted {
+		return true, nil
+	}
 	statuses, err := m.availableAuthStatus()
 	if err != nil {
 		return false, err
@@ -367,6 +447,45 @@ func (m *model) ollamaCloudConfigured() (bool, error) {
 		}
 	}
 	return false, errors.New("missing ollama auth status")
+}
+
+func (m *model) ollamaCloudAuthConfigured() (bool, error) {
+	statuses, err := m.availableAuthStatus()
+	if err != nil {
+		return false, err
+	}
+	for _, status := range statuses.Providers {
+		if status.Provider == "ollama" {
+			return status.Configured, nil
+		}
+	}
+	return false, errors.New("missing ollama auth status")
+}
+
+func (m *model) isHostedOllamaModel(model string) bool {
+	if providerForModel(model) != "ollama" || m.modelCatalog == nil {
+		return false
+	}
+	for _, providerCatalog := range m.modelCatalog.Providers {
+		if providerCatalog.Provider != "ollama" {
+			continue
+		}
+		for _, candidate := range providerCatalog.Models {
+			if candidate.ModelID == model {
+				return true
+			}
+		}
+		return false
+	}
+	return false
+}
+
+func (m *model) ollamaUsesHostedEndpoint() (bool, error) {
+	cfg, err := config.Load()
+	if err != nil {
+		return false, err
+	}
+	return config.OllamaUsesCloudBaseURL(cfg), nil
 }
 
 func (m *model) fetchAuthStatus() (rpc.AuthStatusResponse, error) {

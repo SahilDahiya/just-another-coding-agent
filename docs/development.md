@@ -111,6 +111,14 @@ Inside the TUI:
 `default_provider`, `default_model`, `trace_mode`, and provider base URLs.
 The second-best local secret file is `~/.jaca/secrets.json`.
 
+Ollama mode is endpoint-driven:
+
+- local Ollama clears `OLLAMA_BASE_URL` and does not require `OLLAMA_API_KEY`
+- hosted Ollama uses `OLLAMA_BASE_URL=https://ollama.com/v1` and requires
+  `OLLAMA_API_KEY`
+- the shipped Ollama model catalog is the hosted catalog only; arbitrary local
+  Ollama models are selected with `/model ollama:<local-model>`
+
 Tracing defaults to `local` (JSONL files under `~/.jaca/traces/`). Set `JACA_TRACE_MODE=off` to disable.
 
 When `JACA_TRACE_MODE=local` is set, the backend enables PydanticAI/OpenTelemetry

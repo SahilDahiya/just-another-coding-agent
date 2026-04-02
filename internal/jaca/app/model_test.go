@@ -222,7 +222,6 @@ func testModelCatalog() *rpc.ModelCatalogResponse {
 				Models: []rpc.ModelCatalogModel{
 					{ModelID: "ollama:kimi-k2:1t-cloud", Description: "Current default Kimi K2"},
 					{ModelID: "ollama:glm-5:cloud", Description: "GLM-5 cloud path"},
-					{ModelID: "ollama:gemma4:e4b", Description: "Gemma 4 E4B"},
 					{ModelID: "ollama:qwen3.5:397b-cloud", Description: "Qwen 3.5 397B cloud"},
 					{ModelID: "ollama:qwen3-coder-next", Description: "Qwen3 Coder Next"},
 				},
@@ -1125,8 +1124,11 @@ func TestStartupAuthStatusAutoStartsAuthForPersistedHostedOllamaSelection(t *tes
 	t.Setenv("HOME", home)
 	t.Setenv("OLLAMA_API_KEY", "")
 
-	if err := config.SaveDefaultProvider("ollama"); err != nil {
-		t.Fatalf("SaveDefaultProvider() returned error: %v", err)
+	if err := config.SaveProvider(config.ProviderUpdate{
+		Provider: "ollama",
+		BaseURL:  config.OllamaCloudBaseURL,
+	}); err != nil {
+		t.Fatalf("SaveProvider() returned error: %v", err)
 	}
 	if err := config.SaveDefaultModel("ollama:kimi-k2:1t-cloud"); err != nil {
 		t.Fatalf("SaveDefaultModel() returned error: %v", err)
@@ -1144,8 +1146,6 @@ func TestStartupAuthStatusAutoStartsAuthForPersistedHostedOllamaSelection(t *tes
 
 	updated, _ := m.Update(authStatusLoadedMsg{Status: status})
 	m = updated.(*model)
-	updated, _ = m.Update(modelCatalogLoadedMsg{Catalog: backend.modelCatalog})
-	m = updated.(*model)
 
 	if !m.auth.Active {
 		t.Fatal("startup auth should start masked auth flow for hosted ollama selection")
@@ -1160,6 +1160,36 @@ func TestStartupAuthStatusAutoStartsAuthForPersistedHostedOllamaSelection(t *tes
 	view := stripANSI(m.View())
 	if !strings.Contains(view, "Secure Setup") || !strings.Contains(view, "Ollama cloud API key") {
 		t.Fatalf("view missing ollama secure setup panel: %q", view)
+	}
+}
+
+func TestStartupAuthStatusDoesNotStartAuthForPersistedLocalOllamaSelection(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("OLLAMA_API_KEY", "")
+
+	if err := config.SaveProvider(config.ProviderUpdate{Provider: "ollama"}); err != nil {
+		t.Fatalf("SaveProvider() returned error: %v", err)
+	}
+	if err := config.SaveDefaultModel("ollama:llama3.2"); err != nil {
+		t.Fatalf("SaveDefaultModel() returned error: %v", err)
+	}
+
+	backend := newStubBackend()
+	status, err := backend.AuthStatus(context.Background())
+	if err != nil {
+		t.Fatalf("AuthStatus() returned error: %v", err)
+	}
+
+	m := newTestModel()
+	m.options.Model = "ollama:llama3.2"
+	m.options.Backend = backend
+
+	updated, _ := m.Update(authStatusLoadedMsg{Status: status})
+	m = updated.(*model)
+
+	if m.auth.Active {
+		t.Fatalf("local ollama startup should not start auth: %#v", m.auth)
 	}
 }
 
@@ -1230,7 +1260,7 @@ func TestProviderWithoutCredentialsStartsMaskedAuthFlow(t *testing.T) {
 	}
 }
 
-func TestOllamaProviderWithoutCredentialsStartsMaskedAuthFlow(t *testing.T) {
+func TestOllamaProviderCommandOpensModeChooser(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("OLLAMA_API_KEY", "")
@@ -1242,12 +1272,13 @@ func TestOllamaProviderWithoutCredentialsStartsMaskedAuthFlow(t *testing.T) {
 	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
 
 	rendered := stripANSI(m.View())
-	if !strings.Contains(rendered, "Secure Setup") || !strings.Contains(rendered, "Ollama cloud API key") {
-		t.Fatalf("view missing ollama secure setup panel after provider selection: %q", rendered)
+	for _, want := range []string{"Choose Ollama Mode", "1. Local Ollama", "2. Hosted Ollama"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("view missing %q after /provider ollama: %q", want, rendered)
+		}
 	}
-	transcript := stripANSI(m.transcript.Render())
-	if strings.Contains(transcript, "Ollama cloud API key") || strings.Contains(transcript, "note  secure setup") {
-		t.Fatalf("secure setup should not be written into transcript: %q", transcript)
+	if m.auth.Active {
+		t.Fatalf("ollama provider command should not jump straight to auth: %#v", m.auth)
 	}
 }
 
@@ -1585,6 +1616,57 @@ func TestLocalOllamaModelDoesNotStartAuthFlow(t *testing.T) {
 	}
 	if got := m.options.Model; got != "ollama:llama3.2" {
 		t.Fatalf("options.Model = %q, want %q", got, "ollama:llama3.2")
+	}
+}
+
+func TestHostedOllamaModelStartsMaskedAuthFlow(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("OLLAMA_API_KEY", "")
+
+	m := newTestModel()
+	m.options.Backend = newStubBackend()
+
+	m = sendRunes(m, "/model ollama:kimi-k2:1t-cloud")
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	rendered := stripANSI(m.View())
+	if !strings.Contains(rendered, "Secure Setup") || !strings.Contains(rendered, "Ollama cloud API key") {
+		t.Fatalf("view missing hosted Ollama secure setup panel after model selection: %q", rendered)
+	}
+}
+
+func TestLocalOllamaModelClearsHostedBaseURL(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("OLLAMA_API_KEY", "test-key")
+
+	if err := config.SaveProvider(config.ProviderUpdate{
+		Provider: "ollama",
+		BaseURL:  config.OllamaCloudBaseURL,
+	}); err != nil {
+		t.Fatalf("SaveProvider() returned error: %v", err)
+	}
+	if err := config.SaveDefaultModel("ollama:kimi-k2:1t-cloud"); err != nil {
+		t.Fatalf("SaveDefaultModel() returned error: %v", err)
+	}
+
+	m := newTestModel()
+	m.options.Model = "ollama:kimi-k2:1t-cloud"
+	m.options.Backend = newStubBackend()
+
+	m = sendRunes(m, "/model ollama:llama3.2")
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	got, err := config.Load()
+	if err != nil {
+		t.Fatalf("Load() returned error: %v", err)
+	}
+	if _, ok := got["OLLAMA_BASE_URL"]; ok {
+		t.Fatalf("local ollama model selection should clear hosted base URL: %v", got)
+	}
+	if got["default_model"] != "ollama:llama3.2" {
+		t.Fatalf("default_model = %q, want %q", got["default_model"], "ollama:llama3.2")
 	}
 }
 

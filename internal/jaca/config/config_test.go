@@ -43,6 +43,52 @@ func TestSaveProviderClearsStaleOllamaConfigAndEnv(t *testing.T) {
 	}
 }
 
+func TestSaveProviderSetsHostedOllamaBaseURLAndEnv(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("OLLAMA_BASE_URL", "")
+
+	if err := SaveProvider(ProviderUpdate{
+		Provider: "ollama",
+		BaseURL:  OllamaCloudBaseURL,
+	}); err != nil {
+		t.Fatalf("SaveProvider(hosted) returned error: %v", err)
+	}
+
+	got, err := Load()
+	if err != nil {
+		t.Fatalf("Load() returned error: %v", err)
+	}
+	if got["OLLAMA_BASE_URL"] != OllamaCloudBaseURL {
+		t.Fatalf(
+			"OLLAMA_BASE_URL = %q, want %q",
+			got["OLLAMA_BASE_URL"],
+			OllamaCloudBaseURL,
+		)
+	}
+	if os.Getenv("OLLAMA_BASE_URL") != OllamaCloudBaseURL {
+		t.Fatalf(
+			"env OLLAMA_BASE_URL = %q, want %q",
+			os.Getenv("OLLAMA_BASE_URL"),
+			OllamaCloudBaseURL,
+		)
+	}
+}
+
+func TestOllamaUsesCloudBaseURLOnlyForHostedEndpoint(t *testing.T) {
+	t.Setenv("OLLAMA_BASE_URL", "")
+
+	if OllamaUsesCloudBaseURL(map[string]string{}) {
+		t.Fatal("empty config should default to local Ollama mode")
+	}
+	if OllamaUsesCloudBaseURL(map[string]string{"OLLAMA_BASE_URL": DefaultOllamaBaseURL}) {
+		t.Fatal("local Ollama base URL should not require cloud auth")
+	}
+	if !OllamaUsesCloudBaseURL(map[string]string{"OLLAMA_BASE_URL": OllamaCloudBaseURL}) {
+		t.Fatal("hosted Ollama base URL should require cloud auth")
+	}
+}
+
 func TestLoadFailsOnCorruptConfigJSON(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

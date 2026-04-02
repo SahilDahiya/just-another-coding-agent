@@ -35,7 +35,11 @@ func (m *model) maybeStartOnboarding() {
 
 	selectedProvider := m.currentProvider()
 	if selectedProvider == "ollama" {
-		if m.modelCatalog != nil && m.ollamaCloudSelectionRequiresAuth() && !providerConfigured(*statuses, "ollama") {
+		hosted, err := m.ollamaUsesHostedEndpoint()
+		if err != nil {
+			return
+		}
+		if hosted && !providerConfigured(*statuses, "ollama") {
 			m.startupOnboardingSet = true
 			if err := m.startCredentialSetup("ollama", "", "", "", ""); err != nil {
 				m.transcript.WriteError(err.Error())
@@ -120,7 +124,7 @@ func (m *model) onboardingHelpLines() []string {
 	case "ollama":
 		return []string{
 			"Local Ollama uses /model ollama:<local-model> and needs no key",
-			"Hosted Ollama uses /provider ollama and may require auth",
+			"Hosted Ollama uses https://ollama.com/v1 and requires an API key",
 			"Enter selects. Esc goes back.",
 		}
 	default:
@@ -184,8 +188,10 @@ func (m *model) completeOnboardingSelection() (tea.Model, tea.Cmd) {
 		if kind == "ollama" {
 			m.onboarding = onboardingState{}
 			m.transcript.WriteNote("provider setup", []string{
+				"Local Ollama selected.",
 				"Use /model ollama:<local-model> for local no-auth use.",
 				"Example: /model ollama:llama3.2",
+				"Current provider and model stay unchanged until you pick a local model.",
 			})
 			m.refreshViewport()
 			return m, nil
@@ -217,22 +223,4 @@ func (m *model) completeOnboardingSelection() (tea.Model, tea.Cmd) {
 	}
 	m.refreshViewport()
 	return m, nil
-}
-
-func (m *model) ollamaCloudSelectionRequiresAuth() bool {
-	if m.modelCatalog == nil {
-		return false
-	}
-	for _, provider := range m.modelCatalog.Providers {
-		if provider.Provider != "ollama" {
-			continue
-		}
-		for _, model := range provider.Models {
-			if model.ModelID == m.options.Model {
-				return true
-			}
-		}
-		return false
-	}
-	return false
 }

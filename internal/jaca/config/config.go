@@ -14,6 +14,11 @@ var envKeys = []string{
 	"OLLAMA_BASE_URL",
 }
 
+const (
+	DefaultOllamaBaseURL = "http://localhost:11434/v1"
+	OllamaCloudBaseURL   = "https://ollama.com/v1"
+)
+
 func ConfigPath() (string, error) {
 	home := os.Getenv("HOME")
 	if home == "" {
@@ -78,6 +83,14 @@ func ApplyToEnv(config map[string]string) {
 type ProviderUpdate struct {
 	Provider string
 	BaseURL  string
+}
+
+func OllamaUsesCloudBaseURL(config map[string]string) bool {
+	baseURL := strings.TrimRight(strings.TrimSpace(os.Getenv("OLLAMA_BASE_URL")), "/")
+	if baseURL == "" {
+		baseURL = strings.TrimRight(strings.TrimSpace(config["OLLAMA_BASE_URL"]), "/")
+	}
+	return baseURL == strings.TrimRight(OllamaCloudBaseURL, "/")
 }
 
 func SaveDefaultModel(model string) error {

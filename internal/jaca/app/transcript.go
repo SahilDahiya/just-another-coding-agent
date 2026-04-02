@@ -226,7 +226,7 @@ func (t *Transcript) WriteHelp() {
 		"",
 		"provider setup",
 		"  /model ollama:<local-model>          local Ollama, no key needed",
-		"  /provider ollama                     shipped Ollama cloud models, auth starts if needed",
+		"  /provider ollama                     choose local or cloud Ollama",
 		"  /provider github                     select GitHub Models, auth starts if needed",
 		"  /provider openai                     select OpenAI, auth starts if needed",
 		"  /provider anthropic                  select Anthropic, auth starts if needed",

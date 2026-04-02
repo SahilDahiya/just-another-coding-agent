@@ -221,7 +221,7 @@ func slashCommandSuggestions() []slashSuggestion {
 
 func providerSuggestions() []slashSuggestion {
 	return []slashSuggestion{
-		{Value: "ollama", Description: "Shipped Ollama cloud models; local via /model"},
+		{Value: "ollama", Description: "Choose local or cloud Ollama"},
 		{Value: "github", Description: "GitHub Models hosted models"},
 		{Value: "openai", Description: "OpenAI hosted models"},
 		{Value: "anthropic", Description: "Anthropic Claude models"},
