@@ -165,8 +165,11 @@ Code:
 
 Responsibilities:
 
-- summarize oversized historical tool returns for the model
+- produce an explicit replacement history for the current live run when
+  historical context grows too large
+- prefer compacting older historical tool returns before the freshest live tail
 - keep tool call / tool result pairing intact
+- keep controller-owned original tool-return state out of model-facing history
 - restore original raw tool-return content before session persistence
 - provide the explicit model-facing `history_processors` seam the session
   runtime uses before model calls
@@ -174,6 +177,8 @@ Responsibilities:
 This is the only compaction path that still uses PydanticAI
 `history_processors`, and that shaping is now attached explicitly by session
 runtime instead of being hidden inside canonical agent construction.
+The session runtime now also owns the live restore seam explicitly through a
+compaction-history runtime bundle rather than depending on raw metadata alone.
 
 ## Durable Boundary Model
 
@@ -226,7 +231,8 @@ So today:
 - between-run compaction can keep a message-token-budgeted raw tail, including a
   safe suffix from inside one run when needed
 - live in-run compaction handles oversized historical tool output inside the new
-  run
+  run by replacing the active live history with a compacted prefix plus a small
+  preserved recent tail
 
 One important consequence:
 
@@ -254,6 +260,8 @@ One important consequence:
   `SystemPromptPart` content
 - live in-run compaction must restore original raw tool-return content before
   persistence
+- live in-run compaction must not store original raw tool-return payloads inside
+  model-facing history metadata; restore state stays controller-owned
 
 ## Why This Split Exists
 

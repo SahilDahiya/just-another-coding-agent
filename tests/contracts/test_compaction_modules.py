@@ -12,10 +12,12 @@ from just_another_coding_agent.contracts.run_events import (
 )
 from just_another_coding_agent.contracts.session import SessionCompactionSummary
 from just_another_coding_agent.runtime.compaction import (
+    build_compaction_history_runtime,
     build_compaction_summary_instructions,
     build_in_run_history_processor,
     build_resume_instructions,
     build_resume_message_history,
+    history_processors,
     in_run,
     restore_in_run_compaction_from_messages,
     resume,
@@ -40,6 +42,10 @@ def test_compaction_public_api_is_split_across_submodules() -> None:
     assert (
         in_run.restore_in_run_compaction_from_messages
         is restore_in_run_compaction_from_messages
+    )
+    assert (
+        history_processors.build_compaction_history_runtime
+        is build_compaction_history_runtime
     )
 
     assert resume.build_resume_message_history is build_resume_message_history
