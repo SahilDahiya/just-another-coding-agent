@@ -42,6 +42,12 @@ from just_another_coding_agent.session.jsonl import (
 from tests.session_test_helpers import _compaction_entry_payload
 
 
+def _persisted_events(events):
+    return [
+        event for event in events if not isinstance(event, AssistantTextDeltaEvent)
+    ]
+
+
 async def successful_tool_stream(
     messages: list[ModelMessage],
     _agent_info: object,
@@ -92,7 +98,7 @@ async def test_append_and_load_session_with_runtime_events(tmp_path) -> None:
     assert loaded.runs[0].prompt == "go"
     assert loaded.runs[0].thinking == "high"
     assert loaded.runs[0].messages == messages
-    assert loaded.runs[0].events == events
+    assert loaded.runs[0].events == _persisted_events(events)
     assert loaded.message_history == messages
     assert loaded.thinking == "high"
 
@@ -347,7 +353,7 @@ def test_append_run_to_session_appends_without_rewriting_header(tmp_path) -> Non
     assert line_types.count("session_header") == 1
     assert line_types.count("session_run") == 2
     assert line_types.count("session_messages") == 2
-    assert line_types.count("session_event") == 5
+    assert line_types.count("session_event") == 4
 
     loaded = load_session(path=path, workspace_root=workspace_root)
     assert [run.prompt for run in loaded.runs] == ["first", "second"]
@@ -384,6 +390,46 @@ def test_append_run_to_session_writes_events_before_messages(tmp_path) -> None:
         "session_event",
         "session_event",
         "session_messages",
+    ]
+
+
+def test_append_run_to_session_does_not_persist_assistant_text_deltas(tmp_path) -> None:
+    path = tmp_path / "session.jsonl"
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    append_run_to_session(
+        path=path,
+        workspace_root=workspace_root,
+        prompt="hello",
+        thinking=None,
+        events=[
+            RunStartedEvent(run_id="run-1"),
+            AssistantTextDeltaEvent(run_id="run-1", delta="Hello"),
+            AssistantTextDeltaEvent(run_id="run-1", delta=" world"),
+            RunSucceededEvent(run_id="run-1", output_text="Hello world"),
+        ],
+        messages=[
+            ModelRequest(parts=[UserPromptPart(content="hello")]),
+            ModelResponse(parts=[TextPart(content="Hello world")]),
+        ],
+    )
+
+    line_payloads = [
+        json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()
+    ]
+    persisted_event_types = [
+        payload["event"]["type"]
+        for payload in line_payloads
+        if payload["type"] == "session_event"
+    ]
+
+    assert persisted_event_types == ["run_started", "run_succeeded"]
+
+    loaded = load_session(path=path, workspace_root=workspace_root)
+    assert [event.type for event in loaded.runs[0].events] == [
+        "run_started",
+        "run_succeeded",
     ]
 
 
@@ -433,7 +479,7 @@ def test_append_and_load_session_preserves_tool_activity_metadata(tmp_path) -> N
 
     loaded = load_session(path=path, workspace_root=workspace_root)
 
-    assert loaded.runs[0].events == run_events
+    assert loaded.runs[0].events == _persisted_events(run_events)
 
 
 def test_append_and_load_session_preserves_edit_diff_activity_metadata(
@@ -495,7 +541,7 @@ def test_append_and_load_session_preserves_edit_diff_activity_metadata(
 
     loaded = load_session(path=path, workspace_root=workspace_root)
 
-    assert loaded.runs[0].events == run_events
+    assert loaded.runs[0].events == _persisted_events(run_events)
 
 
 def test_append_and_load_session_preserves_tool_call_updates(tmp_path) -> None:
@@ -556,7 +602,7 @@ def test_append_and_load_session_preserves_tool_call_updates(tmp_path) -> None:
 
     loaded = load_session(path=path, workspace_root=workspace_root)
 
-    assert loaded.runs[0].events == run_events
+    assert loaded.runs[0].events == _persisted_events(run_events)
 
 
 def test_append_and_load_session_preserves_interleaved_parallel_tool_calls(
@@ -632,7 +678,7 @@ def test_append_and_load_session_preserves_interleaved_parallel_tool_calls(
 
     loaded = load_session(path=path, workspace_root=workspace_root)
 
-    assert loaded.runs[0].events == run_events
+    assert loaded.runs[0].events == _persisted_events(run_events)
 
 
 def test_load_session_fails_without_header(tmp_path) -> None:

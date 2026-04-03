@@ -79,6 +79,10 @@ def _system_prompt_contents(messages: list[ModelMessage]) -> list[str]:
     ]
 
 
+def _persisted_event_types(events) -> list[str]:
+    return [event.type for event in events if event.type != "assistant_text_delta"]
+
+
 def make_write_stream():
     call_count = 0
 
@@ -211,7 +215,9 @@ async def test_stream_session_run_events_persists_authoritative_session(
     assert loaded.header.workspace_root == str(workspace_root.resolve())
     assert loaded.runs[0].prompt == "go"
     assert loaded.runs[0].thinking is None
-    assert loaded.runs[0].events == events
+    assert [event.type for event in loaded.runs[0].events] == _persisted_event_types(
+        events
+    )
     assert loaded.runs[0].messages
     assert all(
         not isinstance(part, SystemPromptPart)

@@ -1003,7 +1003,6 @@ async def test_handle_rpc_json_line_keeps_run_failure_in_event_stream_and_sessio
         "tool_call_succeeded",
         "tool_call_started",
         "tool_call_succeeded",
-        "assistant_text_delta",
         "run_succeeded",
     ]
 

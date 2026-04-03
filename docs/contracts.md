@@ -462,7 +462,9 @@ Initial executable session slice:
     content; those are ephemeral runtime state, not durable conversation state
 - `session_event`
   - fields: `type`, `run_id`, `event`
-  - `event` must be one canonical streamed run event payload
+  - `event` must be one canonical persisted run event payload
+  - canonical session persistence must omit `assistant_text_delta`; deltas are
+    live RPC transport for streaming UI updates, not durable session state
 - `session_compaction`
   - fields: `type`, `compaction_id`, `summarized_through_run_id`, `first_kept_run_id`, `checkpoint_through_run_id`, `checkpoint_messages`, `summary`
   - `summarized_through_run_id` must reference an existing persisted `run_id`
@@ -508,6 +510,9 @@ Ordering rules for the session slice:
 - `session.compact` and automatic compaction must generate summaries through a model call; the persistence layer must not invent placeholder summaries locally
 - When a new run omits `thinking`, the session-backed runtime inherits the most recent persisted non-null thinking setting from that session
 - Session-backed runtime streaming must append `session_run` and `session_event` entries incrementally as the run streams and append `session_messages` only after terminal completion
+- Session-backed runtime streaming must not persist `assistant_text_delta`
+  events into canonical session JSONL; only durable non-delta run events are
+  appended as `session_event` entries
 - If cancellation unwinds through `stream_session_run_events()`, the runtime must persist terminal `tool_call_failed` events for any still-pending tool calls and then persist terminal `run_failed` before finalization
 - Persisted `session_messages` for a terminal run must remain replay-safe; they must not contain unresolved tool calls
 - Persisted `session_messages` for a terminal run must not persist internal

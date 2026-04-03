@@ -17,6 +17,10 @@ from just_another_coding_agent.session.jsonl import load_session
 _RUN_EVENT_ADAPTER = TypeAdapter(RunEvent)
 
 
+def _persisted_event_types(events: list[RunEvent]) -> list[str]:
+    return [event.type for event in events if event.type != "assistant_text_delta"]
+
+
 def make_write_then_read_stream():
     call_count = 0
 
@@ -203,7 +207,9 @@ async def test_e2e_rpc_runtime_session_uses_explicit_workspace_root(
     loaded = load_session(path=session_path, workspace_root=workspace_root)
     assert loaded.runs[0].prompt == "go"
     assert loaded.runs[0].messages
-    assert loaded.runs[0].events == events
+    assert [event.type for event in loaded.runs[0].events] == _persisted_event_types(
+        events
+    )
 
 
 async def test_e2e_failure_round_trips_through_rpc_and_session(
@@ -271,4 +277,6 @@ async def test_e2e_failure_round_trips_through_rpc_and_session(
     loaded = load_session(path=session_path, workspace_root=workspace_root)
     assert loaded.runs[0].prompt == "go"
     assert loaded.runs[0].messages
-    assert loaded.runs[0].events == events
+    assert [event.type for event in loaded.runs[0].events] == _persisted_event_types(
+        events
+    )

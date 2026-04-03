@@ -24,6 +24,7 @@ from just_another_coding_agent.contracts.platform import (
     detect_default_shell_family,
 )
 from just_another_coding_agent.contracts.run_events import (
+    AssistantTextDeltaEvent,
     RunEvent,
     RunFailedEvent,
     RunStartedEvent,
@@ -105,6 +106,9 @@ class SessionRunAppender:
             raise SessionFormatError(
                 "Persisted run event run_id must match session run_id"
             )
+
+        if isinstance(event, AssistantTextDeltaEvent):
+            return
 
         candidate_events = [*self._events, event]
         _validate_run_events(
