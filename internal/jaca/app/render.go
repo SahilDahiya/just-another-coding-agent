@@ -373,7 +373,7 @@ func renderTopRail(vm viewModel) string {
 	if vm.Phase == PhaseStreaming {
 		return lipgloss.JoinHorizontal(
 			lipgloss.Left,
-			renderWordWave(buildWorkingWave(vm.MotionTick)),
+			renderWordWave(buildWorkingWave(vm.MotionTick), vm.MotionTick),
 			" ",
 			lipgloss.NewStyle().
 				Foreground(defaultTheme.accentSoft).
@@ -383,7 +383,7 @@ func renderTopRail(vm viewModel) string {
 	if vm.Phase == PhaseCompacting {
 		return lipgloss.JoinHorizontal(
 			lipgloss.Left,
-			renderWordWave(buildCompactingWave(vm.MotionTick)),
+			renderWordWave(buildCompactingWave(vm.MotionTick), vm.MotionTick),
 			" ",
 			lipgloss.NewStyle().
 				Foreground(defaultTheme.accentSoft).
@@ -439,9 +439,9 @@ func buildTopRailIndicator(vm viewModel) string {
 		return ""
 	}
 	if vm.Phase == PhaseStreaming {
-		return fmt.Sprintf("%s %s", buildWorkingWave(vm.MotionTick), formatElapsedClock(vm.RunElapsed))
+		return fmt.Sprintf("● %s %s", buildWorkingWave(vm.MotionTick), formatElapsedClock(vm.RunElapsed))
 	}
-	return fmt.Sprintf("%s %s", buildCompactingWave(vm.MotionTick), formatElapsedClock(vm.RunElapsed))
+	return fmt.Sprintf("● %s %s", buildCompactingWave(vm.MotionTick), formatElapsedClock(vm.RunElapsed))
 }
 
 func buildWorkingWave(motionTick int) string {
@@ -476,10 +476,14 @@ func highlightRune(runes []rune, index int) string {
 	return string(highlighted)
 }
 
-func renderWordWave(frame string) string {
+func renderWordWave(frame string, motionTick int) string {
+	pulseColor := livePulseGradient[motionTick%len(livePulseGradient)]
+	marker := lipgloss.NewStyle().Foreground(pulseColor).Render("●")
+
 	base := lipgloss.NewStyle().Foreground(defaultTheme.accentSoft)
 	active := lipgloss.NewStyle().Foreground(defaultTheme.textSoft).Bold(true)
-	parts := make([]string, 0, len(frame))
+	parts := make([]string, 0, len(frame)+2)
+	parts = append(parts, marker, " ")
 	for _, r := range frame {
 		s := string(r)
 		if unicode.IsUpper(r) {
