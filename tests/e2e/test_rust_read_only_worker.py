@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 from pathlib import Path
+
+import pytest
 
 from just_another_coding_agent.tools.read_only_worker.protocol import (
     HelloWorkerRequest,
@@ -27,12 +30,31 @@ class _RustWorkerProcess:
         self._process: subprocess.Popen[str] | None = None
 
     def __enter__(self) -> _RustWorkerProcess:
+        cargo = shutil.which("cargo") or str(Path.home() / ".cargo" / "bin" / "cargo")
+        rustup = shutil.which("rustup") or str(
+            Path.home() / ".cargo" / "bin" / "rustup"
+        )
+        if not Path(cargo).exists():
+            pytest.skip("cargo is not installed")
+        if not Path(rustup).exists():
+            pytest.skip("rustup is not installed")
+
         env = dict(os.environ)
         env["RUSTUP_HOME"] = _RUSTUP_HOME
         env["CARGO_HOME"] = _CARGO_HOME
-        env["PATH"] = f"{_CARGO_HOME}/bin:{env['PATH']}"
+        cargo_bin_dir = str(Path(cargo).resolve().parent)
+        env["PATH"] = f"{cargo_bin_dir}:{_CARGO_HOME}/bin:{env['PATH']}"
+        os.makedirs(_RUSTUP_HOME, exist_ok=True)
+        os.makedirs(_CARGO_HOME, exist_ok=True)
+        subprocess.run(
+            [rustup, "default", "stable"],
+            env=env,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
         self._process = subprocess.Popen(
-            ["cargo", "run", "--quiet"],
+            [cargo, "run", "--quiet"],
             cwd=self._repo_root / "experiments/read_only_worker/rust_worker",
             env=env,
             stdin=subprocess.PIPE,

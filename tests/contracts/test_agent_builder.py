@@ -150,7 +150,11 @@ def test_build_compaction_history_processors_uses_model_aware_live_compaction_li
         def restore(self, messages):
             return messages
 
-    def fake_build_in_run_compaction_controller(*, soft_char_limit: int):
+    def fake_build_in_run_compaction_controller(
+        *,
+        soft_char_limit: int,
+        on_applied: object | None = None,
+    ):
         observed["soft_char_limit"] = soft_char_limit
         return _FakeController()
 

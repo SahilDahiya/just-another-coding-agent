@@ -102,6 +102,7 @@ class RecordingStreamAgent:
         deps=None,
         model_settings=None,
         usage_limits=None,
+        instructions: object | None = None,
     ) -> AsyncIterator[object]:
         # output_type assertion removed
         assert message_history is None

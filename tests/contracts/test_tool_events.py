@@ -89,9 +89,11 @@ class StubStreamAgent:
         deps: object | None = None,
         model_settings: object | None = None,
         usage_limits: object | None = None,
+        instructions: object | None = None,
     ) -> AsyncIterator[object]:
         # output_type assertion removed
         assert message_history is None
+        assert instructions is None
         assert deps is None
         assert model_settings is None
         assert usage_limits is not None
