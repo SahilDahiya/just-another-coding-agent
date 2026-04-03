@@ -24,6 +24,29 @@
             "justMyCode": true
         },
         {
+            "name": "Python: JACA Backend one prompt",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/debug_rpc_once.py",
+            "cwd": "${workspaceFolder}",
+            "envFile": "${workspaceFolder}/.env",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}/src",
+                "PYTHONUNBUFFERED": "1",
+                "JACA_TRACE_MODE": "local"
+            },
+            "args": [
+                "--model",
+                "${input:jacaModel}",
+                "--prompt",
+                "${input:jacaPrompt}",
+                "--workspace-root",
+                "${workspaceFolder}"
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
             "name": "Python: Pytest Current File",
             "type": "debugpy",
             "request": "launch",
@@ -110,6 +133,12 @@
             "type": "promptString",
             "description": "pytest -k expression for the current file",
             "default": "test_"
+        },
+        {
+            "id": "jacaPrompt",
+            "type": "promptString",
+            "description": "Prompt for one-shot backend debugging",
+            "default": "hello"
         }
     ]
 }
