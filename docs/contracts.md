@@ -421,6 +421,9 @@ Ordering rules for the tool slice:
 - A tool exception that aborts the run must emit `tool_call_failed` before `run_failed`
 - A tool result must match an existing pending `tool_call_started`; tool name mismatches or orphaned tool results are invalid state and fail the run explicitly
 - Tool args and tool results in the public contract must be JSON-compatible
+- When tool validation has already produced canonical validated args, public
+  `tool_call_started.args` must come from those validated args rather than
+  reparsing raw provider payload in the runtime layer
 
 ## Session Contract
 

@@ -13,6 +13,9 @@ from just_another_coding_agent.contracts.platform import (
 )
 from just_another_coding_agent.contracts.tools import CANONICAL_TOOL_NAMES
 from just_another_coding_agent.runtime.models import resolve_canonical_model
+from just_another_coding_agent.runtime.tool_args import (
+    CanonicalValidatedToolArgsCapability,
+)
 from just_another_coding_agent.tools._workspace import normalize_workspace_root
 from just_another_coding_agent.tools.deps import WorkspaceDeps
 from just_another_coding_agent.tools.registry import build_canonical_toolset
@@ -123,7 +126,9 @@ def build_canonical_agent(
         ),
         deps_type=WorkspaceDeps,
         toolsets=[build_canonical_toolset(tool_names)],
+        capabilities=[CanonicalValidatedToolArgsCapability()],
     )
+    setattr(agent, "_jaca_require_normalized_validated_tool_args", True)
     if agent.output_type is not str:
         raise RuntimeError(
             "Canonical agent output retry policy only applies to plain string "

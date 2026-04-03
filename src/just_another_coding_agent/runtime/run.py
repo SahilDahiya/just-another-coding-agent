@@ -66,6 +66,12 @@ class _PendingToolCall:
 
 
 @dataclass(frozen=True)
+class _NormalizedToolArgs:
+    args: JsonValue | None
+    args_valid: bool | None
+
+
+@dataclass(frozen=True)
 class _QueuedToolUpdate:
     tool_call_id: str
     tool_name: str
@@ -111,6 +117,9 @@ async def stream_run_events(
     run_id = uuid4().hex
     recovery_attempts = 0
     pending_tool_calls: dict[str, _PendingToolCall] = {}
+    require_normalized_validated_tool_args = bool(
+        getattr(agent, "_jaca_require_normalized_validated_tool_args", False)
+    )
 
     yield RunStartedEvent(run_id=run_id)
 
@@ -199,10 +208,15 @@ async def stream_run_events(
 
                 saw_streamed_event = True
                 if isinstance(event, FunctionToolCallEvent):
-                    args = _normalize_tool_args(
+                    normalized_args = _normalize_tool_args(
                         event.part.args,
                         args_valid=event.args_valid,
+                        require_normalized_validated_tool_args=(
+                            require_normalized_validated_tool_args
+                        ),
                     )
+                    args = normalized_args.args
+                    args_valid = normalized_args.args_valid
                     existing_tool_call = pending_tool_calls.get(event.tool_call_id)
                     if existing_tool_call is not None:
                         if (
@@ -218,7 +232,7 @@ async def stream_run_events(
                     pending_tool_calls[event.tool_call_id] = _PendingToolCall(
                         tool_name=event.part.tool_name,
                         args=args,
-                        args_valid=event.args_valid,
+                        args_valid=args_valid,
                         started_at=monotonic(),
                     )
                     yield ToolCallStartedEvent(
@@ -226,11 +240,11 @@ async def stream_run_events(
                         tool_call_id=event.tool_call_id,
                         tool_name=event.part.tool_name,
                         args=args,
-                        args_valid=event.args_valid,
+                        args_valid=args_valid,
                         activity=build_started_tool_activity(
                             tool_name=event.part.tool_name,
                             args=args,
-                            args_valid=event.args_valid,
+                            args_valid=args_valid,
                         ),
                     )
                     continue
@@ -434,21 +448,33 @@ def _normalize_tool_args(
     value: str | dict[str, Any] | None,
     *,
     args_valid: bool | None,
-) -> JsonValue | None:
+    require_normalized_validated_tool_args: bool = False,
+) -> _NormalizedToolArgs:
     if value is None:
-        return None
+        return _NormalizedToolArgs(args=None, args_valid=args_valid)
 
     if isinstance(value, str):
+        if args_valid is True and require_normalized_validated_tool_args:
+            raise RuntimeError(
+                "Validated tool args must be normalized before runtime event "
+                "translation"
+            )
         try:
             parsed = json.loads(value)
-        except json.JSONDecodeError as error:
-            if args_valid is False:
-                return None
-            raise ValueError("Tool args must be valid JSON") from error
+        except json.JSONDecodeError:
+            # Keep a compatibility path for low-level tests or non-canonical
+            # agents that emit unvalidated raw tool args.
+            return _NormalizedToolArgs(args=None, args_valid=False)
 
-        return _normalize_json_value(parsed)
+        return _NormalizedToolArgs(
+            args=_normalize_json_value(parsed),
+            args_valid=args_valid,
+        )
 
-    return _normalize_json_value(value)
+    return _NormalizedToolArgs(
+        args=_normalize_json_value(value),
+        args_valid=args_valid,
+    )
 
 
 def _normalize_json_value(value: Any) -> JsonValue | None:

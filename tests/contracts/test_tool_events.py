@@ -9,7 +9,11 @@ from pydantic_ai import (
     FunctionToolCallEvent,
     FunctionToolResultEvent,
 )
-from pydantic_ai.messages import ModelMessage, RetryPromptPart, ToolCallPart
+from pydantic_ai.messages import (
+    ModelMessage,
+    RetryPromptPart,
+    ToolCallPart,
+)
 from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 
 from just_another_coding_agent.contracts.platform import detect_default_shell_family
@@ -277,6 +281,23 @@ async def recovering_invalid_tool_args_stream(
     yield "done"
 
 
+async def empty_string_ls_args_stream(
+    messages: list[ModelMessage],
+    _agent_info: object,
+) -> AsyncIterator[str | dict[int, DeltaToolCall]]:
+    if len(messages) == 1:
+        yield {
+            0: DeltaToolCall(
+                name="ls",
+                json_args="",
+                tool_call_id="call-ls-empty",
+            )
+        }
+        return
+
+    yield "done"
+
+
 async def recovering_write_stream(
     messages: list[ModelMessage],
     _agent_info: object,
@@ -510,6 +531,44 @@ async def test_stream_run_events_retry_prompt_emits_tool_error_result() -> None:
     assert events[2].activity.duration_ms is not None
     assert events[2].activity.duration_ms >= 0
     assert events[3].output_text == "done"
+
+
+async def test_stream_run_events_uses_canonical_validated_args_for_empty_string_ls_call(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    agent = build_canonical_agent(
+        model=FunctionModel(stream_function=empty_string_ls_args_stream),
+        workspace_root=workspace_root,
+        tool_names=("ls",),
+    )
+
+    events = [
+        event
+        async for event in stream_run_events(
+            agent=agent,
+            prompt="go",
+            deps=WorkspaceDeps.from_workspace_root(workspace_root),
+        )
+    ]
+
+    assert [event.type for event in events] == [
+        "run_started",
+        "tool_call_started",
+        "tool_call_succeeded",
+        "assistant_text_delta",
+        "run_succeeded",
+    ]
+    assert isinstance(events[1], ToolCallStartedEvent)
+    assert events[1].tool_name == "ls"
+    assert events[1].args == {"path": None, "limit": 500}
+    assert events[1].args_valid is True
+    assert isinstance(events[2], ToolCallSucceededEvent)
+    assert events[2].result == "(empty directory)"
+    assert isinstance(events[4], RunSucceededEvent)
+    assert events[4].output_text == "done"
 
 
 async def test_stream_run_events_fails_hard_when_retry_prompt_has_no_pending_tool_call(
@@ -905,7 +964,7 @@ async def test_stream_run_events_recovers_from_invalid_tool_args_within_one_run(
     assert "Invalid JSON" in events[2].result["message"]
     assert isinstance(events[3], ToolCallStartedEvent)
     assert events[3].tool_name == "ls"
-    assert events[3].args == {"path": "."}
+    assert events[3].args == {"path": ".", "limit": 500}
     assert events[3].args_valid is True
     assert isinstance(events[4], ToolCallSucceededEvent)
     assert events[4].result == "(empty directory)"
