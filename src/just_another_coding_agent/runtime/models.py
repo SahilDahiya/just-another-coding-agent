@@ -38,6 +38,7 @@ OPENAI_CONTEXT_WINDOW_TOKENS_BY_PREFIX: tuple[tuple[str, int], ...] = (
     ("gpt-4o", 128_000),
 )
 ANTHROPIC_CONTEXT_WINDOW_TOKENS_BY_PREFIX: tuple[tuple[str, int], ...] = (
+    ("claude-haiku-4-5", 200_000),
     ("claude-sonnet-4-5", 200_000),
     ("claude-opus-4-1", 200_000),
 )
