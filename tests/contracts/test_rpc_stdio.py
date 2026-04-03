@@ -400,19 +400,19 @@ async def test_handle_rpc_json_line_returns_backend_owned_model_catalog(
                     },
                     {
                         "provider": "openai",
-                        "default_model_id": "openai:gpt-5.4",
+                        "default_model_id": "openai-responses:gpt-5.4",
                         "models": [
                             {
-                                "model_id": "openai:gpt-5.4",
-                                "description": "Default GPT-5.4 path",
+                                "model_id": "openai-responses:gpt-5.4",
+                                "description": "Default GPT-5.4 Responses path",
                             },
                             {
-                                "model_id": "openai:gpt-5.4-mini",
-                                "description": "Faster GPT-5.4 mini",
+                                "model_id": "openai-responses:gpt-5.4-mini",
+                                "description": "Faster GPT-5.4 mini Responses path",
                             },
                             {
-                                "model_id": "openai:gpt-5.3-codex",
-                                "description": "Codex-optimized GPT-5.3",
+                                "model_id": "openai-responses:gpt-5.3-codex",
+                                "description": "Codex-optimized GPT-5.3 Responses path",
                             },
                         ],
                     },

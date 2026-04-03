@@ -125,11 +125,11 @@ func TestGoTUIRPCBackendHelperProcess(t *testing.T) {
 					"providers": []map[string]any{
 						{
 							"provider":         "openai",
-							"default_model_id": "openai:gpt-5.4",
+							"default_model_id": "openai-responses:gpt-5.4",
 							"models": []map[string]any{
 								{
-									"model_id":    "openai:gpt-5.4",
-									"description": "OpenAI GPT-5.4",
+									"model_id":    "openai-responses:gpt-5.4",
+									"description": "OpenAI GPT-5.4 Responses",
 								},
 							},
 						},

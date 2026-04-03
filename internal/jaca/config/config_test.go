@@ -155,7 +155,7 @@ func TestSaveDefaultModelPersistsSelection(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
-	if err := SaveDefaultModel("openai:gpt-5.4"); err != nil {
+	if err := SaveDefaultModel("openai-responses:gpt-5.4"); err != nil {
 		t.Fatalf("SaveDefaultModel() returned error: %v", err)
 	}
 
@@ -163,8 +163,8 @@ func TestSaveDefaultModelPersistsSelection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load() returned error: %v", err)
 	}
-	if got["default_model"] != "openai:gpt-5.4" {
-		t.Fatalf("default_model = %q, want %q", got["default_model"], "openai:gpt-5.4")
+	if got["default_model"] != "openai-responses:gpt-5.4" {
+		t.Fatalf("default_model = %q, want %q", got["default_model"], "openai-responses:gpt-5.4")
 	}
 }
 

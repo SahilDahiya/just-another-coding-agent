@@ -30,6 +30,10 @@ func providerForModel(model string) string {
 	switch {
 	case strings.HasPrefix(value, "openai:"):
 		return "openai"
+	case strings.HasPrefix(value, "openai-responses:"):
+		return "openai"
+	case strings.HasPrefix(value, "openai-chat:"):
+		return "openai"
 	case strings.HasPrefix(value, "anthropic:"):
 		return "anthropic"
 	case strings.HasPrefix(value, "google:"):
@@ -42,7 +46,7 @@ func providerForModel(model string) string {
 }
 
 func modelMatchesProvider(model string, provider string) bool {
-	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(model)), provider+":")
+	return providerForModel(model) == provider
 }
 
 func (m *model) handleModelCommand(arg string) (tea.Model, tea.Cmd) {

@@ -49,19 +49,19 @@ SHIPPED_MODELS: tuple[ShippedModel, ...] = (
     ),
     ShippedModel(
         provider="openai",
-        model_id="openai:gpt-5.4",
-        description="Default GPT-5.4 path",
+        model_id="openai-responses:gpt-5.4",
+        description="Default GPT-5.4 Responses path",
         default_for_provider=True,
     ),
     ShippedModel(
         provider="openai",
-        model_id="openai:gpt-5.4-mini",
-        description="Faster GPT-5.4 mini",
+        model_id="openai-responses:gpt-5.4-mini",
+        description="Faster GPT-5.4 mini Responses path",
     ),
     ShippedModel(
         provider="openai",
-        model_id="openai:gpt-5.3-codex",
-        description="Codex-optimized GPT-5.3",
+        model_id="openai-responses:gpt-5.3-codex",
+        description="Codex-optimized GPT-5.3 Responses path",
     ),
     ShippedModel(
         provider="anthropic",

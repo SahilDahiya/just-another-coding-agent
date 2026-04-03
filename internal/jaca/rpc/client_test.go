@@ -132,7 +132,7 @@ count = 0
 for _line in sys.stdin:
     count += 1
     if count == 1:
-        sys.stdout.write('{"type":"rpc_response","id":"go-2","response":{"providers":[{"provider":"openai","default_model_id":"openai:gpt-5.4","models":[{"model_id":"openai:gpt-5.4","description":"GPT-5.4"}]}]}}' + "\n")
+        sys.stdout.write('{"type":"rpc_response","id":"go-2","response":{"providers":[{"provider":"openai","default_model_id":"openai-responses:gpt-5.4","models":[{"model_id":"openai-responses:gpt-5.4","description":"GPT-5.4 Responses"}]}]}}' + "\n")
         sys.stdout.write('{"type":"rpc_response","id":"go-1","response":{"providers":[{"provider":"ollama","default_model_id":"ollama:kimi-k2:1t-cloud","models":[{"model_id":"ollama:kimi-k2:1t-cloud","description":"Kimi"}]}]}}' + "\n")
         sys.stdout.flush()
     elif count == 2:
@@ -154,8 +154,8 @@ for _line in sys.stdin:
 	if err != nil {
 		t.Fatalf("second ModelCatalog() returned error: %v", err)
 	}
-	if got := second.Providers[0].DefaultModelID; got != "openai:gpt-5.4" {
-		t.Fatalf("second DefaultModelID = %q, want %q", got, "openai:gpt-5.4")
+	if got := second.Providers[0].DefaultModelID; got != "openai-responses:gpt-5.4" {
+		t.Fatalf("second DefaultModelID = %q, want %q", got, "openai-responses:gpt-5.4")
 	}
 }
 

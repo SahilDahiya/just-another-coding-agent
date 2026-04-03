@@ -228,11 +228,11 @@ func testModelCatalog() *rpc.ModelCatalogResponse {
 			},
 			{
 				Provider:       "openai",
-				DefaultModelID: "openai:gpt-5.4",
+				DefaultModelID: "openai-responses:gpt-5.4",
 				Models: []rpc.ModelCatalogModel{
-					{ModelID: "openai:gpt-5.4", Description: "Default GPT-5.4 path"},
-					{ModelID: "openai:gpt-5.4-mini", Description: "Faster GPT-5.4 mini"},
-					{ModelID: "openai:gpt-5.3-codex", Description: "Codex-optimized GPT-5.3"},
+					{ModelID: "openai-responses:gpt-5.4", Description: "Default GPT-5.4 Responses path"},
+					{ModelID: "openai-responses:gpt-5.4-mini", Description: "Faster GPT-5.4 mini Responses path"},
+					{ModelID: "openai-responses:gpt-5.3-codex", Description: "Codex-optimized GPT-5.3 Responses path"},
 				},
 			},
 			{
@@ -361,7 +361,7 @@ func TestNewResumedSessionSkipsFirstRunOnboardingAndShowsResumeNote(t *testing.T
 	t.Setenv("HOME", home)
 
 	m := New(Options{
-		Model:         "openai:gpt-5.4",
+		Model:         "openai-responses:gpt-5.4",
 		WorkspaceRoot: "/workspace",
 		SessionID:     "0123456789abcdef0123456789abcdef",
 		SessionName:   "auth-store-cleanup",
@@ -804,17 +804,17 @@ func TestModelCommandPersistsSelection(t *testing.T) {
 	m := newTestModel()
 	m.options.Backend = newStubBackend()
 
-	m = sendRunes(m, "/model openai:gpt-5.4")
+	m = sendRunes(m, "/model openai-responses:gpt-5.4")
 	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
 
-	if got := m.options.Model; got != "openai:gpt-5.4" {
-		t.Fatalf("options.Model = %q, want %q", got, "openai:gpt-5.4")
+	if got := m.options.Model; got != "openai-responses:gpt-5.4" {
+		t.Fatalf("options.Model = %q, want %q", got, "openai-responses:gpt-5.4")
 	}
 	data, err := os.ReadFile(home + "/.jaca/config.json")
 	if err != nil {
 		t.Fatalf("ReadFile() returned error: %v", err)
 	}
-	if !strings.Contains(string(data), `"default_model": "openai:gpt-5.4"`) {
+	if !strings.Contains(string(data), `"default_model": "openai-responses:gpt-5.4"`) {
 		t.Fatalf("config.json missing persisted model: %q", string(data))
 	}
 	if !strings.Contains(string(data), `"default_provider": "openai"`) {
@@ -1183,7 +1183,7 @@ func TestStartupAuthStatusAutoStartsAuthForPersistedProviderWithoutCredentials(t
 	if err := config.SaveDefaultProvider("openai"); err != nil {
 		t.Fatalf("SaveDefaultProvider() returned error: %v", err)
 	}
-	if err := config.SaveDefaultModel("openai:gpt-5.4"); err != nil {
+	if err := config.SaveDefaultModel("openai-responses:gpt-5.4"); err != nil {
 		t.Fatalf("SaveDefaultModel() returned error: %v", err)
 	}
 
@@ -1194,7 +1194,7 @@ func TestStartupAuthStatusAutoStartsAuthForPersistedProviderWithoutCredentials(t
 	}
 
 	m := newTestModel()
-	m.options.Model = "openai:gpt-5.4"
+	m.options.Model = "openai-responses:gpt-5.4"
 	m.options.Backend = backend
 
 	updated, _ := m.Update(authStatusLoadedMsg{Status: status})
@@ -1223,12 +1223,12 @@ func TestStartupAuthStatusTimeoutSchedulesRetry(t *testing.T) {
 	if err := config.SaveDefaultProvider("openai"); err != nil {
 		t.Fatalf("SaveDefaultProvider() returned error: %v", err)
 	}
-	if err := config.SaveDefaultModel("openai:gpt-5.4"); err != nil {
+	if err := config.SaveDefaultModel("openai-responses:gpt-5.4"); err != nil {
 		t.Fatalf("SaveDefaultModel() returned error: %v", err)
 	}
 
 	m := newTestModel()
-	m.options.Model = "openai:gpt-5.4"
+	m.options.Model = "openai-responses:gpt-5.4"
 
 	updated, cmd := m.Update(authStatusLoadedMsg{Err: context.DeadlineExceeded})
 	m = updated.(*model)
@@ -1328,7 +1328,7 @@ func TestModelCommandRequestsCatalogWhenMissing(t *testing.T) {
 	m.modelCatalog = nil
 	m.options.Backend = newStubBackend()
 
-	updated, cmd := m.handleModelCommand("openai:gpt-5.4")
+	updated, cmd := m.handleModelCommand("openai-responses:gpt-5.4")
 	m = updated.(*model)
 
 	if cmd == nil {
@@ -1337,8 +1337,8 @@ func TestModelCommandRequestsCatalogWhenMissing(t *testing.T) {
 	if !m.modelCatalogLoading {
 		t.Fatal("model catalog load should be marked in flight")
 	}
-	if got := m.options.Model; got != "openai:gpt-5.4" {
-		t.Fatalf("options.Model = %q, want %q", got, "openai:gpt-5.4")
+	if got := m.options.Model; got != "openai-responses:gpt-5.4" {
+		t.Fatalf("options.Model = %q, want %q", got, "openai-responses:gpt-5.4")
 	}
 }
 
@@ -1646,7 +1646,7 @@ func TestPromptRequiringAuthIsRestoredAfterSuccessfulSubmission(t *testing.T) {
 	backend := newStubBackend()
 	m := newTestModel()
 	m.options.Backend = backend
-	m.options.Model = "openai:gpt-5.4"
+	m.options.Model = "openai-responses:gpt-5.4"
 
 	m = sendRunes(m, "run go tests")
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -1677,7 +1677,7 @@ func TestPromptRequiringAuthIsRestoredOnEscape(t *testing.T) {
 
 	m := newTestModel()
 	m.options.Backend = newStubBackend()
-	m.options.Model = "openai:gpt-5.4"
+	m.options.Model = "openai-responses:gpt-5.4"
 
 	m = sendRunes(m, "run go tests")
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -1706,14 +1706,14 @@ func TestModelWithoutCredentialsStartsMaskedAuthFlow(t *testing.T) {
 	m := newTestModel()
 	m.options.Backend = backend
 
-	m = sendRunes(m, "/model openai:gpt-5.4")
+	m = sendRunes(m, "/model openai-responses:gpt-5.4")
 	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
 
 	rendered := stripANSI(m.View())
 	if !strings.Contains(rendered, "Secure Setup") || !strings.Contains(rendered, "OpenAI API key") {
 		t.Fatalf("view missing secure setup panel after model selection: %q", rendered)
 	}
-	if got := m.promptHistory; len(got) != 1 || got[0] != "/model openai:gpt-5.4" {
+	if got := m.promptHistory; len(got) != 1 || got[0] != "/model openai-responses:gpt-5.4" {
 		t.Fatalf("promptHistory = %#v, want only the non-secret model command", got)
 	}
 }
@@ -1947,7 +1947,7 @@ func TestAuthSubmissionStoresCredentialWithoutLeakingSecret(t *testing.T) {
 	if !strings.Contains(configText, `"default_provider": "openai"`) {
 		t.Fatalf("config.json missing provider selection: %q", configText)
 	}
-	if !strings.Contains(configText, `"default_model": "openai:gpt-5.4"`) {
+	if !strings.Contains(configText, `"default_model": "openai-responses:gpt-5.4"`) {
 		t.Fatalf("config.json missing default model selection: %q", configText)
 	}
 	transcript := stripANSI(m.transcript.Render())
@@ -1971,13 +1971,13 @@ func TestAuthSubmissionAppliesPendingModelSelection(t *testing.T) {
 	m := newTestModel()
 	m.options.Backend = backend
 
-	m = sendRunes(m, "/model openai:gpt-5.4")
+	m = sendRunes(m, "/model openai-responses:gpt-5.4")
 	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
 	m = sendRunes(m, "super-secret")
 	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
 
-	if got := m.options.Model; got != "openai:gpt-5.4" {
-		t.Fatalf("options.Model = %q, want %q", got, "openai:gpt-5.4")
+	if got := m.options.Model; got != "openai-responses:gpt-5.4" {
+		t.Fatalf("options.Model = %q, want %q", got, "openai-responses:gpt-5.4")
 	}
 	data, err := os.ReadFile(home + "/.jaca/config.json")
 	if err != nil {
@@ -1987,7 +1987,7 @@ func TestAuthSubmissionAppliesPendingModelSelection(t *testing.T) {
 	if !strings.Contains(configText, `"default_provider": "openai"`) {
 		t.Fatalf("config.json missing provider selection: %q", configText)
 	}
-	if !strings.Contains(configText, `"default_model": "openai:gpt-5.4"`) {
+	if !strings.Contains(configText, `"default_model": "openai-responses:gpt-5.4"`) {
 		t.Fatalf("config.json missing model selection: %q", configText)
 	}
 	if strings.Contains(configText, `"OPENAI_API_KEY"`) {

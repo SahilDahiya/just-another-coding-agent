@@ -215,12 +215,17 @@ def test_get_model_context_window_tokens_for_supported_models(monkeypatch) -> No
     monkeypatch.setenv("GOOGLE_API_KEY", "test-key")
 
     assert get_model_context_window_tokens("openai-responses:gpt-5.3-codex") == 400_000
+    assert get_model_context_window_tokens("openai-responses:gpt-5.4") == 1_050_000
+    assert get_model_context_window_tokens("openai-responses:gpt-5.4-mini") == 400_000
     assert get_model_context_window_tokens("openai:gpt-5.4") == 1_050_000
     assert get_model_context_window_tokens("openai:gpt-5.4-mini") == 400_000
     assert get_model_context_window_tokens("openai:gpt-4o") == 128_000
     assert get_model_context_window_tokens("anthropic:claude-sonnet-4-5") == 200_000
     assert get_model_context_window_tokens("anthropic:claude-haiku-4-5") == 200_000
-    assert get_model_context_window_tokens("anthropic:claude-haiku-4-5-20251001") == 200_000
+    assert (
+        get_model_context_window_tokens("anthropic:claude-haiku-4-5-20251001")
+        == 200_000
+    )
     assert get_model_context_window_tokens("anthropic:claude-opus-4-1") == 200_000
     assert get_model_context_window_tokens("google:gemini-2.5-flash") == 1_048_576
     assert get_model_context_window_tokens("google:gemini-2.5-flash-lite") == 1_048_576

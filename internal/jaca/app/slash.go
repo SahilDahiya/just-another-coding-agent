@@ -154,16 +154,11 @@ func (m *model) currentProvider() string {
 }
 
 func (m *model) providerFromModel() string {
-	switch {
-	case strings.HasPrefix(strings.ToLower(m.options.Model), "openai:"):
-		return "openai"
-	case strings.HasPrefix(strings.ToLower(m.options.Model), "anthropic:"):
-		return "anthropic"
-	case strings.HasPrefix(strings.ToLower(m.options.Model), "google:"):
-		return "google"
-	default:
+	provider := providerForModel(m.options.Model)
+	if provider == "" {
 		return "ollama"
 	}
+	return provider
 }
 
 func buildSlashMenuState(input string, m *model) slashMenuState {

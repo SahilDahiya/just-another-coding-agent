@@ -475,7 +475,7 @@ def test_main_uses_saved_default_model_and_trace_mode(
         entry,
         "load_config",
         lambda: {
-            "default_model": "openai:gpt-5.4",
+            "default_model": "openai-responses:gpt-5.4",
             "trace_mode": "local",
         },
     )
@@ -524,7 +524,7 @@ def test_main_uses_saved_default_model_and_trace_mode(
             "--app-version",
             "0.1.4",
             "--model",
-            "openai:gpt-5.4",
+            "openai-responses:gpt-5.4",
             "--workspace-root",
             str(workspace_root.resolve()),
             "--sessions-root",
