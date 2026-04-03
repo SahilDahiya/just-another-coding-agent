@@ -1,4 +1,15 @@
 {
+    "go.alternateTools": {
+        "dlv": "/home/dahiy/go/bin/dlv"
+    },
+    "go.toolsEnvVars": {
+        "PATH": "/home/dahiy/go/bin:${env:PATH}"
+    },
+    "go.delveConfig": {
+        "dlvFlags": [
+            "--check-go-version=false"
+        ]
+    },
     "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
     "python.envFile": "${workspaceFolder}/.env",
     "python.testing.pytestArgs": [
