@@ -186,12 +186,22 @@ func (m *model) completeOnboardingSelection() (tea.Model, tea.Cmd) {
 	switch selection {
 	case 0:
 		if kind == "ollama" {
+			if err := config.SaveOllamaBaseURL(""); err != nil {
+				m.transcript.WriteError(err.Error())
+				m.refreshViewport()
+				return m, nil
+			}
+			if m.options.Backend != nil {
+				m.restartBackendWithCurrentEnv()
+			}
 			m.onboarding = onboardingState{}
 			m.transcript.WriteNote("provider setup", []string{
 				"Local Ollama selected.",
+				"Ollama cloud endpoint cleared.",
 				"Use /model ollama:<local-model> for local no-auth use.",
 				"Example: /model ollama:llama3.2",
-				"Current provider and model stay unchanged until you pick a local model.",
+				"If the current model already starts with ollama:, the next run uses local Ollama.",
+				"Otherwise pick a local model with /model ollama:<local-model>.",
 			})
 			m.refreshViewport()
 			return m, nil

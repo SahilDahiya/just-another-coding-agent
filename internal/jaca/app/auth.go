@@ -162,7 +162,7 @@ func (m *model) handleAuthEnter() (tea.Model, tea.Cmd) {
 		m.transcript.WriteLine(line)
 	}
 	if restart && m.options.Backend != nil {
-		_ = m.options.Backend.Restart(context.Background())
+		m.restartBackendWithCurrentEnv()
 	}
 	m.refreshViewport()
 	return m, nil

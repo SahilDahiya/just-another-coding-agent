@@ -89,6 +89,44 @@ func TestOllamaUsesCloudBaseURLOnlyForHostedEndpoint(t *testing.T) {
 	}
 }
 
+func TestSaveOllamaBaseURLClearsAndSetsWithoutChangingProvider(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("OLLAMA_BASE_URL", "")
+
+	if err := SaveDefaultProvider("openai"); err != nil {
+		t.Fatalf("SaveDefaultProvider() returned error: %v", err)
+	}
+	if err := SaveOllamaBaseURL(OllamaCloudBaseURL); err != nil {
+		t.Fatalf("SaveOllamaBaseURL(set) returned error: %v", err)
+	}
+
+	got, err := Load()
+	if err != nil {
+		t.Fatalf("Load() returned error: %v", err)
+	}
+	if got["default_provider"] != "openai" {
+		t.Fatalf("default_provider = %q, want %q", got["default_provider"], "openai")
+	}
+	if got["OLLAMA_BASE_URL"] != OllamaCloudBaseURL {
+		t.Fatalf("OLLAMA_BASE_URL = %q, want %q", got["OLLAMA_BASE_URL"], OllamaCloudBaseURL)
+	}
+
+	if err := SaveOllamaBaseURL(""); err != nil {
+		t.Fatalf("SaveOllamaBaseURL(clear) returned error: %v", err)
+	}
+	got, err = Load()
+	if err != nil {
+		t.Fatalf("Load() returned error: %v", err)
+	}
+	if _, ok := got["OLLAMA_BASE_URL"]; ok {
+		t.Fatalf("expected OLLAMA_BASE_URL to be removed, config=%v", got)
+	}
+	if got["default_provider"] != "openai" {
+		t.Fatalf("default_provider after clear = %q, want %q", got["default_provider"], "openai")
+	}
+}
+
 func TestLoadFailsOnCorruptConfigJSON(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

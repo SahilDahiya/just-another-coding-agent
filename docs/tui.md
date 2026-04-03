@@ -116,8 +116,8 @@ The core architectural risk is semantic drift between the Go shell and the Pytho
   `/model ollama:<local-model>` for local no-auth use, and `/provider ollama`
   as an explicit local-vs-cloud chooser. Hosted Ollama means
   `https://ollama.com/v1` plus an API key; local Ollama does not prompt for
-  auth and stays on the current provider/model until the user picks a concrete
-  local model.
+  auth, clears the hosted endpoint immediately, and uses local Ollama on the
+  next run whenever the active model already starts with `ollama:`.
 - Masked auth should feel explicitly secure, not like ordinary chat input:
   provider-specific labeling, a centered secure setup panel, a masked input
   field, and clear copy that the secret is not written into transcript or

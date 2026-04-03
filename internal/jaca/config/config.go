@@ -93,6 +93,21 @@ func OllamaUsesCloudBaseURL(config map[string]string) bool {
 	return baseURL == strings.TrimRight(OllamaCloudBaseURL, "/")
 }
 
+func SaveOllamaBaseURL(baseURL string) error {
+	config, err := Load()
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(baseURL) == "" {
+		delete(config, "OLLAMA_BASE_URL")
+		_ = os.Unsetenv("OLLAMA_BASE_URL")
+	} else {
+		config["OLLAMA_BASE_URL"] = strings.TrimSpace(baseURL)
+		_ = os.Setenv("OLLAMA_BASE_URL", strings.TrimSpace(baseURL))
+	}
+	return Save(config)
+}
+
 func SaveDefaultModel(model string) error {
 	config, err := Load()
 	if err != nil {
@@ -149,12 +164,12 @@ func SaveProvider(update ProviderUpdate) error {
 	}
 	switch update.Provider {
 	case "ollama":
-		if update.BaseURL == "" {
+		if strings.TrimSpace(update.BaseURL) == "" {
 			delete(config, "OLLAMA_BASE_URL")
 			_ = os.Unsetenv("OLLAMA_BASE_URL")
 		} else {
-			config["OLLAMA_BASE_URL"] = update.BaseURL
-			_ = os.Setenv("OLLAMA_BASE_URL", update.BaseURL)
+			config["OLLAMA_BASE_URL"] = strings.TrimSpace(update.BaseURL)
+			_ = os.Setenv("OLLAMA_BASE_URL", strings.TrimSpace(update.BaseURL))
 		}
 	case "openai":
 		if update.BaseURL != "" {

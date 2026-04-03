@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -104,7 +105,7 @@ func (m *model) handleModelCommand(arg string) (tea.Model, tea.Cmd) {
 		m.transcript.WriteLine(line)
 	}
 	if restart && m.options.Backend != nil {
-		_ = m.options.Backend.Restart(context.Background())
+		m.restartBackendWithCurrentEnv()
 		cmd = tea.Batch(cmd, m.requestModelCatalog())
 	}
 	m.refreshViewport()
@@ -137,7 +138,7 @@ func (m *model) handleTraceCommand(arg string) {
 			m.transcript.WriteError(err.Error())
 			return
 		}
-		_ = m.options.Backend.Restart(context.Background())
+		m.restartBackendWithCurrentEnv()
 	}
 }
 
@@ -191,7 +192,7 @@ func (m *model) handleProviderCommand(arg string) {
 		m.transcript.WriteLine(line)
 	}
 	if restart && m.options.Backend != nil {
-		_ = m.options.Backend.Restart(context.Background())
+		m.restartBackendWithCurrentEnv()
 	}
 }
 
@@ -386,6 +387,14 @@ func (m *model) providerHasCredentialsFresh(provider string) (bool, error) {
 		}
 	}
 	return false, fmt.Errorf("unknown provider: %s", provider)
+}
+
+func (m *model) restartBackendWithCurrentEnv() {
+	if m.options.Backend == nil {
+		return
+	}
+	m.options.Backend.SetEnv(os.Environ())
+	_ = m.options.Backend.Restart(context.Background())
 }
 
 func (m *model) startCredentialSetup(

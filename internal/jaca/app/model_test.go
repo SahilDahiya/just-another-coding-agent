@@ -1049,6 +1049,39 @@ func TestFirstRunChoosingOllamaShowsModeChooser(t *testing.T) {
 	}
 }
 
+func TestChoosingLocalOllamaClearsHostedEndpointImmediately(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	if err := config.SaveOllamaBaseURL(config.OllamaCloudBaseURL); err != nil {
+		t.Fatalf("SaveOllamaBaseURL() returned error: %v", err)
+	}
+
+	backend := newStubBackend()
+	m := newTestModel()
+	m.options.Backend = backend
+	m.options.Model = "ollama:gemma4:e4b"
+	m.onboarding = onboardingState{Active: true, Kind: "ollama", Selected: 0}
+
+	updated, _ := m.completeOnboardingSelection()
+	m = updated.(*model)
+
+	got, err := config.Load()
+	if err != nil {
+		t.Fatalf("Load() returned error: %v", err)
+	}
+	if _, ok := got["OLLAMA_BASE_URL"]; ok {
+		t.Fatalf("local ollama selection should clear hosted base URL: %v", got)
+	}
+	if backend.restarts != 1 {
+		t.Fatalf("backend.restarts = %d, want %d", backend.restarts, 1)
+	}
+	rendered := stripANSI(m.transcript.Render())
+	if !strings.Contains(rendered, "Ollama cloud endpoint cleared.") {
+		t.Fatalf("transcript missing local endpoint note: %q", rendered)
+	}
+}
+
 func TestStartupAuthStatusAutoStartsAuthForPersistedProviderWithoutCredentials(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
