@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -195,14 +196,35 @@ func (m *model) completeOnboardingSelection() (tea.Model, tea.Cmd) {
 				m.restartBackendWithCurrentEnv()
 			}
 			m.onboarding = onboardingState{}
-			m.transcript.WriteNote("provider setup", []string{
+			lines := []string{
 				"Local Ollama selected.",
 				"Ollama cloud endpoint cleared.",
 				"Use /model ollama:<local-model> for local no-auth use.",
 				"Example: /model ollama:llama3.2",
-				"If the current model already starts with ollama:, the next run uses local Ollama.",
-				"Otherwise pick a local model with /model ollama:<local-model>.",
-			})
+			}
+			switch {
+			case m.isHostedOllamaModel(m.options.Model):
+				lines = append(
+					lines,
+					fmt.Sprintf(
+						"Current model %s comes from the hosted Ollama catalog and may not exist locally.",
+						m.options.Model,
+					),
+					"Pick a local model with /model ollama:<local-model> before the next run.",
+				)
+			case providerForModel(m.options.Model) == "ollama":
+				lines = append(
+					lines,
+					fmt.Sprintf("Current model %s stays active and will use local Ollama.", m.options.Model),
+				)
+			default:
+				lines = append(
+					lines,
+					"Current non-Ollama model stays active until you pick a local Ollama model.",
+					"Pick a local model with /model ollama:<local-model> before the next Ollama run.",
+				)
+			}
+			m.transcript.WriteNote("provider setup", lines)
 			m.refreshViewport()
 			return m, nil
 		}
