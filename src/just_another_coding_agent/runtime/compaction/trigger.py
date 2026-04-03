@@ -240,11 +240,6 @@ def _estimate_resume_history_budget_components(
     )
 
 
-def _estimate_resume_history_tokens(loaded_session: LoadedSession) -> int:
-    return _estimate_resume_history_budget_components(
-        loaded_session
-    ).estimated_resume_history_tokens
-
 
 def _estimate_checkpoint_tokens(loaded_session: LoadedSession) -> int:
     latest_compaction = loaded_session.latest_compaction
