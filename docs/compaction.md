@@ -1,11 +1,11 @@
 # Compaction
 
-read_when: you are changing session resume behavior, live-run history shaping, or long-task memory handling
+read_when: you are changing durable session compaction, resume behavior, or long-task memory handling
 
 ## Goal
 
-Keep long-running task experience stable by treating compaction as three
-separate systems with explicit ownership and invariants.
+Keep long-running task experience stable by treating durable compaction and
+resume replay as explicit systems with clear ownership and invariants.
 
 ## Systems
 
@@ -164,45 +164,6 @@ That same post-compaction continuity boundary is the seam future fork behavior
 must use too. Resume should not own bespoke boundary math that a later fork path
 would need to reimplement differently.
 
-### 3. In-run compaction
-
-During one live run, historical tool-return content may be compressed when
-context pressure grows.
-
-Code:
-
-- `runtime/compaction/in_run.py`
-- `runtime/compaction/history_processors.py`
-
-Responsibilities:
-
-- produce an explicit replacement history for the current live run when
-  historical context grows too large
-- prefer compacting older historical tool returns before the freshest live tail
-- keep tool call / tool result pairing intact
-- keep controller-owned original tool-return state out of model-facing history
-- restore original raw tool-return content before session persistence
-- provide the explicit model-facing `history_processors` seam the session
-  runtime uses before model calls
-
-Policy:
-
-- keep the live trigger simple and model-aware; do not build a second
-  durable-style budget engine for in-run compaction
-- treat the replacement history as authoritative for the live run once
-  compaction applies
-- emit one explicit `in_run_compaction_applied` run event each time live
-  compaction actually replaces history so Harbor, traces, and the TUI can
-  confirm it happened without inferring from restored session artifacts later
-- fail hard if live compaction or raw-history restore cannot complete safely;
-  do not silently continue with partially compacted or lossy durable state
-
-This is the only compaction path that still uses PydanticAI
-`history_processors`, and that shaping is now attached explicitly by session
-runtime instead of being hidden inside canonical agent construction.
-The session runtime now also owns the live restore seam explicitly through a
-compaction-history runtime bundle rather than depending on raw metadata alone.
-
 ## Durable Boundary Model
 
 Durable session compaction now uses an authoritative checkpoint boundary with a
@@ -245,26 +206,22 @@ budget when possible:
 ## Oversized Single Runs
 
 If one retained run is still very large, durable compaction now attempts to keep
-a safe suffix from inside that run rather than only whole-run tails. The
-checkpoint still remains authoritative, and live in-run compaction remains
-responsible for shrinking historical tool payloads during the next run.
+a safe suffix from inside that run rather than only whole-run tails.
 
 So today:
 
 - between-run compaction can keep a message-token-budgeted raw tail, including a
   safe suffix from inside one run when needed
-- live in-run compaction handles oversized historical tool output inside the new
-  run by replacing the active live history with a compacted prefix plus a small
-  preserved recent tail
+- live runs do not rewrite history mid-flight; provider-side context or quota
+  failures now fail hard
 
 One important consequence:
 
 - the retained checkpoint tail is replayed in raw form at resume time
 - the durable compaction summary is not replayed as conversation history; it is
   injected as internal per-run instructions instead
-- later model requests in that same resumed run may still compact those retained
-  historical tool returns through the live in-run processor once context
-  pressure grows
+- there is no run-local history rewriting layer between tool execution and the
+  next model request
 
 ## Invariants
 
@@ -281,10 +238,6 @@ One important consequence:
   history copied back out of the replayed prefix
 - persisted `session_messages` must not contain internal instructions or
   `SystemPromptPart` content
-- live in-run compaction must restore original raw tool-return content before
-  persistence
-- live in-run compaction must not store original raw tool-return payloads inside
-  model-facing history metadata; restore state stays controller-owned
 
 ## Why This Split Exists
 
@@ -292,7 +245,6 @@ These systems share a theme, not a lifecycle:
 
 - session-summary compaction is async model-driven summarization
 - resume-history materialization is deterministic durable replay
-- in-run compaction is pure live-run history shaping
 
 Keeping them separate makes long-run bugs easier to isolate and reduces the risk
-of breaking resume behavior while changing live-run context management.
+of breaking resume behavior while changing durable compaction policy.

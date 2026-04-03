@@ -18,7 +18,6 @@ from pydantic_ai.messages import (
 
 from just_another_coding_agent.contracts.platform import detect_default_shell_family
 from just_another_coding_agent.contracts.run_events import (
-    InRunCompactionAppliedEvent,
     RunEvent,
     RunFailedEvent,
     RunSucceededEvent,
@@ -36,13 +35,9 @@ from just_another_coding_agent.runtime.activity import build_failed_tool_activit
 from just_another_coding_agent.runtime.agent import build_canonical_agent
 from just_another_coding_agent.runtime.compaction import (
     build_auto_compact_session_budget_report,
-    build_compaction_history_runtime,
     build_resume_instructions,
     build_resume_message_history,
     summarize_and_append_compaction_to_session,
-)
-from just_another_coding_agent.runtime.compaction.in_run import (
-    InRunCompactionResult,
 )
 from just_another_coding_agent.runtime.run import stream_run_events
 from just_another_coding_agent.session.checkpoint import strip_internal_prompt_state
@@ -56,60 +51,6 @@ from just_another_coding_agent.tools._workspace import normalize_workspace_root
 from just_another_coding_agent.tools.deps import WorkspaceDeps
 
 MAX_CONSECUTIVE_AUTO_COMPACTION_FAILURES = 3
-
-
-def _build_in_run_compaction_message(
-    *,
-    compacted_tool_result_count: int,
-    original_size_chars: int,
-    compacted_size_chars: int,
-    used_full_history_fallback: bool,
-) -> str:
-    tool_result_label = (
-        "tool result"
-        if compacted_tool_result_count == 1
-        else "tool results"
-    )
-    message = (
-        "Live history compacted "
-        f"({compacted_tool_result_count} {tool_result_label}, "
-        f"{original_size_chars} -> {compacted_size_chars} chars)"
-    )
-    if used_full_history_fallback:
-        message += "; full-history fallback used"
-    return message
-
-
-def _drain_pending_in_run_compactions(
-    *,
-    pending_in_run_compactions: list[tuple[int, int, int, bool]],
-    run_appender: Any,
-    active_run_id: str,
-) -> list[InRunCompactionAppliedEvent]:
-    events: list[InRunCompactionAppliedEvent] = []
-    while pending_in_run_compactions:
-        (
-            compacted_tool_result_count,
-            original_size_chars,
-            compacted_size_chars,
-            used_full_history_fallback,
-        ) = pending_in_run_compactions.pop(0)
-        in_run_compaction_event = InRunCompactionAppliedEvent(
-            run_id=active_run_id,
-            compacted_tool_result_count=compacted_tool_result_count,
-            original_size_chars=original_size_chars,
-            compacted_size_chars=compacted_size_chars,
-            used_full_history_fallback=used_full_history_fallback,
-            message=_build_in_run_compaction_message(
-                compacted_tool_result_count=compacted_tool_result_count,
-                original_size_chars=original_size_chars,
-                compacted_size_chars=compacted_size_chars,
-                used_full_history_fallback=used_full_history_fallback,
-            ),
-        )
-        run_appender.append_event(in_run_compaction_event)
-        events.append(in_run_compaction_event)
-    return events
 
 
 def _estimated_compaction_percent_saved(
@@ -341,29 +282,12 @@ async def stream_session_run_events(
         else None
     )
     preexisting_history_count = len(preexisting_history)
-    pending_in_run_compactions: list[tuple[int, int, int, bool]] = []
-
-    def _queue_in_run_compaction_applied(result: InRunCompactionResult) -> None:
-        pending_in_run_compactions.append(
-            (
-                result.compacted_tool_result_count,
-                result.original_size_chars,
-                result.compacted_size_chars,
-                result.used_full_history_fallback,
-            )
-        )
-
-    compaction_history_runtime = build_compaction_history_runtime(
-        model=model,
-        on_in_run_compaction_applied=_queue_in_run_compaction_applied,
-    )
 
     agent = build_canonical_agent(
         model=model,
         workspace_root=normalized_workspace_root,
         shell_family=shell_family,
         tool_names=tool_names,
-        history_processors=compaction_history_runtime.history_processors,
     )
     run_appender = None
     authoritative_messages: list[ModelMessage] | None = None
@@ -396,16 +320,10 @@ async def stream_session_run_events(
                         path=session_path,
                         workspace_root=normalized_workspace_root,
                         shell_family=shell_family,
-                        run_id=event.run_id,
-                        prompt=prompt,
-                        thinking=resolved_thinking,
-                    )
-                for in_run_compaction_event in _drain_pending_in_run_compactions(
-                    pending_in_run_compactions=pending_in_run_compactions,
-                    run_appender=run_appender,
-                    active_run_id=active_run_id,
-                ):
-                    yield in_run_compaction_event
+                    run_id=event.run_id,
+                    prompt=prompt,
+                    thinking=resolved_thinking,
+                )
                 run_appender.append_event(event)
                 if isinstance(event, ToolCallStartedEvent):
                     pending_tool_calls[event.tool_call_id] = event
@@ -418,11 +336,6 @@ async def stream_session_run_events(
                 yield event
         except (asyncio.CancelledError, KeyboardInterrupt) as error:
             if run_appender is not None and active_run_id is not None:
-                _drain_pending_in_run_compactions(
-                    pending_in_run_compactions=pending_in_run_compactions,
-                    run_appender=run_appender,
-                    active_run_id=active_run_id,
-                )
                 error_type = type(error).__name__
                 message = str(error) or "run cancelled"
                 for pending_tool_call in pending_tool_calls.values():
@@ -455,12 +368,10 @@ async def stream_session_run_events(
             raise
         finally:
             if run_appender is not None and should_finalize:
-                finalized_messages = compaction_history_runtime.restore_messages(
-                    (
-                        authoritative_messages
-                        if authoritative_messages is not None
-                        else list(messages)[preexisting_history_count:]
-                    )
+                finalized_messages = (
+                    authoritative_messages
+                    if authoritative_messages is not None
+                    else list(messages)[preexisting_history_count:]
                 )
                 if failed_terminal:
                     finalized_messages = _sanitize_failed_run_messages(

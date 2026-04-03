@@ -17,8 +17,6 @@ should live.
 PydanticAI helps with run-local seams:
 
 - `message_history` is the canonical substrate for resuming a conversation
-- `history_processors` can trim, summarize, or otherwise reshape history before
-  each model request inside one live run
 - Hooks can intercept runs, model requests, tool validation/execution, and
   event streams
 - `model_settings` can carry explicit run settings such as `thinking`
@@ -76,38 +74,14 @@ Current product decision:
 
 ## History Processors
 
-`history_processors` are the strongest PydanticAI seam for live-run compaction.
+PydanticAI `history_processors` exist, but JACA does not use them in the
+canonical runtime path.
 
-Use them to:
-
-- trim old history before the next model request
-- adjust history based on current context size or run conditions
-
-Important caveats from the PydanticAI docs:
-
-- processors replace the in-run message history state
-- processors can affect `new_messages()` boundaries
-- tool calls and tool results must remain paired
-
-So the right split is:
+The current split is:
 
 - durable compaction state is stored in our session file
 - durable cross-run replay is materialized from session state before the next run
-- runtime `history_processors` are reserved for live-run history shaping
-
-Today that means:
-
-- the session file keeps full-fidelity native messages plus explicit
-  `session_compaction` entries
-- the runtime generates each compaction summary through a separate model call
-- resumed runs build explicit resume history from the latest compaction entry:
-  persisted checkpoint messages plus later native message deltas after the
-  checkpoint boundary
-- live runs may also compact historical tool-return content at runtime through a
-  history processor when context pressure grows
-- if a live-run processor rewrites current-run tool-return content for the
-  model, the persistence layer must restore the original raw tool-return
-  content before `session_messages` are written
+- live runs keep their raw tool transcript for the duration of the run
 - successful resumed runs persist only new PydanticAI message deltas rather
   than replayed checkpoint history
 
@@ -144,7 +118,7 @@ inner attempts.
    This is now the chosen public command for durable manual compaction.
 3. Rebuild resumed `message_history` from the latest compaction entry plus
    retained native messages.
-4. Keep `history_processors` only for live-run history shaping.
+4. Do not rely on `history_processors` for canonical runtime semantics.
 5. Define explicit continue semantics as `run.start` on an existing session.
 6. Add deterministic pre-run auto-compaction triggers.
 7. Keep bounded live-run retry at the canonical streamed-run boundary unless a

@@ -32,7 +32,7 @@ read_when: start here, onboarding, or you need to find the right doc quickly
 - [contracts.md](contracts.md) - canonical coding-agent contract
 - [grounding.md](grounding.md) - official PydanticAI grounding sources
 - [development.md](development.md) - environment, commands, CI, and test workflow
-- [compaction.md](compaction.md) - split between session-summary, resume, and in-run compaction
+- [compaction.md](compaction.md) - durable session compaction architecture and invariants
 - [read-only-worker.md](read-only-worker.md) - internal protocol and boundary for the shipped persistent read-only worker
 - [stateful-orchestration.md](stateful-orchestration.md) - boundary between PydanticAI seams and our own session/orchestration contract
 - [harbor-terminal-bench.md](harbor-terminal-bench.md) - Harbor adapter usage and Terminal Bench workflow

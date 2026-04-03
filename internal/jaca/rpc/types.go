@@ -174,10 +174,6 @@ type RunEvent struct {
 	OutputTokens            *int           `json:"output_tokens,omitempty"`
 	TotalTokens             *int           `json:"total_tokens,omitempty"`
 	ContextWindowUsed       *float64       `json:"context_window_used,omitempty"`
-	CompactedToolResults    *int           `json:"compacted_tool_result_count,omitempty"`
-	OriginalSizeChars       *int           `json:"original_size_chars,omitempty"`
-	CompactedSizeChars      *int           `json:"compacted_size_chars,omitempty"`
-	UsedFullHistoryFallback *bool          `json:"used_full_history_fallback,omitempty"`
 	Activity                *ToolActivity  `json:"activity,omitempty"`
 }
 

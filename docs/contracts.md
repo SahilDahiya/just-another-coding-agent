@@ -307,15 +307,6 @@ Initial executable run slice:
   - fields: `type`, `compaction_count`, `message`
 - `run_started`
   - fields: `type`, `run_id`
-- `in_run_compaction_applied`
-  - fields:
-    - `type`
-    - `run_id`
-    - `compacted_tool_result_count`
-    - `original_size_chars`
-    - `compacted_size_chars`
-    - `used_full_history_fallback`
-    - `message`
 - `assistant_text_delta`
   - fields: `type`, `run_id`, `delta`
 - `run_succeeded`
@@ -327,9 +318,6 @@ Ordering rules for the initial slice:
 
 - Successful text-only run: `run_started`, zero or more `assistant_text_delta`, `run_succeeded`
 - Failed run: `run_started`, zero or more `assistant_text_delta`, `run_failed`
-- `in_run_compaction_applied` may appear any time after `run_started` when
-  live in-run history shaping actually replaces the active model-facing
-  history; it is additive observability, not a second compaction lifecycle
 - `run_succeeded` and `run_failed` are mutually exclusive and terminal
 - `run_succeeded` may also carry optional additive usage metadata when the model/provider reports it
 - `input_tokens`, `output_tokens`, and `total_tokens` are optional integer token counts on `run_succeeded`
@@ -499,7 +487,7 @@ Ordering rules for the session slice:
 - `session_compaction` entries are append-only and must not move the summary boundary backward
 - Authoritative session loads must provide the expected workspace root and it must match the persisted `session_header.workspace_root` exactly
 - Session resume semantics must reconstruct effective conversation context from the latest compaction `checkpoint_messages` plus later `session_messages` strictly after `checkpoint_through_run_id`, and rebuild ephemeral continuity instructions from the latest compaction `summary`
-- Durable cross-run compaction must be materialized into resume `message_history` before the next run starts; only run-local compaction uses PydanticAI `history_processors`
+- Durable cross-run compaction must be materialized into resume `message_history` before the next run starts; JACA does not use PydanticAI `history_processors` in the canonical runtime path
 - Durable compaction summaries must carry backend-owned deterministic survival
   state in addition to model-written prose: `read_paths` for explicitly read
   files, `modified_paths` for explicitly written or edited files,
@@ -605,8 +593,6 @@ Ordering rules for the RPC slice:
 - If model-driven compaction summary generation fails, `session.compact` fails hard; it does not append a placeholder summary
 - A valid `run.start` request must reference an existing `session_id` and yields zero or more `rpc_event` lines whose embedded events satisfy the streamed run contract
 - Session lifecycle `rpc_event` payloads such as `session_compaction_started` and `session_compaction_completed` may appear before `run_started`
-- Live run `rpc_event` payloads such as `in_run_compaction_applied` may appear
-  after `run_started` and before the next assistant or tool lifecycle event
 - `CompactionBudgetReport` fields are:
   - `should_compact`
   - `reason`

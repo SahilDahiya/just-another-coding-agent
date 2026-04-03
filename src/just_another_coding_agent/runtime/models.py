@@ -30,9 +30,6 @@ OPENAI_COMPATIBLE_RETRYABLE_STATUS_CODES = frozenset(
 )
 OPENAI_COMPATIBLE_HTTP_RETRY_ATTEMPTS = 3
 OPENAI_COMPATIBLE_HTTP_RETRY_MAX_WAIT_SECONDS = 30
-DEFAULT_IN_RUN_COMPACTION_SOFT_CHAR_LIMIT = 12_000
-IN_RUN_COMPACTION_CONTEXT_WINDOW_UTILIZATION = 0.8
-IN_RUN_COMPACTION_CHARS_PER_TOKEN_HEURISTIC = 4
 OPENAI_CONTEXT_WINDOW_TOKENS_BY_PREFIX: tuple[tuple[str, int], ...] = (
     ("gpt-5.4-mini", 400_000),
     ("gpt-5.4", 1_050_000),
@@ -337,19 +334,6 @@ def get_model_context_window_tokens(model: Any) -> int | None:
 
     return None
 
-
-def build_in_run_compaction_soft_char_limit(model: Any) -> int:
-    context_window_tokens = get_model_context_window_tokens(model)
-    if context_window_tokens is None:
-        return DEFAULT_IN_RUN_COMPACTION_SOFT_CHAR_LIMIT
-
-    return int(
-        context_window_tokens
-        * IN_RUN_COMPACTION_CONTEXT_WINDOW_UTILIZATION
-        * IN_RUN_COMPACTION_CHARS_PER_TOKEN_HEURISTIC
-    )
-
-
 def _match_model_name_prefix(
     model_name: str,
     candidates: tuple[tuple[str, int], ...],
@@ -363,7 +347,6 @@ def _match_model_name_prefix(
 
 __all__ = [
     "build_canonical_model_settings",
-    "build_in_run_compaction_soft_char_limit",
     "get_model_context_window_tokens",
     "resolve_canonical_model",
 ]

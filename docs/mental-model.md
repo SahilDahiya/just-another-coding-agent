@@ -141,10 +141,6 @@ presentation-only. The canonical continuation substrate remains the durable
 local `message_history` rebuilt before `run.start`.
 
 The coordinator `stream_session_run_events()` handles the full lifecycle: load session, optionally auto-compact stale history, build the agent, stream events, capture messages, append `session_run` plus streamed `session_event` lines incrementally, then append trailing `session_messages` after terminal completion. Successful resumed runs now persist only new PydanticAI message deltas rather than replayed checkpoint history. Internal instructions and `SystemPromptPart` content are stripped before persistence so backend prompt policy never becomes durable conversation state. If cancellation unwinds through this coordinator, it finalizes the run as terminal `run_failed` so the session stays resumable. Failed runs also sanitize poisoned correction tails before persisting `session_messages`: unresolved trailing repair prompts and the matching invalid tool-call suffix are trimmed from future resume history, but the original run events and traces remain intact for debugging. True crashes or abandonment before finalization can still leave an incomplete trailing run on disk, and `load_session(...)` fails hard in that case.
-When live in-run compaction actually replaces the active model-facing history,
-the coordinator also appends one `session_event` with
-`type: "in_run_compaction_applied"` so observers can tell that live shaping
-happened without reverse-engineering restored session messages after the run.
 
 The current deterministic auto-compaction trigger is model-aware: before a resumed run starts, the runtime estimates tokens for the exact local resume history it will replay plus any rebuilt continuity instructions, adds a conservative reserve for the next prompt and wrapper overhead, and appends one automatic compaction entry when that total crosses the configured fraction of the active model context window. It also requires at least one completed run after the latest compaction boundary so a just-compacted session does not immediately compact again on the next resume.
 

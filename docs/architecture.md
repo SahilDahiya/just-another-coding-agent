@@ -84,8 +84,8 @@ thin stateful orchestration, not a second agent framework.
 Use PydanticAI where it already has the right seam:
 
 - use `message_history` as the canonical resume substrate
-- use `history_processors` only for live-run history shaping, not durable
-  cross-run session replay
+- do not use PydanticAI `history_processors` in the canonical runtime path;
+  durable continuity stays backend-owned
 - use Hooks for observability, classification, and other run-local interception
 - use `model_settings` for explicit run settings such as `thinking`
 - use provider-native model and provider classes when the backend needs retries, instrumentation, or OpenAI Responses history behavior that plain model strings cannot express cleanly
@@ -122,14 +122,9 @@ Important boundary:
 
 ## Compaction Direction
 
-Compaction has two distinct roles:
+Compaction has one canonical role:
 
 - durable compaction manages long-lived session growth across runs
-- run-local compaction uses `history_processors` to reduce live-run context
-  pressure without changing the durable session record
-- run-local compaction should stay simpler than durable compaction: use a
-  model-aware live threshold, authoritative replacement history, and fail-hard
-  behavior when compaction or restore cannot complete safely
 
 Current sequence:
 
@@ -142,16 +137,6 @@ Current sequence:
 The important boundary is:
 
 - compaction manages cross-run session size
-- run-local compaction can shrink historical tool output inside one live run,
-  but it does not replace external timeouts for long-running work
-- run-local compaction thresholds are derived from a repo-owned model-context
-  lookup in `runtime/models.py` when canonical context metadata is known; the
-  current heuristic uses about 80% of the context window and approximates one
-  token as four characters
-- run-local compaction now produces an explicit replacement history for the
-  active run, preferring to compact older tool-return-heavy history before the
-  freshest live tail and keeping original raw payloads in controller-owned
-  restore state rather than model-facing history metadata
 - durable auto-compaction now prefers persisted measured response usage plus a
   trailing estimate over a pure whole-history heuristic, preserves a
   token-budgeted safe raw tail when possible, and counts only runs beyond that
@@ -172,12 +157,8 @@ The important boundary is:
   next run starts
 - terminal successful runs persist only PydanticAI `new_messages()` deltas, not
   reconstructed full history with a later semantic strip step
-- canonical agent construction no longer hides compaction policy; session
-  runtime opts into model-facing compaction shaping explicitly through a
-  compaction-owned history-processor helper
-- if run-local history compaction rewrites current-run tool-return content for
-  the model, the persistence layer must restore the original raw tool-return
-  content before `session_messages` are written
+- canonical agent construction does not hide compaction policy; durable
+  compaction stays in the session runtime and resume path
 - `run.start` on an existing session is the canonical continue operation; there is no second continue command today
 - `stream_run_events()` may hide one retryable transient failure before any public stream event escapes, but once assistant text or tool lifecycle events have been emitted the runtime does not retry automatically
 - recoverable tool-call validation failures inside one run remain model-visible
@@ -192,10 +173,7 @@ The important boundary is:
     - `session_summary.py` for durable cross-run compaction orchestration
     - `constants.py`, `boundary.py`, `trigger.py`, `source_builder.py`, and
       `working_set.py` for focused durable-compaction helpers
-    - `history_processors.py` for explicit model-facing compaction shaping and
-      live restore ownership
     - `resume.py` for compacted session replay helpers
-    - `in_run.py` for live-run history replacement and tool-return compaction
   - orchestration entrypoints
   - event translation from PydanticAI into the public contract
 - `src/just_another_coding_agent/tools/`

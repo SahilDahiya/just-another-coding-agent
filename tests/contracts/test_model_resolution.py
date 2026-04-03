@@ -22,7 +22,6 @@ from just_another_coding_agent.contracts.model_catalog import (
 from just_another_coding_agent.runtime.models import (
     DEFAULT_OLLAMA_BASE_URL,
     build_canonical_model_settings,
-    build_in_run_compaction_soft_char_limit,
     get_model_context_window_tokens,
     resolve_canonical_model,
     unwrap_instrumented_model,
@@ -229,51 +228,6 @@ def test_get_model_context_window_tokens_for_supported_models(monkeypatch) -> No
     assert get_model_context_window_tokens("ollama:kimi-k2:1t-cloud") == 262_144
     assert get_model_context_window_tokens("ollama:qwen3.5:397b-cloud") == 262_144
     assert get_model_context_window_tokens("ollama:qwen3-coder-next") == 262_144
-
-
-def test_build_in_run_compaction_soft_char_limit_scales_with_model_context(
-    monkeypatch,
-) -> None:
-    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
-    monkeypatch.setenv("GOOGLE_API_KEY", "test-key")
-
-    assert (
-        build_in_run_compaction_soft_char_limit("openai-responses:gpt-5.3-codex")
-        == 1_280_000
-    )
-    assert build_in_run_compaction_soft_char_limit("openai:gpt-5.4") == 3_360_000
-    assert build_in_run_compaction_soft_char_limit("openai:gpt-5.4-mini") == 1_280_000
-    assert build_in_run_compaction_soft_char_limit("openai:gpt-4o") == 409_600
-    assert (
-        build_in_run_compaction_soft_char_limit("google:gemini-2.5-flash")
-        == 3_355_443
-    )
-    assert (
-        build_in_run_compaction_soft_char_limit("google:gemini-2.5-flash-lite")
-        == 3_355_443
-    )
-    assert (
-        build_in_run_compaction_soft_char_limit("google:gemini-2.5-pro")
-        == 3_355_443
-    )
-    assert build_in_run_compaction_soft_char_limit("ollama:glm-5:cloud") == 633_600
-    assert build_in_run_compaction_soft_char_limit("ollama:gemma4:e4b") == 409_600
-    assert build_in_run_compaction_soft_char_limit("ollama:kimi-k2:1t-cloud") == 838_860
-    assert (
-        build_in_run_compaction_soft_char_limit("ollama:qwen3.5:397b-cloud")
-        == 838_860
-    )
-    assert build_in_run_compaction_soft_char_limit("ollama:qwen3-coder-next") == 838_860
-
-
-def test_build_in_run_compaction_soft_char_limit_uses_default_for_unknown_models() -> (
-    None
-):
-    model = FunctionModel(function=lambda _messages, _info: "")
-
-    assert get_model_context_window_tokens(model) is None
-    assert build_in_run_compaction_soft_char_limit(model) == 12_000
-
 
 def test_all_backend_owned_shipped_models_have_context_windows() -> None:
     missing = sorted(
