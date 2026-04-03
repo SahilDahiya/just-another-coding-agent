@@ -1023,6 +1023,96 @@ func TestFirstRunChoosingOpenAIOpensSecureSetupPanel(t *testing.T) {
 	}
 }
 
+func TestFirstRunChoosingConfiguredAnthropicSkipsAuth(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	backend := newStubBackend()
+	backend.authStatuses["anthropic"] = rpc.AuthProviderStatus{
+		Provider:   "anthropic",
+		Configured: true,
+		Source:     "file",
+		EnvKey:     "ANTHROPIC_API_KEY",
+	}
+	status, err := backend.AuthStatus(context.Background())
+	if err != nil {
+		t.Fatalf("AuthStatus() returned error: %v", err)
+	}
+
+	m := newTestModel()
+	m.options.Backend = backend
+
+	updated, _ := m.Update(authStatusLoadedMsg{Status: status})
+	m = updated.(*model)
+	m = sendKey(m, tea.KeyMsg{Runes: []rune("3"), Type: tea.KeyRunes})
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	if m.auth.Active {
+		t.Fatal("configured anthropic provider should not reopen auth")
+	}
+	if m.onboarding.Active {
+		t.Fatal("onboarding chooser should close after configured provider selection")
+	}
+	if got := m.options.Model; got != "anthropic:claude-sonnet-4-5" {
+		t.Fatalf("options.Model = %q, want %q", got, "anthropic:claude-sonnet-4-5")
+	}
+	configText, err := os.ReadFile(home + "/.jaca/config.json")
+	if err != nil {
+		t.Fatalf("ReadFile() returned error: %v", err)
+	}
+	rendered := stripANSI(m.transcript.Render())
+	if !strings.Contains(rendered, "provider set to anthropic") {
+		t.Fatalf("transcript missing anthropic provider selection: %q", rendered)
+	}
+	if !strings.Contains(string(configText), `"default_provider": "anthropic"`) {
+		t.Fatalf("config.json missing anthropic provider selection: %q", string(configText))
+	}
+}
+
+func TestFirstRunChoosingConfiguredHostedOllamaSkipsAuth(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	backend := newStubBackend()
+	backend.authStatuses["ollama"] = rpc.AuthProviderStatus{
+		Provider:   "ollama",
+		Configured: true,
+		Source:     "file",
+		EnvKey:     "OLLAMA_API_KEY",
+	}
+	status, err := backend.AuthStatus(context.Background())
+	if err != nil {
+		t.Fatalf("AuthStatus() returned error: %v", err)
+	}
+
+	m := newTestModel()
+	m.options.Backend = backend
+
+	updated, _ := m.Update(authStatusLoadedMsg{Status: status})
+	m = updated.(*model)
+	m = sendKey(m, tea.KeyMsg{Runes: []rune("1"), Type: tea.KeyRunes})
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+	m = sendKey(m, tea.KeyMsg{Runes: []rune("2"), Type: tea.KeyRunes})
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	if m.auth.Active {
+		t.Fatal("configured hosted ollama should not reopen auth")
+	}
+	if m.onboarding.Active {
+		t.Fatal("ollama mode chooser should close after configured hosted selection")
+	}
+	configText, err := os.ReadFile(home + "/.jaca/config.json")
+	if err != nil {
+		t.Fatalf("ReadFile() returned error: %v", err)
+	}
+	if !strings.Contains(string(configText), `"default_provider": "ollama"`) {
+		t.Fatalf("config.json missing ollama provider selection: %q", string(configText))
+	}
+	if !strings.Contains(string(configText), `"OLLAMA_BASE_URL": "https://ollama.com/v1"`) {
+		t.Fatalf("config.json missing hosted ollama base URL: %q", string(configText))
+	}
+}
+
 func TestFirstRunChoosingOllamaShowsModeChooser(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

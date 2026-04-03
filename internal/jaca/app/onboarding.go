@@ -231,27 +231,76 @@ func (m *model) completeOnboardingSelection() (tea.Model, tea.Cmd) {
 		m.onboarding = onboardingState{Active: true, Kind: "ollama", Selected: 0}
 	case 1:
 		if kind == "ollama" {
-			m.onboarding = onboardingState{}
-			if err := m.startCredentialSetup("ollama", "ollama", "", "provider", ""); err != nil {
+			hasCreds, err := m.ollamaCloudConfigured()
+			if err != nil {
+				m.onboarding = onboardingState{}
 				m.transcript.WriteError(err.Error())
+				m.refreshViewport()
+				return m, nil
+			}
+			if !hasCreds {
+				m.onboarding = onboardingState{}
+				if err := m.startCredentialSetup("ollama", "ollama", "", "provider", ""); err != nil {
+					m.transcript.WriteError(err.Error())
+				}
+				m.refreshViewport()
+				return m, nil
+			}
+			m.onboarding = onboardingState{}
+			lines, restart, err := m.applyProviderSelection("ollama")
+			if err != nil {
+				m.transcript.WriteError(err.Error())
+				m.refreshViewport()
+				return m, nil
+			}
+			for _, line := range lines {
+				m.transcript.WriteLine(line)
+			}
+			if restart && m.options.Backend != nil {
+				m.restartBackendWithCurrentEnv()
 			}
 			m.refreshViewport()
 			return m, nil
 		}
-		m.onboarding = onboardingState{}
-		if err := m.startCredentialSetup("openai", "openai", "", "provider", ""); err != nil {
-			m.transcript.WriteError(err.Error())
-		}
+		return m.completeAuthenticatedOnboardingProviderSelection("openai")
 	case 2:
-		m.onboarding = onboardingState{}
-		if err := m.startCredentialSetup("anthropic", "anthropic", "", "provider", ""); err != nil {
-			m.transcript.WriteError(err.Error())
-		}
+		return m.completeAuthenticatedOnboardingProviderSelection("anthropic")
 	case 3:
+		return m.completeAuthenticatedOnboardingProviderSelection("google")
+	}
+	m.refreshViewport()
+	return m, nil
+}
+
+func (m *model) completeAuthenticatedOnboardingProviderSelection(provider string) (tea.Model, tea.Cmd) {
+	hasCreds, err := m.providerHasCredentials(provider)
+	if err != nil {
 		m.onboarding = onboardingState{}
-		if err := m.startCredentialSetup("google", "google", "", "provider", ""); err != nil {
+		m.transcript.WriteError(err.Error())
+		m.refreshViewport()
+		return m, nil
+	}
+	if !hasCreds {
+		m.onboarding = onboardingState{}
+		if err := m.startCredentialSetup(provider, provider, "", "provider", ""); err != nil {
 			m.transcript.WriteError(err.Error())
 		}
+		m.refreshViewport()
+		return m, nil
+	}
+
+	m.onboarding = onboardingState{}
+	lines, restart, err := m.applyProviderSelection(provider)
+	if err != nil {
+		m.transcript.WriteError(err.Error())
+		m.refreshViewport()
+		return m, nil
+	}
+	for _, line := range lines {
+		m.transcript.WriteLine(line)
+	}
+	if restart && m.options.Backend != nil {
+		m.restartBackendWithCurrentEnv()
 	}
 	m.refreshViewport()
 	return m, nil
