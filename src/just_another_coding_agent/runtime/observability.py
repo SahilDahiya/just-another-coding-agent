@@ -62,6 +62,7 @@ _API_KEY_PATTERNS = frozenset(
         "openai_api_key",
         "anthropic_api_key",
         "ollama_api_key",
+        "google_api_key",
         "logfire_token",
     }
 )

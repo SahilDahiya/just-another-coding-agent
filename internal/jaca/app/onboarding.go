@@ -77,6 +77,7 @@ func firstRunOptionLines() []string {
 		"2. GitHub Models",
 		"3. OpenAI",
 		"4. Anthropic",
+		"5. Google Gemini",
 	}
 }
 
@@ -90,6 +91,8 @@ func onboardingSelectionForProvider(provider string) int {
 		return 2
 	case "anthropic":
 		return 3
+	case "google":
+		return 4
 	default:
 		return 0
 	}
@@ -167,7 +170,7 @@ func (m *model) handleOnboardingKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.refreshViewport()
 		}
 		return m, nil
-	case "1", "2", "3", "4":
+	case "1", "2", "3", "4", "5":
 		m.onboarding.Selected = int(msg.Runes[0] - '1')
 		if m.onboarding.Selected >= len(m.onboardingOptionLines()) {
 			m.onboarding.Selected = len(m.onboardingOptionLines()) - 1
@@ -250,6 +253,11 @@ func (m *model) completeOnboardingSelection() (tea.Model, tea.Cmd) {
 	case 3:
 		m.onboarding = onboardingState{}
 		if err := m.startCredentialSetup("anthropic", "anthropic", "", "provider", ""); err != nil {
+			m.transcript.WriteError(err.Error())
+		}
+	case 4:
+		m.onboarding = onboardingState{}
+		if err := m.startCredentialSetup("google", "google", "", "provider", ""); err != nil {
 			m.transcript.WriteError(err.Error())
 		}
 	}

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from functools import lru_cache
 from typing import Any
 
 import httpx
@@ -49,6 +50,11 @@ GITHUB_CONTEXT_WINDOW_TOKENS_BY_PREFIX: tuple[tuple[str, int], ...] = (
     ("openai/gpt-5-mini", 200_000),
     ("openai/gpt-4.1", 1_048_576),
 )
+GOOGLE_CONTEXT_WINDOW_TOKENS_BY_PREFIX: tuple[tuple[str, int], ...] = (
+    ("gemini-2.5-flash-lite", 1_048_576),
+    ("gemini-2.5-flash", 1_048_576),
+    ("gemini-2.5-pro", 1_048_576),
+)
 OLLAMA_CONTEXT_WINDOW_TOKENS_BY_PREFIX: tuple[tuple[str, int], ...] = (
     ("qwen3.5", 262_144),
     ("qwen3-coder-next", 262_144),
@@ -72,6 +78,8 @@ def resolve_canonical_model(model: Any) -> Model:
             return _maybe_instrument_model(_build_anthropic_model(model))
         if model.startswith("github:"):
             return _maybe_instrument_model(_build_github_chat_model(model))
+        if model.startswith("google:"):
+            return _maybe_instrument_model(_build_google_model(model))
         if model.startswith("ollama:"):
             return _maybe_instrument_model(_build_ollama_chat_model(model))
 
@@ -160,6 +168,15 @@ def _build_github_provider() -> GitHubProvider:
     )
 
 
+def _build_google_model(model_id: str) -> Model:
+    google_model_cls, google_provider_cls = _google_model_types()
+    _, model_name = model_id.split(":", 1)
+    return google_model_cls(
+        model_name,
+        provider=google_provider_cls(api_key=resolve_provider_secret("google")),
+    )
+
+
 def _build_openai_compatible_client(
     *,
     base_url: str | None,
@@ -193,6 +210,22 @@ def _build_retrying_openai_compatible_http_client() -> DefaultAsyncHttpxClient:
 def _raise_for_retryable_openai_status(response: httpx.Response) -> None:
     if response.status_code in OPENAI_COMPATIBLE_RETRYABLE_STATUS_CODES:
         response.raise_for_status()
+
+
+@lru_cache(maxsize=1)
+def _google_model_types() -> tuple[type[Model], type[Any]]:
+    from pydantic_ai.models.google import GoogleModel
+    from pydantic_ai.providers.google import GoogleProvider
+
+    return GoogleModel, GoogleProvider
+
+
+def _is_google_model(model: Model) -> bool:
+    try:
+        google_model_cls, _ = _google_model_types()
+    except ImportError:
+        return False
+    return isinstance(model, google_model_cls)
 
 
 def build_canonical_model_settings(
@@ -288,6 +321,11 @@ def get_model_context_window_tokens(model: Any) -> int | None:
                 model.split(":", 1)[1],
                 GITHUB_CONTEXT_WINDOW_TOKENS_BY_PREFIX,
             )
+        if model.startswith("google:"):
+            return _match_model_name_prefix(
+                model.split(":", 1)[1],
+                GOOGLE_CONTEXT_WINDOW_TOKENS_BY_PREFIX,
+            )
         if model.startswith("ollama:"):
             return _match_model_name_prefix(
                 model.split(":", 1)[1],
@@ -320,6 +358,12 @@ def get_model_context_window_tokens(model: Any) -> int | None:
                 policy_model.model_name,
                 OLLAMA_CONTEXT_WINDOW_TOKENS_BY_PREFIX,
             )
+
+    if _is_google_model(policy_model):
+        return _match_model_name_prefix(
+            policy_model.model_name,
+            GOOGLE_CONTEXT_WINDOW_TOKENS_BY_PREFIX,
+        )
 
     if isinstance(policy_model, AnthropicModel):
         return _match_model_name_prefix(

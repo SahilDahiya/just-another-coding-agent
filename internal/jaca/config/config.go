@@ -149,7 +149,7 @@ func SaveDefaultProvider(provider string) error {
 		return err
 	}
 	switch provider {
-	case "ollama", "openai", "anthropic", "github":
+	case "ollama", "openai", "anthropic", "github", "google":
 	default:
 		return errors.New("unknown provider")
 	}
@@ -178,6 +178,7 @@ func SaveProvider(update ProviderUpdate) error {
 		}
 	case "anthropic":
 	case "github":
+	case "google":
 	default:
 		return errors.New("unknown provider")
 	}

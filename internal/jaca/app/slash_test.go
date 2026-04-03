@@ -78,3 +78,25 @@ func TestModelSuggestionsIncludeGitHubModels(t *testing.T) {
 		}
 	}
 }
+
+func TestModelSuggestionsIncludeGoogleModels(t *testing.T) {
+	rows := modelSuggestions(*testModelCatalog(), "google")
+
+	want := map[string]bool{
+		"google:gemini-2.5-flash":      false,
+		"google:gemini-2.5-flash-lite": false,
+		"google:gemini-2.5-pro":        false,
+	}
+
+	for _, row := range rows {
+		if _, ok := want[row.Value]; ok {
+			want[row.Value] = true
+		}
+	}
+
+	for value, seen := range want {
+		if !seen {
+			t.Fatalf("modelSuggestions(google) missing %q", value)
+		}
+	}
+}

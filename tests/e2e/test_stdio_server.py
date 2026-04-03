@@ -232,6 +232,11 @@ async def test_serve_rpc_stdio_supports_model_catalog(
         messages[0]["response"]["providers"][1]["default_model_id"]
         == "github:openai/gpt-4.1"
     )
+    assert messages[0]["response"]["providers"][4]["provider"] == "google"
+    assert (
+        messages[0]["response"]["providers"][4]["default_model_id"]
+        == "google:gemini-2.5-flash"
+    )
 
 
 async def test_serve_rpc_stdio_supports_session_compact(

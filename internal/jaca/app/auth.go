@@ -233,6 +233,8 @@ func authProviderLabel(provider string) string {
 		return "OpenAI"
 	case "anthropic":
 		return "Anthropic"
+	case "google":
+		return "Google"
 	default:
 		return strings.ToUpper(provider)
 	}
@@ -248,6 +250,8 @@ func authSecretLabel(provider string) string {
 		return "OpenAI API key"
 	case "anthropic":
 		return "Anthropic API key"
+	case "google":
+		return "Google API key"
 	default:
 		return "provider secret"
 	}

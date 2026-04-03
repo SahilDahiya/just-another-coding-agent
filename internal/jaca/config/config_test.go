@@ -168,6 +168,23 @@ func TestSaveDefaultModelPersistsSelection(t *testing.T) {
 	}
 }
 
+func TestSaveDefaultProviderAcceptsGoogle(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	if err := SaveDefaultProvider("google"); err != nil {
+		t.Fatalf("SaveDefaultProvider() returned error: %v", err)
+	}
+
+	got, err := Load()
+	if err != nil {
+		t.Fatalf("Load() returned error: %v", err)
+	}
+	if got["default_provider"] != "google" {
+		t.Fatalf("default_provider = %q, want %q", got["default_provider"], "google")
+	}
+}
+
 func TestSaveTraceModePersistsExplicitMode(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

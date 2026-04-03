@@ -88,7 +88,7 @@ func (b *stubBackend) AuthStatus(_ context.Context) (rpc.AuthStatusResponse, err
 	if b.authStatusErr != nil {
 		return rpc.AuthStatusResponse{}, b.authStatusErr
 	}
-	providers := []string{"ollama", "github", "openai", "anthropic"}
+	providers := []string{"ollama", "github", "openai", "anthropic", "google"}
 	statuses := make([]rpc.AuthProviderStatus, 0, len(providers))
 	for _, provider := range providers {
 		if status, ok := b.authStatuses[provider]; ok {
@@ -158,6 +158,8 @@ func envDerivedAuthStatus(provider string) rpc.AuthProviderStatus {
 		envKey = "OPENAI_API_KEY"
 	case "anthropic":
 		envKey = "ANTHROPIC_API_KEY"
+	case "google":
+		envKey = "GOOGLE_API_KEY"
 	}
 	source := "none"
 	configured := false
@@ -183,6 +185,8 @@ func envKeyForProvider(provider string) string {
 		return "OPENAI_API_KEY"
 	case "anthropic":
 		return "ANTHROPIC_API_KEY"
+	case "google":
+		return "GOOGLE_API_KEY"
 	default:
 		return ""
 	}
@@ -250,6 +254,15 @@ func testModelCatalog() *rpc.ModelCatalogResponse {
 				Models: []rpc.ModelCatalogModel{
 					{ModelID: "anthropic:claude-sonnet-4-5", Description: "Balanced Claude Sonnet"},
 					{ModelID: "anthropic:claude-opus-4-1", Description: "Stronger Claude Opus"},
+				},
+			},
+			{
+				Provider:       "google",
+				DefaultModelID: "google:gemini-2.5-flash",
+				Models: []rpc.ModelCatalogModel{
+					{ModelID: "google:gemini-2.5-flash", Description: "Fast Gemini 2.5 Flash"},
+					{ModelID: "google:gemini-2.5-flash-lite", Description: "Cheaper Gemini 2.5 Flash-Lite"},
+					{ModelID: "google:gemini-2.5-pro", Description: "Stronger Gemini 2.5 Pro"},
 				},
 			},
 		},
@@ -734,6 +747,7 @@ func TestTabOnProviderSuggestionCommitsCommandAndShowsProviderOptions(t *testing
 		"github",
 		"openai",
 		"anthropic",
+		"google",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("view missing provider suggestion %q in %q", want, rendered)
@@ -763,6 +777,9 @@ func TestAuthSlashSuggestionsIncludeOllama(t *testing.T) {
 	rendered := stripANSI(m.View())
 	if !strings.Contains(rendered, "ollama") {
 		t.Fatalf("view missing ollama auth suggestion in %q", rendered)
+	}
+	if !strings.Contains(rendered, "google") {
+		t.Fatalf("view missing google auth suggestion in %q", rendered)
 	}
 }
 
@@ -858,6 +875,7 @@ func TestStartupAuthStatusShowsFirstRunOnboarding(t *testing.T) {
 		"2. GitHub Models",
 		"3. OpenAI",
 		"4. Anthropic",
+		"5. Google Gemini",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("startup onboarding missing %q in %q", want, rendered)
@@ -891,7 +909,7 @@ func TestNewWithFreshHomeStartsChooserImmediately(t *testing.T) {
 		t.Fatalf("onboarding state = %#v, want active provider chooser", m.onboarding)
 	}
 	rendered := stripANSI(m.View())
-	for _, want := range []string{"Get Started", "1. Ollama", "2. GitHub Models"} {
+	for _, want := range []string{"Get Started", "1. Ollama", "2. GitHub Models", "5. Google Gemini"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("initial chooser missing %q in %q", want, rendered)
 		}
@@ -915,6 +933,7 @@ func TestFirstRunChooserDoesNotDependOnAuthStatus(t *testing.T) {
 		"2. GitHub Models",
 		"3. OpenAI",
 		"4. Anthropic",
+		"5. Google Gemini",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("first-run chooser missing %q in %q", want, rendered)
@@ -983,7 +1002,7 @@ func TestFirstRunEscapeThenTabOpensProviderSuggestions(t *testing.T) {
 		t.Fatalf("textInput.Value() = %q, want %q", got, "/provider ")
 	}
 	rendered := stripANSI(m.View())
-	for _, want := range []string{"ollama", "github", "openai", "anthropic"} {
+	for _, want := range []string{"ollama", "github", "openai", "anthropic", "google"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("provider suggestion %q missing in %q", want, rendered)
 		}

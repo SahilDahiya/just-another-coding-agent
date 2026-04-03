@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
-ProviderName = Literal["openai", "anthropic", "ollama", "github"]
+ProviderName = Literal["openai", "anthropic", "ollama", "github", "google"]
 
 
 class _ModelCatalogBase(BaseModel):
@@ -23,6 +23,7 @@ CANONICAL_PROVIDER_ORDER: tuple[ProviderName, ...] = (
     "github",
     "openai",
     "anthropic",
+    "google",
 )
 
 SHIPPED_MODELS: tuple[ShippedModel, ...] = (
@@ -89,6 +90,22 @@ SHIPPED_MODELS: tuple[ShippedModel, ...] = (
         provider="anthropic",
         model_id="anthropic:claude-opus-4-1",
         description="Stronger Claude Opus",
+    ),
+    ShippedModel(
+        provider="google",
+        model_id="google:gemini-2.5-flash",
+        description="Fast Gemini 2.5 Flash",
+        default_for_provider=True,
+    ),
+    ShippedModel(
+        provider="google",
+        model_id="google:gemini-2.5-flash-lite",
+        description="Cheaper Gemini 2.5 Flash-Lite",
+    ),
+    ShippedModel(
+        provider="google",
+        model_id="google:gemini-2.5-pro",
+        description="Stronger Gemini 2.5 Pro",
     ),
 )
 

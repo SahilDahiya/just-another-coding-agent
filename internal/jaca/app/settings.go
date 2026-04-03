@@ -34,6 +34,8 @@ func providerForModel(model string) string {
 		return "openai"
 	case strings.HasPrefix(value, "anthropic:"):
 		return "anthropic"
+	case strings.HasPrefix(value, "google:"):
+		return "google"
 	case strings.HasPrefix(value, "ollama:"):
 		return "ollama"
 	default:
@@ -160,7 +162,7 @@ func (m *model) handleAuthCommand(arg string) {
 
 	provider := canonicalProviderName(value)
 	switch provider {
-	case "openai", "anthropic", "github", "ollama":
+	case "openai", "anthropic", "github", "google", "ollama":
 		if err := m.startCredentialSetup(provider, "", "", "", ""); err != nil {
 			m.transcript.WriteNote("auth", nil)
 			m.transcript.WriteError(err.Error())
@@ -211,10 +213,12 @@ func (m *model) handleProvider(arg string) (
 			"  /provider github                  select GitHub Models",
 			"  /provider openai                  select OpenAI",
 			"  /provider anthropic               select Anthropic",
+			"  /provider google                  select Google Gemini",
 			"  /auth ollama                      save Ollama cloud API key",
 			"  /auth github                      save GitHub Models token",
 			"  /auth openai                      save OpenAI API key",
 			"  /auth anthropic                   save Anthropic API key",
+			"  /auth google                      save Google API key",
 			"  /auth status                      show auth source per provider",
 			"  /auth clear <provider>            clear stored keychain secret",
 			"",
@@ -233,7 +237,7 @@ func (m *model) handleProvider(arg string) (
 		}
 		lines, restart, err := m.applyProviderSelection(provider)
 		return lines, restart, "", err
-	case "openai", "anthropic", "github":
+	case "openai", "anthropic", "github", "google":
 		hasCreds, err := m.providerHasCredentials(provider)
 		if err != nil {
 			return nil, false, "", err

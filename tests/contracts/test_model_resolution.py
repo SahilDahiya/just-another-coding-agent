@@ -3,6 +3,7 @@ import os
 from pydantic_ai.models import infer_model
 from pydantic_ai.models.anthropic import AnthropicModel
 from pydantic_ai.models.function import FunctionModel
+from pydantic_ai.models.google import GoogleModel
 from pydantic_ai.models.instrumented import InstrumentedModel
 from pydantic_ai.models.openai import (
     OpenAIChatModel,
@@ -10,6 +11,7 @@ from pydantic_ai.models.openai import (
     OpenAIResponsesModelSettings,
 )
 from pydantic_ai.providers.github import GitHubProvider
+from pydantic_ai.providers.google import GoogleProvider
 from pydantic_ai.providers.ollama import OllamaProvider
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.retries import AsyncTenacityTransport
@@ -79,6 +81,20 @@ def test_resolve_canonical_model_builds_explicit_github_chat_model(
     assert model.system == "github"
     assert isinstance(model._provider, GitHubProvider)
     assert model._provider.base_url == "https://models.github.ai/inference"
+
+
+def test_resolve_canonical_model_builds_explicit_google_model(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("GOOGLE_API_KEY", "test-key")
+
+    model = resolve_canonical_model("google:gemini-2.5-flash")
+    unwrapped = unwrap_instrumented_model(model)
+
+    assert isinstance(unwrapped, GoogleModel)
+    assert model.model_name == "gemini-2.5-flash"
+    assert model.system == "google-gla"
+    assert isinstance(model._provider, GoogleProvider)
 
 
 def test_resolve_canonical_model_falls_back_to_pydanticai_for_other_strings() -> None:
@@ -238,6 +254,7 @@ def test_build_canonical_model_settings_unwraps_instrumented_models() -> None:
 def test_get_model_context_window_tokens_for_supported_models(monkeypatch) -> None:
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     monkeypatch.setenv("GITHUB_API_KEY", "test-key")
+    monkeypatch.setenv("GOOGLE_API_KEY", "test-key")
 
     assert get_model_context_window_tokens("openai-responses:gpt-5.3-codex") == 400_000
     assert get_model_context_window_tokens("openai:gpt-5.4") == 1_050_000
@@ -248,6 +265,9 @@ def test_get_model_context_window_tokens_for_supported_models(monkeypatch) -> No
     assert get_model_context_window_tokens("github:openai/gpt-5") == 200_000
     assert get_model_context_window_tokens("github:openai/gpt-5-mini") == 200_000
     assert get_model_context_window_tokens("github:openai/gpt-4.1") == 1_048_576
+    assert get_model_context_window_tokens("google:gemini-2.5-flash") == 1_048_576
+    assert get_model_context_window_tokens("google:gemini-2.5-flash-lite") == 1_048_576
+    assert get_model_context_window_tokens("google:gemini-2.5-pro") == 1_048_576
     assert get_model_context_window_tokens("ollama:glm-5:cloud") == 198_000
     assert get_model_context_window_tokens("ollama:gemma4:e4b") == 128_000
     assert get_model_context_window_tokens("ollama:kimi-k2:1t-cloud") == 262_144
@@ -260,6 +280,7 @@ def test_build_in_run_compaction_soft_char_limit_scales_with_model_context(
 ) -> None:
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     monkeypatch.setenv("GITHUB_API_KEY", "test-key")
+    monkeypatch.setenv("GOOGLE_API_KEY", "test-key")
 
     assert (
         build_in_run_compaction_soft_char_limit("openai-responses:gpt-5.3-codex")
@@ -275,6 +296,18 @@ def test_build_in_run_compaction_soft_char_limit_scales_with_model_context(
     )
     assert (
         build_in_run_compaction_soft_char_limit("github:openai/gpt-4.1")
+        == 3_355_443
+    )
+    assert (
+        build_in_run_compaction_soft_char_limit("google:gemini-2.5-flash")
+        == 3_355_443
+    )
+    assert (
+        build_in_run_compaction_soft_char_limit("google:gemini-2.5-flash-lite")
+        == 3_355_443
+    )
+    assert (
+        build_in_run_compaction_soft_char_limit("google:gemini-2.5-pro")
         == 3_355_443
     )
     assert build_in_run_compaction_soft_char_limit("ollama:glm-5:cloud") == 633_600
@@ -307,5 +340,5 @@ def test_all_backend_owned_shipped_models_have_context_windows() -> None:
 
 
 def test_backend_owned_default_model_per_provider_has_context_window() -> None:
-    for provider in ("ollama", "github", "openai", "anthropic"):
+    for provider in ("ollama", "github", "openai", "anthropic", "google"):
         assert get_model_context_window_tokens(default_model_for_provider(provider))

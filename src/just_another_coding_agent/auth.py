@@ -20,7 +20,9 @@ PROVIDER_SECRET_ENV_KEYS: dict[ProviderName, str] = {
     "openai": "OPENAI_API_KEY",
     "anthropic": "ANTHROPIC_API_KEY",
     "github": "GITHUB_API_KEY",
+    "google": "GOOGLE_API_KEY",
 }
+
 
 class AuthStoreError(RuntimeError):
     pass

@@ -126,6 +126,10 @@ The core architectural risk is semantic drift between the Go shell and the Pytho
   fine-grained personal access token and call out the required account
   permission `Models -> Read-only` instead of making the user infer that from
   docs.
+- Google Gemini should behave like the other hosted providers in the TUI:
+  first-run setup, `/provider google`, and `/auth google` all flow through the
+  same masked `GOOGLE_API_KEY` capture path instead of inventing separate UI
+  behavior.
 - If the backend reports that interactive local secret storage is unavailable,
   the TUI should skip the normal keychain panel and go directly to the local
   secret file panel with clear explanatory copy about why that path was chosen.

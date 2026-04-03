@@ -448,6 +448,24 @@ async def test_handle_rpc_json_line_returns_backend_owned_model_catalog(
                             },
                         ],
                     },
+                    {
+                        "provider": "google",
+                        "default_model_id": "google:gemini-2.5-flash",
+                        "models": [
+                            {
+                                "model_id": "google:gemini-2.5-flash",
+                                "description": "Fast Gemini 2.5 Flash",
+                            },
+                            {
+                                "model_id": "google:gemini-2.5-flash-lite",
+                                "description": "Cheaper Gemini 2.5 Flash-Lite",
+                            },
+                            {
+                                "model_id": "google:gemini-2.5-pro",
+                                "description": "Stronger Gemini 2.5 Pro",
+                            },
+                        ],
+                    },
                 ]
             },
         }
@@ -487,6 +505,12 @@ async def test_handle_rpc_json_line_returns_auth_status(
                 configured=False,
                 source="none",
                 env_key="ANTHROPIC_API_KEY",
+            ),
+            ProviderAuthStatus(
+                provider="google",
+                configured=False,
+                source="none",
+                env_key="GOOGLE_API_KEY",
             ),
         ],
     )
@@ -539,6 +563,12 @@ async def test_handle_rpc_json_line_returns_auth_status(
                         "configured": False,
                         "source": "none",
                         "env_key": "ANTHROPIC_API_KEY",
+                    },
+                    {
+                        "provider": "google",
+                        "configured": False,
+                        "source": "none",
+                        "env_key": "GOOGLE_API_KEY",
                     },
                 ],
                 "local_secret_store": {

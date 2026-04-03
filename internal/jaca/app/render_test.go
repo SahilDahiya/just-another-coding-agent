@@ -434,6 +434,7 @@ func TestRenderViewShowsFirstRunChooserPanel(t *testing.T) {
 				"2. GitHub Models",
 				"3. OpenAI",
 				"4. Anthropic",
+				"5. Google Gemini",
 			},
 			HelpLines: []string{
 				"Choose a provider to get started",
@@ -448,6 +449,7 @@ func TestRenderViewShowsFirstRunChooserPanel(t *testing.T) {
 		"2. GitHub Models",
 		"3. OpenAI",
 		"4. Anthropic",
+		"5. Google Gemini",
 		"Enter selects. Esc closes this panel.",
 	} {
 		if !strings.Contains(rendered, want) {

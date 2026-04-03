@@ -11,6 +11,7 @@ _COMMON_ENV_KEYS = ("JUST_ANOTHER_CODING_AGENT_THINKING",)
 _OPENAI_ENV_KEYS = ("OPENAI_API_KEY", "OPENAI_BASE_URL")
 _OLLAMA_ENV_KEYS = ("OLLAMA_API_KEY", "OLLAMA_BASE_URL")
 _ANTHROPIC_ENV_KEYS = ("ANTHROPIC_API_KEY",)
+_GOOGLE_ENV_KEYS = ("GOOGLE_API_KEY",)
 _DEFAULT_OLLAMA_BASE_URL = "https://ollama.com/v1"
 _DEFAULT_HARBOR_LOGFIRE_SERVICE_NAME = "jaca-harbor"
 
@@ -24,6 +25,8 @@ def _provider_env_keys_for_model(model: str) -> tuple[str, ...]:
         return _OLLAMA_ENV_KEYS
     if model.startswith("anthropic:"):
         return _ANTHROPIC_ENV_KEYS
+    if model.startswith("google:"):
+        return _GOOGLE_ENV_KEYS
     raise ValueError(f"Unsupported Harbor model provider: {model}")
 
 

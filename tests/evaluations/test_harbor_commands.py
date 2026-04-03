@@ -52,6 +52,27 @@ def test_build_provider_env_filters_to_ollama_provider_env() -> None:
     }
 
 
+def test_build_provider_env_filters_to_google_provider_env() -> None:
+    env = build_provider_env(
+        model="google:gemini-2.5-flash",
+        environ={
+            "GOOGLE_API_KEY": "google-secret",
+            "OPENAI_API_KEY": "secret",
+            "OLLAMA_API_KEY": "ollama-secret",
+            "JUST_ANOTHER_CODING_AGENT_THINKING": "high",
+            "LOGFIRE_TOKEN": "logfire-secret",
+        },
+    )
+
+    assert env == {
+        "GOOGLE_API_KEY": "google-secret",
+        "JUST_ANOTHER_CODING_AGENT_THINKING": "high",
+        "JACA_TRACE_MODE": "logfire",
+        "LOGFIRE_SERVICE_NAME": "jaca-harbor",
+        "LOGFIRE_TOKEN": "logfire-secret",
+    }
+
+
 def test_build_provider_env_uses_explicit_service_name_override() -> None:
     env = build_provider_env(
         model="ollama:kimi-k2:1t-cloud",
