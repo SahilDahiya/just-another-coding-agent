@@ -373,7 +373,7 @@ def _scoped_config_env(config: dict[str, str]):
         "OPENAI_API_KEY",
         "OPENAI_BASE_URL",
         "ANTHROPIC_API_KEY",
-        "GITHUB_API_KEY",
+        "GOOGLE_API_KEY",
         "OLLAMA_API_KEY",
         "OLLAMA_BASE_URL",
         "JACA_TRACE_MODE",

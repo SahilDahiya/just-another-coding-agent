@@ -149,12 +149,12 @@ provider directly from the prompt zone.
 
 Inside `jaca`:
 
-- `/provider github` selects GitHub Models and starts masked auth if no GitHub token is configured
 - `/provider openai` selects OpenAI and starts masked auth if no OpenAI key is configured
 - `/provider anthropic` selects Anthropic and starts masked auth if no Anthropic key is configured
+- `/provider google` selects Google Gemini and starts masked auth if no Google key is configured
 - `/model ollama:<local-model>` uses local Ollama at the default localhost endpoint with no key
 - `/provider ollama` selects the shipped Ollama cloud catalog and starts masked auth if needed
-- `/auth ollama`, `/auth github`, `/auth openai`, and `/auth anthropic` store secrets without echoing them into the transcript
+- `/auth ollama`, `/auth openai`, `/auth anthropic`, and `/auth google` store secrets without echoing them into the transcript
 - `/auth status` shows whether each provider is configured from env, keychain, local file, or neither, and whether interactive local secret storage is available at all
 - `/auth clear <provider>` removes the stored local secret for that provider from both keychain and local file storage
 - `/model <provider:model>` switches the active model and aligns provider state to that model

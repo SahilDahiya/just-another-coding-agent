@@ -220,14 +220,14 @@ func TestApplyToEnvDoesNotExposeSecretKeysFromConfig(t *testing.T) {
 	if err := os.Unsetenv("OPENAI_API_KEY"); err != nil {
 		t.Fatalf("Unsetenv(OPENAI_API_KEY) returned error: %v", err)
 	}
-	if err := os.Unsetenv("GITHUB_API_KEY"); err != nil {
-		t.Fatalf("Unsetenv(GITHUB_API_KEY) returned error: %v", err)
+	if err := os.Unsetenv("GOOGLE_API_KEY"); err != nil {
+		t.Fatalf("Unsetenv(GOOGLE_API_KEY) returned error: %v", err)
 	}
 
 	ApplyToEnv(map[string]string{
 		"OPENAI_BASE_URL": "https://example.test/v1",
 		"OPENAI_API_KEY":  "should-not-apply",
-		"GITHUB_API_KEY":  "should-not-apply",
+		"GOOGLE_API_KEY":  "should-not-apply",
 	})
 
 	if got := os.Getenv("OPENAI_BASE_URL"); got != "https://example.test/v1" {
@@ -236,8 +236,8 @@ func TestApplyToEnvDoesNotExposeSecretKeysFromConfig(t *testing.T) {
 	if got := os.Getenv("OPENAI_API_KEY"); got != "" {
 		t.Fatalf("OPENAI_API_KEY = %q, want empty", got)
 	}
-	if got := os.Getenv("GITHUB_API_KEY"); got != "" {
-		t.Fatalf("GITHUB_API_KEY = %q, want empty", got)
+	if got := os.Getenv("GOOGLE_API_KEY"); got != "" {
+		t.Fatalf("GOOGLE_API_KEY = %q, want empty", got)
 	}
 }
 

@@ -74,10 +74,9 @@ func (m *model) shouldShowFirstRunPromptAssist() bool {
 func firstRunOptionLines() []string {
 	return []string{
 		"1. Ollama",
-		"2. GitHub Models",
-		"3. OpenAI",
-		"4. Anthropic",
-		"5. Google Gemini",
+		"2. OpenAI",
+		"3. Anthropic",
+		"4. Google Gemini",
 	}
 }
 
@@ -85,14 +84,12 @@ func onboardingSelectionForProvider(provider string) int {
 	switch provider {
 	case "ollama":
 		return 0
-	case "github":
-		return 1
 	case "openai":
-		return 2
+		return 1
 	case "anthropic":
-		return 3
+		return 2
 	case "google":
-		return 4
+		return 3
 	default:
 		return 0
 	}
@@ -170,7 +167,7 @@ func (m *model) handleOnboardingKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.refreshViewport()
 		}
 		return m, nil
-	case "1", "2", "3", "4", "5":
+	case "1", "2", "3", "4":
 		m.onboarding.Selected = int(msg.Runes[0] - '1')
 		if m.onboarding.Selected >= len(m.onboardingOptionLines()) {
 			m.onboarding.Selected = len(m.onboardingOptionLines()) - 1
@@ -242,20 +239,15 @@ func (m *model) completeOnboardingSelection() (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.onboarding = onboardingState{}
-		if err := m.startCredentialSetup("github", "github", "", "provider", ""); err != nil {
+		if err := m.startCredentialSetup("openai", "openai", "", "provider", ""); err != nil {
 			m.transcript.WriteError(err.Error())
 		}
 	case 2:
 		m.onboarding = onboardingState{}
-		if err := m.startCredentialSetup("openai", "openai", "", "provider", ""); err != nil {
-			m.transcript.WriteError(err.Error())
-		}
-	case 3:
-		m.onboarding = onboardingState{}
 		if err := m.startCredentialSetup("anthropic", "anthropic", "", "provider", ""); err != nil {
 			m.transcript.WriteError(err.Error())
 		}
-	case 4:
+	case 3:
 		m.onboarding = onboardingState{}
 		if err := m.startCredentialSetup("google", "google", "", "provider", ""); err != nil {
 			m.transcript.WriteError(err.Error())

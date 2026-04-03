@@ -362,13 +362,11 @@ func TestRenderViewShowsCenteredSecureSetupPanel(t *testing.T) {
 		Auth: authOverlayView{
 			Active:      true,
 			Title:       "Secure Setup",
-			Provider:    "github",
-			SecretLabel: "GitHub Models token",
+			Provider:    "google",
+			SecretLabel: "Google API key",
 			InputValue:  "********",
 			HelpLines: []string{
-				"Enter your github models token",
-				"Use a fine-grained personal access token",
-				"Account permission: Models -> Read-only",
+				"Enter your Google API key",
 				"Stored in the OS keychain",
 				"Not added to transcript or prompt history",
 				"Enter saves. Esc cancels.",
@@ -378,10 +376,8 @@ func TestRenderViewShowsCenteredSecureSetupPanel(t *testing.T) {
 
 	for _, want := range []string{
 		"Secure Setup",
-		"GitHub Models token",
+		"Google API key",
 		"********",
-		"Use a fine-grained personal access token",
-		"Account permission: Models -> Read-only",
 		"Stored in the OS keychain",
 		"Enter saves. Esc cancels.",
 	} {
@@ -431,10 +427,9 @@ func TestRenderViewShowsFirstRunChooserPanel(t *testing.T) {
 			Selected: 1,
 			OptionLines: []string{
 				"1. Ollama",
-				"2. GitHub Models",
-				"3. OpenAI",
-				"4. Anthropic",
-				"5. Google Gemini",
+				"2. OpenAI",
+				"3. Anthropic",
+				"4. Google Gemini",
 			},
 			HelpLines: []string{
 				"Choose a provider to get started",
@@ -446,10 +441,9 @@ func TestRenderViewShowsFirstRunChooserPanel(t *testing.T) {
 	for _, want := range []string{
 		"Get Started",
 		"1. Ollama",
-		"2. GitHub Models",
-		"3. OpenAI",
-		"4. Anthropic",
-		"5. Google Gemini",
+		"2. OpenAI",
+		"3. Anthropic",
+		"4. Google Gemini",
 		"Enter selects. Esc closes this panel.",
 	} {
 		if !strings.Contains(rendered, want) {

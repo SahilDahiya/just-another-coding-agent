@@ -189,16 +189,9 @@ func authOverlayTitle(storage string) string {
 }
 
 func authSetupLinesForStorage(provider string, storage string, fileStorePath string) []string {
-	githubGuidance := []string{
-		"Use a fine-grained personal access token",
-		"Account permission: Models -> Read-only",
-	}
 	if storage == "file" {
 		lines := []string{
 			fmt.Sprintf("Enter your %s", authSecretLabel(provider)),
-		}
-		if provider == "github" {
-			lines = append(lines, githubGuidance...)
 		}
 		lines = append(
 			lines,
@@ -210,9 +203,6 @@ func authSetupLinesForStorage(provider string, storage string, fileStorePath str
 	}
 	lines := []string{
 		fmt.Sprintf("Enter your %s", authSecretLabel(provider)),
-	}
-	if provider == "github" {
-		lines = append(lines, githubGuidance...)
 	}
 	lines = append(
 		lines,
@@ -227,8 +217,6 @@ func authProviderLabel(provider string) string {
 	switch provider {
 	case "ollama":
 		return "Ollama"
-	case "github":
-		return "GitHub"
 	case "openai":
 		return "OpenAI"
 	case "anthropic":
@@ -244,8 +232,6 @@ func authSecretLabel(provider string) string {
 	switch provider {
 	case "ollama":
 		return "Ollama cloud API key"
-	case "github":
-		return "GitHub Models token"
 	case "openai":
 		return "OpenAI API key"
 	case "anthropic":

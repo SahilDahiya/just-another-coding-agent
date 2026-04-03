@@ -57,20 +57,20 @@ def test_set_and_resolve_provider_secret_uses_keyring(monkeypatch) -> None:
 
 def test_get_provider_auth_status_prefers_environment(monkeypatch) -> None:
     fake = _FakeKeyring()
-    fake.set_password(SECRET_STORE_SERVICE, "GITHUB_API_KEY", "from-keychain")
+    fake.set_password(SECRET_STORE_SERVICE, "GOOGLE_API_KEY", "from-keychain")
     monkeypatch.setattr(
         "just_another_coding_agent.auth._load_keyring",
         lambda: fake,
     )
-    monkeypatch.setenv("GITHUB_API_KEY", "from-env")
+    monkeypatch.setenv("GOOGLE_API_KEY", "from-env")
 
-    status = get_provider_auth_status("github")
+    status = get_provider_auth_status("google")
 
-    assert status.provider == "github"
+    assert status.provider == "google"
     assert status.configured is True
     assert status.source == "env"
-    assert status.env_key == "GITHUB_API_KEY"
-    assert resolve_provider_secret("github") == "from-env"
+    assert status.env_key == "GOOGLE_API_KEY"
+    assert resolve_provider_secret("google") == "from-env"
 
 
 def test_clear_provider_secret_removes_keychain_value(monkeypatch) -> None:
@@ -99,7 +99,7 @@ def test_set_provider_secret_rejects_blank(monkeypatch) -> None:
     )
 
     with pytest.raises(ValueError, match="non-empty"):
-        set_provider_secret("github", "   ")
+        set_provider_secret("google", "   ")
 
 
 def test_missing_keyring_backend_is_tolerated_for_optional_lookup(monkeypatch) -> None:
@@ -196,13 +196,13 @@ def test_set_provider_secret_can_use_file_store_explicitly(
         secret_path,
     )
 
-    status = set_provider_secret("github", "file-token", storage="file")
+    status = set_provider_secret("google", "file-token", storage="file")
 
-    assert status.provider == "github"
+    assert status.provider == "google"
     assert status.configured is True
     assert status.source == "file"
-    assert status.env_key == "GITHUB_API_KEY"
-    assert resolve_provider_secret("github") == "file-token"
+    assert status.env_key == "GOOGLE_API_KEY"
+    assert resolve_provider_secret("google") == "file-token"
     assert secret_path.exists()
 
 

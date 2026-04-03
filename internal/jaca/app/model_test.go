@@ -88,7 +88,7 @@ func (b *stubBackend) AuthStatus(_ context.Context) (rpc.AuthStatusResponse, err
 	if b.authStatusErr != nil {
 		return rpc.AuthStatusResponse{}, b.authStatusErr
 	}
-	providers := []string{"ollama", "github", "openai", "anthropic", "google"}
+	providers := []string{"ollama", "openai", "anthropic", "google"}
 	statuses := make([]rpc.AuthProviderStatus, 0, len(providers))
 	for _, provider := range providers {
 		if status, ok := b.authStatuses[provider]; ok {
@@ -152,8 +152,6 @@ func envDerivedAuthStatus(provider string) rpc.AuthProviderStatus {
 	switch provider {
 	case "ollama":
 		envKey = "OLLAMA_API_KEY"
-	case "github":
-		envKey = "GITHUB_API_KEY"
 	case "openai":
 		envKey = "OPENAI_API_KEY"
 	case "anthropic":
@@ -179,8 +177,6 @@ func envKeyForProvider(provider string) string {
 	switch provider {
 	case "ollama":
 		return "OLLAMA_API_KEY"
-	case "github":
-		return "GITHUB_API_KEY"
 	case "openai":
 		return "OPENAI_API_KEY"
 	case "anthropic":
@@ -228,15 +224,6 @@ func testModelCatalog() *rpc.ModelCatalogResponse {
 					{ModelID: "ollama:glm-5:cloud", Description: "GLM-5 cloud path"},
 					{ModelID: "ollama:qwen3.5:397b-cloud", Description: "Qwen 3.5 397B cloud"},
 					{ModelID: "ollama:qwen3-coder-next", Description: "Qwen3 Coder Next"},
-				},
-			},
-			{
-				Provider:       "github",
-				DefaultModelID: "github:openai/gpt-4.1",
-				Models: []rpc.ModelCatalogModel{
-					{ModelID: "github:openai/gpt-5", Description: "GitHub Models GPT-5"},
-					{ModelID: "github:openai/gpt-5-mini", Description: "GitHub Models GPT-5 mini"},
-					{ModelID: "github:openai/gpt-4.1", Description: "GitHub Models GPT-4.1"},
 				},
 			},
 			{
@@ -744,7 +731,6 @@ func TestTabOnProviderSuggestionCommitsCommandAndShowsProviderOptions(t *testing
 	rendered := stripANSI(m.View())
 	for _, want := range []string{
 		"ollama",
-		"github",
 		"openai",
 		"anthropic",
 		"google",
@@ -872,10 +858,9 @@ func TestStartupAuthStatusShowsFirstRunOnboarding(t *testing.T) {
 	for _, want := range []string{
 		"Get Started",
 		"1. Ollama",
-		"2. GitHub Models",
-		"3. OpenAI",
-		"4. Anthropic",
-		"5. Google Gemini",
+		"2. OpenAI",
+		"3. Anthropic",
+		"4. Google Gemini",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("startup onboarding missing %q in %q", want, rendered)
@@ -909,7 +894,7 @@ func TestNewWithFreshHomeStartsChooserImmediately(t *testing.T) {
 		t.Fatalf("onboarding state = %#v, want active provider chooser", m.onboarding)
 	}
 	rendered := stripANSI(m.View())
-	for _, want := range []string{"Get Started", "1. Ollama", "2. GitHub Models", "5. Google Gemini"} {
+	for _, want := range []string{"Get Started", "1. Ollama", "2. OpenAI", "4. Google Gemini"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("initial chooser missing %q in %q", want, rendered)
 		}
@@ -930,10 +915,9 @@ func TestFirstRunChooserDoesNotDependOnAuthStatus(t *testing.T) {
 	for _, want := range []string{
 		"Get Started",
 		"1. Ollama",
-		"2. GitHub Models",
-		"3. OpenAI",
-		"4. Anthropic",
-		"5. Google Gemini",
+		"2. OpenAI",
+		"3. Anthropic",
+		"4. Google Gemini",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("first-run chooser missing %q in %q", want, rendered)
@@ -956,7 +940,7 @@ func TestEscapeFromFirstRunAuthReturnsToProviderChooser(t *testing.T) {
 
 	updated, _ := m.Update(authStatusLoadedMsg{Status: status})
 	m = updated.(*model)
-	m = sendKey(m, tea.KeyMsg{Runes: []rune("3"), Type: tea.KeyRunes})
+	m = sendKey(m, tea.KeyMsg{Runes: []rune("2"), Type: tea.KeyRunes})
 	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
 	if !m.auth.Active {
 		t.Fatal("openai selection should start auth")
@@ -970,11 +954,11 @@ func TestEscapeFromFirstRunAuthReturnsToProviderChooser(t *testing.T) {
 	if !m.onboarding.Active || m.onboarding.Kind != "provider" {
 		t.Fatalf("onboarding state = %#v, want provider chooser", m.onboarding)
 	}
-	if m.onboarding.Selected != 2 {
-		t.Fatalf("onboarding.Selected = %d, want 2 for openai", m.onboarding.Selected)
+	if m.onboarding.Selected != 1 {
+		t.Fatalf("onboarding.Selected = %d, want 1 for openai", m.onboarding.Selected)
 	}
 	rendered := stripANSI(m.View())
-	if !strings.Contains(rendered, "Get Started") || !strings.Contains(rendered, "3. OpenAI") {
+	if !strings.Contains(rendered, "Get Started") || !strings.Contains(rendered, "2. OpenAI") {
 		t.Fatalf("provider chooser missing after esc: %q", rendered)
 	}
 }
@@ -1002,7 +986,7 @@ func TestFirstRunEscapeThenTabOpensProviderSuggestions(t *testing.T) {
 		t.Fatalf("textInput.Value() = %q, want %q", got, "/provider ")
 	}
 	rendered := stripANSI(m.View())
-	for _, want := range []string{"ollama", "github", "openai", "anthropic", "google"} {
+	for _, want := range []string{"ollama", "openai", "anthropic", "google"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("provider suggestion %q missing in %q", want, rendered)
 		}
@@ -1024,7 +1008,7 @@ func TestFirstRunChoosingOpenAIOpensSecureSetupPanel(t *testing.T) {
 
 	updated, _ := m.Update(authStatusLoadedMsg{Status: status})
 	m = updated.(*model)
-	m = sendKey(m, tea.KeyMsg{Runes: []rune("3"), Type: tea.KeyRunes})
+	m = sendKey(m, tea.KeyMsg{Runes: []rune("2"), Type: tea.KeyRunes})
 	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
 
 	rendered := stripANSI(m.View())
@@ -1146,15 +1130,15 @@ func TestStartupAuthStatusTimeoutSchedulesRetry(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
-	if err := config.SaveDefaultProvider("github"); err != nil {
+	if err := config.SaveDefaultProvider("openai"); err != nil {
 		t.Fatalf("SaveDefaultProvider() returned error: %v", err)
 	}
-	if err := config.SaveDefaultModel("github:openai/gpt-4.1"); err != nil {
+	if err := config.SaveDefaultModel("openai:gpt-5.4"); err != nil {
 		t.Fatalf("SaveDefaultModel() returned error: %v", err)
 	}
 
 	m := newTestModel()
-	m.options.Model = "github:openai/gpt-4.1"
+	m.options.Model = "openai:gpt-5.4"
 
 	updated, cmd := m.Update(authStatusLoadedMsg{Err: context.DeadlineExceeded})
 	m = updated.(*model)
@@ -1399,15 +1383,15 @@ func TestProviderWithoutKeychainStartsLocalFileAuthFlow(t *testing.T) {
 	}
 }
 
-func TestPromptWithMissingGitHubCredentialsStartsAuthInsteadOfRun(t *testing.T) {
+func TestPromptWithMissingGoogleCredentialsStartsAuthInsteadOfRun(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("GITHUB_API_KEY", "")
+	t.Setenv("GOOGLE_API_KEY", "")
 
-	if err := config.SaveDefaultProvider("github"); err != nil {
+	if err := config.SaveDefaultProvider("google"); err != nil {
 		t.Fatalf("SaveDefaultProvider() returned error: %v", err)
 	}
-	if err := config.SaveDefaultModel("github:openai/gpt-4.1"); err != nil {
+	if err := config.SaveDefaultModel("google:gemini-2.5-flash"); err != nil {
 		t.Fatalf("SaveDefaultModel() returned error: %v", err)
 	}
 
@@ -1420,14 +1404,14 @@ func TestPromptWithMissingGitHubCredentialsStartsAuthInsteadOfRun(t *testing.T) 
 	}
 	m := newTestModel()
 	m.options.Backend = backend
-	m.options.Model = "github:openai/gpt-4.1"
+	m.options.Model = "google:gemini-2.5-flash"
 
 	m = sendRunes(m, "hello")
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = updated.(*model)
 
 	if !m.auth.Active {
-		t.Fatal("missing github credentials should open auth instead of starting a run")
+		t.Fatal("missing google credentials should open auth instead of starting a run")
 	}
 	if m.streaming {
 		t.Fatal("model run should not start when provider credentials are missing")
@@ -1437,12 +1421,12 @@ func TestPromptWithMissingGitHubCredentialsStartsAuthInsteadOfRun(t *testing.T) 
 func TestPromptRefreshesAuthStatusBeforeStartingRun(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("GITHUB_API_KEY", "")
+	t.Setenv("GOOGLE_API_KEY", "")
 
-	if err := config.SaveDefaultProvider("github"); err != nil {
+	if err := config.SaveDefaultProvider("google"); err != nil {
 		t.Fatalf("SaveDefaultProvider() returned error: %v", err)
 	}
-	if err := config.SaveDefaultModel("github:openai/gpt-4.1"); err != nil {
+	if err := config.SaveDefaultModel("google:gemini-2.5-flash"); err != nil {
 		t.Fatalf("SaveDefaultModel() returned error: %v", err)
 	}
 
@@ -1453,27 +1437,27 @@ func TestPromptRefreshesAuthStatusBeforeStartingRun(t *testing.T) {
 		Message:       &message,
 		FileStorePath: filepath.Join(home, ".jaca", "secrets.json"),
 	}
-	backend.authStatuses["github"] = rpc.AuthProviderStatus{
-		Provider:   "github",
+	backend.authStatuses["google"] = rpc.AuthProviderStatus{
+		Provider:   "google",
 		Configured: true,
 		Source:     "file",
-		EnvKey:     "GITHUB_API_KEY",
+		EnvKey:     "GOOGLE_API_KEY",
 	}
 	m := newTestModel()
 	m.options.Backend = backend
-	m.options.Model = "github:openai/gpt-4.1"
+	m.options.Model = "google:gemini-2.5-flash"
 	m.authStatus = &rpc.AuthStatusResponse{
 		Providers: []rpc.AuthProviderStatus{
 			{
-				Provider:   "github",
+				Provider:   "google",
 				Configured: true,
 				Source:     "file",
-				EnvKey:     "GITHUB_API_KEY",
+				EnvKey:     "GOOGLE_API_KEY",
 			},
 		},
 		LocalSecretStore: backend.localSecretStore,
 	}
-	delete(backend.authStatuses, "github")
+	delete(backend.authStatuses, "google")
 
 	m = sendRunes(m, "hello")
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -1487,35 +1471,27 @@ func TestPromptRefreshesAuthStatusBeforeStartingRun(t *testing.T) {
 	}
 }
 
-func TestGitHubProviderWithoutCredentialsStartsMaskedAuthFlow(t *testing.T) {
+func TestGoogleProviderWithoutCredentialsStartsMaskedAuthFlow(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("GITHUB_API_KEY", "")
+	t.Setenv("GOOGLE_API_KEY", "")
 
 	m := newTestModel()
 	m.options.Backend = newStubBackend()
 
-	m = sendRunes(m, "/provider github")
+	m = sendRunes(m, "/provider google")
 	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
 
 	rendered := stripANSI(m.View())
-	if !strings.Contains(rendered, "Secure Setup") || !strings.Contains(rendered, "GitHub Models token") {
-		t.Fatalf("view missing github secure setup panel after provider selection: %q", rendered)
-	}
-	for _, want := range []string{
-		"Use a fine-grained personal access token",
-		"Account permission: Models -> Read-only",
-	} {
-		if !strings.Contains(rendered, want) {
-			t.Fatalf("github secure setup panel missing %q: %q", want, rendered)
-		}
+	if !strings.Contains(rendered, "Secure Setup") || !strings.Contains(rendered, "Google API key") {
+		t.Fatalf("view missing google secure setup panel after provider selection: %q", rendered)
 	}
 	masked := sendRunes(m, "super-secret")
 	rendered = stripANSI(masked.View())
 	if strings.Contains(rendered, "super-secret") {
 		t.Fatalf("secret leaked into rendered view: %q", rendered)
 	}
-	if got := masked.promptHistory; len(got) != 1 || got[0] != "/provider github" {
+	if got := masked.promptHistory; len(got) != 1 || got[0] != "/provider google" {
 		t.Fatalf("promptHistory = %#v, want only the non-secret provider command", got)
 	}
 }
@@ -1533,41 +1509,41 @@ func TestAuthOllamaUsesCloudSpecificSecretLabel(t *testing.T) {
 	}
 }
 
-func TestGitHubAuthSubmissionAppliesPendingModelSelection(t *testing.T) {
+func TestGoogleAuthSubmissionAppliesPendingModelSelection(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("GITHUB_API_KEY", "")
+	t.Setenv("GOOGLE_API_KEY", "")
 
 	backend := newStubBackend()
 	m := newTestModel()
 	m.options.Backend = backend
 
-	m = sendRunes(m, "/model github:openai/gpt-5")
+	m = sendRunes(m, "/model google:gemini-2.5-flash")
 	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
-	m = sendRunes(m, "gh-token")
+	m = sendRunes(m, "google-token")
 	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
 
-	if got := m.options.Model; got != "github:openai/gpt-5" {
-		t.Fatalf("options.Model = %q, want %q", got, "github:openai/gpt-5")
+	if got := m.options.Model; got != "google:gemini-2.5-flash" {
+		t.Fatalf("options.Model = %q, want %q", got, "google:gemini-2.5-flash")
 	}
 	data, err := os.ReadFile(home + "/.jaca/config.json")
 	if err != nil {
 		t.Fatalf("ReadFile() returned error: %v", err)
 	}
 	configText := string(data)
-	if !strings.Contains(configText, `"default_provider": "github"`) {
+	if !strings.Contains(configText, `"default_provider": "google"`) {
 		t.Fatalf("config.json missing provider selection: %q", configText)
 	}
-	if !strings.Contains(configText, `"default_model": "github:openai/gpt-5"`) {
+	if !strings.Contains(configText, `"default_model": "google:gemini-2.5-flash"`) {
 		t.Fatalf("config.json missing model selection: %q", configText)
 	}
-	if strings.Contains(configText, `"GITHUB_API_KEY"`) {
-		t.Fatalf("config.json should not store github credential: %q", configText)
+	if strings.Contains(configText, `"GOOGLE_API_KEY"`) {
+		t.Fatalf("config.json should not store google credential: %q", configText)
 	}
-	if strings.Contains(stripANSI(m.transcript.Render()), "gh-token") {
+	if strings.Contains(stripANSI(m.transcript.Render()), "google-token") {
 		t.Fatalf("secret leaked into transcript: %q", stripANSI(m.transcript.Render()))
 	}
-	if backend.lastSetSecret.Provider != "github" || backend.lastSetSecret.Secret != "gh-token" || backend.lastSetSecret.Storage != "keychain" {
+	if backend.lastSetSecret.Provider != "google" || backend.lastSetSecret.Secret != "google-token" || backend.lastSetSecret.Storage != "keychain" {
 		t.Fatalf("backend lastSetSecret = %#v", backend.lastSetSecret)
 	}
 }
@@ -1724,11 +1700,11 @@ func TestLocalOllamaModelClearsHostedBaseURL(t *testing.T) {
 
 func TestAuthStatusCommandRendersProviderSources(t *testing.T) {
 	backend := newStubBackend()
-	backend.authStatuses["github"] = rpc.AuthProviderStatus{
-		Provider:   "github",
+	backend.authStatuses["google"] = rpc.AuthProviderStatus{
+		Provider:   "google",
 		Configured: true,
 		Source:     "keychain",
-		EnvKey:     "GITHUB_API_KEY",
+		EnvKey:     "GOOGLE_API_KEY",
 	}
 
 	m := newTestModel()
@@ -1738,8 +1714,8 @@ func TestAuthStatusCommandRendersProviderSources(t *testing.T) {
 	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
 
 	rendered := stripANSI(m.transcript.Render())
-	if !strings.Contains(rendered, "github: configured (keychain)") {
-		t.Fatalf("transcript missing github auth status: %q", rendered)
+	if !strings.Contains(rendered, "google: configured (keychain)") {
+		t.Fatalf("transcript missing google auth status: %q", rendered)
 	}
 }
 

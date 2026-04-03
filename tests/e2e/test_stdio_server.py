@@ -227,14 +227,14 @@ async def test_serve_rpc_stdio_supports_model_catalog(
         messages[0]["response"]["providers"][0]["default_model_id"]
         == "ollama:kimi-k2:1t-cloud"
     )
-    assert messages[0]["response"]["providers"][1]["provider"] == "github"
+    assert messages[0]["response"]["providers"][1]["provider"] == "openai"
     assert (
         messages[0]["response"]["providers"][1]["default_model_id"]
-        == "github:openai/gpt-4.1"
+        == "openai:gpt-5.4"
     )
-    assert messages[0]["response"]["providers"][4]["provider"] == "google"
+    assert messages[0]["response"]["providers"][3]["provider"] == "google"
     assert (
-        messages[0]["response"]["providers"][4]["default_model_id"]
+        messages[0]["response"]["providers"][3]["default_model_id"]
         == "google:gemini-2.5-flash"
     )
 

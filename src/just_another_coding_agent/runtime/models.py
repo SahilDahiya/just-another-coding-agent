@@ -15,7 +15,6 @@ from pydantic_ai.models.openai import (
 )
 from pydantic_ai.models.wrapper import WrapperModel
 from pydantic_ai.providers.anthropic import AnthropicProvider
-from pydantic_ai.providers.github import GitHubProvider
 from pydantic_ai.providers.ollama import OllamaProvider
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.retries import AsyncTenacityTransport, RetryConfig, wait_retry_after
@@ -45,11 +44,6 @@ ANTHROPIC_CONTEXT_WINDOW_TOKENS_BY_PREFIX: tuple[tuple[str, int], ...] = (
     ("claude-sonnet-4-5", 200_000),
     ("claude-opus-4-1", 200_000),
 )
-GITHUB_CONTEXT_WINDOW_TOKENS_BY_PREFIX: tuple[tuple[str, int], ...] = (
-    ("openai/gpt-5", 200_000),
-    ("openai/gpt-5-mini", 200_000),
-    ("openai/gpt-4.1", 1_048_576),
-)
 GOOGLE_CONTEXT_WINDOW_TOKENS_BY_PREFIX: tuple[tuple[str, int], ...] = (
     ("gemini-2.5-flash-lite", 1_048_576),
     ("gemini-2.5-flash", 1_048_576),
@@ -76,8 +70,6 @@ def resolve_canonical_model(model: Any) -> Model:
             return _maybe_instrument_model(_build_openai_chat_model(model))
         if model.startswith("anthropic:"):
             return _maybe_instrument_model(_build_anthropic_model(model))
-        if model.startswith("github:"):
-            return _maybe_instrument_model(_build_github_chat_model(model))
         if model.startswith("google:"):
             return _maybe_instrument_model(_build_google_model(model))
         if model.startswith("ollama:"):
@@ -147,24 +139,6 @@ def _build_ollama_provider() -> OllamaProvider:
             base_url=base_url,
             api_key=api_key,
         )
-    )
-
-
-def _build_github_chat_model(model_id: str) -> OpenAIChatModel:
-    _, model_name = model_id.split(":", 1)
-    return OpenAIChatModel(
-        model_name,
-        provider=_build_github_provider(),
-    )
-
-
-def _build_github_provider() -> GitHubProvider:
-    api_key = resolve_provider_secret("github")
-    return GitHubProvider(
-        openai_client=_build_openai_compatible_client(
-            base_url="https://models.github.ai/inference",
-            api_key=api_key,
-        ),
     )
 
 
@@ -294,7 +268,7 @@ def _supports_parallel_tool_calls(model: Model) -> bool:
     if isinstance(model, OpenAIChatModel):
         return isinstance(
             model._provider,
-            (OpenAIProvider, OllamaProvider, GitHubProvider),
+            (OpenAIProvider, OllamaProvider),
         )
     return isinstance(model, AnthropicModel)
 
@@ -315,11 +289,6 @@ def get_model_context_window_tokens(model: Any) -> int | None:
             return _match_model_name_prefix(
                 model.split(":", 1)[1],
                 ANTHROPIC_CONTEXT_WINDOW_TOKENS_BY_PREFIX,
-            )
-        if model.startswith("github:"):
-            return _match_model_name_prefix(
-                model.split(":", 1)[1],
-                GITHUB_CONTEXT_WINDOW_TOKENS_BY_PREFIX,
             )
         if model.startswith("google:"):
             return _match_model_name_prefix(
@@ -347,11 +316,6 @@ def get_model_context_window_tokens(model: Any) -> int | None:
             return _match_model_name_prefix(
                 policy_model.model_name,
                 OPENAI_CONTEXT_WINDOW_TOKENS_BY_PREFIX,
-            )
-        if isinstance(policy_model._provider, GitHubProvider):
-            return _match_model_name_prefix(
-                policy_model.model_name,
-                GITHUB_CONTEXT_WINDOW_TOKENS_BY_PREFIX,
             )
         if isinstance(policy_model._provider, OllamaProvider):
             return _match_model_name_prefix(

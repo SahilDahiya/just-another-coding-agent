@@ -83,9 +83,9 @@ canonical Python headless backend.
 - Environment variables remain the canonical override for headless,
   evaluation, and CI flows.
 - Current foundation expects:
-  - `GITHUB_API_KEY`
   - `OPENAI_API_KEY`
   - `ANTHROPIC_API_KEY`
+  - `GOOGLE_API_KEY`
 - Common optional runtime env vars:
   - `OPENAI_BASE_URL`
   - `OLLAMA_BASE_URL`
@@ -97,7 +97,6 @@ canonical Python headless backend.
 The shipped provider surface currently includes:
 
 - `ollama`
-- `github`
 - `openai`
 - `anthropic`
 - `google`

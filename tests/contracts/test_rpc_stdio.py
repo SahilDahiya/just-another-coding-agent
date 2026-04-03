@@ -399,24 +399,6 @@ async def test_handle_rpc_json_line_returns_backend_owned_model_catalog(
                         ],
                     },
                     {
-                        "provider": "github",
-                        "default_model_id": "github:openai/gpt-4.1",
-                        "models": [
-                            {
-                                "model_id": "github:openai/gpt-5",
-                                "description": "GitHub Models GPT-5",
-                            },
-                            {
-                                "model_id": "github:openai/gpt-5-mini",
-                                "description": "GitHub Models GPT-5 mini",
-                            },
-                            {
-                                "model_id": "github:openai/gpt-4.1",
-                                "description": "GitHub Models GPT-4.1",
-                            },
-                        ],
-                    },
-                    {
                         "provider": "openai",
                         "default_model_id": "openai:gpt-5.4",
                         "models": [
@@ -489,15 +471,9 @@ async def test_handle_rpc_json_line_returns_auth_status(
                 env_key="OLLAMA_API_KEY",
             ),
             ProviderAuthStatus(
-                provider="github",
-                configured=True,
-                source="keychain",
-                env_key="GITHUB_API_KEY",
-            ),
-            ProviderAuthStatus(
                 provider="openai",
                 configured=True,
-                source="env",
+                source="keychain",
                 env_key="OPENAI_API_KEY",
             ),
             ProviderAuthStatus(
@@ -547,15 +523,9 @@ async def test_handle_rpc_json_line_returns_auth_status(
                         "env_key": "OLLAMA_API_KEY",
                     },
                     {
-                        "provider": "github",
-                        "configured": True,
-                        "source": "keychain",
-                        "env_key": "GITHUB_API_KEY",
-                    },
-                    {
                         "provider": "openai",
                         "configured": True,
-                        "source": "env",
+                        "source": "keychain",
                         "env_key": "OPENAI_API_KEY",
                     },
                     {
@@ -599,7 +569,7 @@ async def test_handle_rpc_json_line_sets_provider_secret(
                 provider=provider,
                 configured=True,
                 source="keychain",
-                env_key="GITHUB_API_KEY",
+                env_key="GOOGLE_API_KEY",
             )
         ),
     )
@@ -609,7 +579,7 @@ async def test_handle_rpc_json_line_sets_provider_secret(
             "id": "req-auth-set",
             "command": "auth.set",
             "payload": {
-                "provider": "github",
+                "provider": "google",
                 "secret": "test-token",
                 "storage": "keychain",
             },
@@ -620,7 +590,7 @@ async def test_handle_rpc_json_line_sets_provider_secret(
     )
 
     assert captured == {
-        "provider": "github",
+        "provider": "google",
         "secret": "test-token",
         "storage": "keychain",
     }
@@ -630,10 +600,10 @@ async def test_handle_rpc_json_line_sets_provider_secret(
             "id": "req-auth-set",
             "response": {
                 "status": {
-                    "provider": "github",
+                    "provider": "google",
                     "configured": True,
                     "source": "keychain",
-                    "env_key": "GITHUB_API_KEY",
+                    "env_key": "GOOGLE_API_KEY",
                 }
             },
         }
@@ -703,7 +673,7 @@ async def test_handle_rpc_json_line_rejects_blank_provider_secret_as_invalid_req
             "id": "req-auth-set-blank",
             "command": "auth.set",
             "payload": {
-                "provider": "github",
+                "provider": "google",
                 "secret": "   ",
             },
         },

@@ -47,8 +47,8 @@ Rules:
 - For `ollama`, the shipped model catalog is the hosted catalog only. Local
   Ollama models are user-supplied `/model ollama:<local-model>` selections and
   are not enumerated in the backend-owned picker surface.
-- The shipped provider surface currently includes `ollama`, `github`,
-  `openai`, `anthropic`, and `google`, and new picker-visible providers must
+- The shipped provider surface currently includes `ollama`, `openai`,
+  `anthropic`, and `google`, and new picker-visible providers must
   be added in the backend-owned catalog before the TUI can render them.
 - Auth status and local secret-store shapes are backend-owned contract types in
   `contracts/auth.py`; runtime auth code and RPC models both import those
