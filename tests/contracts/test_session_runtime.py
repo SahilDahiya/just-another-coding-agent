@@ -2,6 +2,7 @@ import asyncio
 import json
 from collections.abc import AsyncIterator
 from contextlib import contextmanager
+from datetime import date
 
 import pytest
 from pydantic_ai.messages import (
@@ -24,11 +25,13 @@ from just_another_coding_agent.contracts.run_events import (
     RunFailedEvent,
     RunStartedEvent,
     RunSucceededEvent,
+    SessionTurnContextStatusEvent,
     ToolActivity,
     ToolCallFailedEvent,
     ToolCallStartedEvent,
     ToolCallSucceededEvent,
 )
+from just_another_coding_agent.contracts.session import SessionTurnContextEntry
 from just_another_coding_agent.runtime import stream_session_run_events
 from just_another_coding_agent.runtime.compaction import (
     build_resume_message_history,
@@ -39,6 +42,10 @@ from just_another_coding_agent.runtime.compaction import (
 )
 from just_another_coding_agent.runtime.compaction import (
     trigger as trigger_module,
+)
+from just_another_coding_agent.runtime.turn_context import (
+    build_session_turn_context_entry,
+    evaluate_turn_context_baseline,
 )
 from just_another_coding_agent.session import (
     SessionFormatError,
@@ -313,6 +320,12 @@ async def test_stream_session_run_events_resumes_session_created_on_other_shell_
             RunStartedEvent(run_id="run-1"),
             RunSucceededEvent(run_id="run-1", output_text="done"),
         ],
+        turn_context=build_session_turn_context_entry(
+            run_id="run-1",
+            model=FunctionModel(stream_function=text_only_stream),
+            workspace_root=workspace_root,
+            shell_family="posix",
+        ),
     )
 
     captured: dict[str, object] = {}
@@ -358,7 +371,16 @@ async def test_stream_session_run_events_resumes_session_created_on_other_shell_
         )
     ]
 
-    assert [event.type for event in events] == ["run_started", "run_succeeded"]
+    assert [event.type for event in events] == [
+        "session_turn_context_status",
+        "run_started",
+        "run_succeeded",
+    ]
+    status = events[0]
+    assert isinstance(status, SessionTurnContextStatusEvent)
+    assert status.status == "cleared"
+    assert status.reason == "shell_family_mismatch"
+    assert status.persisted_run_id == "run-1"
     deps = captured["deps"]
     assert isinstance(deps, WorkspaceDeps)
     assert deps.shell_family == "powershell"
@@ -366,6 +388,9 @@ async def test_stream_session_run_events_resumes_session_created_on_other_shell_
     loaded = load_session(path=session_path, workspace_root=workspace_root)
     assert loaded.header.shell_family == "posix"
     assert [run.run_id for run in loaded.runs] == ["run-1", "run-2"]
+    assert loaded.latest_turn_context is not None
+    assert loaded.latest_turn_context.run_id == "run-2"
+    assert loaded.latest_turn_context.shell_family == "powershell"
 
 
 async def test_stream_session_run_events_resumes_with_pydanticai_message_history(
@@ -406,6 +431,260 @@ async def test_stream_session_run_events_resumes_with_pydanticai_message_history
     loaded = load_session(path=session_path, workspace_root=workspace_root)
     assert [run.prompt for run in loaded.runs] == ["create note", "what did you do?"]
     assert _has_tool_return(loaded.message_history, tool_name="write")
+
+
+async def test_stream_session_run_events_persists_turn_context_snapshot(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    session_path = tmp_path / "session.jsonl"
+
+    _ = [
+        event
+        async for event in stream_session_run_events(
+            model=FunctionModel(stream_function=text_only_stream),
+            workspace_root=workspace_root,
+            session_path=session_path,
+            prompt="hello",
+            thinking="high",
+        )
+    ]
+
+    loaded = load_session(path=session_path, workspace_root=workspace_root)
+
+    assert loaded.latest_turn_context is not None
+    assert loaded.latest_turn_context.run_id == loaded.runs[-1].run_id
+    assert loaded.latest_turn_context.workspace_root == str(workspace_root.resolve())
+    assert loaded.latest_turn_context.shell_family == loaded.header.shell_family
+    assert loaded.latest_turn_context.thinking == "high"
+    assert loaded.latest_turn_context.instructions
+    assert (
+        f"Current workspace root: {workspace_root.resolve()}"
+        in loaded.latest_turn_context.instructions
+    )
+
+
+async def test_stream_session_run_events_reports_missing_turn_context_baseline(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    session_path = tmp_path / "session.jsonl"
+
+    append_run_to_session(
+        path=session_path,
+        workspace_root=workspace_root,
+        prompt="first",
+        thinking=None,
+        messages=[ModelRequest(parts=[UserPromptPart(content="first")])],
+        events=[
+            RunStartedEvent(run_id="run-1"),
+            RunSucceededEvent(run_id="run-1", output_text="done"),
+        ],
+    )
+
+    events = [
+        event
+        async for event in stream_session_run_events(
+            model=FunctionModel(stream_function=text_only_stream),
+            workspace_root=workspace_root,
+            session_path=session_path,
+            prompt="second",
+        )
+    ]
+
+    assert [event.type for event in events] == [
+        "session_turn_context_status",
+        "run_started",
+        "assistant_text_delta",
+        "run_succeeded",
+    ]
+    status = events[0]
+    assert isinstance(status, SessionTurnContextStatusEvent)
+    assert status.status == "missing"
+    assert status.reason == "missing"
+    assert status.persisted_run_id is None
+
+
+async def test_stream_session_run_events_reports_reused_turn_context_baseline(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    session_path = tmp_path / "session.jsonl"
+    model = FunctionModel(stream_function=text_only_stream)
+
+    append_run_to_session(
+        path=session_path,
+        workspace_root=workspace_root,
+        prompt="first",
+        thinking="high",
+        messages=[ModelRequest(parts=[UserPromptPart(content="first")])],
+        events=[
+            RunStartedEvent(run_id="run-1"),
+            RunSucceededEvent(run_id="run-1", output_text="done"),
+        ],
+        turn_context=build_session_turn_context_entry(
+            run_id="run-1",
+            model=model,
+            workspace_root=workspace_root,
+            thinking="high",
+        ),
+    )
+
+    events = [
+        event
+        async for event in stream_session_run_events(
+            model=model,
+            workspace_root=workspace_root,
+            session_path=session_path,
+            prompt="second",
+        )
+    ]
+
+    assert [event.type for event in events] == [
+        "session_turn_context_status",
+        "run_started",
+        "assistant_text_delta",
+        "run_succeeded",
+    ]
+    status = events[0]
+    assert isinstance(status, SessionTurnContextStatusEvent)
+    assert status.status == "reused"
+    assert status.reason == "matched"
+    assert status.persisted_run_id == "run-1"
+
+
+async def test_stream_session_run_events_reports_cleared_turn_context_on_model_mismatch(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    session_path = tmp_path / "session.jsonl"
+
+    append_run_to_session(
+        path=session_path,
+        workspace_root=workspace_root,
+        prompt="first",
+        thinking=None,
+        messages=[ModelRequest(parts=[UserPromptPart(content="first")])],
+        events=[
+            RunStartedEvent(run_id="run-1"),
+            RunSucceededEvent(run_id="run-1", output_text="done"),
+        ],
+        turn_context=SessionTurnContextEntry(
+            run_id="run-1",
+            model="different:model",
+            thinking=None,
+            workspace_root=str(workspace_root.resolve()),
+            shell_family="posix",
+            current_date="2026-04-03",
+            instructions="stale instructions",
+        ),
+    )
+
+    events = [
+        event
+        async for event in stream_session_run_events(
+            model=FunctionModel(stream_function=text_only_stream),
+            workspace_root=workspace_root,
+            session_path=session_path,
+            prompt="second",
+        )
+    ]
+
+    assert [event.type for event in events] == [
+        "session_turn_context_status",
+        "run_started",
+        "assistant_text_delta",
+        "run_succeeded",
+    ]
+    status = events[0]
+    assert isinstance(status, SessionTurnContextStatusEvent)
+    assert status.status == "cleared"
+    assert status.reason == "model_mismatch"
+    assert status.persisted_run_id == "run-1"
+
+
+async def test_stream_session_run_events_reports_missing_baseline_after_compaction(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    session_path = tmp_path / "session.jsonl"
+
+    append_run_to_session(
+        path=session_path,
+        workspace_root=workspace_root,
+        prompt="first",
+        thinking=None,
+        messages=[ModelRequest(parts=[UserPromptPart(content="first")])],
+        events=[
+            RunStartedEvent(run_id="run-1"),
+            RunSucceededEvent(run_id="run-1", output_text="done"),
+        ],
+        turn_context=build_session_turn_context_entry(
+            run_id="run-1",
+            model=FunctionModel(stream_function=text_only_stream),
+            workspace_root=workspace_root,
+        ),
+    )
+    append_compaction_to_session(
+        path=session_path,
+        workspace_root=workspace_root,
+        replacement_messages=[build_compaction_summary_message("Continue the task")],
+    )
+
+    events = [
+        event
+        async for event in stream_session_run_events(
+            model=FunctionModel(stream_function=text_only_stream),
+            workspace_root=workspace_root,
+            session_path=session_path,
+            prompt="second",
+        )
+    ]
+
+    assert [event.type for event in events] == [
+        "session_turn_context_status",
+        "run_started",
+        "assistant_text_delta",
+        "run_succeeded",
+    ]
+    status = events[0]
+    assert isinstance(status, SessionTurnContextStatusEvent)
+    assert status.status == "missing"
+    assert status.reason == "no_active_turn_context"
+    assert status.persisted_run_id is None
+
+
+def test_evaluate_turn_context_baseline_clears_on_current_date_mismatch(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    model = FunctionModel(stream_function=text_only_stream)
+    entry = build_session_turn_context_entry(
+        run_id="run-1",
+        model=model,
+        workspace_root=workspace_root,
+        current_date=date(2026, 4, 2),
+        thinking="high",
+    )
+
+    decision = evaluate_turn_context_baseline(
+        entry=entry,
+        model=model,
+        workspace_root=workspace_root,
+        current_date=date(2026, 4, 3),
+        thinking="high",
+        has_persisted_history=True,
+    )
+
+    assert decision.status == "cleared"
+    assert decision.reason == "current_date_mismatch"
+    assert decision.entry is None
 
 
 async def test_stream_session_run_events_persists_partial_run_before_completion(
@@ -531,7 +810,15 @@ async def test_stream_session_run_events_inherits_last_persisted_thinking_when_o
         )
     ]
 
-    assert [event.type for event in events] == ["run_started", "run_succeeded"]
+    assert [event.type for event in events] == [
+        "session_turn_context_status",
+        "run_started",
+        "run_succeeded",
+    ]
+    status = events[0]
+    assert isinstance(status, SessionTurnContextStatusEvent)
+    assert status.status == "missing"
+    assert status.reason == "missing"
     assert captured["prompt"] == "second"
     assert captured["thinking"] == "high"
     assert captured["deps"] == WorkspaceDeps.from_workspace_root(workspace_root)
@@ -640,7 +927,7 @@ def test_should_auto_compact_again_after_new_large_run_post_compaction(
     assert report.runs_since_latest_compaction == 1
 
 
-async def test_stream_session_run_events_replays_replacement_history_and_persists_only_new_delta(
+async def test_stream_session_run_events_replays_replacement_history(
     tmp_path,
 ) -> None:
     workspace_root = tmp_path / "workspace"
@@ -711,10 +998,15 @@ async def test_stream_session_run_events_replays_replacement_history_and_persist
     ]
 
     assert [event.type for event in events] == [
+        "session_turn_context_status",
         "run_started",
         "assistant_text_delta",
         "run_succeeded",
     ]
+    status = events[0]
+    assert isinstance(status, SessionTurnContextStatusEvent)
+    assert status.status == "missing"
+    assert status.reason == "missing"
     assert observed["user_prompts"] == ["second", "third"]
     assert observed["assistant_texts"] == [
         _summary_message_content("- Goal: continue after compaction")
@@ -777,7 +1069,10 @@ async def test_summarize_session_for_compaction_uses_model_output_and_previous_s
         return ModelResponse(
             parts=[
                 TextPart(
-                    content="- Goal: ship the verified fix\n- Important path: src/app.py"
+                    content=(
+                        "- Goal: ship the verified fix\n"
+                        "- Important path: src/app.py"
+                    )
                 )
             ]
         )
@@ -1013,11 +1308,16 @@ async def test_stream_session_run_events_auto_compacts_stale_session_before_resu
     assert [event.type for event in events] == [
         "session_compaction_started",
         "session_compaction_completed",
+        "session_turn_context_status",
         "run_started",
         "run_succeeded",
     ]
     completed = events[1]
+    status = events[2]
     assert completed.compacted_through_run_id == "run-2"
+    assert isinstance(status, SessionTurnContextStatusEvent)
+    assert status.status == "missing"
+    assert status.reason == "missing"
     assert completed.budget_after.estimated_replacement_summary_tokens > 0
     assert completed.estimated_tokens_saved > 0
     assert completed.estimated_headroom_gain_tokens is not None
@@ -1029,12 +1329,14 @@ async def test_stream_session_run_events_auto_compacts_stale_session_before_resu
     assert captured["instructions"] is None
     captured_prompts = _user_prompts(captured["message_history"])
     assert "keep tail" in captured_prompts
-    assert _summary_message_content("- Goal: continue after compaction") in _assistant_texts(
-        captured["message_history"]
-    )
+    assert _summary_message_content(
+        "- Goal: continue after compaction"
+    ) in _assistant_texts(captured["message_history"])
 
     loaded = load_session(path=session_path, workspace_root=workspace_root)
-    assert extract_compaction_summary_text(loaded.latest_compaction.replacement_messages) == (
+    assert extract_compaction_summary_text(
+        loaded.latest_compaction.replacement_messages
+    ) == (
         "- Goal: continue after compaction"
     )
     assert _user_prompts(loaded.runs[-1].messages) == ["follow-up"]
@@ -1129,13 +1431,19 @@ async def test_stream_session_run_events_warns_after_repeated_auto_compaction(
         "session_compaction_started",
         "session_compaction_completed",
         "session_compaction_warning",
+        "session_turn_context_status",
         "run_started",
         "run_succeeded",
     ]
     assert events[2].compaction_count == 2
+    assert isinstance(events[3], SessionTurnContextStatusEvent)
+    assert events[3].status == "missing"
+    assert events[3].reason == "missing"
     loaded = load_session(path=session_path, workspace_root=workspace_root)
     assert len(loaded.compactions) == 2
-    assert extract_compaction_summary_text(loaded.latest_compaction.replacement_messages) == (
+    assert extract_compaction_summary_text(
+        loaded.latest_compaction.replacement_messages
+    ) == (
         "- Goal: second compaction"
     )
 
@@ -1349,7 +1657,15 @@ async def test_stream_session_run_events_does_not_recompact_without_new_complete
         )
     ]
 
-    assert [event.type for event in events] == ["run_started", "run_succeeded"]
+    assert [event.type for event in events] == [
+        "session_turn_context_status",
+        "run_started",
+        "run_succeeded",
+    ]
+    status = events[0]
+    assert isinstance(status, SessionTurnContextStatusEvent)
+    assert status.status == "missing"
+    assert status.reason == "missing"
 
 
 async def test_stream_session_run_events_persists_incomplete_partial_consumption(
@@ -1806,8 +2122,14 @@ async def test_stream_session_run_events_resume_after_failed_correction_is_clean
     ]
 
     assert [event.type for event in resumed_events] == [
+        "session_turn_context_status",
         "run_started",
         "assistant_text_delta",
         "run_succeeded",
     ]
+    status = resumed_events[0]
+    assert isinstance(status, SessionTurnContextStatusEvent)
+    assert status.status == "cleared"
+    assert status.reason == "model_mismatch"
+    assert status.persisted_run_id == "run-1"
     assert probe_observed["user_prompts"] == ["get familiar with repo!", "hello"]

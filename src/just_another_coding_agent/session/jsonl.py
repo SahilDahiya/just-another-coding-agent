@@ -48,6 +48,7 @@ from just_another_coding_agent.contracts.session import (
     SessionName,
     SessionRunEntry,
     SessionRunRecord,
+    SessionTurnContextEntry,
 )
 from just_another_coding_agent.contracts.thinking import ThinkingSetting
 from just_another_coding_agent.session.replacement_history import (
@@ -121,7 +122,12 @@ class SessionRunAppender:
             SessionEventEntry(run_id=self._run_id, event=event),
         )
 
-    def finalize(self, *, messages: Sequence[ModelMessage]) -> None:
+    def finalize(
+        self,
+        *,
+        messages: Sequence[ModelMessage],
+        turn_context: SessionTurnContextEntry | None = None,
+    ) -> None:
         if self._finalized:
             raise RuntimeError("Session run already finalized")
 
@@ -137,6 +143,20 @@ class SessionRunAppender:
             self._path,
             SessionMessagesEntry(run_id=self._run_id, messages=list(messages)),
         )
+        if turn_context is not None:
+            if turn_context.run_id != self._run_id:
+                raise SessionFormatError(
+                    "Session turn context entry run_id must belong to the current run"
+                )
+            if turn_context.workspace_root != str(self._workspace_root):
+                raise SessionFormatError(
+                    "Session turn context workspace_root must match session workspace_root"
+                )
+            if turn_context.shell_family != self._shell_family:
+                raise SessionFormatError(
+                    "Session turn context shell_family must match session shell_family"
+                )
+            _append_entry_to_path(self._path, turn_context)
         _update_session_metadata(path=self._path, updated_at=_utc_now())
         self._finalized = True
 
@@ -182,6 +202,7 @@ def append_run_to_session(
     thinking: ThinkingSetting | None = None,
     events: Sequence[RunEvent],
     messages: Sequence[ModelMessage],
+    turn_context: SessionTurnContextEntry | None = None,
 ) -> None:
     run_events = list(events)
     run_messages = list(messages)
@@ -196,7 +217,7 @@ def append_run_to_session(
     )
     for event in run_events:
         appender.append_event(event)
-    appender.finalize(messages=run_messages)
+    appender.finalize(messages=run_messages, turn_context=turn_context)
 
 
 def append_compaction_to_session(
@@ -332,7 +353,12 @@ def fork_session(
         for entry in source_entries[1:]:
             if isinstance(
                 entry,
-                (SessionHeaderEntry, SessionForkEntry, SessionInfoEntry),
+                (
+                    SessionHeaderEntry,
+                    SessionForkEntry,
+                    SessionInfoEntry,
+                    SessionTurnContextEntry,
+                ),
             ):
                 continue
             _write_entry(file_handle, entry)
@@ -368,6 +394,8 @@ def load_session(
     fork: SessionForkEntry | None = None
     name: SessionName | None = None
     runs: list[SessionRunRecord] = []
+    turn_contexts: list[SessionTurnContextEntry] = []
+    latest_turn_context: SessionTurnContextEntry | None = None
     compactions: list[SessionCompactionEntry] = []
     current_run: SessionRunRecord | None = None
     known_run_ids: set[str] = set()
@@ -446,6 +474,31 @@ def load_session(
             current_run = None
             continue
 
+        if isinstance(entry, SessionTurnContextEntry):
+            if current_run is not None:
+                raise SessionFormatError(
+                    "Session turn context entry must follow a complete run"
+                )
+            if not runs:
+                raise SessionFormatError(
+                    "Session turn context entry must follow a complete run"
+                )
+            if entry.run_id != runs[-1].run_id:
+                raise SessionFormatError(
+                    "Session turn context entry must belong to the latest complete run"
+                )
+            if entry.workspace_root != header.workspace_root:
+                raise SessionFormatError(
+                    "Session turn context workspace_root must match session workspace_root"
+                )
+            if turn_contexts and turn_contexts[-1].run_id == entry.run_id:
+                raise SessionFormatError(
+                    "Session turn context entry must appear at most once per run"
+                )
+            turn_contexts.append(entry)
+            latest_turn_context = entry
+            continue
+
         if isinstance(entry, SessionCompactionEntry):
             if current_run is not None:
                 raise SessionFormatError(
@@ -477,6 +530,7 @@ def load_session(
 
             latest_compaction_run_index = compaction_run_index
             compactions.append(entry)
+            latest_turn_context = None
             continue
 
         if current_run is None:
@@ -508,6 +562,8 @@ def load_session(
         fork=fork,
         name=name,
         runs=runs,
+        turn_contexts=turn_contexts,
+        latest_turn_context=latest_turn_context,
         compactions=compactions,
     )
 
@@ -738,6 +794,7 @@ def _write_entry(
         | SessionRunEntry
         | SessionMessagesEntry
         | SessionEventEntry
+        | SessionTurnContextEntry
         | SessionCompactionEntry
     ),
 ) -> None:

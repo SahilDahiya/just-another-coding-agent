@@ -58,6 +58,17 @@ class SessionEventEntry(_SessionEntryBase):
     event: RunEvent
 
 
+class SessionTurnContextEntry(_SessionEntryBase):
+    type: Literal["session_turn_context"] = "session_turn_context"
+    run_id: str
+    model: str
+    thinking: ThinkingSetting | None = None
+    workspace_root: str
+    shell_family: ShellFamily = "posix"
+    current_date: str | None = None
+    instructions: str
+
+
 class SessionCompactionEntry(_SessionEntryBase):
     type: Literal["session_compaction"] = "session_compaction"
     compaction_id: str
@@ -72,6 +83,7 @@ SessionEntry = Annotated[
     | SessionRunEntry
     | SessionMessagesEntry
     | SessionEventEntry
+    | SessionTurnContextEntry
     | SessionCompactionEntry,
     Field(discriminator="type"),
 ]
@@ -90,6 +102,8 @@ class LoadedSession(_SessionEntryBase):
     fork: SessionForkEntry | None = None
     name: SessionName | None = None
     runs: list[SessionRunRecord]
+    turn_contexts: list[SessionTurnContextEntry] = Field(default_factory=list)
+    latest_turn_context: SessionTurnContextEntry | None = None
     compactions: list[SessionCompactionEntry] = Field(default_factory=list)
 
     @property
@@ -146,4 +160,5 @@ __all__ = [
     "SessionPreviewEntry",
     "SessionRunEntry",
     "SessionRunRecord",
+    "SessionTurnContextEntry",
 ]

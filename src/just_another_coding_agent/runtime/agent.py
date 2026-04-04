@@ -97,6 +97,7 @@ def build_canonical_agent(
     *,
     model: Any,
     workspace_root: Path | str,
+    current_date: date | None = None,
     shell_family: ShellFamily | None = None,
     tool_names: Sequence[str] = CANONICAL_TOOL_NAMES,
 ) -> Agent[WorkspaceDeps, str]:
@@ -122,6 +123,7 @@ def build_canonical_agent(
         output_retries=CANONICAL_AGENT_OUTPUT_RETRIES,
         instructions=build_canonical_instructions(
             workspace_root=root,
+            current_date=current_date,
             shell_family=effective_shell_family,
         ),
         deps_type=WorkspaceDeps,

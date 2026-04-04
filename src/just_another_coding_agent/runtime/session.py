@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import replace
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +26,7 @@ from just_another_coding_agent.contracts.run_events import (
     SessionCompactionStartedEvent,
     SessionCompactionWarningEvent,
     SessionLifecycleEvent,
+    SessionTurnContextStatusEvent,
     ToolCallFailedEvent,
     ToolCallStartedEvent,
     ToolCallSucceededEvent,
@@ -39,14 +41,18 @@ from just_another_coding_agent.runtime.compaction import (
     summarize_and_append_compaction_to_session,
 )
 from just_another_coding_agent.runtime.run import stream_run_events
-from just_another_coding_agent.session.replacement_history import (
-    strip_internal_prompt_state,
+from just_another_coding_agent.runtime.turn_context import (
+    build_session_turn_context_entry,
+    evaluate_turn_context_baseline,
 )
 from just_another_coding_agent.session.jsonl import (
     load_session,
     read_session_metadata,
     start_run_to_session,
     update_session_auto_compaction_failures,
+)
+from just_another_coding_agent.session.replacement_history import (
+    strip_internal_prompt_state,
 )
 from just_another_coding_agent.tools._workspace import normalize_workspace_root
 from just_another_coding_agent.tools.deps import WorkspaceDeps
@@ -173,6 +179,7 @@ async def stream_session_run_events(
     """
     normalized_workspace_root = normalize_workspace_root(workspace_root)
     shell_family = detect_default_shell_family()
+    current_date = date.today()
     loaded_session = None
     if session_path.exists():
         loaded_session = load_session(
@@ -266,6 +273,25 @@ async def stream_session_run_events(
         if thinking is not None
         else (loaded_session.thinking if loaded_session is not None else None)
     )
+    if loaded_session is not None:
+        turn_context_baseline = evaluate_turn_context_baseline(
+            entry=loaded_session.latest_turn_context,
+            model=model,
+            workspace_root=normalized_workspace_root,
+            current_date=current_date,
+            shell_family=shell_family,
+            thinking=resolved_thinking,
+            has_persisted_history=bool(loaded_session.turn_contexts),
+        )
+        yield SessionTurnContextStatusEvent(
+            status=turn_context_baseline.status,
+            reason=turn_context_baseline.reason,
+            persisted_run_id=(
+                loaded_session.latest_turn_context.run_id
+                if loaded_session.latest_turn_context is not None
+                else None
+            ),
+        )
     preexisting_history = (
         build_resume_message_history(loaded_session)
         if loaded_session is not None
@@ -276,10 +302,12 @@ async def stream_session_run_events(
     agent = build_canonical_agent(
         model=model,
         workspace_root=normalized_workspace_root,
+        current_date=current_date,
         shell_family=shell_family,
         tool_names=tool_names,
     )
     run_appender = None
+    run_turn_context = None
     authoritative_messages: list[ModelMessage] | None = None
     pending_tool_calls: dict[str, ToolCallStartedEvent] = {}
     active_run_id: str | None = None
@@ -306,6 +334,14 @@ async def stream_session_run_events(
             ):
                 if run_appender is None:
                     active_run_id = event.run_id
+                    run_turn_context = build_session_turn_context_entry(
+                        run_id=event.run_id,
+                        model=model,
+                        workspace_root=normalized_workspace_root,
+                        current_date=current_date,
+                        shell_family=shell_family,
+                        thinking=resolved_thinking,
+                    )
                     run_appender = start_run_to_session(
                         path=session_path,
                         workspace_root=normalized_workspace_root,
@@ -368,7 +404,10 @@ async def stream_session_run_events(
                         finalized_messages
                     )
                 finalized_messages = strip_internal_prompt_state(finalized_messages)
-                run_appender.finalize(messages=finalized_messages)
+                run_appender.finalize(
+                    messages=finalized_messages,
+                    turn_context=run_turn_context,
+                )
 
 
 __all__ = ["stream_session_run_events"]

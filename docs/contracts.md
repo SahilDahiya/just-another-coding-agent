@@ -289,9 +289,14 @@ Rules:
 - Session lifecycle events may appear before `run_started` when the runtime
   performs work such as automatic session compaction at the resumed-run
   boundary.
+- `session_turn_context_status` may also appear before `run_started` on
+  session-backed runs so clients can see whether the persisted runtime-framing
+  baseline was missing, reused, or cleared for that run.
 
 Initial executable run slice:
 
+- `session_turn_context_status`
+  - fields: `type`, `status`, `reason`, `persisted_run_id`
 - `session_compaction_started`
   - fields: `type`, `budget`
 - `session_compaction_completed`
@@ -326,6 +331,15 @@ Ordering rules for the initial slice:
 - `budget`, `budget_before`, and `budget_after` are backend-owned
   `CompactionBudgetReport` objects. They are additive observability payloads
   for compaction decisions and must not require Go-side reinterpretation.
+- `session_turn_context_status.status` is one of `missing`, `reused`, or
+  `cleared`
+- `session_turn_context_status.reason` is a backend-owned explanation for that
+  status, such as `missing`, `no_active_turn_context`,
+  `shell_family_mismatch`, `model_mismatch`, `thinking_mismatch`, or
+  `current_date_mismatch`
+- `session_turn_context_status.persisted_run_id` identifies the prior
+  persisted run whose turn-context baseline was reused or cleared; it is null
+  when no persisted baseline was available
 - After a second-or-later durable automatic compaction, the runtime emits one
   explicit `session_compaction_warning` before `run_started` so clients can
   surface potential continuity degradation without inventing local heuristics
@@ -444,7 +458,7 @@ Rules:
 Initial executable session slice:
 
 - `session_header`
-  - fields: `type`, `version`, `workspace_root`
+  - fields: `type`, `version`, `workspace_root`, `shell_family`
 - `session_info`
   - fields: `type`, `name`
   - `name` is the backend-normalized durable human session name
@@ -461,6 +475,12 @@ Initial executable session slice:
   - `messages` must be the native PydanticAI `ModelMessage` list for that run
   - `messages` must exclude internal instructions and `SystemPromptPart`
     content; those are ephemeral runtime state, not durable conversation state
+- `session_turn_context`
+  - fields: `type`, `run_id`, `model`, `thinking`, `workspace_root`, `shell_family`, `current_date`, `instructions`
+  - records one persisted backend-owned runtime-framing snapshot for that completed run
+  - `thinking` and `current_date` are optional
+  - `instructions` must be the full canonical instruction payload used for that run
+  - v1 persists this snapshot for correctness and future optimization only; it does not enable diff-based reinjection yet
 - `session_event`
   - fields: `type`, `run_id`, `event`
   - `event` must be one canonical persisted run event payload
@@ -481,12 +501,24 @@ Ordering rules for the session slice:
   line immediately after `session_header`
 - `session_info` may appear only at completed-run boundaries, never in the middle of a run
 - `session_info.name` is unique within the current workspace-backed session shard
-- Each completed `session_run` is followed by one or more `session_event` lines for the same `run_id` and then exactly one trailing `session_messages` line for that run
+- Each completed `session_run` is followed by one or more `session_event` lines for the same `run_id`, then exactly one trailing `session_messages` line for that run, and then optionally exactly one trailing `session_turn_context` line for that same run
 - A trailing run without `session_messages` is an incomplete run and authoritative session load must fail hard
+- `session_turn_context` may appear only immediately after the completed run's trailing `session_messages`
+- `session_turn_context` is optional so older sessions remain loadable, but a run may not have more than one
+- `session_turn_context.workspace_root` must match the authoritative session workspace root exactly
 - `session_compaction` may appear only at a completed run boundary, never in the middle of a run
 - `session_compaction` entries are append-only and must not move the compaction boundary backward
 - Authoritative session loads must provide the expected workspace root and it must match the persisted `session_header.workspace_root` exactly
 - Session resume semantics must reconstruct effective conversation context from the latest compaction `replacement_messages` plus later `session_messages` strictly after `compacted_through_run_id`
+- Session resume semantics must treat `session_turn_context` as separate runtime framing state rather than as conversation memory
+- The latest active persisted `session_turn_context` baseline is invalidated by a later `session_compaction` entry
+- Before a session-backed run starts, the runtime must explicitly classify the
+  active persisted `session_turn_context` baseline as missing, reused, or
+  cleared against the current run framing inputs
+- The current framing inputs that can clear a persisted baseline include the
+  effective model, effective thinking setting, shell family, current date, and
+  canonical instruction payload
+- Forked sessions do not inherit parent `session_turn_context` entries; a fork starts without an active persisted runtime-framing baseline
 - Durable cross-run compaction must be materialized into resume `message_history` before the next run starts; JACA does not use PydanticAI `history_processors` in the canonical runtime path
 - Durable compaction summary generation must use a plain-text model call that
   feeds one persisted summary message into `replacement_messages`; the runtime
@@ -510,6 +542,7 @@ Ordering rules for the session slice:
 - Persisted events for a run must satisfy the streamed run contract, including exactly one terminal outcome
 - Persisted `session_event` payloads must preserve any tool `activity` metadata unchanged
 - Appending a new run must preserve all existing lines and write the header only once
+- v1 resumed and forked runs still rebuild and reinject the full canonical runtime framing on each run; persisted `session_turn_context` does not yet enable diff-based prompt updates
 - Successful resumed runs must persist only new run deltas instead of replaying replacement history back into trailing `session_messages`
 - Before a resumed run starts, the runtime may append one automatic `session_compaction` entry when estimated local resume history plus reserve crosses the configured fraction of the effective active model context window after compaction-output headroom is reserved
 - Before a resumed run starts, the automatic trigger estimates the actual local
@@ -518,7 +551,6 @@ Ordering rules for the session slice:
 - Automatic durable compaction may preserve a bounded recent user-message tail
   inside `replacement_messages`; future automatic trigger decisions count only
   completed runs beyond `compacted_through_run_id` as new work
-  as new work
 - After three consecutive automatic compaction failures for one session, the runtime blocks further automatic compaction attempts for that session and fails hard until the user reduces context or starts a new session
 
 ## RPC Contract

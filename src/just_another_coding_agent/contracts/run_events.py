@@ -189,10 +189,20 @@ class SessionCompactionWarningEvent(BaseModel):
     message: str
 
 
+class SessionTurnContextStatusEvent(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    type: Literal["session_turn_context_status"] = "session_turn_context_status"
+    status: Literal["missing", "reused", "cleared"]
+    reason: str
+    persisted_run_id: str | None = None
+
+
 SessionLifecycleEvent = (
     SessionCompactionStartedEvent
     | SessionCompactionCompletedEvent
     | SessionCompactionWarningEvent
+    | SessionTurnContextStatusEvent
 )
 
 
@@ -224,6 +234,7 @@ __all__ = [
     "SessionCompactionStartedEvent",
     "SessionCompactionWarningEvent",
     "SessionLifecycleEvent",
+    "SessionTurnContextStatusEvent",
     "ShellActivityDetails",
     "ToolActivity",
     "ToolActivityDetails",

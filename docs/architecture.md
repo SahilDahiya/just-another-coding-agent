@@ -95,6 +95,7 @@ Keep product semantics in this repo's own contract layer:
 - session JSONL entry types and format versioning
 - explicit session commands such as `session.compact`
 - compaction summary shape and resume semantics
+- persisted runtime-framing snapshots and their invalidation rules
 - continue semantics across runs
 - durable recovery policy and public streamed event behavior
 
@@ -117,6 +118,8 @@ Current responsibilities:
 Important boundary:
 
 - durable JSONL session history is the authoritative source of truth for resumed runs
+- persisted per-run turn-context snapshots are separate backend-owned runtime framing state, not conversation memory
+- v1 turn-context persistence exists for correctness and invalidation only; resumed runs still reinject the full canonical instructions rather than sending diffs
 - the canonical session runtime does not rely on provider-side server history during resume
 - provider-native history settings may still exist inside the lower-level model seam, but they are not part of canonical session continuation semantics
 
@@ -146,6 +149,8 @@ The important boundary is:
 - durable compaction entries now persist `replacement_messages` plus
   `compacted_through_run_id`, so resumed history rebuilds from one canonical
   model-visible compacted prefix rather than a hidden summary/checkpoint split
+- later compaction invalidates the currently active persisted turn-context
+  baseline so future runs do not diff against stale runtime framing
 - if no canonical context metadata is known for the active model, live-run
   compaction falls back to one conservative default soft char limit
   should leave the current model step and resume with explicit results
@@ -173,6 +178,7 @@ The important boundary is:
       focused durable-compaction helpers
     - `resume.py` for compacted session replay helpers
   - `token_estimation.py` for the canonical backend-owned token-estimation seam
+  - `turn_context.py` for persisted per-run runtime-framing snapshots
   - orchestration entrypoints
   - event translation from PydanticAI into the public contract
 - `src/just_another_coding_agent/tools/`
@@ -227,5 +233,5 @@ The important boundary is:
 2. The runtime creates or resumes a coding-agent run using PydanticAI primitives directly where possible, with `WorkspaceDeps(workspace_root=...)` passed as run deps, a thin canonical tool registry selecting the requested toolset, and persisted `message_history` supplied for session continuation.
 3. Tools execute through the canonical tool layer.
 4. Events are translated into the public streamed event contract rather than exposing raw framework internals directly.
-5. Session persistence appends `session_run` plus public `session_event` entries incrementally during streaming, then appends the native PydanticAI `session_messages` for that run only after terminal completion, all bound to the authoritative workspace root and effective per-run thinking setting.
+5. Session persistence appends `session_run` plus public `session_event` entries incrementally during streaming, then appends the native PydanticAI `session_messages` for that run and the optional `session_turn_context` runtime-framing snapshot only after terminal completion, all bound to the authoritative workspace root and effective per-run thinking setting.
 6. The TUI, when used, consumes the same runtime/session path rather than introducing a second execution model.

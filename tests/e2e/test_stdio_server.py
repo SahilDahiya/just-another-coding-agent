@@ -171,20 +171,26 @@ async def test_serve_rpc_stdio_handles_multiple_lines_in_one_process(
         "id": "req-create",
         "response": {"session_id": fixed_session_id},
     }
-    assert [message["type"] for message in messages[1:6]] == ["rpc_event"] * 5
-    assert [message["event"]["type"] for message in messages[1:6]] == [
+    assert [message["type"] for message in messages[1:7]] == ["rpc_event"] * 6
+    assert [message["event"]["type"] for message in messages[1:7]] == [
+        "session_turn_context_status",
         "run_started",
         "tool_call_started",
         "tool_call_succeeded",
         "assistant_text_delta",
         "run_succeeded",
     ]
-    assert [message["type"] for message in messages[6:]] == ["rpc_event"] * 3
-    assert [message["event"]["type"] for message in messages[6:]] == [
+    assert messages[1]["event"]["status"] == "missing"
+    assert messages[1]["event"]["reason"] == "missing"
+    assert [message["type"] for message in messages[7:]] == ["rpc_event"] * 4
+    assert [message["event"]["type"] for message in messages[7:]] == [
+        "session_turn_context_status",
         "run_started",
         "assistant_text_delta",
         "run_succeeded",
     ]
+    assert messages[7]["event"]["status"] == "reused"
+    assert messages[7]["event"]["reason"] == "matched"
     assert messages[-1]["event"]["output_text"] == "I created note.txt"
 
     session_path = session_path_for_id(

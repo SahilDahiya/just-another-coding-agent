@@ -25,6 +25,7 @@ from just_another_coding_agent.contracts.run_events import (
 )
 from just_another_coding_agent.contracts.session import (
     SESSION_FORMAT_VERSION,
+    SessionTurnContextEntry,
 )
 from just_another_coding_agent.runtime.run import stream_run_events
 from just_another_coding_agent.session import build_session_preview
@@ -103,6 +104,79 @@ async def test_append_and_load_session_with_runtime_events(tmp_path) -> None:
     assert loaded.runs[0].events == _persisted_events(events)
     assert loaded.message_history == messages
     assert loaded.thinking == "high"
+    assert loaded.latest_turn_context is None
+
+
+def test_append_run_persists_turn_context_snapshot(tmp_path) -> None:
+    path = tmp_path / "session.jsonl"
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    turn_context = SessionTurnContextEntry(
+        run_id="run-1",
+        model="openai-responses:gpt-5.3-codex",
+        thinking="high",
+        workspace_root=str(workspace_root.resolve()),
+        shell_family="posix",
+        current_date="2026-04-04",
+        instructions="Current workspace root: /workspace",
+    )
+
+    append_run_to_session(
+        path=path,
+        workspace_root=workspace_root,
+        prompt="go",
+        thinking="high",
+        events=[
+            RunStartedEvent(run_id="run-1"),
+            RunSucceededEvent(run_id="run-1", output_text="done"),
+        ],
+        messages=[ModelRequest(parts=[UserPromptPart(content="go")])],
+        turn_context=turn_context,
+    )
+
+    loaded = load_session(path=path, workspace_root=workspace_root)
+
+    assert loaded.turn_contexts == [turn_context]
+    assert loaded.latest_turn_context == turn_context
+
+
+def test_load_session_compaction_invalidates_latest_turn_context(tmp_path) -> None:
+    path = tmp_path / "session.jsonl"
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    turn_context = SessionTurnContextEntry(
+        run_id="run-1",
+        model="openai-responses:gpt-5.3-codex",
+        thinking="high",
+        workspace_root=str(workspace_root.resolve()),
+        shell_family="posix",
+        current_date="2026-04-04",
+        instructions="Current workspace root: /workspace",
+    )
+
+    append_run_to_session(
+        path=path,
+        workspace_root=workspace_root,
+        prompt="go",
+        thinking="high",
+        events=[
+            RunStartedEvent(run_id="run-1"),
+            RunSucceededEvent(run_id="run-1", output_text="done"),
+        ],
+        messages=[ModelRequest(parts=[UserPromptPart(content="go")])],
+        turn_context=turn_context,
+    )
+    append_compaction_to_session(
+        path=path,
+        workspace_root=workspace_root,
+        replacement_messages=[build_compaction_summary_message("Continue the task")],
+        compacted_through_run_id="run-1",
+    )
+
+    loaded = load_session(path=path, workspace_root=workspace_root)
+
+    assert loaded.turn_contexts == [turn_context]
+    assert loaded.latest_turn_context is None
 
 
 def test_build_session_preview_uses_recent_runs_only(tmp_path) -> None:
@@ -305,6 +379,50 @@ def test_fork_session_replaces_parent_fork_entry_with_direct_lineage(tmp_path) -
     assert loaded.fork is not None
     assert loaded.fork.forked_from_session_id == "b" * 32
     assert line_types.count("session_fork") == 1
+
+
+def test_fork_session_drops_parent_turn_context_entries(tmp_path) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    source_path = tmp_path / "source.jsonl"
+    target_path = tmp_path / "fork.jsonl"
+    turn_context = SessionTurnContextEntry(
+        run_id="run-1",
+        model="openai-responses:gpt-5.3-codex",
+        thinking="medium",
+        workspace_root=str(workspace_root.resolve()),
+        shell_family="posix",
+        current_date="2026-04-04",
+        instructions="Current workspace root: /workspace",
+    )
+
+    append_run_to_session(
+        path=source_path,
+        workspace_root=workspace_root,
+        prompt="first",
+        thinking="medium",
+        events=[
+            RunStartedEvent(run_id="run-1"),
+            RunSucceededEvent(run_id="run-1", output_text="done"),
+        ],
+        messages=[ModelRequest(parts=[UserPromptPart(content="first")])],
+        turn_context=turn_context,
+    )
+
+    fork_session(
+        source_path=source_path,
+        target_path=target_path,
+        workspace_root=workspace_root,
+        forked_from_session_id="a" * 32,
+    )
+
+    loaded = load_session(path=target_path, workspace_root=workspace_root)
+    raw_lines = target_path.read_text(encoding="utf-8").splitlines()
+    line_types = [json.loads(line)["type"] for line in raw_lines]
+
+    assert loaded.turn_contexts == []
+    assert loaded.latest_turn_context is None
+    assert "session_turn_context" not in line_types
 
 
 def test_append_run_to_session_appends_without_rewriting_header(tmp_path) -> None:

@@ -215,6 +215,7 @@ async def test_e2e_stdio_auto_compaction_keeps_recent_user_tail_and_summary_mess
     assert event_types == [
         "session_compaction_started",
         "session_compaction_completed",
+        "session_turn_context_status",
         "run_started",
         "assistant_text_delta",
         "run_succeeded",
@@ -328,7 +329,12 @@ async def test_e2e_stdio_resume_replays_custom_replacement_messages_raw(
         message["event"]["type"]
         for message in rpc_messages
         if message["type"] == "rpc_event"
-    ] == ["run_started", "assistant_text_delta", "run_succeeded"]
+    ] == [
+        "session_turn_context_status",
+        "run_started",
+        "assistant_text_delta",
+        "run_succeeded",
+    ]
     assert observed["incoming_shapes"][0] == "ModelResponse:['ToolCallPart']"
     assert observed["incoming_shapes"][1].startswith("ModelRequest:['ToolReturnPart'")
     assert observed["incoming_user_prompts"] == ["after-manual-compaction"]

@@ -219,22 +219,28 @@ async def test_handle_rpc_json_line_creates_session_and_resumes_runs(
         sessions_root=sessions_root,
     )
 
-    assert [message["type"] for message in first_messages] == ["rpc_event"] * 5
+    assert [message["type"] for message in first_messages] == ["rpc_event"] * 6
     assert [message["event"]["type"] for message in first_messages] == [
+        "session_turn_context_status",
         "run_started",
         "tool_call_started",
         "tool_call_succeeded",
         "assistant_text_delta",
         "run_succeeded",
     ]
+    assert first_messages[0]["event"]["status"] == "missing"
+    assert first_messages[0]["event"]["reason"] == "missing"
     assert first_messages[-1]["event"]["output_text"] == "created"
 
-    assert [message["type"] for message in second_messages] == ["rpc_event"] * 3
+    assert [message["type"] for message in second_messages] == ["rpc_event"] * 4
     assert [message["event"]["type"] for message in second_messages] == [
+        "session_turn_context_status",
         "run_started",
         "assistant_text_delta",
         "run_succeeded",
     ]
+    assert second_messages[0]["event"]["status"] == "reused"
+    assert second_messages[0]["event"]["reason"] == "matched"
     assert second_messages[-1]["event"]["output_text"] == "I created note.txt"
 
     session_path = session_path_for_id(
@@ -954,8 +960,9 @@ async def test_handle_rpc_json_line_keeps_run_failure_in_event_stream_and_sessio
         sessions_root=sessions_root,
     )
 
-    assert [message["type"] for message in messages] == ["rpc_event"] * 9
+    assert [message["type"] for message in messages] == ["rpc_event"] * 10
     assert [message["event"]["type"] for message in messages] == [
+        "session_turn_context_status",
         "run_started",
         "tool_call_started",
         "tool_call_succeeded",
@@ -966,7 +973,9 @@ async def test_handle_rpc_json_line_keeps_run_failure_in_event_stream_and_sessio
         "assistant_text_delta",
         "run_succeeded",
     ]
-    assert messages[2]["event"]["result"] == {
+    assert messages[0]["event"]["status"] == "missing"
+    assert messages[0]["event"]["reason"] == "missing"
+    assert messages[3]["event"]["result"] == {
         "ok": False,
         "error_type": "ToolMatchError",
         "message": (
@@ -974,8 +983,8 @@ async def test_handle_rpc_json_line_keeps_run_failure_in_event_stream_and_sessio
             f"{workspace_root / 'note.txt'}; found 0 occurrences"
         ),
     }
-    assert messages[4]["event"]["result"] == messages[2]["event"]["result"]
-    assert messages[6]["event"]["result"] == messages[2]["event"]["result"]
+    assert messages[5]["event"]["result"] == messages[3]["event"]["result"]
+    assert messages[7]["event"]["result"] == messages[3]["event"]["result"]
     assert messages[-2]["event"]["delta"] == "done"
     assert messages[-1]["event"]["output_text"] == "done"
 
