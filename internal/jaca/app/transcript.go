@@ -579,10 +579,12 @@ func (t *Transcript) rebuildLiveAssistantRendered() {
 }
 
 func (t *Transcript) RefreshLiveMarker() {
-	if t.liveAssistantIdx < 0 {
-		return
+	if t.liveAssistantIdx >= 0 {
+		t.rebuildLiveAssistantRendered()
 	}
-	t.rebuildLiveAssistantRendered()
+	if t.toolGroup != nil {
+		t.rewriteToolGroup()
+	}
 }
 
 func (t *Transcript) ensureBlockGap() {
@@ -652,7 +654,7 @@ func (t *Transcript) rewriteToolGroup() {
 	if t.toolGroup == nil {
 		return
 	}
-	plain, rendered := t.toolGroup.render()
+	plain, rendered := t.toolGroup.render(t.MotionTick)
 	t.replaceBlock(t.toolGroup.index, &toolGroupCell{
 		plain:    plain,
 		rendered: rendered,

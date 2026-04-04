@@ -124,11 +124,11 @@ func (g *toolGroup) fail(event rpc.RunEvent) bool {
 	return true
 }
 
-func (g *toolGroup) render() (string, string) {
+func (g *toolGroup) render(motionTick int) (string, string) {
 	if isExplorationGroup(g.order, g.entries) &&
 		!hasExplorationErrors(g.order, g.entries) &&
 		!hasExplorationOperationalMisses(g.order, g.entries) {
-		return renderExplorationGroup(g.order, g.entries)
+		return renderExplorationGroup(g.order, g.entries, motionTick)
 	}
 
 	var plain strings.Builder
@@ -441,14 +441,17 @@ func buildToolDisplayLabel(toolName string, activity *rpc.ToolActivity) string {
 	return capitalizeFirst(toolName)
 }
 
-func renderExplorationGroup(order []string, entries map[string]*toolEntry) (string, string) {
+func renderExplorationGroup(order []string, entries map[string]*toolEntry, motionTick int) (string, string) {
 	complete := isExplorationComplete(order, entries)
 	count := len(order)
 
 	headerLabel := "Exploring"
-	markerColor := defaultTheme.textMuted
+	var markerColor lipgloss.TerminalColor
 	if complete {
 		headerLabel = "Explored"
+		markerColor = defaultTheme.textMuted
+	} else {
+		markerColor = breathingMarkerColor(motionTick)
 	}
 	if count > 1 {
 		headerLabel += fmt.Sprintf(" (%d tools)", count)
