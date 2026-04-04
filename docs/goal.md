@@ -72,3 +72,9 @@ Use PydanticAI primitives wherever they already solve the problem. Local code sh
    - Names that explain why, not what — `max_compaction_reserve` over `val` or `n`.
    - Structure that reveals intent — a cold reader should understand *why* code exists, not just *what* it does.
    - Don't compress for the sake of fewer lines — shorter isn't always more readable.
+9. Measure what you are deciding about, not a proxy for it. When writing
+   estimation, budgeting, or threshold code, the measurement must target the
+   exact artifact the decision acts on. A rough estimate of the right thing
+   beats a precise measurement of a correlated-but-different thing. Only use
+   indirect measurements when you can prove the relationship is stable (same
+   scope, same contents, same overhead).
