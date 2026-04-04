@@ -492,6 +492,7 @@ func (m *model) currentViewModel() viewModel {
 		WorkspaceRoot:  m.options.WorkspaceRoot,
 		Thinking:       m.options.Thinking,
 		SessionID:      m.sessionID,
+		SessionName:    m.sessionName,
 		MotionTick:     m.motionTick,
 		Transcript:     m.viewport.View(),
 		PromptValue:    m.promptView(),
