@@ -4,6 +4,8 @@ import json
 import os
 import subprocess
 from pathlib import Path
+from queue import Empty, Queue
+from threading import Thread
 
 import pytest
 
@@ -13,6 +15,8 @@ from just_another_coding_agent.tools.read_only_worker.client import (
 )
 from just_another_coding_agent.tools.read_only_worker.protocol import (
     READ_ONLY_WORKER_OPERATIONS,
+    GrepCallResult,
+    GrepWorkerRequest,
     HelloWorkerRequest,
     HelloWorkerResponse,
     LsCallResult,
@@ -67,7 +71,7 @@ class _GoWorkerProcess:
         assert hasattr(message, "model_dump_json")
         return self.send_raw(encode_worker_message(message))
 
-    def send_raw(self, payload: str) -> object:
+    def send_raw(self, payload: str, *, timeout: float = 10.0) -> object:
         assert self._process is not None
         assert self._process.stdin is not None
         assert self._process.stdout is not None
@@ -75,7 +79,28 @@ class _GoWorkerProcess:
         self._process.stdin.write(f"{payload}\n")
         self._process.stdin.flush()
 
-        line = self._process.stdout.readline()
+        queue: Queue[tuple[bool, str | BaseException]] = Queue(maxsize=1)
+
+        def _readline() -> None:
+            try:
+                queue.put((True, self._process.stdout.readline()))
+            except BaseException as error:
+                queue.put((False, error))
+
+        Thread(target=_readline, daemon=True).start()
+        try:
+            ok, value = queue.get(timeout=timeout)
+        except Empty as error:
+            raise AssertionError(
+                f"Go read-only worker did not respond within {timeout:.1f}s"
+            ) from error
+
+        if not ok:
+            assert isinstance(value, BaseException)
+            raise value
+
+        assert isinstance(value, str)
+        line = value
         if line:
             return parse_worker_response_line(line)
 
@@ -133,6 +158,84 @@ def test_go_read_only_worker_handles_handshake_read_and_ls(tmp_path: Path) -> No
             {"name": "note.txt", "is_dir": False},
             {"name": "src", "is_dir": True},
         ]
+
+
+def test_go_read_only_worker_grep_returns_after_limit_hit(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    for index in range(700):
+        (workspace_root / f"match_{index:02d}.py").write_text(
+            "def target():\n    return 'compaction marker "
+            + ("x" * 160)
+            + "'\n",
+            encoding="utf-8",
+        )
+    go_cache_dir = tmp_path / "gocache"
+
+    with _GoWorkerProcess(repo_root, go_cache_dir=go_cache_dir) as worker:
+        hello = worker.send(HelloWorkerRequest(request_id="hello-limit"))
+        assert isinstance(hello, HelloWorkerResponse)
+
+        grep_result = worker.send_raw(
+            encode_worker_message(
+                GrepWorkerRequest(
+                    request_id="grep-limit",
+                    workspace_root=str(workspace_root),
+                    pattern="compaction",
+                    path=".",
+                    glob="**/*.py",
+                    ignore_case=True,
+                    limit=5,
+                    max_bytes=50 * 1024,
+                    max_line_chars=300,
+                )
+            ),
+            timeout=3.0,
+        )
+        assert isinstance(grep_result, GrepCallResult)
+        assert grep_result.limit_hit is True
+        assert grep_result.byte_limit_hit is False
+        assert len(grep_result.matches) == 5
+
+
+def test_go_read_only_worker_grep_returns_after_byte_limit_hit(
+    tmp_path: Path,
+) -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    for index in range(700):
+        (workspace_root / f"wide_{index:02d}.py").write_text(
+            "needle = '" + ("x" * 120) + "'\n",
+            encoding="utf-8",
+        )
+    go_cache_dir = tmp_path / "gocache"
+
+    with _GoWorkerProcess(repo_root, go_cache_dir=go_cache_dir) as worker:
+        hello = worker.send(HelloWorkerRequest(request_id="hello-byte-limit"))
+        assert isinstance(hello, HelloWorkerResponse)
+
+        grep_result = worker.send_raw(
+            encode_worker_message(
+                GrepWorkerRequest(
+                    request_id="grep-byte-limit",
+                    workspace_root=str(workspace_root),
+                    pattern="needle",
+                    path=".",
+                    glob="**/*.py",
+                    ignore_case=False,
+                    limit=50,
+                    max_bytes=10,
+                    max_line_chars=300,
+                )
+            ),
+            timeout=3.0,
+        )
+        assert isinstance(grep_result, GrepCallResult)
+        assert grep_result.limit_hit is False
+        assert grep_result.byte_limit_hit is True
+        assert grep_result.matches == []
 
 
 async def test_go_read_only_worker_rejects_binary_read_input(tmp_path: Path) -> None:

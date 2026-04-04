@@ -746,9 +746,12 @@ func executeGrep(ctx context.Context, req grepRequest) (grepResult, errorRespons
 		if event.Type != "match" {
 			continue
 		}
+		if result.LimitHit || result.ByteLimitHit {
+			continue
+		}
 		if len(result.Matches) >= req.Limit {
 			result.LimitHit = true
-			break
+			continue
 		}
 
 		matchText, textTruncated := truncateMatchText(event.Data.Lines.Text, req.MaxLineChars)
@@ -760,7 +763,7 @@ func executeGrep(ctx context.Context, req grepRequest) (grepResult, errorRespons
 		itemBytes := len([]byte(rendered)) + 1
 		if outputBytes+itemBytes > req.MaxBytes {
 			result.ByteLimitHit = true
-			break
+			continue
 		}
 		result.Matches = append(result.Matches, grepMatch{
 			Path:          matchPath,
