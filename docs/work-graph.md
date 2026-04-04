@@ -327,6 +327,115 @@ The agent should not, by default:
 - treat the work graph as hidden memory
 - dump the entire work graph into prompts
 
+## Policy Layer Direction
+
+The work graph should keep a strict split between durable state and learned or
+heuristic policy.
+
+The durable state remains backend-owned:
+
+- SQLite-backed `work_items` and `work_updates`
+- strict status, kind, and slug validation
+- explicit `work_*` CLI commands and agent tools
+
+Any future LM-assisted judgment should sit above that deterministic substrate.
+
+That means the repo may add bounded policy modules for questions like:
+
+- should this Harbor result create a new child task or update an existing item
+- should this result append a `verification` update, a `decision`, or a plain
+  `note`
+- should a task move to `blocked`, remain `in_progress`, or become `done`
+- which open task is the best next candidate for execution
+
+Those policy modules may use DSPy or similar tooling, but they must never
+replace the canonical work-graph store or mutate it implicitly.
+
+## DSPy Fit
+
+DSPy is a plausible fit for bounded work-graph policy modules because it is
+good at structured LM programs with explicit input/output schemas.
+
+The strongest near-term DSPy uses here are:
+
+- decomposition proposals from a top-level `project` into candidate child
+  `task` items
+- duplicate detection against existing active work items before creation
+- update drafting that turns session or Harbor evidence into one explicit
+  `work_update`
+- next-task selection over a bounded set of open work items
+
+Important boundary:
+
+- DSPy should propose structured actions
+- backend-owned Python operations should validate and execute those actions
+- the work graph must remain inspectable and explicitly mutated through normal
+  backend seams
+
+## GEPA Fit
+
+GEPA is a later-stage fit, not a v1 storage dependency.
+
+If the repo adopts DSPy-based policy modules, GEPA could optimize the natural
+language policy used by those modules against explicit metrics. The strongest
+target is not generic work-item prose quality; it is work-management quality on
+real coding tasks.
+
+The best candidate policy slice is:
+
+- work item creation policy
+- execution prioritization policy
+- resolution and status policy
+- Harbor-result interpretation policy
+
+In practical terms, that means optimizing rules like:
+
+- when to create a new child task instead of appending evidence to an existing
+  task
+- when Harbor output is strong enough to count as `verification`
+- when failure means `blocked` rather than "keep trying"
+- when a task is actually `done` versus merely promising progress
+
+## Harbor-Driven Evaluation Direction
+
+Harbor tasks are a strong future evaluation source for work-graph policy
+because they produce grounded outcomes, concrete artifacts, and repeatable
+follow-up decisions.
+
+This suggests a future evaluator that scores whether a bounded work-policy
+module:
+
+- avoids duplicate task creation
+- selects useful next tasks
+- records meaningful verification breadcrumbs
+- marks `done` only when explicit evidence exists
+- distinguishes unresolved blockers from ordinary intermediate failures
+- improves downstream Harbor task completion rather than only producing nicer
+  prose
+
+The key design rule is:
+
+- Harbor and similar task harnesses may evaluate work-graph policy
+- they must not become the storage system or a hidden side channel for work
+  state
+
+## Recommended Sequence
+
+The sequence should remain strict:
+
+1. Ship deterministic v1 work-graph storage and backend operations.
+2. Add one bounded structured policy module above that substrate.
+3. Build evaluation data from real work-item histories and Harbor task
+   outcomes.
+4. Only then consider GEPA to optimize the policy text for those modules.
+
+Do not:
+
+- make DSPy or GEPA the source of truth for work-item state
+- let GEPA write directly to the work-graph database
+- optimize work-graph prompts before a real evaluator exists
+- use the whole work graph as unbounded prompt context
+
 ## Out Of Scope For V1
 
 Do not build these in the first slice:
