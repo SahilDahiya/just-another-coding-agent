@@ -1,5 +1,6 @@
 import io
 import json
+import random
 from collections.abc import AsyncIterator
 
 from pydantic_ai.messages import (
@@ -107,6 +108,13 @@ def _assistant_texts(messages: list[ModelMessage]) -> list[str]:
         for part in message.parts
         if isinstance(part, TextPart)
     ]
+
+
+def _random_compaction_text(rng: random.Random, prefix: str) -> str:
+    return (
+        prefix
+        + "".join(rng.choice("abcdef0123456789 ") for _ in range(rng.randint(20, 220)))
+    ).strip()
 
 
 async def test_e2e_stdio_auto_compaction_keeps_recent_user_tail_and_summary_message(
@@ -226,8 +234,11 @@ async def test_e2e_stdio_auto_compaction_keeps_recent_user_tail_and_summary_mess
     loaded = load_session(path=session_path, workspace_root=workspace_root)
     assert loaded.latest_compaction is not None
     assert loaded.latest_compaction.compacted_through_run_id == "run-3"
-    assert extract_compaction_summary_text(loaded.latest_compaction.replacement_messages) == (
-        "- Goal: continue after compaction"
+    assert (
+        extract_compaction_summary_text(
+            loaded.latest_compaction.replacement_messages
+        )
+        == "- Goal: continue after compaction"
     )
     assert "second" in observed["user_prompts"]
     assert "third" in observed["user_prompts"]
@@ -433,7 +444,152 @@ async def test_e2e_stdio_repeated_auto_compactions_keep_new_run_delta_only(
 
     loaded = load_session(path=session_path, workspace_root=workspace_root)
     assert len(loaded.compactions) == 2
-    assert extract_compaction_summary_text(loaded.latest_compaction.replacement_messages) == (
-        "- Goal: compaction 2"
+    assert (
+        extract_compaction_summary_text(
+            loaded.latest_compaction.replacement_messages
+        )
+        == "- Goal: compaction 2"
     )
     assert _user_prompts(loaded.runs[-1].messages) == ["after-second-compaction"]
+
+
+def test_seeded_compaction_chaos_preserves_resume_invariants(tmp_path) -> None:
+    rng = random.Random(20260403)
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    session_path = tmp_path / "session.jsonl"
+    initialize_session(path=session_path, workspace_root=workspace_root)
+
+    run_count = 0
+    compaction_count = 0
+
+    for _ in range(120):
+        loaded = load_session(path=session_path, workspace_root=workspace_root)
+        do_compact = bool(loaded.runs) and rng.random() < 0.45
+
+        if not do_compact:
+            run_count += 1
+            run_id = f"run-{run_count}"
+            prompt = _random_compaction_text(rng, f"user-{run_count}: ")
+            user_parts = [UserPromptPart(content=prompt)]
+            if rng.random() < 0.25:
+                user_parts.append(
+                    UserPromptPart(
+                        content=_random_compaction_text(
+                            rng,
+                            f"extra-{run_count}: ",
+                        )
+                    )
+                )
+            messages: list[ModelMessage] = [ModelRequest(parts=user_parts)]
+            if rng.random() < 0.7:
+                messages.append(
+                    ModelResponse(
+                        parts=[
+                            TextPart(
+                                content=_random_compaction_text(
+                                    rng,
+                                    f"assistant-{run_count}: ",
+                                )
+                            )
+                        ]
+                    )
+                )
+            if rng.random() < 0.5:
+                call_id = f"call-{run_count}"
+                messages.append(
+                    ModelResponse(
+                        parts=[
+                            ToolCallPart(
+                                tool_name="shell",
+                                args={"command": "echo hi"},
+                                tool_call_id=call_id,
+                            )
+                        ],
+                        model_name="test",
+                    )
+                )
+                messages.append(
+                    ModelRequest(
+                        parts=[
+                            ToolReturnPart(
+                                tool_name="shell",
+                                content="ok",
+                                tool_call_id=call_id,
+                            )
+                        ]
+                    )
+                )
+            append_run_to_session(
+                path=session_path,
+                workspace_root=workspace_root,
+                prompt=prompt,
+                thinking=None,
+                messages=messages,
+                events=[
+                    RunStartedEvent(run_id=run_id),
+                    RunSucceededEvent(run_id=run_id, output_text="done"),
+                ],
+            )
+            continue
+
+        compaction_count += 1
+        summary_text = "\n".join(
+            [
+                f"- chaos summary {compaction_count}",
+                f"- latest run count {run_count}",
+            ]
+        )
+        pre_resume = build_resume_message_history(loaded)
+        replacement_messages = build_compaction_replacement_messages(
+            model="test:model",
+            messages=pre_resume,
+            summary_text=summary_text,
+            token_budget=rng.randint(1, 500),
+        )
+        entry = append_compaction_to_session(
+            path=session_path,
+            workspace_root=workspace_root,
+            replacement_messages=replacement_messages,
+        )
+
+        loaded_after = load_session(path=session_path, workspace_root=workspace_root)
+        latest = loaded_after.latest_compaction
+        assert latest is not None
+        assert latest.compaction_id == entry.compaction_id
+        assert latest.compacted_through_run_id == entry.compacted_through_run_id
+        assert (
+            extract_compaction_summary_text(latest.replacement_messages)
+            == summary_text
+        )
+        assert latest.replacement_messages[-1].parts[0].content == (
+            build_compaction_summary_message(summary_text).parts[0].content
+        )
+        assert sum(
+            1
+            for message in latest.replacement_messages
+            if extract_compaction_summary_text([message]) is not None
+        ) == 1
+
+        resumed = build_resume_message_history(loaded_after)
+        assert resumed == build_resume_message_history(loaded_after)
+
+        compacted_run_index = next(
+            index
+            for index, run in enumerate(loaded_after.runs)
+            if run.run_id == latest.compacted_through_run_id
+        )
+        later_messages = [
+            message
+            for run in loaded_after.runs[compacted_run_index + 1 :]
+            for message in run.messages
+        ]
+        assert (
+            resumed[: len(latest.replacement_messages)]
+            == latest.replacement_messages
+        )
+        if later_messages:
+            assert resumed[-len(later_messages) :] == later_messages
+
+    assert run_count > 0
+    assert compaction_count > 0
