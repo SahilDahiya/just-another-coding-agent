@@ -42,21 +42,21 @@ func TestBuildStatusTextIncludesTruncatedSessionAndThinking(t *testing.T) {
 	}
 }
 
-func TestBuildPromptFooterTextShowsInterruptHintAndEffort(t *testing.T) {
+func TestBuildPromptFooterTextShowsModelAndThinkingWhenStreaming(t *testing.T) {
 	got := buildPromptFooterText(viewModel{
-		Phase:      PhaseStreaming,
-		Thinking:   "medium",
-		RunElapsed: 42 * time.Second,
+		Phase:    PhaseStreaming,
+		Model:    "openai:gpt-5",
+		Thinking: "medium",
 	})
 
-	if !strings.Contains(got, "esc to interrupt") {
-		t.Fatalf("buildPromptFooterText() missing interrupt hint: %q", got)
+	if !strings.Contains(got, "openai:gpt-5") {
+		t.Fatalf("streaming footer missing model: %q", got)
 	}
-	if !strings.Contains(got, "◐ medium · effort") {
-		t.Fatalf("buildPromptFooterText() missing effort: %q", got)
+	if !strings.Contains(got, "thinking=medium") {
+		t.Fatalf("streaming footer missing thinking: %q", got)
 	}
-	if strings.Contains(got, "42s") || strings.Contains(got, "00:42") {
-		t.Fatalf("buildPromptFooterText() should not include elapsed once top rail owns it: %q", got)
+	if strings.Contains(got, "esc to interrupt") {
+		t.Fatalf("streaming footer should not contain interrupt hint (moved to top rail): %q", got)
 	}
 }
 

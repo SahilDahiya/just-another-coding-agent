@@ -379,6 +379,9 @@ func renderTopRail(vm viewModel) string {
 			lipgloss.NewStyle().
 				Foreground(defaultTheme.accentSoft).
 				Render(formatElapsedClock(vm.RunElapsed)),
+			lipgloss.NewStyle().
+				Foreground(defaultTheme.textMuted).
+				Render(" (esc to interrupt)"),
 		)
 	}
 	if vm.Phase == PhaseCompacting {
@@ -389,6 +392,9 @@ func renderTopRail(vm viewModel) string {
 			lipgloss.NewStyle().
 				Foreground(defaultTheme.accentSoft).
 				Render(formatElapsedClock(vm.RunElapsed)),
+			lipgloss.NewStyle().
+				Foreground(defaultTheme.textMuted).
+				Render(" (esc to interrupt)"),
 		)
 	}
 	return lipgloss.NewStyle().
@@ -440,9 +446,9 @@ func buildTopRailIndicator(vm viewModel) string {
 		return ""
 	}
 	if vm.Phase == PhaseStreaming {
-		return fmt.Sprintf("● %s %s", buildWorkingWave(vm.MotionTick), formatElapsedClock(vm.RunElapsed))
+		return fmt.Sprintf("● %s %s (esc to interrupt)", buildWorkingWave(vm.MotionTick), formatElapsedClock(vm.RunElapsed))
 	}
-	return fmt.Sprintf("● %s %s", buildCompactingWave(vm.MotionTick), formatElapsedClock(vm.RunElapsed))
+	return fmt.Sprintf("● %s %s (esc to interrupt)", buildCompactingWave(vm.MotionTick), formatElapsedClock(vm.RunElapsed))
 }
 
 func buildWorkingWave(motionTick int) string {
@@ -586,13 +592,12 @@ func buildPromptFooterText(vm viewModel) string {
 		return vm.PromptFooter
 	}
 	switch vm.Phase {
-	case PhaseStreaming:
-		return joinFooterParts(
-			"esc to interrupt",
-			buildThinkingFooterText(vm.Thinking),
-		)
-	case PhaseCompacting:
-		return "compacting session"
+	case PhaseStreaming, PhaseCompacting:
+		parts := []string{vm.Model}
+		if vm.Thinking != "" {
+			parts = append(parts, fmt.Sprintf("thinking=%s", vm.Thinking))
+		}
+		return joinFooterParts(parts...)
 	case PhaseCompleted:
 		usage := buildUsageFooterText(vm, true)
 		if usage == "" {
@@ -660,19 +665,6 @@ func formatElapsedClock(d time.Duration) string {
 		minutes = 99
 	}
 	return fmt.Sprintf("%02d:%02d", minutes, seconds)
-}
-
-func buildThinkingFooterText(thinking string) string {
-	switch thinking {
-	case "":
-		return ""
-	case "true":
-		return "◐ on · effort"
-	case "false":
-		return "◐ off · effort"
-	default:
-		return fmt.Sprintf("◐ %s · effort", thinking)
-	}
 }
 
 func joinFooterParts(parts ...string) string {
