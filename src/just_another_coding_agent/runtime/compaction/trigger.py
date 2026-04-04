@@ -221,9 +221,11 @@ def _estimate_resume_history_budget_components(
         messages=build_runtime_framed_resume_message_history(
             None,
             baseline_decision=baseline_decision,
+            model=model,
             workspace_root=resolved_workspace_root,
             current_date=current_date,
             shell_family=resolved_shell_family,
+            thinking=thinking,
         ),
     )
     resume_history_estimate = estimate_messages_tokens(

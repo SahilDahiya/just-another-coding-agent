@@ -26,7 +26,7 @@ from just_another_coding_agent.runtime.compaction import (
 )
 from just_another_coding_agent.runtime.turn_context import (
     build_runtime_context_message,
-    build_runtime_context_text,
+    build_session_turn_context_entry,
 )
 from just_another_coding_agent.session import (
     append_compaction_to_session,
@@ -112,6 +112,27 @@ def _assistant_texts(messages: list[ModelMessage]) -> list[str]:
         for part in message.parts
         if isinstance(part, TextPart)
     ]
+
+
+def _expected_runtime_context_message_content(
+    *,
+    model,
+    workspace_root,
+    current_date=None,
+    shell_family=None,
+    thinking=None,
+    timezone=None,
+) -> str:
+    entry = build_session_turn_context_entry(
+        run_id="expected-runtime-context",
+        model=model,
+        workspace_root=workspace_root,
+        current_date=current_date,
+        shell_family=shell_family,
+        timezone=timezone,
+        thinking=thinking,
+    )
+    return build_runtime_context_message(entry.runtime_context_text).parts[0].content
 
 
 def _random_compaction_text(rng: random.Random, prefix: str) -> str:
@@ -261,9 +282,10 @@ async def test_e2e_stdio_auto_compaction_keeps_recent_user_tail_and_summary_mess
     )
     assert "second" in observed["user_prompts"]
     assert "third" in observed["user_prompts"]
-    assert build_runtime_context_message(
-        build_runtime_context_text(workspace_root=workspace_root)
-    ).parts[0].content in observed["assistant_texts"]
+    assert _expected_runtime_context_message_content(
+        model=FunctionModel(stream_function=probe_stream),
+        workspace_root=workspace_root,
+    ) in observed["assistant_texts"]
     assert build_compaction_summary_message(
         "- Goal: continue after compaction"
     ).parts[0].content in observed["assistant_texts"]
@@ -361,9 +383,10 @@ async def test_e2e_stdio_resume_replays_custom_replacement_messages_raw(
     assert observed["incoming_shapes"][2].startswith("ModelRequest:['ToolReturnPart'")
     assert observed["incoming_user_prompts"] == ["after-manual-compaction"]
     assert observed["incoming_assistant_texts"] == [
-        build_runtime_context_message(
-            build_runtime_context_text(workspace_root=workspace_root)
-        ).parts[0].content,
+        _expected_runtime_context_message_content(
+            model=FunctionModel(stream_function=probe_stream),
+            workspace_root=workspace_root,
+        ),
         build_compaction_summary_message("- Goal: continue after compaction").parts[
             0
         ].content,

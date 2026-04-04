@@ -335,8 +335,9 @@ Ordering rules for the initial slice:
   `cleared`
 - `session_turn_context_status.reason` is a backend-owned explanation for that
   status, such as `missing`, `no_active_turn_context`,
-  `shell_family_mismatch`, `model_mismatch`, `thinking_mismatch`, or
-  `current_date_mismatch`
+  `shell_family_mismatch`, `model_mismatch`, `thinking_mismatch`,
+  `current_date_mismatch`, `timezone_mismatch`, or
+  `runtime_context_mismatch`
 - `session_turn_context_status.persisted_run_id` identifies the prior
   persisted run whose turn-context baseline was reused or cleared; it is null
   when no persisted baseline was available
@@ -476,13 +477,14 @@ Initial executable session slice:
   - `messages` must exclude internal instructions and `SystemPromptPart`
     content; those are ephemeral runtime state, not durable conversation state
 - `session_turn_context`
-  - fields: `type`, `run_id`, `model`, `thinking`, `workspace_root`, `shell_family`, `current_date`, `runtime_context_text`
+  - fields: `type`, `run_id`, `model`, `thinking`, `workspace_root`, `shell_family`, `current_date`, `timezone`, `runtime_context_text`
   - records one persisted backend-owned runtime-framing snapshot for that completed run
-  - `thinking` and `current_date` are optional
+  - `thinking`, `current_date`, and `timezone` are optional
   - `runtime_context_text` must be the dynamic runtime-framing payload for that run
+  - when present, `runtime_context_text` includes the visible runtime-framing lines for current date, timezone, workspace root, shell family, model, and thinking setting
   - static agent instructions are not persisted in `session_turn_context`
   - resumed runs reconstruct the last full model-visible runtime-context prefix from the latest active persisted snapshot when it is safe to do so
-  - when visible runtime framing changed but the prior snapshot is still valid for reconstruction, resumed runs append one runtime-context update message before the new user prompt instead of replaying a second full prefix
+  - when visible runtime framing changed but the prior snapshot is still valid for reconstruction, resumed runs append one runtime-context update message before the new user prompt instead of replaying a second full prefix; this now covers model, thinking, timezone, shell family, current date, and workspace-root changes
 - `session_event`
   - fields: `type`, `run_id`, `event`
   - `event` must be one canonical persisted run event payload

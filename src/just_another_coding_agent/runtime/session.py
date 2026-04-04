@@ -305,9 +305,11 @@ async def stream_session_run_events(
     preexisting_history = build_runtime_framed_resume_message_history(
         loaded_session,
         baseline_decision=turn_context_baseline,
+        model=model,
         workspace_root=normalized_workspace_root,
         current_date=current_date,
         shell_family=shell_family,
+        thinking=resolved_thinking,
     )
     preexisting_history_count = len(preexisting_history)
 

@@ -66,6 +66,7 @@ class SessionTurnContextEntry(_SessionEntryBase):
     workspace_root: str
     shell_family: ShellFamily = "posix"
     current_date: str | None = None
+    timezone: str | None = None
     runtime_context_text: str
 
 

@@ -135,6 +135,33 @@ def test_build_runtime_context_text_is_dynamic_only(tmp_path) -> None:
     assert CANONICAL_AGENT_INSTRUCTIONS not in runtime_context_text
 
 
+def test_build_runtime_context_text_includes_visible_model_framing_when_given(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    runtime_context_text = build_runtime_context_text(
+        workspace_root=workspace_root,
+        current_date=date(2026, 3, 26),
+        shell_family="powershell",
+        timezone="America/Los_Angeles",
+        model_label="openai-responses:gpt-5.3-codex",
+        thinking="high",
+    )
+
+    assert runtime_context_text == "\n".join(
+        [
+            "Current date: 2026-03-26",
+            "Current timezone: America/Los_Angeles",
+            f"Current workspace root: {workspace_root.resolve()}",
+            "Current shell family: powershell",
+            "Current model: openai-responses:gpt-5.3-codex",
+            "Current thinking setting: high",
+        ]
+    )
+
+
 def test_build_canonical_model_settings_include_thinking_when_set() -> None:
     assert build_canonical_model_settings(thinking="high") == {"thinking": "high"}
     assert build_canonical_model_settings(thinking=True) == {"thinking": True}

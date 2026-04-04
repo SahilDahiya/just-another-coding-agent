@@ -130,6 +130,27 @@ def _runtime_context_update_texts(messages: list[ModelMessage]) -> list[str]:
     ]
 
 
+def _expected_runtime_context_message_content(
+    *,
+    model,
+    workspace_root,
+    current_date: date | None = None,
+    shell_family: str | None = None,
+    thinking=None,
+    timezone: str | None = None,
+) -> str:
+    entry = build_session_turn_context_entry(
+        run_id="expected-runtime-context",
+        model=model,
+        workspace_root=workspace_root,
+        current_date=current_date,
+        shell_family=shell_family,
+        timezone=timezone,
+        thinking=thinking,
+    )
+    return build_runtime_context_message(entry.runtime_context_text).parts[0].content
+
+
 def _append_simple_run(*, path, workspace_root, run_id: str, prompt: str) -> None:
     append_run_to_session(
         path=path,
@@ -517,10 +538,12 @@ async def test_stream_session_run_events_injects_runtime_context_prefix_on_new_r
         observed["user_prompts"] = _user_prompts(messages)
         yield "done"
 
+    model = FunctionModel(stream_function=probe_stream)
+
     events = [
         event
         async for event in stream_session_run_events(
-            model=FunctionModel(stream_function=probe_stream),
+            model=model,
             workspace_root=workspace_root,
             session_path=session_path,
             prompt="hello",
@@ -534,9 +557,10 @@ async def test_stream_session_run_events_injects_runtime_context_prefix_on_new_r
     ]
     assert observed["user_prompts"] == ["hello"]
     assert observed["assistant_texts"] == [
-        build_runtime_context_message(
-            build_runtime_context_text(workspace_root=workspace_root)
-        ).parts[0].content
+        _expected_runtime_context_message_content(
+            model=model,
+            workspace_root=workspace_root,
+        )
     ]
 
     loaded = load_session(path=session_path, workspace_root=workspace_root)
@@ -759,13 +783,12 @@ async def test_stream_session_run_events_emits_runtime_context_diff_on_shell_cha
     assert status.status == "cleared"
     assert status.reason == "shell_family_mismatch"
     assert _runtime_context_texts(captured["message_history"]) == [
-        build_runtime_context_message(
-            build_runtime_context_text(
-                workspace_root=workspace_root,
-                current_date=date.today(),
-                shell_family="posix",
-            )
-        ).parts[0].content
+        _expected_runtime_context_message_content(
+            model=model,
+            workspace_root=workspace_root,
+            current_date=date.today(),
+            shell_family="posix",
+        )
     ]
     assert _runtime_context_update_texts(captured["message_history"]) == [
         build_runtime_context_update_message(
@@ -876,6 +899,7 @@ def test_build_runtime_context_injection_plan_uses_diff_for_date_change(
 
     plan = build_runtime_context_injection_plan(
         baseline_decision=decision,
+        model=model,
         workspace_root=workspace_root,
         current_date=date(2026, 4, 4),
     )
@@ -887,6 +911,7 @@ def test_build_runtime_context_injection_plan_uses_diff_for_date_change(
         build_runtime_context_update_message(
             build_runtime_context_update_text(
                 entry=entry,
+                model=model,
                 workspace_root=workspace_root,
                 current_date=date(2026, 4, 4),
             )
@@ -894,19 +919,16 @@ def test_build_runtime_context_injection_plan_uses_diff_for_date_change(
     ]
 
 
-def test_build_runtime_context_injection_plan_falls_back_to_full_on_model_change(
+def test_build_runtime_context_injection_plan_uses_diff_for_model_change(
     tmp_path,
 ) -> None:
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
-    entry = SessionTurnContextEntry(
+    entry = build_session_turn_context_entry(
         run_id="run-1",
         model="different:model",
-        thinking=None,
-        workspace_root=str(workspace_root.resolve()),
-        shell_family="posix",
-        current_date="2026-04-04",
-        runtime_context_text=build_runtime_context_text(workspace_root=workspace_root),
+        workspace_root=workspace_root,
+        current_date=date(2026, 4, 4),
     )
     decision = evaluate_turn_context_baseline(
         entry=entry,
@@ -918,19 +940,116 @@ def test_build_runtime_context_injection_plan_falls_back_to_full_on_model_change
 
     plan = build_runtime_context_injection_plan(
         baseline_decision=decision,
+        model=FunctionModel(stream_function=text_only_stream),
         workspace_root=workspace_root,
         current_date=date(2026, 4, 4),
     )
 
     assert [message.parts[0].content for message in plan.before_history_messages] == [
-        build_runtime_context_message(
-            build_runtime_context_text(
+        build_runtime_context_message(entry.runtime_context_text).parts[0].content
+    ]
+    assert [message.parts[0].content for message in plan.after_history_messages] == [
+        build_runtime_context_update_message(
+            build_runtime_context_update_text(
+                entry=entry,
+                model=FunctionModel(stream_function=text_only_stream),
                 workspace_root=workspace_root,
                 current_date=date(2026, 4, 4),
             )
         ).parts[0].content
     ]
-    assert plan.after_history_messages == ()
+
+
+def test_build_runtime_context_injection_plan_uses_diff_for_thinking_change(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    model = FunctionModel(stream_function=text_only_stream)
+    entry = build_session_turn_context_entry(
+        run_id="run-1",
+        model=model,
+        workspace_root=workspace_root,
+        current_date=date(2026, 4, 4),
+        thinking="high",
+    )
+    decision = evaluate_turn_context_baseline(
+        entry=entry,
+        model=model,
+        workspace_root=workspace_root,
+        current_date=date(2026, 4, 4),
+        thinking="low",
+        has_persisted_history=True,
+    )
+
+    plan = build_runtime_context_injection_plan(
+        baseline_decision=decision,
+        model=model,
+        workspace_root=workspace_root,
+        current_date=date(2026, 4, 4),
+        thinking="low",
+    )
+
+    assert [message.parts[0].content for message in plan.before_history_messages] == [
+        build_runtime_context_message(entry.runtime_context_text).parts[0].content
+    ]
+    assert [message.parts[0].content for message in plan.after_history_messages] == [
+        build_runtime_context_update_message(
+            build_runtime_context_update_text(
+                entry=entry,
+                model=model,
+                workspace_root=workspace_root,
+                current_date=date(2026, 4, 4),
+                thinking="low",
+            )
+        ).parts[0].content
+    ]
+
+
+def test_build_runtime_context_injection_plan_uses_diff_for_timezone_change(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    model = FunctionModel(stream_function=text_only_stream)
+    entry = build_session_turn_context_entry(
+        run_id="run-1",
+        model=model,
+        workspace_root=workspace_root,
+        current_date=date(2026, 4, 4),
+        timezone="America/Los_Angeles",
+    )
+    decision = evaluate_turn_context_baseline(
+        entry=entry,
+        model=model,
+        workspace_root=workspace_root,
+        current_date=date(2026, 4, 4),
+        timezone="America/New_York",
+        has_persisted_history=True,
+    )
+
+    plan = build_runtime_context_injection_plan(
+        baseline_decision=decision,
+        model=model,
+        workspace_root=workspace_root,
+        current_date=date(2026, 4, 4),
+        timezone="America/New_York",
+    )
+
+    assert [message.parts[0].content for message in plan.before_history_messages] == [
+        build_runtime_context_message(entry.runtime_context_text).parts[0].content
+    ]
+    assert [message.parts[0].content for message in plan.after_history_messages] == [
+        build_runtime_context_update_message(
+            build_runtime_context_update_text(
+                entry=entry,
+                model=model,
+                workspace_root=workspace_root,
+                current_date=date(2026, 4, 4),
+                timezone="America/New_York",
+            )
+        ).parts[0].content
+    ]
 
 
 async def test_stream_session_run_events_persists_partial_run_before_completion(
@@ -1069,9 +1188,11 @@ async def test_stream_session_run_events_inherits_last_persisted_thinking_when_o
     assert captured["thinking"] == "high"
     assert captured["deps"] == WorkspaceDeps.from_workspace_root(workspace_root)
     assert _runtime_context_texts(captured["message_history"]) == [
-        build_runtime_context_message(
-            build_runtime_context_text(workspace_root=workspace_root)
-        ).parts[0].content
+        _expected_runtime_context_message_content(
+            model=FunctionModel(stream_function=text_only_stream),
+            workspace_root=workspace_root,
+            thinking="high",
+        )
     ]
     assert _user_prompts(captured["message_history"]) == ["first"]
     loaded = load_session(path=session_path, workspace_root=workspace_root)
@@ -1261,9 +1382,10 @@ async def test_stream_session_run_events_replays_replacement_history(
     assert status.reason == "missing"
     assert observed["user_prompts"] == ["second", "third"]
     assert observed["assistant_texts"] == [
-        build_runtime_context_message(
-            build_runtime_context_text(workspace_root=workspace_root)
-        ).parts[0].content,
+        _expected_runtime_context_message_content(
+            model=FunctionModel(stream_function=probe_stream),
+            workspace_root=workspace_root,
+        ),
         _summary_message_content("- Goal: continue after compaction")
     ]
     assert observed["tool_return"] is True
@@ -1583,9 +1705,10 @@ async def test_stream_session_run_events_auto_compacts_stale_session_before_resu
     assert captured["prompt"] == "follow-up"
     assert captured["instructions"] is None
     assert _runtime_context_texts(captured["message_history"]) == [
-        build_runtime_context_message(
-            build_runtime_context_text(workspace_root=workspace_root)
-        ).parts[0].content
+        _expected_runtime_context_message_content(
+            model=FunctionModel(stream_function=text_only_stream),
+            workspace_root=workspace_root,
+        )
     ]
     captured_prompts = _user_prompts(captured["message_history"])
     assert "keep tail" in captured_prompts

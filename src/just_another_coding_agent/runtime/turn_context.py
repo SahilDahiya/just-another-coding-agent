@@ -19,7 +19,10 @@ from just_another_coding_agent.contracts.platform import (
 )
 from just_another_coding_agent.contracts.session import SessionTurnContextEntry
 from just_another_coding_agent.contracts.thinking import ThinkingSetting
-from just_another_coding_agent.runtime.agent import build_runtime_context_text
+from just_another_coding_agent.runtime.agent import (
+    build_runtime_context_text,
+    detect_current_timezone_label,
+)
 from just_another_coding_agent.runtime.models import resolve_canonical_model
 from just_another_coding_agent.tools._workspace import normalize_workspace_root
 
@@ -27,9 +30,12 @@ RUNTIME_CONTEXT_MESSAGE_HEADER = "Runtime context for this turn:"
 RUNTIME_CONTEXT_UPDATE_MESSAGE_HEADER = "Runtime context update for this turn:"
 _DIFFABLE_TURN_CONTEXT_CLEAR_REASONS = frozenset(
     {
+        "model_mismatch",
+        "thinking_mismatch",
         "workspace_root_mismatch",
         "shell_family_mismatch",
         "current_date_mismatch",
+        "timezone_mismatch",
         "runtime_context_mismatch",
     }
 )
@@ -55,6 +61,7 @@ def evaluate_turn_context_baseline(
     workspace_root: Path | str,
     current_date: date | None = None,
     shell_family: ShellFamily | None = None,
+    timezone: str | None = None,
     thinking: ThinkingSetting | None = None,
     has_persisted_history: bool = False,
 ) -> TurnContextBaselineDecision:
@@ -72,10 +79,16 @@ def evaluate_turn_context_baseline(
     resolved_shell_family = shell_family or detect_default_shell_family()
     resolved_current_date = current_date or date.today()
     resolved_model = _describe_turn_context_model(model)
+    resolved_timezone = (
+        detect_current_timezone_label() if timezone is None else timezone
+    )
     expected_runtime_context_text = build_runtime_context_text(
         workspace_root=resolved_workspace_root,
         current_date=resolved_current_date,
         shell_family=resolved_shell_family,
+        timezone=resolved_timezone,
+        model_label=resolved_model,
+        thinking=thinking,
     )
 
     if entry.workspace_root != str(resolved_workspace_root):
@@ -108,6 +121,12 @@ def evaluate_turn_context_baseline(
             reason="current_date_mismatch",
             entry=entry,
         )
+    if entry.timezone != resolved_timezone:
+        return TurnContextBaselineDecision(
+            status="cleared",
+            reason="timezone_mismatch",
+            entry=entry,
+        )
     if entry.runtime_context_text != expected_runtime_context_text:
         return TurnContextBaselineDecision(
             status="cleared",
@@ -129,24 +148,33 @@ def build_session_turn_context_entry(
     workspace_root: Path | str,
     current_date: date | None = None,
     shell_family: ShellFamily | None = None,
+    timezone: str | None = None,
     thinking: ThinkingSetting | None = None,
 ) -> SessionTurnContextEntry:
     resolved_workspace_root = normalize_workspace_root(workspace_root)
     resolved_shell_family = shell_family or detect_default_shell_family()
     resolved_current_date = current_date or date.today()
+    resolved_timezone = (
+        detect_current_timezone_label() if timezone is None else timezone
+    )
+    resolved_model = _describe_turn_context_model(model)
     runtime_context_text = build_runtime_context_text(
         workspace_root=resolved_workspace_root,
         current_date=resolved_current_date,
         shell_family=resolved_shell_family,
+        timezone=resolved_timezone,
+        model_label=resolved_model,
+        thinking=thinking,
     )
 
     return SessionTurnContextEntry(
         run_id=run_id,
-        model=_describe_turn_context_model(model),
+        model=resolved_model,
         thinking=thinking,
         workspace_root=str(resolved_workspace_root),
         shell_family=resolved_shell_family,
         current_date=resolved_current_date.isoformat(),
+        timezone=resolved_timezone,
         runtime_context_text=runtime_context_text,
     )
 
@@ -189,6 +217,9 @@ def build_runtime_context_prefix_messages(
     workspace_root: Path | str | None = None,
     current_date: date | None = None,
     shell_family: ShellFamily | None = None,
+    timezone: str | None = None,
+    model: Any | None = None,
+    thinking: ThinkingSetting | None = None,
 ) -> list[ModelMessage]:
     if entry is not None:
         return [build_runtime_context_message(entry.runtime_context_text)]
@@ -198,13 +229,19 @@ def build_runtime_context_prefix_messages(
             "workspace_root is required when building runtime context without an entry"
         )
 
+    runtime_context_kwargs: dict[str, object] = {
+        "workspace_root": workspace_root,
+        "current_date": current_date,
+        "shell_family": shell_family,
+        "timezone": timezone,
+        "thinking": thinking,
+    }
+    if model is not None:
+        runtime_context_kwargs["model_label"] = _describe_turn_context_model(model)
+
     return [
         build_runtime_context_message(
-            build_runtime_context_text(
-                workspace_root=workspace_root,
-                current_date=current_date,
-                shell_family=shell_family,
-            )
+            build_runtime_context_text(**runtime_context_kwargs)
         )
     ]
 
@@ -212,14 +249,24 @@ def build_runtime_context_prefix_messages(
 def build_runtime_context_injection_plan(
     *,
     baseline_decision: TurnContextBaselineDecision | None,
+    model: Any,
     workspace_root: Path | str,
     current_date: date | None = None,
     shell_family: ShellFamily | None = None,
+    timezone: str | None = None,
+    thinking: ThinkingSetting | None = None,
 ) -> RuntimeContextInjectionPlan:
+    resolved_timezone = (
+        detect_current_timezone_label() if timezone is None else timezone
+    )
+    resolved_model = _describe_turn_context_model(model)
     current_runtime_context_text = build_runtime_context_text(
         workspace_root=workspace_root,
         current_date=current_date,
         shell_family=shell_family,
+        timezone=resolved_timezone,
+        model_label=resolved_model,
+        thinking=thinking,
     )
     current_message = build_runtime_context_message(current_runtime_context_text)
 
@@ -258,9 +305,12 @@ def build_runtime_context_injection_plan(
 
     runtime_context_update_text = build_runtime_context_update_text(
         entry=baseline_decision.entry,
+        model=model,
         workspace_root=workspace_root,
         current_date=current_date,
         shell_family=shell_family,
+        timezone=resolved_timezone,
+        thinking=thinking,
     )
     return RuntimeContextInjectionPlan(
         before_history_messages=(previous_message,),
@@ -273,19 +323,28 @@ def build_runtime_context_injection_plan(
 def build_runtime_context_update_text(
     *,
     entry: SessionTurnContextEntry,
+    model: Any,
     workspace_root: Path | str,
     current_date: date | None = None,
     shell_family: ShellFamily | None = None,
+    timezone: str | None = None,
+    thinking: ThinkingSetting | None = None,
 ) -> str:
     resolved_workspace_root = normalize_workspace_root(workspace_root)
     resolved_shell_family = shell_family or detect_default_shell_family()
     resolved_current_date = current_date or date.today()
+    resolved_timezone = (
+        detect_current_timezone_label() if timezone is None else timezone
+    )
+    resolved_model = _describe_turn_context_model(model)
     update_lines: list[str] = []
 
     if entry.current_date != resolved_current_date.isoformat():
         update_lines.append(
             f"Current date changed to {resolved_current_date.isoformat()}"
         )
+    if entry.timezone != resolved_timezone:
+        update_lines.append(f"Current timezone changed to {resolved_timezone}")
     if entry.workspace_root != str(resolved_workspace_root):
         update_lines.append(
             f"Current workspace root changed to {resolved_workspace_root}"
@@ -295,9 +354,39 @@ def build_runtime_context_update_text(
             "powershell" if resolved_shell_family == "powershell" else "posix (bash)"
         )
         update_lines.append(f"Current shell family changed to {shell_label}")
+    if entry.model != resolved_model:
+        update_lines.append(f"Current model changed to {resolved_model}")
+    if entry.thinking != thinking:
+        update_lines.append(
+            "Current thinking setting changed to "
+            f"{_thinking_update_label(thinking)}"
+        )
+    if (
+        not update_lines
+        and entry.runtime_context_text
+        != build_runtime_context_text(
+            workspace_root=workspace_root,
+            current_date=resolved_current_date,
+            shell_family=resolved_shell_family,
+            timezone=resolved_timezone,
+            model_label=resolved_model,
+            thinking=thinking,
+        )
+    ):
+        update_lines.append("Runtime context framing changed")
     if not update_lines:
         raise ValueError("Runtime context update text requires at least one change")
     return "\n".join(update_lines)
+
+
+def _thinking_update_label(thinking: ThinkingSetting | None) -> str:
+    if thinking is None:
+        return "provider default"
+    if thinking is True:
+        return "enabled"
+    if thinking is False:
+        return "disabled"
+    return thinking
 
 
 def _describe_turn_context_model(model: Any) -> str:

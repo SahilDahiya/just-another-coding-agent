@@ -120,6 +120,7 @@ Important boundary:
 - durable JSONL session history is the authoritative source of truth for resumed runs
 - persisted per-run turn-context snapshots are separate backend-owned runtime framing state, not conversation memory
 - turn-context persistence powers a separate model-visible runtime-framing channel: resumed runs reconstruct the last full runtime-context prefix and, when the visible framing changed, append one runtime-context update message before the new user prompt
+- the visible runtime-framing payload now carries current date, timezone, workspace root, shell family, model, and thinking setting so those changes can stay in the smaller update path instead of forcing a full prefix reset
 - the canonical session runtime does not rely on provider-side server history during resume
 - provider-native history settings may still exist inside the lower-level model seam, but they are not part of canonical session continuation semantics
 

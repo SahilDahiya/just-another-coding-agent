@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +11,7 @@ from just_another_coding_agent.contracts.platform import (
     ShellFamily,
     detect_default_shell_family,
 )
+from just_another_coding_agent.contracts.thinking import ThinkingSetting
 from just_another_coding_agent.contracts.tools import CANONICAL_TOOL_NAMES
 from just_another_coding_agent.runtime.models import resolve_canonical_model
 from just_another_coding_agent.runtime.tool_args import (
@@ -22,6 +23,7 @@ from just_another_coding_agent.tools.registry import build_canonical_toolset
 
 CANONICAL_AGENT_OUTPUT_RETRIES = 1_000_000
 CANONICAL_AGENT_TOOL_CORRECTION_RETRIES = 2
+_UNSET = object()
 
 CANONICAL_AGENT_INSTRUCTIONS = "\n".join(
     [
@@ -77,21 +79,66 @@ def _shell_family_prompt_label(shell_family: ShellFamily) -> str:
     return "posix (bash)"
 
 
+def _thinking_prompt_label(thinking: ThinkingSetting | None) -> str:
+    if thinking is None:
+        return "provider default"
+    if thinking is True:
+        return "enabled"
+    if thinking is False:
+        return "disabled"
+    return thinking
+
+
+def detect_current_timezone_label() -> str:
+    current_time = datetime.now().astimezone()
+    tzinfo = current_time.tzinfo
+    if tzinfo is None:
+        return "unknown"
+    zone_key = getattr(tzinfo, "key", None)
+    if isinstance(zone_key, str) and zone_key:
+        return zone_key
+    zone_name = getattr(tzinfo, "zone", None)
+    if isinstance(zone_name, str) and zone_name:
+        return zone_name
+    label = tzinfo.tzname(current_time)
+    if isinstance(label, str) and label:
+        return label
+    fallback = str(tzinfo)
+    return fallback or "unknown"
+
+
 def build_runtime_context_text(
     *,
     workspace_root: Path | str,
     current_date: date | None = None,
     shell_family: ShellFamily | None = None,
+    timezone: str | None | object = _UNSET,
+    model_label: str | object = _UNSET,
+    thinking: ThinkingSetting | None | object = _UNSET,
 ) -> str:
     root = normalize_workspace_root(workspace_root)
     resolved_date = current_date or date.today()
     effective_shell_family = shell_family or detect_default_shell_family()
 
-    sections = [
-        f"Current date: {resolved_date.isoformat()}",
-        f"Current workspace root: {root}",
-        f"Current shell family: {_shell_family_prompt_label(effective_shell_family)}",
-    ]
+    sections = [f"Current date: {resolved_date.isoformat()}"]
+    if timezone is not _UNSET:
+        timezone_label = timezone if timezone is not None else "unknown"
+        sections.append(f"Current timezone: {timezone_label}")
+    sections.extend(
+        [
+            f"Current workspace root: {root}",
+            (
+                "Current shell family: "
+                f"{_shell_family_prompt_label(effective_shell_family)}"
+            ),
+        ]
+    )
+    if model_label is not _UNSET:
+        sections.append(f"Current model: {model_label}")
+    if thinking is not _UNSET:
+        sections.append(
+            f"Current thinking setting: {_thinking_prompt_label(thinking)}"
+        )
 
     return "\n".join(sections)
 
@@ -163,4 +210,5 @@ __all__ = [
     "build_canonical_instructions",
     "build_runtime_context_text",
     "build_static_agent_instructions",
+    "detect_current_timezone_label",
 ]
