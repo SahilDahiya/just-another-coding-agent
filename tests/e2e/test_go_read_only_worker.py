@@ -69,7 +69,8 @@ class _GoWorkerProcess:
 
     def send(self, message: object) -> object:
         assert hasattr(message, "model_dump_json")
-        return self.send_raw(encode_worker_message(message))
+        timeout = 30.0 if isinstance(message, HelloWorkerRequest) else 10.0
+        return self.send_raw(encode_worker_message(message), timeout=timeout)
 
     def send_raw(self, payload: str, *, timeout: float = 10.0) -> object:
         assert self._process is not None

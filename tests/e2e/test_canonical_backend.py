@@ -8,6 +8,8 @@ from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 from just_another_coding_agent.contracts.run_events import (
     RunEvent,
     RunSucceededEvent,
+    SessionLifecycleEvent,
+    SessionTurnContextStatusEvent,
     ToolCallSucceededEvent,
 )
 from just_another_coding_agent.rpc.session_store import session_path_for_id
@@ -15,6 +17,7 @@ from just_another_coding_agent.rpc.stdio import handle_rpc_json_line
 from just_another_coding_agent.session.jsonl import load_session
 
 _RUN_EVENT_ADAPTER = TypeAdapter(RunEvent)
+_SESSION_LIFECYCLE_EVENT_ADAPTER = TypeAdapter(SessionLifecycleEvent)
 
 
 def _persisted_event_types(events: list[RunEvent]) -> list[str]:
@@ -133,7 +136,7 @@ async def _collect_run_events(
     sessions_root,
     session_id: str,
     prompt: str,
-) -> list[RunEvent]:
+) -> list[RunEvent | SessionLifecycleEvent]:
     messages = await _rpc_messages(
         request_payload={
             "id": "req-1",
@@ -146,9 +149,16 @@ async def _collect_run_events(
     )
 
     assert [message["type"] for message in messages] == ["rpc_event"] * len(messages)
-    return [
-        _RUN_EVENT_ADAPTER.validate_python(message["event"]) for message in messages
-    ]
+    parsed_events: list[RunEvent | SessionLifecycleEvent] = []
+    for message in messages:
+        event = message["event"]
+        if event["type"] == "session_turn_context_status":
+            parsed_events.append(
+                _SESSION_LIFECYCLE_EVENT_ADAPTER.validate_python(event)
+            )
+            continue
+        parsed_events.append(_RUN_EVENT_ADAPTER.validate_python(event))
+    return parsed_events
 
 
 async def test_e2e_rpc_runtime_session_uses_explicit_workspace_root(
@@ -175,6 +185,7 @@ async def test_e2e_rpc_runtime_session_uses_explicit_workspace_root(
     )
 
     assert [event.type for event in events] == [
+        "session_turn_context_status",
         "run_started",
         "tool_call_started",
         "tool_call_succeeded",
@@ -183,14 +194,18 @@ async def test_e2e_rpc_runtime_session_uses_explicit_workspace_root(
         "assistant_text_delta",
         "run_succeeded",
     ]
+    status = events[0]
+    assert isinstance(status, SessionTurnContextStatusEvent)
+    assert status.status == "missing"
+    assert status.reason == "missing"
     assert (workspace_root / "note.txt").read_text(encoding="utf-8") == "hello\n"
 
-    write_result = events[2]
+    write_result = events[3]
     assert isinstance(write_result, ToolCallSucceededEvent)
     assert write_result.tool_name == "write"
     assert write_result.result == f"Wrote {workspace_root / 'note.txt'}"
 
-    read_result = events[4]
+    read_result = events[5]
     assert isinstance(read_result, ToolCallSucceededEvent)
     assert read_result.tool_name == "read"
     assert read_result.result == "hello\n"
@@ -208,7 +223,11 @@ async def test_e2e_rpc_runtime_session_uses_explicit_workspace_root(
     assert loaded.runs[0].prompt == "go"
     assert loaded.runs[0].messages
     assert [event.type for event in loaded.runs[0].events] == _persisted_event_types(
-        events
+        [
+            event
+            for event in events
+            if not isinstance(event, SessionTurnContextStatusEvent)
+        ]
     )
 
 
@@ -237,6 +256,7 @@ async def test_e2e_failure_round_trips_through_rpc_and_session(
     )
 
     assert [event.type for event in events] == [
+        "session_turn_context_status",
         "run_started",
         "tool_call_started",
         "tool_call_succeeded",
@@ -247,8 +267,12 @@ async def test_e2e_failure_round_trips_through_rpc_and_session(
         "assistant_text_delta",
         "run_succeeded",
     ]
+    status = events[0]
+    assert isinstance(status, SessionTurnContextStatusEvent)
+    assert status.status == "missing"
+    assert status.reason == "missing"
 
-    tool_result = events[2]
+    tool_result = events[3]
     assert isinstance(tool_result, ToolCallSucceededEvent)
     assert tool_result.tool_name == "edit"
     assert tool_result.result == {
@@ -260,7 +284,7 @@ async def test_e2e_failure_round_trips_through_rpc_and_session(
         ),
     }
 
-    third_result = events[6]
+    third_result = events[7]
     assert isinstance(third_result, ToolCallSucceededEvent)
     assert third_result.result == tool_result.result
 
@@ -278,5 +302,9 @@ async def test_e2e_failure_round_trips_through_rpc_and_session(
     assert loaded.runs[0].prompt == "go"
     assert loaded.runs[0].messages
     assert [event.type for event in loaded.runs[0].events] == _persisted_event_types(
-        events
+        [
+            event
+            for event in events
+            if not isinstance(event, SessionTurnContextStatusEvent)
+        ]
     )

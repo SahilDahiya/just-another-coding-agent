@@ -347,6 +347,7 @@ async def test_auto_compaction_preserves_multi_compaction_continuity(
         "session_compaction_started",
         "session_compaction_completed",
         "session_compaction_warning",
+        "session_turn_context_status",
         "run_started",
         "assistant_text_delta",
         "run_succeeded",
@@ -356,14 +357,21 @@ async def test_auto_compaction_preserves_multi_compaction_continuity(
         "Session has been compacted multiple times; continuity quality may "
         "degrade."
     )
+    assert events[3].status == "missing"
+    assert events[3].reason == "missing"
 
     loaded = load_session(path=session_path, workspace_root=workspace_root)
     assert loaded.latest_compaction is not None
-    assert extract_compaction_summary_text(loaded.latest_compaction.replacement_messages) == (
+    assert extract_compaction_summary_text(
+        loaded.latest_compaction.replacement_messages
+    ) == (
         "\n".join(
             [
                 "- Goal: ship the verified app fix",
-                "- Established fact: src/app.py was updated after the earlier verifier failure.",
+                (
+                    "- Established fact: src/app.py was updated after the "
+                    "earlier verifier failure."
+                ),
                 "- Established fact: go test ./... passed on the latest run.",
                 "- Important path: src/app.py",
                 "- Important path: tests/test_app.py",
@@ -375,7 +383,10 @@ async def test_auto_compaction_preserves_multi_compaction_continuity(
         "\n".join(
             [
                 "- Goal: ship the verified app fix",
-                "- Established fact: src/app.py was updated after the earlier verifier failure.",
+                (
+                    "- Established fact: src/app.py was updated after the "
+                    "earlier verifier failure."
+                ),
                 "- Established fact: go test ./... passed on the latest run.",
                 "- Important path: src/app.py",
                 "- Important path: tests/test_app.py",
@@ -404,7 +415,10 @@ def _summary_probe_function(
                 content="\n".join(
                     [
                         "- Goal: ship the verified app fix",
-                        "- Established fact: src/app.py was updated after the earlier verifier failure.",
+                        (
+                            "- Established fact: src/app.py was updated after "
+                            "the earlier verifier failure."
+                        ),
                         "- Established fact: go test ./... passed on the latest run.",
                         "- Important path: src/app.py",
                         "- Important path: tests/test_app.py",
