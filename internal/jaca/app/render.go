@@ -260,7 +260,7 @@ func renderStatus(vm viewModel) string {
 	case PhaseCompleted:
 		style = style.Foreground(defaultTheme.successSoft).BorderForeground(defaultTheme.success)
 	case PhaseError:
-		style = style.Foreground(defaultTheme.err).BorderForeground(defaultTheme.err)
+		style = style.Foreground(defaultTheme.errSoft).BorderForeground(defaultTheme.errSoft)
 	}
 	return style.Render(buildStatusText(vm))
 }
@@ -283,7 +283,7 @@ func renderPrompt(vm viewModel) string {
 	case PhaseCompleted:
 		rowBorder = defaultTheme.success
 	case PhaseError:
-		rowBorder = defaultTheme.err
+		rowBorder = defaultTheme.errSoft
 	}
 	markerColor := defaultTheme.accent
 	switch vm.Phase {
@@ -292,7 +292,7 @@ func renderPrompt(vm viewModel) string {
 	case PhaseCompleted:
 		markerColor = defaultTheme.successSoft
 	case PhaseError:
-		markerColor = defaultTheme.err
+		markerColor = defaultTheme.errSoft
 	}
 	footerColor := defaultTheme.textMuted
 	switch vm.Phase {
@@ -303,7 +303,7 @@ func renderPrompt(vm viewModel) string {
 	case PhaseCompleted:
 		footerColor = defaultTheme.successSoft
 	case PhaseError:
-		footerColor = defaultTheme.err
+		footerColor = defaultTheme.errSoft
 	}
 
 	const promptPadX = 2
@@ -600,7 +600,7 @@ func buildPromptFooterText(vm viewModel) string {
 		}
 		return joinFooterParts("completed", usage)
 	case PhaseError:
-		return "last run failed  edit prompt or retry"
+		return "ready ● edit prompt or try something else"
 	default:
 		return buildIdleFooterText(vm)
 	}

@@ -844,12 +844,12 @@ func (m *model) runPrompt(
 	})
 	if err != nil {
 		if ctx.Err() != nil {
+			// User-initiated interrupt: attempt graceful shutdown but
+			// never surface shutdown errors — the run was cancelled
+			// intentionally and the session remains usable.
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), 1200*time.Millisecond)
 			defer cancel()
-			if shutdownErr := backend.Interrupt(shutdownCtx); shutdownErr != nil {
-				ch <- runEventMsg{Err: shutdownErr}
-				return
-			}
+			_ = backend.Interrupt(shutdownCtx)
 			ch <- runEventMsg{Done: true}
 			return
 		}
