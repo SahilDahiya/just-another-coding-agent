@@ -381,6 +381,53 @@ func TestExplorationGroupRendersCoalescedExploredBlock(t *testing.T) {
 	}
 }
 
+func TestExplorationGroupDeduplicatesRepeatedReads(t *testing.T) {
+	transcript := NewTranscript()
+
+	// Read README.md twice consecutively — should appear once in the coalesced line.
+	for _, id := range []string{"read-1", "read-2"} {
+		transcript.ApplyRunEvent(rpc.RunEvent{
+			Type:       "tool_call_started",
+			ToolName:   "read",
+			ToolCallID: id,
+			Args:       map[string]any{"path": "/workspace/README.md"},
+			Activity:   explorationActivity("read", map[string]any{"short_path": "README.md"}),
+		})
+		transcript.ApplyRunEvent(rpc.RunEvent{
+			Type:       "tool_call_succeeded",
+			ToolName:   "read",
+			ToolCallID: id,
+			Result:     "content",
+			Activity:   explorationActivity("read", map[string]any{"short_path": "README.md"}),
+		})
+	}
+	// Read AGENTS.md once.
+	transcript.ApplyRunEvent(rpc.RunEvent{
+		Type:       "tool_call_started",
+		ToolName:   "read",
+		ToolCallID: "read-3",
+		Args:       map[string]any{"path": "/workspace/AGENTS.md"},
+		Activity:   explorationActivity("read", map[string]any{"short_path": "AGENTS.md"}),
+	})
+	transcript.ApplyRunEvent(rpc.RunEvent{
+		Type:       "tool_call_succeeded",
+		ToolName:   "read",
+		ToolCallID: "read-3",
+		Result:     "content",
+		Activity:   explorationActivity("read", map[string]any{"short_path": "AGENTS.md"}),
+	})
+
+	plain := transcript.blocks[len(transcript.blocks)-1].Plain()
+	want := "Read README.md, AGENTS.md"
+	if !strings.Contains(plain, want) {
+		t.Fatalf("expected deduplicated %q in %q", want, plain)
+	}
+	// Should NOT have "README.md, README.md"
+	if strings.Contains(plain, "README.md, README.md") {
+		t.Fatalf("duplicate file name not deduplicated in %q", plain)
+	}
+}
+
 func TestExplorationGroupShowsExploringWhileInFlight(t *testing.T) {
 	transcript := NewTranscript()
 

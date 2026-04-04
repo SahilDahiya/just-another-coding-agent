@@ -319,9 +319,17 @@ func coalesceExplorationEntries(order []string, entries map[string]*toolEntry) [
 
 	flush := func() {
 		if pendingLabel != "" && len(pendingArgs) > 0 {
+			seen := map[string]bool{}
+			var unique []string
+			for _, a := range pendingArgs {
+				if !seen[a] {
+					seen[a] = true
+					unique = append(unique, a)
+				}
+			}
 			lines = append(lines, explorationLine{
 				label: pendingLabel,
-				args:  strings.Join(pendingArgs, ", "),
+				args:  strings.Join(unique, ", "),
 			})
 		}
 		pendingLabel = ""
