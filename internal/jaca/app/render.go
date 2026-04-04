@@ -476,9 +476,22 @@ func highlightRune(runes []rune, index int) string {
 	return string(highlighted)
 }
 
+// breathingMarkerColor returns a smoothly pulsing color for the ● marker.
+// Uses a cosine curve to blend between dim and bright over a 24-tick (~3.4s)
+// cycle, inspired by Codex's shimmer_spans cosine-based intensity.
+func breathingMarkerColor(motionTick int) lipgloss.TerminalColor {
+	const period = 24
+	t := 0.5 * (1.0 + math.Cos(2.0*math.Pi*float64(motionTick%period)/float64(period)))
+	dimR, dimG, dimB := 0x3d, 0x35, 0x20
+	hiR, hiG, hiB := 0xd7, 0x9a, 0x41
+	r := uint8(float64(dimR) + t*float64(hiR-dimR))
+	g := uint8(float64(dimG) + t*float64(hiG-dimG))
+	b := uint8(float64(dimB) + t*float64(hiB-dimB))
+	return lipgloss.Color(fmt.Sprintf("#%02x%02x%02x", r, g, b))
+}
+
 func renderWordWave(frame string, motionTick int) string {
-	pulseColor := livePulseGradient[motionTick%len(livePulseGradient)]
-	marker := lipgloss.NewStyle().Foreground(pulseColor).Render("●")
+	marker := lipgloss.NewStyle().Foreground(breathingMarkerColor(motionTick)).Render("●")
 
 	base := lipgloss.NewStyle().Foreground(defaultTheme.accentSoft)
 	active := lipgloss.NewStyle().Foreground(defaultTheme.textSoft).Bold(true)
