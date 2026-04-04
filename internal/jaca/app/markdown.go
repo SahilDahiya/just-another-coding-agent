@@ -8,23 +8,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// Smooth breathing cycle for the live ● marker.
-// Ramps from dim to full and back over 12 steps (~1.7s at 140ms tick).
-var livePulseGradient = []lipgloss.TerminalColor{
-	themeColor("#3d3520", "238", "8"), // near-invisible
-	themeColor("#5a4e2e", "240", "8"),
-	themeColor("#77673c", "242", "11"),
-	themeColor("#94804a", "244", "11"),
-	themeColor("#b19958", "179", "11"),
-	themeColor("#d79a41", "179", "11"), // full accent
-	themeColor("#d79a41", "179", "11"), // hold at peak
-	themeColor("#b19958", "179", "11"),
-	themeColor("#94804a", "244", "11"),
-	themeColor("#77673c", "242", "11"),
-	themeColor("#5a4e2e", "240", "8"),
-	themeColor("#3d3520", "238", "8"),
-}
-
 var (
 	assistantHeadingRe        = regexp.MustCompile(`^(#{1,6})\s+(.*)$`)
 	assistantUnorderedItemRe  = regexp.MustCompile(`^[-*+]\s+(.*)$`)

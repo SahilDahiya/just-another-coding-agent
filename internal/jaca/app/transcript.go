@@ -557,9 +557,7 @@ func (t *Transcript) rebuildLiveAssistantRendered() {
 		return
 	}
 	rc := t.blocks[t.liveAssistantIdx].(*rawCell)
-	idx := t.MotionTick % len(livePulseGradient)
-	markerColor := livePulseGradient[idx]
-	marker := lipgloss.NewStyle().Foreground(markerColor).Render("● ")
+	marker := lipgloss.NewStyle().Foreground(breathingMarkerColor(t.MotionTick)).Render("● ")
 
 	if t.streamCollector != nil {
 		committed := t.streamCollector.CommitCompleteLines()
