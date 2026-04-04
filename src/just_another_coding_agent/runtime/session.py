@@ -37,7 +37,7 @@ from just_another_coding_agent.runtime.activity import build_failed_tool_activit
 from just_another_coding_agent.runtime.agent import build_canonical_agent
 from just_another_coding_agent.runtime.compaction import (
     build_auto_compact_session_budget_report,
-    build_resume_message_history,
+    build_runtime_framed_resume_message_history,
     summarize_and_append_compaction_to_session,
 )
 from just_another_coding_agent.runtime.run import stream_run_events
@@ -186,9 +186,20 @@ async def stream_session_run_events(
             path=session_path,
             workspace_root=normalized_workspace_root,
         )
+    resolved_thinking = (
+        thinking
+        if thinking is not None
+        else (loaded_session.thinking if loaded_session is not None else None)
+    )
+    turn_context_baseline = None
+    if loaded_session is not None:
         compaction_budget_before = build_auto_compact_session_budget_report(
             loaded_session,
             model=model,
+            workspace_root=normalized_workspace_root,
+            current_date=current_date,
+            shell_family=shell_family,
+            thinking=resolved_thinking,
         )
         if compaction_budget_before.should_compact:
             metadata = read_session_metadata(
@@ -231,6 +242,10 @@ async def stream_session_run_events(
             compaction_budget_after = build_auto_compact_session_budget_report(
                 loaded_session,
                 model=model,
+                workspace_root=normalized_workspace_root,
+                current_date=current_date,
+                shell_family=shell_family,
+                thinking=resolved_thinking,
             )
             estimated_tokens_saved = max(
                 0,
@@ -268,11 +283,6 @@ async def stream_session_run_events(
                         "quality may degrade."
                     ),
                 )
-    resolved_thinking = (
-        thinking
-        if thinking is not None
-        else (loaded_session.thinking if loaded_session is not None else None)
-    )
     if loaded_session is not None:
         turn_context_baseline = evaluate_turn_context_baseline(
             entry=loaded_session.latest_turn_context,
@@ -292,10 +302,12 @@ async def stream_session_run_events(
                 else None
             ),
         )
-    preexisting_history = (
-        build_resume_message_history(loaded_session)
-        if loaded_session is not None
-        else []
+    preexisting_history = build_runtime_framed_resume_message_history(
+        loaded_session,
+        baseline_decision=turn_context_baseline,
+        workspace_root=normalized_workspace_root,
+        current_date=current_date,
+        shell_family=shell_family,
     )
     preexisting_history_count = len(preexisting_history)
 
@@ -346,10 +358,10 @@ async def stream_session_run_events(
                         path=session_path,
                         workspace_root=normalized_workspace_root,
                         shell_family=shell_family,
-                    run_id=event.run_id,
-                    prompt=prompt,
-                    thinking=resolved_thinking,
-                )
+                        run_id=event.run_id,
+                        prompt=prompt,
+                        thinking=resolved_thinking,
+                    )
                 run_appender.append_event(event)
                 if isinstance(event, ToolCallStartedEvent):
                     pending_tool_calls[event.tool_call_id] = event

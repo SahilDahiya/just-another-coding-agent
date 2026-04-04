@@ -78,8 +78,11 @@ def test_replacement_history_imports_cleanly_in_fresh_python_process() -> None:
 
 
 def test_estimate_resume_history_budget_components_use_replacement_history(
+    tmp_path,
     monkeypatch,
 ) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
     monkeypatch.setattr(
         trigger,
         "build_resume_message_history",
@@ -91,6 +94,12 @@ def test_estimate_resume_history_budget_components_use_replacement_history(
 
     estimate = trigger._estimate_resume_history_budget_components(
         SimpleNamespace(
+            header=SimpleNamespace(
+                workspace_root=str(workspace_root.resolve()),
+                shell_family="posix",
+            ),
+            latest_turn_context=None,
+            turn_contexts=[],
             latest_compaction=SimpleNamespace(
                 replacement_messages=[
                     ModelRequest(parts=[UserPromptPart(content="user")]),
@@ -102,6 +111,7 @@ def test_estimate_resume_history_budget_components_use_replacement_history(
     )
 
     assert estimate.estimation_method == "chars_per_token_v1"
+    assert estimate.estimated_runtime_context_tokens > 0
     assert estimate.estimated_resume_message_tokens > 0
     assert estimate.estimated_replacement_messages_tokens > 0
     assert estimate.estimated_replacement_summary_tokens > 0
@@ -133,15 +143,36 @@ def test_should_auto_compact_session_uses_effective_context_window_budget(
     )
 
     loaded = load_session(path=session_path, workspace_root=workspace_root)
-    monkeypatch.setattr(
-        trigger,
-        "_estimate_resume_history_budget_components",
-        lambda loaded_session, *, model: trigger._ResumeHistoryBudgetEstimate(
+
+    def fake_budget_estimate(
+        loaded_session,
+        *,
+        model,
+        workspace_root=None,
+        current_date=None,
+        shell_family=None,
+        thinking=None,
+    ):
+        del (
+            loaded_session,
+            model,
+            workspace_root,
+            current_date,
+            shell_family,
+            thinking,
+        )
+        return trigger._ResumeHistoryBudgetEstimate(
             estimation_method="chars_per_token_v1",
+            estimated_runtime_context_tokens=500,
             estimated_resume_message_tokens=43_000,
             estimated_replacement_messages_tokens=0,
             estimated_replacement_summary_tokens=0,
-        ),
+        )
+
+    monkeypatch.setattr(
+        trigger,
+        "_estimate_resume_history_budget_components",
+        fake_budget_estimate,
     )
 
     assert trigger.should_auto_compact_session(
@@ -172,15 +203,36 @@ def test_build_auto_compaction_budget_report_records_trigger_inputs(
     )
 
     loaded = load_session(path=session_path, workspace_root=workspace_root)
-    monkeypatch.setattr(
-        trigger,
-        "_estimate_resume_history_budget_components",
-        lambda loaded_session, *, model: trigger._ResumeHistoryBudgetEstimate(
+
+    def fake_budget_estimate(
+        loaded_session,
+        *,
+        model,
+        workspace_root=None,
+        current_date=None,
+        shell_family=None,
+        thinking=None,
+    ):
+        del (
+            loaded_session,
+            model,
+            workspace_root,
+            current_date,
+            shell_family,
+            thinking,
+        )
+        return trigger._ResumeHistoryBudgetEstimate(
             estimation_method="chars_per_token_v1",
+            estimated_runtime_context_tokens=500,
             estimated_resume_message_tokens=42_700,
             estimated_replacement_messages_tokens=900,
             estimated_replacement_summary_tokens=300,
-        ),
+        )
+
+    monkeypatch.setattr(
+        trigger,
+        "_estimate_resume_history_budget_components",
+        fake_budget_estimate,
     )
 
     report = trigger.build_auto_compact_session_budget_report(
@@ -197,10 +249,11 @@ def test_build_auto_compaction_budget_report_records_trigger_inputs(
     assert report.trigger_budget_tokens == 64_400
     assert report.prompt_reserve_tokens == 24_000
     assert report.estimation_method == "chars_per_token_v1"
+    assert report.estimated_runtime_context_tokens == 500
     assert report.estimated_resume_message_tokens == 42_700
     assert report.estimated_replacement_messages_tokens == 900
     assert report.estimated_replacement_summary_tokens == 300
-    assert report.estimated_post_compaction_headroom_tokens == 25_300
+    assert report.estimated_post_compaction_headroom_tokens == 24_800
     assert report.runs_since_latest_compaction == 1
 
 

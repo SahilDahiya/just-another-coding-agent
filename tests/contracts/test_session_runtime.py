@@ -44,6 +44,13 @@ from just_another_coding_agent.runtime.compaction import (
     trigger as trigger_module,
 )
 from just_another_coding_agent.runtime.turn_context import (
+    RUNTIME_CONTEXT_MESSAGE_HEADER,
+    RUNTIME_CONTEXT_UPDATE_MESSAGE_HEADER,
+    build_runtime_context_injection_plan,
+    build_runtime_context_message,
+    build_runtime_context_text,
+    build_runtime_context_update_message,
+    build_runtime_context_update_text,
     build_session_turn_context_entry,
     evaluate_turn_context_baseline,
 )
@@ -107,6 +114,22 @@ def _assistant_texts(messages: list[ModelMessage]) -> list[str]:
     ]
 
 
+def _runtime_context_texts(messages: list[ModelMessage]) -> list[str]:
+    return [
+        text
+        for text in _assistant_texts(messages)
+        if text.startswith(RUNTIME_CONTEXT_MESSAGE_HEADER)
+    ]
+
+
+def _runtime_context_update_texts(messages: list[ModelMessage]) -> list[str]:
+    return [
+        text
+        for text in _assistant_texts(messages)
+        if text.startswith(RUNTIME_CONTEXT_UPDATE_MESSAGE_HEADER)
+    ]
+
+
 def _append_simple_run(*, path, workspace_root, run_id: str, prompt: str) -> None:
     append_run_to_session(
         path=path,
@@ -151,16 +174,29 @@ def _append_replacement_compaction(
 
 
 def _force_small_context_window(monkeypatch, *, context_window_tokens: int = 2_000):
+    def fake_budget_report(
+        loaded_session,
+        *,
+        model,
+        workspace_root=None,
+        current_date=None,
+        shell_family=None,
+        thinking=None,
+    ):
+        return trigger_module.build_auto_compact_session_budget_report(
+            loaded_session,
+            model=model,
+            workspace_root=workspace_root,
+            current_date=current_date,
+            shell_family=shell_family,
+            thinking=thinking,
+            get_context_window_tokens=lambda _model: context_window_tokens,
+        )
+
     monkeypatch.setattr(
         "just_another_coding_agent.runtime.session."
         "build_auto_compact_session_budget_report",
-        lambda loaded_session, *, model: (
-            trigger_module.build_auto_compact_session_budget_report(
-                loaded_session,
-                model=model,
-                get_context_window_tokens=lambda _model: context_window_tokens,
-            )
-        ),
+        fake_budget_report,
     )
 
 
@@ -458,11 +494,53 @@ async def test_stream_session_run_events_persists_turn_context_snapshot(
     assert loaded.latest_turn_context.workspace_root == str(workspace_root.resolve())
     assert loaded.latest_turn_context.shell_family == loaded.header.shell_family
     assert loaded.latest_turn_context.thinking == "high"
-    assert loaded.latest_turn_context.instructions
+    assert loaded.latest_turn_context.runtime_context_text
     assert (
         f"Current workspace root: {workspace_root.resolve()}"
-        in loaded.latest_turn_context.instructions
+        in loaded.latest_turn_context.runtime_context_text
     )
+
+
+async def test_stream_session_run_events_injects_runtime_context_prefix_on_new_run(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    session_path = tmp_path / "session.jsonl"
+    observed: dict[str, object] = {}
+
+    async def probe_stream(
+        messages: list[ModelMessage],
+        _agent_info: object,
+    ) -> AsyncIterator[str]:
+        observed["assistant_texts"] = _assistant_texts(messages)
+        observed["user_prompts"] = _user_prompts(messages)
+        yield "done"
+
+    events = [
+        event
+        async for event in stream_session_run_events(
+            model=FunctionModel(stream_function=probe_stream),
+            workspace_root=workspace_root,
+            session_path=session_path,
+            prompt="hello",
+        )
+    ]
+
+    assert [event.type for event in events] == [
+        "run_started",
+        "assistant_text_delta",
+        "run_succeeded",
+    ]
+    assert observed["user_prompts"] == ["hello"]
+    assert observed["assistant_texts"] == [
+        build_runtime_context_message(
+            build_runtime_context_text(workspace_root=workspace_root)
+        ).parts[0].content
+    ]
+
+    loaded = load_session(path=session_path, workspace_root=workspace_root)
+    assert _runtime_context_texts(loaded.runs[0].messages) == []
 
 
 async def test_stream_session_run_events_reports_missing_turn_context_baseline(
@@ -580,7 +658,7 @@ async def test_stream_session_run_events_reports_cleared_turn_context_on_model_m
             workspace_root=str(workspace_root.resolve()),
             shell_family="posix",
             current_date="2026-04-03",
-            instructions="stale instructions",
+            runtime_context_text="stale runtime context",
         ),
     )
 
@@ -605,6 +683,95 @@ async def test_stream_session_run_events_reports_cleared_turn_context_on_model_m
     assert status.status == "cleared"
     assert status.reason == "model_mismatch"
     assert status.persisted_run_id == "run-1"
+
+
+async def test_stream_session_run_events_emits_runtime_context_diff_on_shell_change(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    session_path = tmp_path / "session.jsonl"
+    model = FunctionModel(stream_function=text_only_stream)
+
+    append_run_to_session(
+        path=session_path,
+        workspace_root=workspace_root,
+        prompt="first",
+        thinking=None,
+        messages=[ModelRequest(parts=[UserPromptPart(content="first")])],
+        events=[
+            RunStartedEvent(run_id="run-1"),
+            RunSucceededEvent(run_id="run-1", output_text="done"),
+        ],
+        turn_context=build_session_turn_context_entry(
+            run_id="run-1",
+            model=model,
+            workspace_root=workspace_root,
+            current_date=date(2026, 4, 4),
+            shell_family="posix",
+        ),
+    )
+
+    captured: dict[str, object] = {}
+
+    async def fake_stream_run_events(
+        *,
+        agent,
+        prompt,
+        message_history=None,
+        instructions=None,
+        thinking=None,
+        deps=None,
+        message_history_sink=None,
+    ):
+        del agent, prompt, instructions, thinking, deps, message_history_sink
+        captured["message_history"] = message_history
+        yield RunStartedEvent(run_id="run-2")
+        yield RunSucceededEvent(run_id="run-2", output_text="done")
+
+    monkeypatch.setattr(
+        "just_another_coding_agent.runtime.session.detect_default_shell_family",
+        lambda: "powershell",
+    )
+    monkeypatch.setattr(
+        "just_another_coding_agent.runtime.session.stream_run_events",
+        fake_stream_run_events,
+    )
+
+    events = [
+        event
+        async for event in stream_session_run_events(
+            model=model,
+            workspace_root=workspace_root,
+            session_path=session_path,
+            prompt="second",
+        )
+    ]
+
+    assert [event.type for event in events] == [
+        "session_turn_context_status",
+        "run_started",
+        "run_succeeded",
+    ]
+    status = events[0]
+    assert isinstance(status, SessionTurnContextStatusEvent)
+    assert status.status == "cleared"
+    assert status.reason == "shell_family_mismatch"
+    assert _runtime_context_texts(captured["message_history"]) == [
+        build_runtime_context_message(
+            build_runtime_context_text(
+                workspace_root=workspace_root,
+                current_date=date.today(),
+                shell_family="posix",
+            )
+        ).parts[0].content
+    ]
+    assert _runtime_context_update_texts(captured["message_history"]) == [
+        build_runtime_context_update_message(
+            "Current shell family changed to powershell"
+        ).parts[0].content
+    ]
 
 
 async def test_stream_session_run_events_reports_missing_baseline_after_compaction(
@@ -684,7 +851,86 @@ def test_evaluate_turn_context_baseline_clears_on_current_date_mismatch(
 
     assert decision.status == "cleared"
     assert decision.reason == "current_date_mismatch"
-    assert decision.entry is None
+    assert decision.entry == entry
+
+
+def test_build_runtime_context_injection_plan_uses_diff_for_date_change(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    model = FunctionModel(stream_function=text_only_stream)
+    entry = build_session_turn_context_entry(
+        run_id="run-1",
+        model=model,
+        workspace_root=workspace_root,
+        current_date=date(2026, 4, 3),
+    )
+    decision = evaluate_turn_context_baseline(
+        entry=entry,
+        model=model,
+        workspace_root=workspace_root,
+        current_date=date(2026, 4, 4),
+        has_persisted_history=True,
+    )
+
+    plan = build_runtime_context_injection_plan(
+        baseline_decision=decision,
+        workspace_root=workspace_root,
+        current_date=date(2026, 4, 4),
+    )
+
+    assert [message.parts[0].content for message in plan.before_history_messages] == [
+        build_runtime_context_message(entry.runtime_context_text).parts[0].content
+    ]
+    assert [message.parts[0].content for message in plan.after_history_messages] == [
+        build_runtime_context_update_message(
+            build_runtime_context_update_text(
+                entry=entry,
+                workspace_root=workspace_root,
+                current_date=date(2026, 4, 4),
+            )
+        ).parts[0].content
+    ]
+
+
+def test_build_runtime_context_injection_plan_falls_back_to_full_on_model_change(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    entry = SessionTurnContextEntry(
+        run_id="run-1",
+        model="different:model",
+        thinking=None,
+        workspace_root=str(workspace_root.resolve()),
+        shell_family="posix",
+        current_date="2026-04-04",
+        runtime_context_text=build_runtime_context_text(workspace_root=workspace_root),
+    )
+    decision = evaluate_turn_context_baseline(
+        entry=entry,
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        current_date=date(2026, 4, 4),
+        has_persisted_history=True,
+    )
+
+    plan = build_runtime_context_injection_plan(
+        baseline_decision=decision,
+        workspace_root=workspace_root,
+        current_date=date(2026, 4, 4),
+    )
+
+    assert [message.parts[0].content for message in plan.before_history_messages] == [
+        build_runtime_context_message(
+            build_runtime_context_text(
+                workspace_root=workspace_root,
+                current_date=date(2026, 4, 4),
+            )
+        ).parts[0].content
+    ]
+    assert plan.after_history_messages == ()
 
 
 async def test_stream_session_run_events_persists_partial_run_before_completion(
@@ -822,6 +1068,12 @@ async def test_stream_session_run_events_inherits_last_persisted_thinking_when_o
     assert captured["prompt"] == "second"
     assert captured["thinking"] == "high"
     assert captured["deps"] == WorkspaceDeps.from_workspace_root(workspace_root)
+    assert _runtime_context_texts(captured["message_history"]) == [
+        build_runtime_context_message(
+            build_runtime_context_text(workspace_root=workspace_root)
+        ).parts[0].content
+    ]
+    assert _user_prompts(captured["message_history"]) == ["first"]
     loaded = load_session(path=session_path, workspace_root=workspace_root)
     assert [run.thinking for run in loaded.runs] == ["high", "high"]
     assert loaded.thinking == "high"
@@ -1009,6 +1261,9 @@ async def test_stream_session_run_events_replays_replacement_history(
     assert status.reason == "missing"
     assert observed["user_prompts"] == ["second", "third"]
     assert observed["assistant_texts"] == [
+        build_runtime_context_message(
+            build_runtime_context_text(workspace_root=workspace_root)
+        ).parts[0].content,
         _summary_message_content("- Goal: continue after compaction")
     ]
     assert observed["tool_return"] is True
@@ -1327,6 +1582,11 @@ async def test_stream_session_run_events_auto_compacts_stale_session_before_resu
 
     assert captured["prompt"] == "follow-up"
     assert captured["instructions"] is None
+    assert _runtime_context_texts(captured["message_history"]) == [
+        build_runtime_context_message(
+            build_runtime_context_text(workspace_root=workspace_root)
+        ).parts[0].content
+    ]
     captured_prompts = _user_prompts(captured["message_history"])
     assert "keep tail" in captured_prompts
     assert _summary_message_content(
@@ -1886,10 +2146,16 @@ async def test_stream_session_run_events_trim_failed_correction_tail_from_histor
             ]
         ),
     ]
+    captured_messages = [
+        build_runtime_context_message(
+            build_runtime_context_text(workspace_root=workspace_root)
+        ),
+        *poisoned_messages,
+    ]
 
     @contextmanager
     def fake_capture_run_messages():
-        yield poisoned_messages
+        yield captured_messages
 
     async def failed_correction_stream_run_events(
         *,
@@ -2012,10 +2278,16 @@ async def test_stream_session_run_events_resume_after_failed_correction_is_clean
             ]
         ),
     ]
+    captured_messages = [
+        build_runtime_context_message(
+            build_runtime_context_text(workspace_root=workspace_root)
+        ),
+        *poisoned_messages,
+    ]
 
     @contextmanager
     def fake_capture_run_messages():
-        yield poisoned_messages
+        yield captured_messages
 
     async def failed_correction_stream_run_events(
         *,

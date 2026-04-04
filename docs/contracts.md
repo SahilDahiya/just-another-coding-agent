@@ -476,11 +476,13 @@ Initial executable session slice:
   - `messages` must exclude internal instructions and `SystemPromptPart`
     content; those are ephemeral runtime state, not durable conversation state
 - `session_turn_context`
-  - fields: `type`, `run_id`, `model`, `thinking`, `workspace_root`, `shell_family`, `current_date`, `instructions`
+  - fields: `type`, `run_id`, `model`, `thinking`, `workspace_root`, `shell_family`, `current_date`, `runtime_context_text`
   - records one persisted backend-owned runtime-framing snapshot for that completed run
   - `thinking` and `current_date` are optional
-  - `instructions` must be the full canonical instruction payload used for that run
-  - v1 persists this snapshot for correctness and future optimization only; it does not enable diff-based reinjection yet
+  - `runtime_context_text` must be the dynamic runtime-framing payload for that run
+  - static agent instructions are not persisted in `session_turn_context`
+  - resumed runs reconstruct the last full model-visible runtime-context prefix from the latest active persisted snapshot when it is safe to do so
+  - when visible runtime framing changed but the prior snapshot is still valid for reconstruction, resumed runs append one runtime-context update message before the new user prompt instead of replaying a second full prefix
 - `session_event`
   - fields: `type`, `run_id`, `event`
   - `event` must be one canonical persisted run event payload
@@ -517,7 +519,11 @@ Ordering rules for the session slice:
   cleared against the current run framing inputs
 - The current framing inputs that can clear a persisted baseline include the
   effective model, effective thinking setting, shell family, current date, and
-  canonical instruction payload
+  runtime-context payload
+- The actual model-visible next-run substrate starts with either a full
+  runtime-context prefix or a reconstructed prior prefix, then durable resumed
+  conversation history, then optionally one runtime-context update message,
+  then the new user prompt
 - Forked sessions do not inherit parent `session_turn_context` entries; a fork starts without an active persisted runtime-framing baseline
 - Durable cross-run compaction must be materialized into resume `message_history` before the next run starts; JACA does not use PydanticAI `history_processors` in the canonical runtime path
 - Durable compaction summary generation must use a plain-text model call that
@@ -542,9 +548,11 @@ Ordering rules for the session slice:
 - Persisted events for a run must satisfy the streamed run contract, including exactly one terminal outcome
 - Persisted `session_event` payloads must preserve any tool `activity` metadata unchanged
 - Appending a new run must preserve all existing lines and write the header only once
-- v1 resumed and forked runs still rebuild and reinject the full canonical runtime framing on each run; persisted `session_turn_context` does not yet enable diff-based prompt updates
+- Fresh runs inject one full runtime-context prefix
+- Resumed runs inject one full runtime-context prefix when there is no safe prior baseline to reconstruct
+- Resumed runs may instead reconstruct the last full runtime-context prefix and append one runtime-context update message when the visible runtime framing changed in a diffable way
 - Successful resumed runs must persist only new run deltas instead of replaying replacement history back into trailing `session_messages`
-- Before a resumed run starts, the runtime may append one automatic `session_compaction` entry when estimated local resume history plus reserve crosses the configured fraction of the effective active model context window after compaction-output headroom is reserved
+- Before a resumed run starts, the runtime may append one automatic `session_compaction` entry when estimated local next-run message history, including any reconstructed runtime-context prefix and runtime-context update message, plus reserve crosses the configured fraction of the effective active model context window after compaction-output headroom is reserved
 - Before a resumed run starts, the automatic trigger estimates the actual local
   resume history the next run will use; it does not depend on prior
   provider-reported usage

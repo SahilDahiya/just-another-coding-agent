@@ -67,13 +67,17 @@ CANONICAL_AGENT_INSTRUCTIONS = "\n".join(
 )
 
 
+def build_static_agent_instructions() -> str:
+    return CANONICAL_AGENT_INSTRUCTIONS
+
+
 def _shell_family_prompt_label(shell_family: ShellFamily) -> str:
     if shell_family == "powershell":
         return "powershell"
     return "posix (bash)"
 
 
-def build_canonical_instructions(
+def build_runtime_context_text(
     *,
     workspace_root: Path | str,
     current_date: date | None = None,
@@ -84,13 +88,30 @@ def build_canonical_instructions(
     effective_shell_family = shell_family or detect_default_shell_family()
 
     sections = [
-        CANONICAL_AGENT_INSTRUCTIONS,
         f"Current date: {resolved_date.isoformat()}",
         f"Current workspace root: {root}",
         f"Current shell family: {_shell_family_prompt_label(effective_shell_family)}",
     ]
 
     return "\n".join(sections)
+
+
+def build_canonical_instructions(
+    *,
+    workspace_root: Path | str,
+    current_date: date | None = None,
+    shell_family: ShellFamily | None = None,
+) -> str:
+    return "\n".join(
+        [
+            build_static_agent_instructions(),
+            build_runtime_context_text(
+                workspace_root=workspace_root,
+                current_date=current_date,
+                shell_family=shell_family,
+            ),
+        ]
+    )
 
 
 def build_canonical_agent(
@@ -101,8 +122,7 @@ def build_canonical_agent(
     shell_family: ShellFamily | None = None,
     tool_names: Sequence[str] = CANONICAL_TOOL_NAMES,
 ) -> Agent[WorkspaceDeps, str]:
-    root = normalize_workspace_root(workspace_root)
-    effective_shell_family = shell_family or detect_default_shell_family()
+    normalize_workspace_root(workspace_root)
     resolved_model = resolve_canonical_model(model)
 
     # The canonical agent returns plain assistant text, not structured output.
@@ -121,11 +141,7 @@ def build_canonical_agent(
         output_type=str,
         retries=CANONICAL_AGENT_TOOL_CORRECTION_RETRIES,
         output_retries=CANONICAL_AGENT_OUTPUT_RETRIES,
-        instructions=build_canonical_instructions(
-            workspace_root=root,
-            current_date=current_date,
-            shell_family=effective_shell_family,
-        ),
+        instructions=build_static_agent_instructions(),
         deps_type=WorkspaceDeps,
         toolsets=[build_canonical_toolset(tool_names)],
         capabilities=[CanonicalValidatedToolArgsCapability()],
@@ -145,4 +161,6 @@ __all__ = [
     "CANONICAL_AGENT_INSTRUCTIONS",
     "build_canonical_agent",
     "build_canonical_instructions",
+    "build_runtime_context_text",
+    "build_static_agent_instructions",
 ]

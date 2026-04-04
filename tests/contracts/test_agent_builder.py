@@ -12,6 +12,8 @@ from just_another_coding_agent.runtime import (
     build_canonical_agent,
     build_canonical_instructions,
     build_canonical_model_settings,
+    build_runtime_context_text,
+    build_static_agent_instructions,
 )
 from just_another_coding_agent.tools.deps import WorkspaceDeps
 
@@ -41,10 +43,7 @@ async def test_build_canonical_agent_sets_default_instructions(tmp_path) -> None
 
     first_request = messages[0]
     assert isinstance(first_request, ModelRequest)
-    assert first_request.instructions == build_canonical_instructions(
-        workspace_root=workspace_root,
-        current_date=date.today(),
-    )
+    assert first_request.instructions == build_static_agent_instructions()
     assert isinstance(first_request.parts[0], UserPromptPart)
     assert first_request.parts[0].content == "hi"
 
@@ -60,6 +59,13 @@ def test_build_canonical_instructions_include_dynamic_context(tmp_path) -> None:
     )
 
     assert instructions.startswith(CANONICAL_AGENT_INSTRUCTIONS)
+    assert instructions.endswith(
+        build_runtime_context_text(
+            workspace_root=workspace_root,
+            current_date=date(2026, 3, 26),
+            shell_family="powershell",
+        )
+    )
     assert (
         "Prefer read to examine files instead of shelling out just to view files."
         in instructions
@@ -107,6 +113,26 @@ def test_build_canonical_instructions_include_truthfulness_and_verification_rule
         "After code changes or required file outputs, run the smallest "
         "relevant verification step before concluding." in instructions
     )
+
+
+def test_build_runtime_context_text_is_dynamic_only(tmp_path) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    runtime_context_text = build_runtime_context_text(
+        workspace_root=workspace_root,
+        current_date=date(2026, 3, 26),
+        shell_family="powershell",
+    )
+
+    assert runtime_context_text == "\n".join(
+        [
+            "Current date: 2026-03-26",
+            f"Current workspace root: {workspace_root.resolve()}",
+            "Current shell family: powershell",
+        ]
+    )
+    assert CANONICAL_AGENT_INSTRUCTIONS not in runtime_context_text
 
 
 def test_build_canonical_model_settings_include_thinking_when_set() -> None:

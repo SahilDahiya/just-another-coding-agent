@@ -12,6 +12,8 @@ __all__ = [
     "CANONICAL_RUN_RECOVERY_RETRY_LIMIT",
     "build_canonical_agent",
     "build_canonical_instructions",
+    "build_runtime_context_text",
+    "build_static_agent_instructions",
     "build_canonical_model_settings",
     "resolve_canonical_model",
     "stream_run_events",
@@ -27,6 +29,8 @@ _LAZY_EXPORTS = {
     "CANONICAL_AGENT_INSTRUCTIONS": (".agent", "CANONICAL_AGENT_INSTRUCTIONS"),
     "build_canonical_agent": (".agent", "build_canonical_agent"),
     "build_canonical_instructions": (".agent", "build_canonical_instructions"),
+    "build_runtime_context_text": (".agent", "build_runtime_context_text"),
+    "build_static_agent_instructions": (".agent", "build_static_agent_instructions"),
     "build_canonical_model_settings": (
         ".models",
         "build_canonical_model_settings",

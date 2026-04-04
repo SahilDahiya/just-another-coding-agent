@@ -24,6 +24,10 @@ from just_another_coding_agent.runtime.compaction import build_resume_message_hi
 from just_another_coding_agent.runtime.compaction import (
     trigger as trigger_module,
 )
+from just_another_coding_agent.runtime.turn_context import (
+    build_runtime_context_message,
+    build_runtime_context_text,
+)
 from just_another_coding_agent.session import (
     append_compaction_to_session,
     append_run_to_session,
@@ -170,15 +174,29 @@ async def test_e2e_stdio_auto_compaction_keeps_recent_user_tail_and_summary_mess
         "summarize_and_append_compaction_to_session",
         fake_summarize_and_append_compaction_to_session,
     )
+
+    def fake_budget_report(
+        loaded_session,
+        *,
+        model,
+        workspace_root=None,
+        current_date=None,
+        shell_family=None,
+        thinking=None,
+    ):
+        return trigger_module.build_auto_compact_session_budget_report(
+            loaded_session,
+            model=model,
+            workspace_root=workspace_root,
+            current_date=current_date,
+            shell_family=shell_family,
+            thinking=thinking,
+            get_context_window_tokens=lambda _model: 2_000,
+        )
+
     monkeypatch.setattr(
         "just_another_coding_agent.runtime.session.build_auto_compact_session_budget_report",
-        lambda loaded_session, *, model: (
-            trigger_module.build_auto_compact_session_budget_report(
-                loaded_session,
-                model=model,
-                get_context_window_tokens=lambda _model: 2_000,
-            )
-        ),
+        fake_budget_report,
     )
 
     observed: dict[str, object] = {}
@@ -243,6 +261,9 @@ async def test_e2e_stdio_auto_compaction_keeps_recent_user_tail_and_summary_mess
     )
     assert "second" in observed["user_prompts"]
     assert "third" in observed["user_prompts"]
+    assert build_runtime_context_message(
+        build_runtime_context_text(workspace_root=workspace_root)
+    ).parts[0].content in observed["assistant_texts"]
     assert build_compaction_summary_message(
         "- Goal: continue after compaction"
     ).parts[0].content in observed["assistant_texts"]
@@ -335,10 +356,14 @@ async def test_e2e_stdio_resume_replays_custom_replacement_messages_raw(
         "assistant_text_delta",
         "run_succeeded",
     ]
-    assert observed["incoming_shapes"][0] == "ModelResponse:['ToolCallPart']"
-    assert observed["incoming_shapes"][1].startswith("ModelRequest:['ToolReturnPart'")
+    assert observed["incoming_shapes"][0] == "ModelResponse:['TextPart']"
+    assert observed["incoming_shapes"][1] == "ModelResponse:['ToolCallPart']"
+    assert observed["incoming_shapes"][2].startswith("ModelRequest:['ToolReturnPart'")
     assert observed["incoming_user_prompts"] == ["after-manual-compaction"]
     assert observed["incoming_assistant_texts"] == [
+        build_runtime_context_message(
+            build_runtime_context_text(workspace_root=workspace_root)
+        ).parts[0].content,
         build_compaction_summary_message("- Goal: continue after compaction").parts[
             0
         ].content,
@@ -399,15 +424,29 @@ async def test_e2e_stdio_repeated_auto_compactions_keep_new_run_delta_only(
         "summarize_and_append_compaction_to_session",
         fake_summarize_and_append_compaction_to_session,
     )
+
+    def fake_budget_report(
+        loaded_session,
+        *,
+        model,
+        workspace_root=None,
+        current_date=None,
+        shell_family=None,
+        thinking=None,
+    ):
+        return trigger_module.build_auto_compact_session_budget_report(
+            loaded_session,
+            model=model,
+            workspace_root=workspace_root,
+            current_date=current_date,
+            shell_family=shell_family,
+            thinking=thinking,
+            get_context_window_tokens=lambda _model: 2_000,
+        )
+
     monkeypatch.setattr(
         "just_another_coding_agent.runtime.session.build_auto_compact_session_budget_report",
-        lambda loaded_session, *, model: (
-            trigger_module.build_auto_compact_session_budget_report(
-                loaded_session,
-                model=model,
-                get_context_window_tokens=lambda _model: 2_000,
-            )
-        ),
+        fake_budget_report,
     )
 
     rpc_messages = await _serve_lines(

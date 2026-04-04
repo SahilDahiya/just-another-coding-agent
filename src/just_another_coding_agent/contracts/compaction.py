@@ -26,6 +26,7 @@ class CompactionBudgetReport(BaseModel):
     trigger_budget_tokens: int | None = None
     prompt_reserve_tokens: int
     estimation_method: str
+    estimated_runtime_context_tokens: int = 0
     estimated_resume_message_tokens: int
     estimated_replacement_messages_tokens: int = 0
     estimated_replacement_summary_tokens: int = 0

@@ -1,14 +1,20 @@
 from __future__ import annotations
 
+from datetime import date
+from pathlib import Path
 from typing import Any
 
 from pydantic_ai import Agent
 
-from just_another_coding_agent.contracts.platform import detect_default_shell_family
+from just_another_coding_agent.contracts.platform import (
+    ShellFamily,
+    detect_default_shell_family,
+)
 from just_another_coding_agent.contracts.session import (
     LoadedSession,
     SessionCompactionEntry,
 )
+from just_another_coding_agent.contracts.thinking import ThinkingSetting
 from just_another_coding_agent.runtime.models import (
     get_model_context_window_tokens,
     resolve_canonical_model,
@@ -120,10 +126,18 @@ def should_auto_compact_session(
     loaded_session: LoadedSession,
     *,
     model: Any,
+    workspace_root: Path | str | None = None,
+    current_date: date | None = None,
+    shell_family: ShellFamily | None = None,
+    thinking: ThinkingSetting | None = None,
 ) -> bool:
     return trigger_module.should_auto_compact_session(
         loaded_session,
         model=model,
+        workspace_root=workspace_root,
+        current_date=current_date,
+        shell_family=shell_family,
+        thinking=thinking,
         get_context_window_tokens=get_model_context_window_tokens,
     )
 
@@ -132,10 +146,18 @@ def build_auto_compact_session_budget_report(
     loaded_session: LoadedSession,
     *,
     model: Any,
+    workspace_root: Path | str | None = None,
+    current_date: date | None = None,
+    shell_family: ShellFamily | None = None,
+    thinking: ThinkingSetting | None = None,
 ):
     return trigger_module.build_auto_compact_session_budget_report(
         loaded_session,
         model=model,
+        workspace_root=workspace_root,
+        current_date=current_date,
+        shell_family=shell_family,
+        thinking=thinking,
         get_context_window_tokens=get_model_context_window_tokens,
     )
 

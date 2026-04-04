@@ -119,7 +119,7 @@ Important boundary:
 
 - durable JSONL session history is the authoritative source of truth for resumed runs
 - persisted per-run turn-context snapshots are separate backend-owned runtime framing state, not conversation memory
-- v1 turn-context persistence exists for correctness and invalidation only; resumed runs still reinject the full canonical instructions rather than sending diffs
+- turn-context persistence powers a separate model-visible runtime-framing channel: resumed runs reconstruct the last full runtime-context prefix and, when the visible framing changed, append one runtime-context update message before the new user prompt
 - the canonical session runtime does not rely on provider-side server history during resume
 - provider-native history settings may still exist inside the lower-level model seam, but they are not part of canonical session continuation semantics
 
@@ -134,7 +134,7 @@ Current sequence:
 1. Add manual session compaction first.
 2. Persist a compaction entry alongside existing session entries.
 3. Persist one model-visible replacement-history artifact on that entry and rebuild resumed `message_history` from `replacement_messages` plus later native run deltas.
-4. Add deterministic automatic compaction before resumed runs when estimated local resume history plus reserve crosses a fraction of the effective model context window after compaction-output headroom is reserved.
+4. Add deterministic automatic compaction before resumed runs when estimated local next-run message history, including any reconstructed runtime-context prefix and runtime-context update message, plus reserve crosses a fraction of the effective model context window after compaction-output headroom is reserved.
 5. Keep live-run recovery at the canonical streamed-run boundary when it must preserve a clean public event contract.
 
 The important boundary is:

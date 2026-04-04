@@ -118,7 +118,7 @@ def test_append_run_persists_turn_context_snapshot(tmp_path) -> None:
         workspace_root=str(workspace_root.resolve()),
         shell_family="posix",
         current_date="2026-04-04",
-        instructions="Current workspace root: /workspace",
+        runtime_context_text="Current workspace root: /workspace",
     )
 
     append_run_to_session(
@@ -151,7 +151,7 @@ def test_load_session_compaction_invalidates_latest_turn_context(tmp_path) -> No
         workspace_root=str(workspace_root.resolve()),
         shell_family="posix",
         current_date="2026-04-04",
-        instructions="Current workspace root: /workspace",
+        runtime_context_text="Current workspace root: /workspace",
     )
 
     append_run_to_session(
@@ -393,7 +393,7 @@ def test_fork_session_drops_parent_turn_context_entries(tmp_path) -> None:
         workspace_root=str(workspace_root.resolve()),
         shell_family="posix",
         current_date="2026-04-04",
-        instructions="Current workspace root: /workspace",
+        runtime_context_text="Current workspace root: /workspace",
     )
 
     append_run_to_session(
@@ -1661,6 +1661,9 @@ def test_load_session_fails_when_compaction_summary_message_is_missing(
 
     with pytest.raises(
         SessionFormatError,
-        match="Session compaction replacement_messages must end with a compaction summary message",
+        match=(
+            "Session compaction replacement_messages must end with a "
+            "compaction summary message"
+        ),
     ):
         load_session(path=path, workspace_root=workspace_root)
