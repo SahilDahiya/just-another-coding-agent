@@ -270,9 +270,14 @@ func TestBuildPromptFooterTextShowsDetailedUsageWhenCompleted(t *testing.T) {
 		},
 	})
 
-	for _, want := range []string{"completed", "120 in", "45 out", "165 tok", "41% ctx"} {
+	for _, want := range []string{"completed", "59% left"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("buildPromptFooterText() missing %q in %q", want, got)
+		}
+	}
+	for _, unwanted := range []string{"120 in", "45 out", "165 tok", "41% ctx"} {
+		if strings.Contains(got, unwanted) {
+			t.Fatalf("buildPromptFooterText() unexpectedly includes %q in %q", unwanted, got)
 		}
 	}
 }
@@ -291,9 +296,14 @@ func TestBuildPromptFooterTextShowsCompactUsageWhenIdle(t *testing.T) {
 		},
 	})
 
-	for _, want := range []string{"ollama:kimi-k2:1t-cloud", "/workspace", "165 tok", "41% ctx"} {
+	for _, want := range []string{"ollama:kimi-k2:1t-cloud", "/workspace", "59% left"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("buildPromptFooterText() missing %q in %q", want, got)
+		}
+	}
+	for _, unwanted := range []string{"120 in", "45 out", "165 tok", "41% ctx"} {
+		if strings.Contains(got, unwanted) {
+			t.Fatalf("buildPromptFooterText() unexpectedly includes %q in %q", unwanted, got)
 		}
 	}
 }

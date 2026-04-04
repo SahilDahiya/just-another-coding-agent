@@ -40,8 +40,8 @@ Current estimator:
   - replacement-history tail selection
   - automatic compaction budgeting
 
-The summary message is persisted as a normal `ModelRequest(UserPromptPart(...))`
-with a fixed compaction-summary header so the backend can detect and validate
+The summary message is persisted as a normal `ModelResponse(TextPart(...))`
+with a fixed continuation-summary header so the backend can detect and validate
 it later.
 
 Important consequences:
@@ -125,8 +125,33 @@ If the source is too large:
 - if even the minimal source cannot fit, compaction fails hard before the model
   call
 
-The summary output is plain text. If normalization produces an empty string,
-compaction fails hard.
+The summary output is plain text and should stay continuation-oriented rather
+than archival.
+
+Current prompt contract:
+
+- supported section headings:
+  - `Primary Intent:`
+  - `Completed Work:`
+  - `Important Files/Paths:`
+  - `Failures / Open Issues:`
+  - `Current State:`
+  - `Next Step:`
+  - `Stable Preferences:`
+- sections must be omitted when there is no concrete evidence
+- files/paths should be listed only when they are explicitly visible in the
+  current source
+- no code snippets
+- no exhaustive user-message dump
+- no repeated facts across sections
+- watch for bloat and rot by aggressively omitting stale, repetitive, and
+  low-signal detail
+
+Normalization guards:
+
+- empty summaries fail hard
+- otherwise normalization only strips blank lines and preserves the returned
+  continuation note as-is
 
 ## Resume Semantics
 

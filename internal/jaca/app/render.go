@@ -67,6 +67,7 @@ type viewModel struct {
 	WorkspaceRoot  string
 	Thinking       string
 	SessionID      string
+	SessionName    string
 	MotionTick     int
 	Transcript     string
 	PromptValue    string
@@ -628,26 +629,10 @@ func buildIdleFooterText(vm viewModel) string {
 
 func buildUsageFooterText(vm viewModel, detailed bool) string {
 	parts := []string{}
-	if detailed {
-		if vm.Usage.InputTokens != nil {
-			parts = append(parts, fmt.Sprintf("%d in", *vm.Usage.InputTokens))
-		}
-		if vm.Usage.OutputTokens != nil {
-			parts = append(parts, fmt.Sprintf("%d out", *vm.Usage.OutputTokens))
-		}
-	}
-	if vm.Usage.TotalTokens != nil {
-		parts = append(parts, fmt.Sprintf("%d tok", *vm.Usage.TotalTokens))
-	} else if !detailed {
-		if vm.Usage.InputTokens != nil {
-			parts = append(parts, fmt.Sprintf("%d in", *vm.Usage.InputTokens))
-		}
-		if vm.Usage.OutputTokens != nil {
-			parts = append(parts, fmt.Sprintf("%d out", *vm.Usage.OutputTokens))
-		}
-	}
 	if vm.Usage.ContextWindow != nil {
-		parts = append(parts, fmt.Sprintf("%d%% ctx", int(math.Round(*vm.Usage.ContextWindow*100))))
+		contextLeft := 1 - *vm.Usage.ContextWindow
+		contextLeft = math.Max(0, math.Min(1, contextLeft))
+		parts = append(parts, fmt.Sprintf("%d%% left", int(math.Round(contextLeft*100))))
 	}
 	return joinFooterParts(parts...)
 }

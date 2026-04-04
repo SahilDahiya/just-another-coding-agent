@@ -24,12 +24,10 @@ from just_another_coding_agent.contracts.run_events import (
     RunFailedEvent,
     RunStartedEvent,
     RunSucceededEvent,
-    ShellActivityDetails,
     ToolActivity,
     ToolCallFailedEvent,
     ToolCallStartedEvent,
     ToolCallSucceededEvent,
-    WriteActivityDetails,
 )
 from just_another_coding_agent.runtime import stream_session_run_events
 from just_another_coding_agent.runtime.compaction import (
@@ -760,15 +758,22 @@ async def test_summarize_session_for_compaction_uses_model_output_and_previous_s
 
     def summary_probe(
         messages: list[ModelMessage],
-        _agent_info: object,
+        agent_info: object,
     ) -> ModelResponse:
         prompt = _last_user_prompt(messages)
         assert prompt is not None
         assert "Previous compaction summary:" in prompt
         assert "- Goal: repair verifier" in prompt
         assert "Run run-2" in prompt
-        assert "Prompt: patch app" in prompt
+        assert "Primary intent:" in prompt
+        assert "- patch app" in prompt
         assert "Run run-1" not in prompt
+        assert getattr(agent_info, "instructions") is not None
+        instructions = getattr(agent_info, "instructions")
+        assert "Primary Intent:" in instructions
+        assert "Completed Work:" in instructions
+        assert "Important Files/Paths:" in instructions
+        assert "Do not include code snippets" in instructions
         return ModelResponse(
             parts=[
                 TextPart(
@@ -895,6 +900,10 @@ def test_session_compaction_source_trims_oldest_runs_and_uses_previous_summary(
     assert "- Goal: repair verifier" in source
     assert "Runs since the latest compaction boundary:" in source
     assert "Run run-4" in source
+    assert "Primary intent:" in source
+    assert "Current state:" in source
+    assert "Completed work:" in source
+    assert "Tool evidence:" in source
     assert "Read file-4.py" in source
     assert "omitted" in source
     assert "Run run-2" not in source

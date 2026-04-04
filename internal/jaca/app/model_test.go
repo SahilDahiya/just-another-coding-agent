@@ -645,9 +645,14 @@ func TestRunSucceededUsageAppearsInFooter(t *testing.T) {
 	m.Update(runEventMsg{Done: true})
 
 	rendered := stripANSI(m.View())
-	for _, want := range []string{"completed", "120 in", "45 out", "165 tok", "41% ctx"} {
+	for _, want := range []string{"completed", "59% left"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("view missing %q in %q", want, rendered)
+		}
+	}
+	for _, unwanted := range []string{"120 in", "45 out", "165 tok", "41% ctx"} {
+		if strings.Contains(rendered, unwanted) {
+			t.Fatalf("view unexpectedly includes %q in %q", unwanted, rendered)
 		}
 	}
 }

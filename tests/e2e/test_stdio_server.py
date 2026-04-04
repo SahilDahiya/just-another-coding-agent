@@ -77,18 +77,26 @@ async def compaction_summary_function(
 ) -> ModelResponse:
     prompt = _last_user_prompt(messages)
     assert prompt is not None
-    assert "Prompt: create note" in prompt
+    assert "Primary intent:" in prompt
+    assert "- create note" in prompt
+    assert "Current state:" in prompt
+    assert "Completed work:" in prompt
+    assert "Tool evidence:" in prompt
     return ModelResponse(
         parts=[
             TextPart(
                 content="\n".join(
                     [
-                        "- Goal: finish note handling",
-                        "- Established fact: note.txt was created",
-                        "- Preference: be concise",
-                        "- Important path: note.txt",
-                        "- Open question: Should we add logging?",
-                        "- Unresolved work: Run the final verifier.",
+                        "Primary Intent:",
+                        "- Create note handling and preserve prior file work.",
+                        "Completed Work:",
+                        "- note.txt was created.",
+                        "Important Files/Paths:",
+                        "- note.txt: created during the previous run.",
+                        "Next Step:",
+                        "- Run the final verifier.",
+                        "Stable Preferences:",
+                        "- Be concise.",
                     ]
                 )
             )

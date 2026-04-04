@@ -32,8 +32,25 @@ COMPACTION_SUMMARY_INSTRUCTIONS = "\n".join(
         "You summarize coding-agent session state into one compact continuation note.",
         "Preserve only durable information needed to continue the work correctly.",
         "Do not invent facts, files, preferences, or unresolved work.",
-        "Prefer short concrete bullet lines over paragraphs.",
-        "Include the active goal, important completed work, decisions, stable user preferences, important paths, open questions, and unresolved work when relevant.",
+        "Write only short bullet lines under supported section headings.",
+        "Use these section headings only when supported by evidence:",
+        "Primary Intent:",
+        "Completed Work:",
+        "Important Files/Paths:",
+        "Failures / Open Issues:",
+        "Current State:",
+        "Next Step:",
+        "Stable Preferences:",
+        "List files or paths only when they are explicitly visible in prompts, "
+        "assistant results, or tool evidence.",
+        "Do not include code snippets, function signatures, raw transcript "
+        "dumps, or exhaustive user-message lists.",
+        "Do not repeat the same fact across multiple sections.",
+        "Omit any section that has no concrete evidence.",
+        "Watch for bloat and rot: aggressively omit stale, repetitive, "
+        "low-signal, or speculative detail.",
+        "Keep the whole note concise: prefer a few strong bullets over "
+        "exhaustive detail.",
         "Skip transient noise, repetitive chatter, and low-signal tool details.",
     ]
 )
@@ -56,7 +73,8 @@ async def summarize_session_for_compaction(
     normalized = _normalize_compaction_summary_text(result.output)
     if not normalized:
         raise SessionFormatError(
-            "Compaction summary is empty. Preserve at least one durable objective, fact, path, question, or unresolved task."
+            "Compaction summary is empty. Preserve at least one durable "
+            "objective, fact, path, question, or unresolved task."
         )
     return normalized
 

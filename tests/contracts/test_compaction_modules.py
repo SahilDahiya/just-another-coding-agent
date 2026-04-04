@@ -1,3 +1,6 @@
+import subprocess
+import sys
+from pathlib import Path
 from types import SimpleNamespace
 
 from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserPromptPart
@@ -40,6 +43,38 @@ def test_compaction_public_api_is_split_across_submodules() -> None:
         is summarize_and_append_compaction_to_session
     )
     assert session_summary.should_auto_compact_session is should_auto_compact_session
+
+
+def test_compaction_summary_instructions_focus_on_supported_sections() -> None:
+    instructions = session_summary.COMPACTION_SUMMARY_INSTRUCTIONS
+
+    assert "Primary Intent:" in instructions
+    assert "Completed Work:" in instructions
+    assert "Important Files/Paths:" in instructions
+    assert "Failures / Open Issues:" in instructions
+    assert "Current State:" in instructions
+    assert "Next Step:" in instructions
+    assert "Stable Preferences:" in instructions
+    assert "Do not include code snippets" in instructions
+    assert "Omit any section that has no concrete evidence." in instructions
+    assert "Watch for bloat and rot" in instructions
+
+
+def test_replacement_history_imports_cleanly_in_fresh_python_process() -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import just_another_coding_agent.session.replacement_history",
+        ],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
 
 
 def test_estimate_resume_history_budget_components_use_replacement_history(

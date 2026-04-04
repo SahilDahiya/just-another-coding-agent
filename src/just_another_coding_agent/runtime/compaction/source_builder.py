@@ -107,7 +107,7 @@ def _build_bounded_compaction_source(
 
 
 def _render_run(run: SessionRunRecord) -> str:
-    lines = [f"Run {run.run_id}", f"Prompt: {compact_text(run.prompt)}"]
+    lines = [f"Run {run.run_id}", "Primary intent:", f"- {compact_text(run.prompt)}"]
     if run.thinking is not None:
         lines.append(f"Thinking: {run.thinking}")
 
@@ -116,7 +116,7 @@ def _render_run(run: SessionRunRecord) -> str:
     if terminal_lines:
         lines.extend(terminal_lines)
     if tool_lines:
-        lines.append("Tool outcomes:")
+        lines.append("Tool evidence:")
         lines.extend(f"- {line}" for line in tool_lines)
 
     return "\n".join(lines)
@@ -126,13 +126,17 @@ def _render_terminal_run_outcome(run: SessionRunRecord) -> list[str]:
     lines: list[str] = []
     for event in reversed(run.events):
         if isinstance(event, RunSucceededEvent):
-            lines.append("Outcome: succeeded")
+            lines.append("Current state:")
+            lines.append("- succeeded")
             if event.output_text:
-                lines.append(f"Assistant result: {compact_text(event.output_text)}")
+                lines.append("Completed work:")
+                lines.append(f"- {compact_text(event.output_text)}")
             return lines
         if isinstance(event, RunFailedEvent):
-            lines.append(f"Outcome: failed ({event.error_type})")
-            lines.append(f"Failure: {compact_text(event.message)}")
+            lines.append("Current state:")
+            lines.append(f"- failed ({event.error_type})")
+            lines.append("Failures / Open Issues:")
+            lines.append(f"- {compact_text(event.message)}")
             return lines
 
     return lines
