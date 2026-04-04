@@ -309,9 +309,7 @@ async def handle_rpc_json_line(
             id=request.id,
             response=SessionCompactResponse(
                 compaction_id=compaction.compaction_id,
-                summarized_through_run_id=compaction.summarized_through_run_id,
-                first_kept_run_id=compaction.first_kept_run_id,
-                summary=compaction.summary,
+                compacted_through_run_id=compaction.compacted_through_run_id,
             ),
         ).model_dump_json()
         return

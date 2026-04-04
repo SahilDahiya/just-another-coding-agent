@@ -6,7 +6,6 @@ from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
     ModelResponse,
-    RetryPromptPart,
     TextPart,
     ToolCallPart,
     ToolReturnPart,
@@ -18,22 +17,22 @@ from just_another_coding_agent.contracts.run_events import (
     RunStartedEvent,
     RunSucceededEvent,
 )
-from just_another_coding_agent.contracts.session import SessionCompactionSummary
 from just_another_coding_agent.rpc import serve_rpc_stdio
 from just_another_coding_agent.rpc.session_store import session_path_for_id
+from just_another_coding_agent.runtime.compaction import build_resume_message_history
 from just_another_coding_agent.runtime.compaction import (
-    build_resume_instructions,
-    build_resume_message_history,
+    trigger as trigger_module,
 )
-from just_another_coding_agent.runtime.compaction import (
-    session_summary as session_summary_module,
-)
-from just_another_coding_agent.runtime.compaction import trigger as trigger_module
 from just_another_coding_agent.session import (
     append_compaction_to_session,
     append_run_to_session,
     initialize_session,
     load_session,
+)
+from just_another_coding_agent.session.replacement_history import (
+    build_compaction_replacement_messages,
+    build_compaction_summary_message,
+    extract_compaction_summary_text,
 )
 from tests.session_test_helpers import _message_shapes, _user_prompts
 
@@ -66,30 +65,51 @@ async def _serve_lines(
     ]
 
 
-async def _append_auto_compaction_summary(
+def _append_simple_run(*, path, workspace_root, run_id: str, prompt: str) -> None:
+    append_run_to_session(
+        path=path,
+        workspace_root=workspace_root,
+        prompt=prompt,
+        thinking=None,
+        messages=[ModelRequest(parts=[UserPromptPart(content=prompt)])],
+        events=[
+            RunStartedEvent(run_id=run_id),
+            RunSucceededEvent(run_id=run_id, output_text="done"),
+        ],
+    )
+
+
+def _append_auto_compaction_summary(
     *,
     path,
     workspace_root,
+    summary_text: str,
+    token_budget: int = 400,
 ):
     loaded = load_session(path=path, workspace_root=workspace_root)
-    target = session_summary_module._build_auto_compaction_target(loaded)
-    summary = SessionCompactionSummary(
-        current_objective="continue after compaction",
-        current_plan=["handle the follow-up prompt"],
-        established_facts=["Older history was compacted."],
-        unresolved_work=["answer the new prompt"],
+    replacement_messages = build_compaction_replacement_messages(
+        model="test:model",
+        messages=build_resume_message_history(loaded),
+        summary_text=summary_text,
+        token_budget=token_budget,
     )
     return append_compaction_to_session(
         path=path,
         workspace_root=workspace_root,
-        summary=summary,
-        summarized_through_run_id=target.summarized_through_run_id,
-        first_kept_run_id=target.first_kept_run_id,
-        checkpoint_messages=target.checkpoint_messages,
+        replacement_messages=replacement_messages,
     )
 
 
-async def test_e2e_stdio_auto_compaction_keeps_recent_tail_and_new_run_is_delta_only(
+def _assistant_texts(messages: list[ModelMessage]) -> list[str]:
+    return [
+        part.content
+        for message in messages
+        for part in message.parts
+        if isinstance(part, TextPart)
+    ]
+
+
+async def test_e2e_stdio_auto_compaction_keeps_recent_user_tail_and_summary_message(
     tmp_path,
     monkeypatch,
 ) -> None:
@@ -104,29 +124,24 @@ async def test_e2e_stdio_auto_compaction_keeps_recent_tail_and_new_run_is_delta_
     )
     initialize_session(path=session_path, workspace_root=workspace_root)
 
-    append_run_to_session(
+    _append_simple_run(
         path=session_path,
         workspace_root=workspace_root,
+        run_id="run-1",
         prompt="A" * 120_000,
-        thinking=None,
-        messages=[ModelRequest(parts=[UserPromptPart(content="A" * 120_000)])],
-        events=[
-            RunStartedEvent(run_id="run-1"),
-            RunSucceededEvent(run_id="run-1", output_text="done"),
-        ],
     )
-    for run_id, prompt in [("run-2", "second"), ("run-3", "third")]:
-        append_run_to_session(
-            path=session_path,
-            workspace_root=workspace_root,
-            prompt=prompt,
-            thinking=None,
-            messages=[ModelRequest(parts=[UserPromptPart(content=prompt)])],
-            events=[
-                RunStartedEvent(run_id=run_id),
-                RunSucceededEvent(run_id=run_id, output_text="done"),
-            ],
-        )
+    _append_simple_run(
+        path=session_path,
+        workspace_root=workspace_root,
+        run_id="run-2",
+        prompt="second",
+    )
+    _append_simple_run(
+        path=session_path,
+        workspace_root=workspace_root,
+        run_id="run-3",
+        prompt="third",
+    )
 
     async def fake_summarize_and_append_compaction_to_session(
         *,
@@ -135,9 +150,11 @@ async def test_e2e_stdio_auto_compaction_keeps_recent_tail_and_new_run_is_delta_
         workspace_root,
     ):
         del model
-        return await _append_auto_compaction_summary(
+        return _append_auto_compaction_summary(
             path=path,
             workspace_root=workspace_root,
+            summary_text="- Goal: continue after compaction",
+            token_budget=400,
         )
 
     monkeypatch.setattr(
@@ -156,8 +173,18 @@ async def test_e2e_stdio_auto_compaction_keeps_recent_tail_and_new_run_is_delta_
         ),
     )
 
+    observed: dict[str, object] = {}
+
+    async def probe_stream(
+        messages: list[ModelMessage],
+        _agent_info: object,
+    ) -> AsyncIterator[str]:
+        observed["user_prompts"] = _user_prompts(messages)
+        observed["assistant_texts"] = _assistant_texts(messages)
+        yield "done"
+
     messages = await _serve_lines(
-        model=FunctionModel(stream_function=_text_only_stream),
+        model=FunctionModel(stream_function=probe_stream),
         workspace_root=workspace_root,
         sessions_root=sessions_root,
         lines=[
@@ -193,33 +220,25 @@ async def test_e2e_stdio_auto_compaction_keeps_recent_tail_and_new_run_is_delta_
     assert completed_event["estimated_tokens_saved"] > 0
     assert completed_event["estimated_percent_saved"] > 0
     assert completed_event["estimated_headroom_gain_tokens"] > 0
-    assert (
-        completed_event["budget_after"]["estimated_post_compaction_headroom_tokens"]
-        > completed_event["budget_before"]["estimated_post_compaction_headroom_tokens"]
-    )
-    assert completed_event["budget_after"]["estimated_summary_tokens"] > 0
-    assert completed_event["budget_after"]["estimated_checkpoint_tokens"] > 0
+    assert completed_event["budget_after"]["estimated_replacement_summary_tokens"] > 0
+    assert completed_event["budget_after"]["estimated_replacement_messages_tokens"] > 0
 
     loaded = load_session(path=session_path, workspace_root=workspace_root)
     assert loaded.latest_compaction is not None
-    assert loaded.latest_compaction.summarized_through_run_id == "run-1"
-    assert loaded.latest_compaction.first_kept_run_id == "run-2"
-    assert _user_prompts(loaded.latest_compaction.checkpoint_messages) == [
-        "second",
-        "third",
-    ]
-    assert _user_prompts(build_resume_message_history(loaded)) == [
-        "second",
-        "third",
-        "follow-up",
-    ]
-    resume_instructions = build_resume_instructions(loaded)
-    assert resume_instructions is not None
-    assert "Current objective: continue after compaction" in resume_instructions
+    assert loaded.latest_compaction.compacted_through_run_id == "run-3"
+    assert extract_compaction_summary_text(loaded.latest_compaction.replacement_messages) == (
+        "- Goal: continue after compaction"
+    )
+    assert "second" in observed["user_prompts"]
+    assert "third" in observed["user_prompts"]
+    assert build_compaction_summary_message(
+        "- Goal: continue after compaction"
+    ).parts[0].content in observed["assistant_texts"]
+    assert observed["user_prompts"][-1] == "follow-up"
     assert _user_prompts(loaded.runs[-1].messages) == ["follow-up"]
 
 
-async def test_e2e_stdio_resume_uses_same_run_split_tail_checkpoint(
+async def test_e2e_stdio_resume_replays_custom_replacement_messages_raw(
     tmp_path,
 ) -> None:
     fixed_session_id = "2" * 32
@@ -233,29 +252,22 @@ async def test_e2e_stdio_resume_uses_same_run_split_tail_checkpoint(
     )
     initialize_session(path=session_path, workspace_root=workspace_root)
 
-    append_run_to_session(
+    _append_simple_run(
         path=session_path,
         workspace_root=workspace_root,
+        run_id="run-1",
         prompt="first",
-        thinking=None,
-        messages=[ModelRequest(parts=[UserPromptPart(content="first")])],
-        events=[
-            RunStartedEvent(run_id="run-1"),
-            RunSucceededEvent(run_id="run-1", output_text="done"),
-        ],
     )
-    append_run_to_session(
+    append_compaction_to_session(
         path=session_path,
         workspace_root=workspace_root,
-        prompt="second",
-        thinking=None,
-        messages=[
-            ModelRequest(parts=[UserPromptPart(content="Y" * 25_000)]),
+        compacted_through_run_id="run-1",
+        replacement_messages=[
             ModelResponse(
                 parts=[
                     ToolCallPart(
                         tool_name="read",
-                        args='{"path":"note.txt"}',
+                        args={"path": "note.txt"},
                         tool_call_id="call-read",
                     )
                 ],
@@ -270,27 +282,9 @@ async def test_e2e_stdio_resume_uses_same_run_split_tail_checkpoint(
                     )
                 ]
             ),
-            ModelResponse(parts=[TextPart(content="done")], model_name="test"),
-        ],
-        events=[
-            RunStartedEvent(run_id="run-2"),
-            RunSucceededEvent(run_id="run-2", output_text="done"),
+            build_compaction_summary_message("- Goal: continue after compaction"),
         ],
     )
-
-    original_tail_budget = (
-        session_summary_module.SESSION_AUTO_COMPACTION_RETAINED_TAIL_TOKENS
-    )
-    try:
-        session_summary_module.SESSION_AUTO_COMPACTION_RETAINED_TAIL_TOKENS = 400
-        await _append_auto_compaction_summary(
-            path=session_path,
-            workspace_root=workspace_root,
-        )
-    finally:
-        session_summary_module.SESSION_AUTO_COMPACTION_RETAINED_TAIL_TOKENS = (
-            original_tail_budget
-        )
 
     observed: dict[str, object] = {}
 
@@ -300,9 +294,10 @@ async def test_e2e_stdio_resume_uses_same_run_split_tail_checkpoint(
     ) -> AsyncIterator[str]:
         observed["incoming_shapes"] = _message_shapes(messages)
         observed["incoming_user_prompts"] = _user_prompts(messages)
+        observed["incoming_assistant_texts"] = _assistant_texts(messages)
         yield "done"
 
-    messages = await _serve_lines(
+    rpc_messages = await _serve_lines(
         model=FunctionModel(stream_function=probe_stream),
         workspace_root=workspace_root,
         sessions_root=sessions_root,
@@ -312,42 +307,33 @@ async def test_e2e_stdio_resume_uses_same_run_split_tail_checkpoint(
                 "command": "run.start",
                 "payload": {
                     "session_id": fixed_session_id,
-                    "prompt": "after-split-tail",
+                    "prompt": "after-manual-compaction",
                 },
             }
         ],
     )
 
-    event_types = [
+    assert [
         message["event"]["type"]
-        for message in messages
+        for message in rpc_messages
         if message["type"] == "rpc_event"
+    ] == ["run_started", "assistant_text_delta", "run_succeeded"]
+    assert observed["incoming_shapes"][0] == "ModelResponse:['ToolCallPart']"
+    assert observed["incoming_shapes"][1].startswith("ModelRequest:['ToolReturnPart'")
+    assert observed["incoming_user_prompts"] == ["after-manual-compaction"]
+    assert observed["incoming_assistant_texts"] == [
+        build_compaction_summary_message("- Goal: continue after compaction").parts[
+            0
+        ].content,
     ]
-    assert event_types == ["run_started", "assistant_text_delta", "run_succeeded"]
 
     loaded = load_session(path=session_path, workspace_root=workspace_root)
-    assert loaded.latest_compaction is not None
-    assert loaded.latest_compaction.summarized_through_run_id == "run-2"
-    assert loaded.latest_compaction.first_kept_run_id == "run-2"
-    assert _message_shapes(loaded.latest_compaction.checkpoint_messages) == [
-        "ModelResponse:['ToolCallPart']",
-        "ModelRequest:['ToolReturnPart']",
-        "ModelResponse:['TextPart']",
-    ]
-    assert observed["incoming_user_prompts"] == ["after-split-tail"]
-    resume_instructions = build_resume_instructions(loaded)
-    assert resume_instructions is not None
-    assert "Current objective: continue after compaction" in resume_instructions
-    assert observed["incoming_shapes"][:3] == [
-        "ModelResponse:['ToolCallPart']",
-        "ModelRequest:['ToolReturnPart']",
-        "ModelResponse:['TextPart']",
-    ]
-    assert _user_prompts(loaded.runs[-1].messages) == ["after-split-tail"]
+    assert _user_prompts(loaded.runs[-1].messages) == ["after-manual-compaction"]
 
 
-async def test_e2e_stdio_unsafe_suffix_falls_back_to_summary_only_checkpoint(
+async def test_e2e_stdio_repeated_auto_compactions_keep_new_run_delta_only(
     tmp_path,
+    monkeypatch,
 ) -> None:
     fixed_session_id = "3" * 32
     workspace_root = tmp_path / "workspace"
@@ -360,122 +346,20 @@ async def test_e2e_stdio_unsafe_suffix_falls_back_to_summary_only_checkpoint(
     )
     initialize_session(path=session_path, workspace_root=workspace_root)
 
-    append_run_to_session(
+    _append_simple_run(
         path=session_path,
         workspace_root=workspace_root,
-        prompt="first",
-        thinking=None,
-        messages=[ModelRequest(parts=[UserPromptPart(content="first")])],
-        events=[
-            RunStartedEvent(run_id="run-1"),
-            RunSucceededEvent(run_id="run-1", output_text="done"),
-        ],
-    )
-    append_run_to_session(
-        path=session_path,
-        workspace_root=workspace_root,
-        prompt="second",
-        thinking=None,
-        messages=[
-            ModelRequest(parts=[UserPromptPart(content="Z" * 20_000)]),
-            ModelRequest(parts=[RetryPromptPart(content="retry with more detail")]),
-        ],
-        events=[
-            RunStartedEvent(run_id="run-2"),
-            RunSucceededEvent(run_id="run-2", output_text="done"),
-        ],
-    )
-
-    original_tail_budget = (
-        session_summary_module.SESSION_AUTO_COMPACTION_RETAINED_TAIL_TOKENS
-    )
-    try:
-        session_summary_module.SESSION_AUTO_COMPACTION_RETAINED_TAIL_TOKENS = 100
-        await _append_auto_compaction_summary(
-            path=session_path,
-            workspace_root=workspace_root,
-        )
-    finally:
-        session_summary_module.SESSION_AUTO_COMPACTION_RETAINED_TAIL_TOKENS = (
-            original_tail_budget
-        )
-
-    observed: dict[str, object] = {}
-
-    async def probe_stream(
-        messages: list[ModelMessage],
-        _agent_info: object,
-    ) -> AsyncIterator[str]:
-        observed["incoming_shapes"] = _message_shapes(messages)
-        observed["incoming_user_prompts"] = _user_prompts(messages)
-        yield "done"
-
-    await _serve_lines(
-        model=FunctionModel(stream_function=probe_stream),
-        workspace_root=workspace_root,
-        sessions_root=sessions_root,
-        lines=[
-            {
-                "id": "req-run",
-                "command": "run.start",
-                "payload": {
-                    "session_id": fixed_session_id,
-                    "prompt": "after-unsafe",
-                },
-            }
-        ],
-    )
-
-    loaded = load_session(path=session_path, workspace_root=workspace_root)
-    assert loaded.latest_compaction is not None
-    assert loaded.latest_compaction.first_kept_run_id is None
-    assert _message_shapes(loaded.latest_compaction.checkpoint_messages) == []
-    assert observed["incoming_user_prompts"] == ["after-unsafe"]
-    resume_instructions = build_resume_instructions(loaded)
-    assert resume_instructions is not None
-    assert "Current objective: continue after compaction" in resume_instructions
-    assert observed["incoming_shapes"] == ["ModelRequest:['UserPromptPart']"]
-    assert _user_prompts(loaded.runs[-1].messages) == ["after-unsafe"]
-
-
-async def test_e2e_stdio_repeated_compactions_do_not_repersist_checkpoint_history(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    fixed_session_id = "4" * 32
-    workspace_root = tmp_path / "workspace"
-    workspace_root.mkdir()
-    sessions_root = tmp_path / "sessions"
-    session_path = session_path_for_id(
-        sessions_root=sessions_root,
-        workspace_root=workspace_root,
-        session_id=fixed_session_id,
-    )
-    initialize_session(path=session_path, workspace_root=workspace_root)
-
-    append_run_to_session(
-        path=session_path,
-        workspace_root=workspace_root,
+        run_id="run-1",
         prompt="A" * 120_000,
-        thinking=None,
-        messages=[ModelRequest(parts=[UserPromptPart(content="A" * 120_000)])],
-        events=[
-            RunStartedEvent(run_id="run-1"),
-            RunSucceededEvent(run_id="run-1", output_text="done"),
-        ],
     )
-    for run_id, prompt in [("run-2", "keep-2"), ("run-3", "keep-3")]:
-        append_run_to_session(
-            path=session_path,
-            workspace_root=workspace_root,
-            prompt=prompt,
-            thinking=None,
-            messages=[ModelRequest(parts=[UserPromptPart(content=prompt)])],
-            events=[
-                RunStartedEvent(run_id=run_id),
-                RunSucceededEvent(run_id=run_id, output_text="done"),
-            ],
-        )
+    _append_simple_run(
+        path=session_path,
+        workspace_root=workspace_root,
+        run_id="run-2",
+        prompt="keep-2",
+    )
+
+    compaction_count = 0
 
     async def fake_summarize_and_append_compaction_to_session(
         *,
@@ -484,9 +368,13 @@ async def test_e2e_stdio_repeated_compactions_do_not_repersist_checkpoint_histor
         workspace_root,
     ):
         del model
-        return await _append_auto_compaction_summary(
+        nonlocal compaction_count
+        compaction_count += 1
+        return _append_auto_compaction_summary(
             path=path,
             workspace_root=workspace_root,
+            summary_text=f"- Goal: compaction {compaction_count}",
+            token_budget=200,
         )
 
     monkeypatch.setattr(
@@ -505,7 +393,7 @@ async def test_e2e_stdio_repeated_compactions_do_not_repersist_checkpoint_histor
         ),
     )
 
-    messages = await _serve_lines(
+    rpc_messages = await _serve_lines(
         model=FunctionModel(stream_function=_text_only_stream),
         workspace_root=workspace_root,
         sessions_root=sessions_root,
@@ -529,23 +417,14 @@ async def test_e2e_stdio_repeated_compactions_do_not_repersist_checkpoint_histor
         ],
     )
 
-    event_types = [
-        message["event"]["type"]
-        for message in messages
-        if message["type"] == "rpc_event"
-    ]
-    assert event_types.count("session_compaction_completed") == 2
     completed_events = [
         message["event"]
-        for message in messages
+        for message in rpc_messages
         if message["type"] == "rpc_event"
         and message["event"]["type"] == "session_compaction_completed"
     ]
+    assert len(completed_events) == 2
     assert all(event["estimated_tokens_saved"] > 0 for event in completed_events)
-    assert all(event["estimated_percent_saved"] > 0 for event in completed_events)
-    assert all(
-        event["estimated_headroom_gain_tokens"] > 0 for event in completed_events
-    )
     assert all(
         event["budget_after"]["estimated_post_compaction_headroom_tokens"]
         > event["budget_before"]["estimated_post_compaction_headroom_tokens"]
@@ -554,8 +433,7 @@ async def test_e2e_stdio_repeated_compactions_do_not_repersist_checkpoint_histor
 
     loaded = load_session(path=session_path, workspace_root=workspace_root)
     assert len(loaded.compactions) == 2
-    assert _user_prompts(loaded.runs[3].messages) == ["B" * 120_000]
-    assert _user_prompts(loaded.runs[4].messages) == ["after-second-compaction"]
-    assert _user_prompts(build_resume_message_history(loaded)) == [
-        "after-second-compaction"
-    ]
+    assert extract_compaction_summary_text(loaded.latest_compaction.replacement_messages) == (
+        "- Goal: compaction 2"
+    )
+    assert _user_prompts(loaded.runs[-1].messages) == ["after-second-compaction"]

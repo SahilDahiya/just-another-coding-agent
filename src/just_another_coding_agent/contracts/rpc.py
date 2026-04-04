@@ -8,7 +8,6 @@ from .auth import LocalSecretStoreStatus as RpcLocalSecretStoreStatus
 from .auth import ProviderAuthStatus as AuthProviderStatus
 from .model_catalog import ProviderName
 from .run_events import RunEvent, SessionLifecycleEvent
-from .session import SessionCompactionSummary as SessionCompactSummary
 from .session import SessionName
 from .session import SessionPreview as SessionPreviewResponse
 from .thinking import ThinkingSetting
@@ -135,9 +134,7 @@ class SessionCreateResponse(_RpcModel):
 
 class SessionCompactResponse(_RpcModel):
     compaction_id: str
-    summarized_through_run_id: str
-    first_kept_run_id: str | None
-    summary: SessionCompactSummary
+    compacted_through_run_id: str
 
 
 class SessionNameResponse(_RpcModel):
@@ -228,7 +225,6 @@ __all__ = [
     "SessionCompactPayload",
     "SessionCompactRequest",
     "SessionCompactResponse",
-    "SessionCompactSummary",
     "SessionPreviewPayload",
     "SessionPreviewRequest",
     "SessionPreviewResponse",

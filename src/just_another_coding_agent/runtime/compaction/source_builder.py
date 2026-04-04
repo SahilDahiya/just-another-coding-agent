@@ -11,11 +11,7 @@ from just_another_coding_agent.contracts.run_events import (
     ToolCallFailedEvent,
     ToolCallSucceededEvent,
 )
-from just_another_coding_agent.contracts.session import (
-    LoadedSession,
-    SessionCompactionSummary,
-    SessionRunRecord,
-)
+from just_another_coding_agent.contracts.session import LoadedSession, SessionRunRecord
 from just_another_coding_agent.runtime.compaction.boundary import (
     runs_since_latest_compaction_boundary,
 )
@@ -30,6 +26,9 @@ from just_another_coding_agent.runtime.compaction.constants import (
 )
 from just_another_coding_agent.runtime.models import get_model_context_window_tokens
 from just_another_coding_agent.session.jsonl import SessionFormatError
+from just_another_coding_agent.session.replacement_history import (
+    extract_compaction_summary_text,
+)
 
 
 def build_compaction_source(loaded_session: LoadedSession, *, model: Any) -> str:
@@ -68,8 +67,12 @@ def _build_bounded_compaction_source(
     sections: list[str] = []
 
     if latest_compaction is not None:
-        sections.append("Previous compaction summary:")
-        sections.append(render_summary(latest_compaction.summary))
+        previous_summary = extract_compaction_summary_text(
+            latest_compaction.replacement_messages
+        )
+        if previous_summary is not None:
+            sections.append("Previous compaction summary:")
+            sections.append(previous_summary)
 
     run_sections = [
         _render_run(run)
@@ -101,38 +104,6 @@ def _build_bounded_compaction_source(
 
         run_sections.pop(0)
         omitted_runs += 1
-
-
-def render_summary(summary: SessionCompactionSummary) -> str:
-    lines: list[str] = []
-    if summary.current_objective is not None:
-        lines.append(f"Current objective: {compact_text(summary.current_objective)}")
-    _append_rendered_section(lines, "Current plan", summary.current_plan)
-    _append_rendered_section(lines, "Established facts", summary.established_facts)
-    _append_rendered_section(lines, "Completed work", summary.completed_work)
-    _append_rendered_section(lines, "Key decisions", summary.key_decisions)
-    _append_rendered_section(lines, "User preferences", summary.user_preferences)
-    _append_rendered_section(lines, "Important paths", summary.important_paths)
-    _append_rendered_section(lines, "Read paths", summary.read_paths)
-    _append_rendered_section(lines, "Modified paths", summary.modified_paths)
-    _append_rendered_section(
-        lines, "Recent shell commands", summary.recent_shell_commands
-    )
-    _append_rendered_section(
-        lines, "Recent verifications", summary.recent_verifications
-    )
-    _append_rendered_section(lines, "Recent failures", summary.recent_failures)
-    _append_rendered_section(lines, "Open questions", summary.open_questions)
-    _append_rendered_section(lines, "Unresolved work", summary.unresolved_work)
-    return "\n".join(lines) if lines else "(empty summary)"
-
-
-def _append_rendered_section(lines: list[str], heading: str, values: list[str]) -> None:
-    if not values:
-        return
-
-    lines.append(f"{heading}:")
-    lines.extend(f"- {compact_text(value)}" for value in values)
 
 
 def _render_run(run: SessionRunRecord) -> str:
@@ -215,4 +186,4 @@ def compact_text(
     return collapsed[: max_chars - 1] + "…"
 
 
-__all__ = ["build_compaction_source", "compact_text", "render_summary"]
+__all__ = ["build_compaction_source", "compact_text"]

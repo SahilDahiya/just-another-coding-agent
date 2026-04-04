@@ -25,7 +25,6 @@ from just_another_coding_agent.contracts.run_events import (
 )
 from just_another_coding_agent.contracts.session import (
     SESSION_FORMAT_VERSION,
-    SessionCompactionSummary,
 )
 from just_another_coding_agent.runtime.run import stream_run_events
 from just_another_coding_agent.session import build_session_preview
@@ -38,6 +37,9 @@ from just_another_coding_agent.session.jsonl import (
     initialize_session,
     load_session,
     read_session_metadata,
+)
+from just_another_coding_agent.session.replacement_history import (
+    build_compaction_summary_message,
 )
 from tests.session_test_helpers import _compaction_entry_payload
 
@@ -1128,7 +1130,7 @@ def test_append_run_to_session_rejects_persisted_internal_instructions(
         )
 
 
-def test_append_compaction_to_session_appends_provided_summary(tmp_path) -> None:
+def test_append_compaction_to_session_appends_replacement_messages(tmp_path) -> None:
     path = tmp_path / "session.jsonl"
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
@@ -1145,102 +1147,24 @@ def test_append_compaction_to_session_appends_provided_summary(tmp_path) -> None
         messages=[ModelRequest(parts=[UserPromptPart(content="create note")])],
     )
 
-    summary = SessionCompactionSummary(
-        current_objective="ship note creation",
-        established_facts=["note.txt was created"],
-        user_preferences=["be concise"],
-        important_paths=["note.txt"],
-        read_paths=[],
-        modified_paths=["note.txt"],
-        recent_shell_commands=[],
-        recent_failures=[],
-        open_questions=["should we add logging?"],
-        unresolved_work=["verify the final behavior"],
-    )
+    replacement_messages = [
+        ModelRequest(parts=[UserPromptPart(content="create note")]),
+        build_compaction_summary_message("ship note creation"),
+    ]
     compaction = append_compaction_to_session(
         path=path,
         workspace_root=workspace_root,
-        summary=summary,
+        replacement_messages=replacement_messages,
     )
 
     loaded = load_session(path=path, workspace_root=workspace_root)
 
-    assert compaction.summarized_through_run_id == "run-1"
-    assert compaction.first_kept_run_id is None
-    assert compaction.summary == summary
+    assert compaction.compacted_through_run_id == "run-1"
+    assert compaction.replacement_messages == replacement_messages
     assert loaded.compactions == [compaction]
 
 
-def test_append_compaction_to_session_accepts_explicit_kept_boundary(tmp_path) -> None:
-    path = tmp_path / "session.jsonl"
-    workspace_root = tmp_path / "workspace"
-    workspace_root.mkdir()
-
-    for run_id, prompt in [("run-1", "first"), ("run-2", "second")]:
-        append_run_to_session(
-            path=path,
-            workspace_root=workspace_root,
-            prompt=prompt,
-            thinking=None,
-            messages=[ModelRequest(parts=[UserPromptPart(content=prompt)])],
-            events=[
-                RunStartedEvent(run_id=run_id),
-                RunSucceededEvent(run_id=run_id, output_text="done"),
-            ],
-        )
-
-    compaction = append_compaction_to_session(
-        path=path,
-        workspace_root=workspace_root,
-        summary=SessionCompactionSummary(current_objective="continue"),
-        summarized_through_run_id="run-1",
-        first_kept_run_id="run-2",
-    )
-
-    loaded = load_session(path=path, workspace_root=workspace_root)
-
-    assert compaction.summarized_through_run_id == "run-1"
-    assert compaction.first_kept_run_id == "run-2"
-    assert loaded.compactions == [compaction]
-
-
-def test_append_compaction_to_session_persists_checkpoint_messages(tmp_path) -> None:
-    path = tmp_path / "session.jsonl"
-    workspace_root = tmp_path / "workspace"
-    workspace_root.mkdir()
-
-    for run_id, prompt in [("run-1", "first"), ("run-2", "second")]:
-        append_run_to_session(
-            path=path,
-            workspace_root=workspace_root,
-            prompt=prompt,
-            thinking=None,
-            messages=[ModelRequest(parts=[UserPromptPart(content=prompt)])],
-            events=[
-                RunStartedEvent(run_id=run_id),
-                RunSucceededEvent(run_id=run_id, output_text="done"),
-            ],
-        )
-
-    summary = SessionCompactionSummary(current_objective="continue")
-    compaction = append_compaction_to_session(
-        path=path,
-        workspace_root=workspace_root,
-        summary=summary,
-        summarized_through_run_id="run-1",
-        first_kept_run_id="run-2",
-    )
-
-    assert compaction.checkpoint_through_run_id == "run-2"
-    assert [
-        part.content
-        for message in compaction.checkpoint_messages
-        for part in message.parts
-        if isinstance(part, UserPromptPart)
-    ] == ["second"]
-
-
-def test_append_compaction_to_session_accepts_custom_checkpoint_messages(
+def test_append_compaction_to_session_accepts_explicit_compaction_boundary(
     tmp_path,
 ) -> None:
     path = tmp_path / "session.jsonl"
@@ -1260,25 +1184,20 @@ def test_append_compaction_to_session_accepts_custom_checkpoint_messages(
             ],
         )
 
-    summary = SessionCompactionSummary(current_objective="continue")
-    custom_checkpoint_messages = [
-        ModelResponse(parts=[TextPart(content="retained tail")], model_name="test"),
-    ]
     compaction = append_compaction_to_session(
         path=path,
         workspace_root=workspace_root,
-        summary=summary,
-        summarized_through_run_id="run-2",
-        first_kept_run_id="run-2",
-        checkpoint_messages=custom_checkpoint_messages,
+        compacted_through_run_id="run-1",
+        replacement_messages=[build_compaction_summary_message("continue")],
     )
 
-    assert compaction.first_kept_run_id == "run-2"
-    assert compaction.summarized_through_run_id == "run-2"
-    assert compaction.checkpoint_messages == custom_checkpoint_messages
+    loaded = load_session(path=path, workspace_root=workspace_root)
+
+    assert compaction.compacted_through_run_id == "run-1"
+    assert loaded.compactions == [compaction]
 
 
-def test_load_session_allows_split_turn_compaction_boundary(tmp_path) -> None:
+def test_append_compaction_to_session_preserves_replacement_messages(tmp_path) -> None:
     path = tmp_path / "session.jsonl"
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
@@ -1296,21 +1215,84 @@ def test_load_session_allows_split_turn_compaction_boundary(tmp_path) -> None:
             ],
         )
 
-    summary = SessionCompactionSummary(current_objective="continue")
+    replacement_messages = [
+        ModelRequest(parts=[UserPromptPart(content="second")]),
+        build_compaction_summary_message("continue"),
+    ]
+    compaction = append_compaction_to_session(
+        path=path,
+        workspace_root=workspace_root,
+        replacement_messages=replacement_messages,
+    )
+
+    assert compaction.replacement_messages == replacement_messages
+
+
+def test_append_compaction_to_session_accepts_custom_replacement_messages(
+    tmp_path,
+) -> None:
+    path = tmp_path / "session.jsonl"
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    for run_id, prompt in [("run-1", "first"), ("run-2", "second")]:
+        append_run_to_session(
+            path=path,
+            workspace_root=workspace_root,
+            prompt=prompt,
+            thinking=None,
+            messages=[ModelRequest(parts=[UserPromptPart(content=prompt)])],
+            events=[
+                RunStartedEvent(run_id=run_id),
+                RunSucceededEvent(run_id=run_id, output_text="done"),
+            ],
+        )
+
+    custom_replacement_messages = [
+        ModelResponse(parts=[TextPart(content="retained tail")], model_name="test"),
+        build_compaction_summary_message("continue"),
+    ]
+    compaction = append_compaction_to_session(
+        path=path,
+        workspace_root=workspace_root,
+        compacted_through_run_id="run-2",
+        replacement_messages=custom_replacement_messages,
+    )
+
+    assert compaction.compacted_through_run_id == "run-2"
+    assert compaction.replacement_messages == custom_replacement_messages
+
+
+def test_load_session_accepts_replacement_history_compaction_entry(tmp_path) -> None:
+    path = tmp_path / "session.jsonl"
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    for run_id, prompt in [("run-1", "first"), ("run-2", "second")]:
+        append_run_to_session(
+            path=path,
+            workspace_root=workspace_root,
+            prompt=prompt,
+            thinking=None,
+            messages=[ModelRequest(parts=[UserPromptPart(content=prompt)])],
+            events=[
+                RunStartedEvent(run_id=run_id),
+                RunSucceededEvent(run_id=run_id, output_text="done"),
+            ],
+        )
+
     path.write_text(
         path.read_text(encoding="utf-8")
         + json.dumps(
             _compaction_entry_payload(
-                summarized_through_run_id="run-2",
-                first_kept_run_id="run-2",
-                checkpoint_through_run_id="run-2",
-                checkpoint_messages=[
+                compacted_through_run_id="run-2",
+                replacement_messages=[
                     ModelResponse(
                         parts=[TextPart(content="retained tail")],
                         model_name="test",
                     ),
+                    build_compaction_summary_message("continue"),
                 ],
-                summary=summary,
             )
         )
         + "\n",
@@ -1319,8 +1301,7 @@ def test_load_session_allows_split_turn_compaction_boundary(tmp_path) -> None:
 
     loaded = load_session(path=path, workspace_root=workspace_root)
     assert loaded.latest_compaction is not None
-    assert loaded.latest_compaction.summarized_through_run_id == "run-2"
-    assert loaded.latest_compaction.first_kept_run_id == "run-2"
+    assert loaded.latest_compaction.compacted_through_run_id == "run-2"
 
 
 def test_append_compaction_to_session_rejects_empty_session(tmp_path) -> None:
@@ -1336,7 +1317,7 @@ def test_append_compaction_to_session_rejects_empty_session(tmp_path) -> None:
         append_compaction_to_session(
             path=path,
             workspace_root=workspace_root,
-            summary=SessionCompactionSummary(),
+            replacement_messages=[build_compaction_summary_message("continue")],
         )
 
 
@@ -1374,17 +1355,10 @@ def test_load_session_tracks_compaction_entries_without_changing_message_history
         file_handle.write(
             json.dumps(
                 _compaction_entry_payload(
-                    summarized_through_run_id="run-2",
-                    first_kept_run_id=None,
-                    checkpoint_through_run_id="run-2",
-                    summary=SessionCompactionSummary(
-                        current_objective="Continue the task",
-                        established_facts=["first and second completed"],
-                        user_preferences=["be concise"],
-                        important_paths=["src/app.py"],
-                        open_questions=[],
-                        unresolved_work=["ship the fix"],
-                    ),
+                    compacted_through_run_id="run-2",
+                    replacement_messages=[
+                        build_compaction_summary_message("Continue the task"),
+                    ],
                 )
             )
             + "\n"
@@ -1407,8 +1381,7 @@ def test_load_session_tracks_compaction_entries_without_changing_message_history
     assert [run.run_id for run in loaded.runs] == ["run-1", "run-2", "run-3"]
     assert len(loaded.compactions) == 1
     assert loaded.compactions[0].compaction_id == "compact-1"
-    assert loaded.compactions[0].summarized_through_run_id == "run-2"
-    assert loaded.compactions[0].first_kept_run_id is None
+    assert loaded.compactions[0].compacted_through_run_id == "run-2"
     assert loaded.latest_compaction == loaded.compactions[0]
     assert [message.parts[0].content for message in loaded.message_history] == [
         "first",
@@ -1433,10 +1406,7 @@ def test_load_session_fails_when_compaction_precedes_any_run(tmp_path) -> None:
                 ),
                 json.dumps(
                     _compaction_entry_payload(
-                        summarized_through_run_id="run-1",
-                        first_kept_run_id=None,
-                        checkpoint_through_run_id="run-1",
-                        summary=SessionCompactionSummary(),
+                        compacted_through_run_id="run-1",
                     )
                 ),
             ]
@@ -1471,10 +1441,7 @@ def test_load_session_fails_when_compaction_references_unknown_run_id(tmp_path) 
         file_handle.write(
             json.dumps(
                 _compaction_entry_payload(
-                    summarized_through_run_id="run-999",
-                    first_kept_run_id=None,
-                    checkpoint_through_run_id="run-1",
-                    summary=SessionCompactionSummary(current_objective="go"),
+                    compacted_through_run_id="run-999",
                 )
             )
             + "\n"
@@ -1487,7 +1454,7 @@ def test_load_session_fails_when_compaction_references_unknown_run_id(tmp_path) 
         load_session(path=path, workspace_root=workspace_root)
 
 
-def test_load_session_fails_when_compaction_kept_boundary_is_not_after_summary_boundary(
+def test_load_session_fails_when_compaction_replacement_messages_are_empty(
     tmp_path,
 ) -> None:
     path = tmp_path / "session.jsonl"
@@ -1519,10 +1486,8 @@ def test_load_session_fails_when_compaction_kept_boundary_is_not_after_summary_b
         file_handle.write(
             json.dumps(
                 _compaction_entry_payload(
-                    summarized_through_run_id="run-2",
-                    first_kept_run_id="run-1",
-                    checkpoint_through_run_id="run-2",
-                    summary=SessionCompactionSummary(current_objective="go"),
+                    compacted_through_run_id="run-2",
+                    replacement_messages=[],
                 )
             )
             + "\n"
@@ -1530,12 +1495,12 @@ def test_load_session_fails_when_compaction_kept_boundary_is_not_after_summary_b
 
     with pytest.raises(
         SessionFormatError,
-        match="Session compaction kept boundary must not precede the summary boundary",
+        match="Session compaction replacement_messages must be non-empty",
     ):
         load_session(path=path, workspace_root=workspace_root)
 
 
-def test_load_session_fails_when_compaction_kept_boundary_references_unknown_run_id(
+def test_load_session_fails_when_compaction_summary_message_is_missing(
     tmp_path,
 ) -> None:
     path = tmp_path / "session.jsonl"
@@ -1567,10 +1532,10 @@ def test_load_session_fails_when_compaction_kept_boundary_references_unknown_run
         file_handle.write(
             json.dumps(
                 _compaction_entry_payload(
-                    summarized_through_run_id="run-1",
-                    first_kept_run_id="run-999",
-                    checkpoint_through_run_id="run-1",
-                    summary=SessionCompactionSummary(current_objective="go"),
+                    compacted_through_run_id="run-1",
+                    replacement_messages=[
+                        ModelRequest(parts=[UserPromptPart(content="first")]),
+                    ],
                 )
             )
             + "\n"
@@ -1578,6 +1543,6 @@ def test_load_session_fails_when_compaction_kept_boundary_references_unknown_run
 
     with pytest.raises(
         SessionFormatError,
-        match="Session compaction kept boundary must reference an existing run_id",
+        match="Session compaction replacement_messages must end with a compaction summary message",
     ):
         load_session(path=path, workspace_root=workspace_root)

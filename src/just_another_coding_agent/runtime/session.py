@@ -35,12 +35,13 @@ from just_another_coding_agent.runtime.activity import build_failed_tool_activit
 from just_another_coding_agent.runtime.agent import build_canonical_agent
 from just_another_coding_agent.runtime.compaction import (
     build_auto_compact_session_budget_report,
-    build_resume_instructions,
     build_resume_message_history,
     summarize_and_append_compaction_to_session,
 )
 from just_another_coding_agent.runtime.run import stream_run_events
-from just_another_coding_agent.session.checkpoint import strip_internal_prompt_state
+from just_another_coding_agent.session.replacement_history import (
+    strip_internal_prompt_state,
+)
 from just_another_coding_agent.session.jsonl import (
     load_session,
     read_session_metadata,
@@ -226,8 +227,8 @@ async def stream_session_run_events(
             )
             estimated_tokens_saved = max(
                 0,
-                compaction_budget_before.estimated_resume_history_tokens
-                - compaction_budget_after.estimated_resume_history_tokens,
+                compaction_budget_before.estimated_resume_message_tokens
+                - compaction_budget_after.estimated_resume_message_tokens,
             )
             estimated_headroom_gain_tokens = None
             if (
@@ -242,19 +243,13 @@ async def stream_session_run_events(
                 )
             yield SessionCompactionCompletedEvent(
                 compaction_id=compaction_entry.compaction_id,
-                summarized_through_run_id=compaction_entry.summarized_through_run_id,
-                first_kept_run_id=compaction_entry.first_kept_run_id,
-                checkpoint_through_run_id=compaction_entry.checkpoint_through_run_id,
+                compacted_through_run_id=compaction_entry.compacted_through_run_id,
                 budget_before=compaction_budget_before,
                 budget_after=compaction_budget_after,
                 estimated_tokens_saved=estimated_tokens_saved,
                 estimated_percent_saved=_estimated_compaction_percent_saved(
-                    before_tokens=(
-                        compaction_budget_before.estimated_resume_history_tokens
-                    ),
-                    after_tokens=(
-                        compaction_budget_after.estimated_resume_history_tokens
-                    ),
+                    before_tokens=compaction_budget_before.estimated_resume_message_tokens,
+                    after_tokens=compaction_budget_after.estimated_resume_message_tokens,
                 ),
                 estimated_headroom_gain_tokens=estimated_headroom_gain_tokens,
             )
@@ -275,11 +270,6 @@ async def stream_session_run_events(
         build_resume_message_history(loaded_session)
         if loaded_session is not None
         else []
-    )
-    preexisting_instructions = (
-        build_resume_instructions(loaded_session)
-        if loaded_session is not None
-        else None
     )
     preexisting_history_count = len(preexisting_history)
 
@@ -306,7 +296,7 @@ async def stream_session_run_events(
                 agent=agent,
                 prompt=prompt,
                 message_history=(preexisting_history or None),
-                instructions=preexisting_instructions,
+                instructions=None,
                 thinking=resolved_thinking,
                 deps=WorkspaceDeps(
                     workspace_root=normalized_workspace_root,

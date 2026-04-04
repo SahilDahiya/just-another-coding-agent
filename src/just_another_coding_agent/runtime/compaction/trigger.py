@@ -1,18 +1,11 @@
 from __future__ import annotations
 
-import json
 import math
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from pydantic import TypeAdapter
-from pydantic_ai.messages import ModelMessage, ModelResponse
-
-from just_another_coding_agent.contracts.compaction import (
-    COMPACTION_CHARS_PER_TOKEN_HEURISTIC,
-    CompactionBudgetReport,
-)
+from just_another_coding_agent.contracts.compaction import CompactionBudgetReport
 from just_another_coding_agent.contracts.session import LoadedSession
 from just_another_coding_agent.runtime.compaction.boundary import (
     runs_since_latest_compaction,
@@ -26,22 +19,21 @@ from just_another_coding_agent.runtime.compaction.constants import (
     SESSION_AUTO_COMPACTION_PROMPT_RESERVE_TOKENS,
 )
 from just_another_coding_agent.runtime.compaction.resume import (
-    build_resume_instructions,
     build_resume_message_history,
 )
 from just_another_coding_agent.runtime.models import get_model_context_window_tokens
-
-_MODEL_MESSAGES_ADAPTER = TypeAdapter(list[ModelMessage])
+from just_another_coding_agent.runtime.token_estimation import estimate_messages_tokens
+from just_another_coding_agent.session.replacement_history import (
+    extract_compaction_summary_text,
+)
 
 
 @dataclass(frozen=True)
 class _ResumeHistoryBudgetEstimate:
+    estimation_method: str
     estimated_resume_message_tokens: int
-    estimated_resume_history_tokens: int
-    estimated_checkpoint_tokens: int
-    estimated_summary_tokens: int
-    measured_usage_tokens: int | None = None
-    estimated_trailing_tokens: int | None = None
+    estimated_replacement_messages_tokens: int
+    estimated_replacement_summary_tokens: int
 
 
 def should_auto_compact_session(
@@ -68,10 +60,13 @@ def build_auto_compact_session_budget_report(
     ),
 ) -> CompactionBudgetReport:
     runs_since_compaction = runs_since_latest_compaction(loaded_session)
-    budget_estimate = _estimate_resume_history_budget_components(loaded_session)
-    estimated_resume_history_tokens = budget_estimate.estimated_resume_history_tokens
+    budget_estimate = _estimate_resume_history_budget_components(
+        loaded_session,
+        model=model,
+    )
     estimated_pre_run_tokens = (
-        estimated_resume_history_tokens + SESSION_AUTO_COMPACTION_PROMPT_RESERVE_TOKENS
+        budget_estimate.estimated_resume_message_tokens
+        + SESSION_AUTO_COMPACTION_PROMPT_RESERVE_TOKENS
     )
 
     if not loaded_session.runs:
@@ -79,15 +74,17 @@ def build_auto_compact_session_budget_report(
             should_compact=False,
             reason="no_runs",
             prompt_reserve_tokens=SESSION_AUTO_COMPACTION_PROMPT_RESERVE_TOKENS,
+            estimation_method=budget_estimate.estimation_method,
             estimated_resume_message_tokens=(
                 budget_estimate.estimated_resume_message_tokens
             ),
-            estimated_resume_history_tokens=estimated_resume_history_tokens,
-            estimated_checkpoint_tokens=budget_estimate.estimated_checkpoint_tokens,
-            estimated_summary_tokens=budget_estimate.estimated_summary_tokens,
+            estimated_replacement_messages_tokens=(
+                budget_estimate.estimated_replacement_messages_tokens
+            ),
+            estimated_replacement_summary_tokens=(
+                budget_estimate.estimated_replacement_summary_tokens
+            ),
             estimated_pre_run_tokens=estimated_pre_run_tokens,
-            measured_usage_tokens=budget_estimate.measured_usage_tokens,
-            estimated_trailing_tokens=budget_estimate.estimated_trailing_tokens,
             runs_since_latest_compaction=runs_since_compaction,
         )
 
@@ -97,15 +94,17 @@ def build_auto_compact_session_budget_report(
             should_compact=False,
             reason="unknown_context_window",
             prompt_reserve_tokens=SESSION_AUTO_COMPACTION_PROMPT_RESERVE_TOKENS,
+            estimation_method=budget_estimate.estimation_method,
             estimated_resume_message_tokens=(
                 budget_estimate.estimated_resume_message_tokens
             ),
-            estimated_resume_history_tokens=estimated_resume_history_tokens,
-            estimated_checkpoint_tokens=budget_estimate.estimated_checkpoint_tokens,
-            estimated_summary_tokens=budget_estimate.estimated_summary_tokens,
+            estimated_replacement_messages_tokens=(
+                budget_estimate.estimated_replacement_messages_tokens
+            ),
+            estimated_replacement_summary_tokens=(
+                budget_estimate.estimated_replacement_summary_tokens
+            ),
             estimated_pre_run_tokens=estimated_pre_run_tokens,
-            measured_usage_tokens=budget_estimate.measured_usage_tokens,
-            estimated_trailing_tokens=budget_estimate.estimated_trailing_tokens,
             runs_since_latest_compaction=runs_since_compaction,
         )
 
@@ -135,18 +134,20 @@ def build_auto_compact_session_budget_report(
             output_headroom_tokens=output_headroom_tokens,
             trigger_budget_tokens=compaction_trigger_budget_tokens,
             prompt_reserve_tokens=SESSION_AUTO_COMPACTION_PROMPT_RESERVE_TOKENS,
+            estimation_method=budget_estimate.estimation_method,
             estimated_resume_message_tokens=(
                 budget_estimate.estimated_resume_message_tokens
             ),
-            estimated_resume_history_tokens=estimated_resume_history_tokens,
-            estimated_checkpoint_tokens=budget_estimate.estimated_checkpoint_tokens,
-            estimated_summary_tokens=budget_estimate.estimated_summary_tokens,
+            estimated_replacement_messages_tokens=(
+                budget_estimate.estimated_replacement_messages_tokens
+            ),
+            estimated_replacement_summary_tokens=(
+                budget_estimate.estimated_replacement_summary_tokens
+            ),
             estimated_pre_run_tokens=estimated_pre_run_tokens,
             estimated_post_compaction_headroom_tokens=(
                 estimated_post_compaction_headroom_tokens
             ),
-            measured_usage_tokens=budget_estimate.measured_usage_tokens,
-            estimated_trailing_tokens=budget_estimate.estimated_trailing_tokens,
             runs_since_latest_compaction=runs_since_compaction,
         )
 
@@ -159,18 +160,20 @@ def build_auto_compact_session_budget_report(
             output_headroom_tokens=output_headroom_tokens,
             trigger_budget_tokens=compaction_trigger_budget_tokens,
             prompt_reserve_tokens=SESSION_AUTO_COMPACTION_PROMPT_RESERVE_TOKENS,
+            estimation_method=budget_estimate.estimation_method,
             estimated_resume_message_tokens=(
                 budget_estimate.estimated_resume_message_tokens
             ),
-            estimated_resume_history_tokens=estimated_resume_history_tokens,
-            estimated_checkpoint_tokens=budget_estimate.estimated_checkpoint_tokens,
-            estimated_summary_tokens=budget_estimate.estimated_summary_tokens,
+            estimated_replacement_messages_tokens=(
+                budget_estimate.estimated_replacement_messages_tokens
+            ),
+            estimated_replacement_summary_tokens=(
+                budget_estimate.estimated_replacement_summary_tokens
+            ),
             estimated_pre_run_tokens=estimated_pre_run_tokens,
             estimated_post_compaction_headroom_tokens=(
                 estimated_post_compaction_headroom_tokens
             ),
-            measured_usage_tokens=budget_estimate.measured_usage_tokens,
-            estimated_trailing_tokens=budget_estimate.estimated_trailing_tokens,
             runs_since_latest_compaction=runs_since_compaction,
         )
 
@@ -182,108 +185,61 @@ def build_auto_compact_session_budget_report(
         output_headroom_tokens=output_headroom_tokens,
         trigger_budget_tokens=compaction_trigger_budget_tokens,
         prompt_reserve_tokens=SESSION_AUTO_COMPACTION_PROMPT_RESERVE_TOKENS,
+        estimation_method=budget_estimate.estimation_method,
         estimated_resume_message_tokens=budget_estimate.estimated_resume_message_tokens,
-        estimated_resume_history_tokens=estimated_resume_history_tokens,
-        estimated_checkpoint_tokens=budget_estimate.estimated_checkpoint_tokens,
-        estimated_summary_tokens=budget_estimate.estimated_summary_tokens,
+        estimated_replacement_messages_tokens=(
+            budget_estimate.estimated_replacement_messages_tokens
+        ),
+        estimated_replacement_summary_tokens=(
+            budget_estimate.estimated_replacement_summary_tokens
+        ),
         estimated_pre_run_tokens=estimated_pre_run_tokens,
         estimated_post_compaction_headroom_tokens=(
             estimated_post_compaction_headroom_tokens
         ),
-        measured_usage_tokens=budget_estimate.measured_usage_tokens,
-        estimated_trailing_tokens=budget_estimate.estimated_trailing_tokens,
         runs_since_latest_compaction=runs_since_compaction,
     )
 
 
 def _estimate_resume_history_budget_components(
     loaded_session: LoadedSession,
+    *,
+    model: Any,
 ) -> _ResumeHistoryBudgetEstimate:
-    resume_history = build_resume_message_history(loaded_session)
-    resume_instructions = build_resume_instructions(loaded_session)
-    estimated_summary_tokens = math.ceil(
-        _estimate_text_chars(resume_instructions)
-        / COMPACTION_CHARS_PER_TOKEN_HEURISTIC
+    resume_history_estimate = estimate_messages_tokens(
+        model=model,
+        messages=build_resume_message_history(loaded_session),
     )
-    estimated_checkpoint_tokens = _estimate_checkpoint_tokens(loaded_session)
-    measured_usage = _find_last_measured_usage_tokens(resume_history)
-    if measured_usage is not None:
-        usage_tokens, last_usage_index = measured_usage
-        trailing_messages = resume_history[last_usage_index + 1 :]
-        trailing_tokens = math.ceil(
-            _estimate_message_history_chars(trailing_messages)
-            / COMPACTION_CHARS_PER_TOKEN_HEURISTIC
-        )
-        estimated_resume_message_tokens = usage_tokens + trailing_tokens
-        return _ResumeHistoryBudgetEstimate(
-            estimated_resume_message_tokens=estimated_resume_message_tokens,
-            estimated_resume_history_tokens=(
-                estimated_resume_message_tokens + estimated_summary_tokens
-            ),
-            estimated_checkpoint_tokens=estimated_checkpoint_tokens,
-            estimated_summary_tokens=estimated_summary_tokens,
-            measured_usage_tokens=usage_tokens,
-            estimated_trailing_tokens=trailing_tokens,
-        )
-
-    estimated_resume_message_tokens = math.ceil(
-        _estimate_message_history_chars(resume_history)
-        / COMPACTION_CHARS_PER_TOKEN_HEURISTIC
-    )
-    return _ResumeHistoryBudgetEstimate(
-        estimated_resume_message_tokens=estimated_resume_message_tokens,
-        estimated_resume_history_tokens=(
-            estimated_resume_message_tokens + estimated_summary_tokens
-        ),
-        estimated_checkpoint_tokens=estimated_checkpoint_tokens,
-        estimated_summary_tokens=estimated_summary_tokens,
-    )
-
-
-
-def _estimate_checkpoint_tokens(loaded_session: LoadedSession) -> int:
     latest_compaction = loaded_session.latest_compaction
-    checkpoint_messages = (
-        latest_compaction.checkpoint_messages if latest_compaction is not None else None
-    )
-    if not checkpoint_messages:
-        return 0
-    return math.ceil(
-        _estimate_message_history_chars(checkpoint_messages)
-        / COMPACTION_CHARS_PER_TOKEN_HEURISTIC
-    )
-
-
-def _find_last_measured_usage_tokens(
-    messages: list[ModelMessage],
-) -> tuple[int, int] | None:
-    for index in range(len(messages) - 1, -1, -1):
-        message = messages[index]
-        if not isinstance(message, ModelResponse):
-            continue
-        usage = message.usage
-        input_tokens = usage.input_tokens if usage is not None else None
-        if input_tokens is None or input_tokens <= 0:
-            continue
-        return input_tokens, index
-    return None
-
-
-def _estimate_message_history_chars(messages: list[ModelMessage]) -> int:
-    if not messages:
-        return 0
-    return len(
-        json.dumps(
-            _MODEL_MESSAGES_ADAPTER.dump_python(messages, mode="json"),
-            ensure_ascii=False,
+    if latest_compaction is None:
+        return _ResumeHistoryBudgetEstimate(
+            estimation_method=resume_history_estimate.estimation_method,
+            estimated_resume_message_tokens=resume_history_estimate.estimated_tokens,
+            estimated_replacement_messages_tokens=0,
+            estimated_replacement_summary_tokens=0,
         )
+
+    replacement_messages_estimate = estimate_messages_tokens(
+        model=model,
+        messages=latest_compaction.replacement_messages,
     )
+    summary_text = extract_compaction_summary_text(latest_compaction.replacement_messages)
+    if summary_text is None:
+        estimated_replacement_summary_tokens = 0
+    else:
+        estimated_replacement_summary_tokens = estimate_messages_tokens(
+            model=model,
+            messages=latest_compaction.replacement_messages[-1:],
+        ).estimated_tokens
 
-
-def _estimate_text_chars(value: str | None) -> int:
-    if value is None:
-        return 0
-    return len(value)
+    return _ResumeHistoryBudgetEstimate(
+        estimation_method=resume_history_estimate.estimation_method,
+        estimated_resume_message_tokens=resume_history_estimate.estimated_tokens,
+        estimated_replacement_messages_tokens=(
+            replacement_messages_estimate.estimated_tokens
+        ),
+        estimated_replacement_summary_tokens=estimated_replacement_summary_tokens,
+    )
 
 
 __all__ = [

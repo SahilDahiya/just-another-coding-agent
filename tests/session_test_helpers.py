@@ -1,7 +1,9 @@
 from pydantic import TypeAdapter
 from pydantic_ai.messages import ModelMessage, UserPromptPart
 
-from just_another_coding_agent.contracts.session import SessionCompactionSummary
+from just_another_coding_agent.session.replacement_history import (
+    build_compaction_summary_message,
+)
 
 _MODEL_MESSAGES_ADAPTER = TypeAdapter(list[ModelMessage])
 
@@ -28,23 +30,23 @@ def message_shapes(messages: list[ModelMessage]) -> list[str]:
 
 def compaction_entry_payload(
     *,
-    summarized_through_run_id: str,
-    summary: SessionCompactionSummary,
-    first_kept_run_id: str | None = None,
-    checkpoint_through_run_id: str,
-    checkpoint_messages: list[ModelMessage] | None = None,
+    compacted_through_run_id: str,
+    replacement_messages: list[ModelMessage] | None = None,
+    summary_text: str = "summary",
 ) -> dict[str, object]:
+    resolved_replacement_messages = (
+        replacement_messages
+        if replacement_messages is not None
+        else [build_compaction_summary_message(summary_text)]
+    )
     return {
         "type": "session_compaction",
         "compaction_id": "compact-1",
-        "summarized_through_run_id": summarized_through_run_id,
-        "first_kept_run_id": first_kept_run_id,
-        "checkpoint_through_run_id": checkpoint_through_run_id,
-        "checkpoint_messages": _MODEL_MESSAGES_ADAPTER.dump_python(
-            checkpoint_messages if checkpoint_messages is not None else [],
+        "compacted_through_run_id": compacted_through_run_id,
+        "replacement_messages": _MODEL_MESSAGES_ADAPTER.dump_python(
+            resolved_replacement_messages,
             mode="json",
         ),
-        "summary": summary.model_dump(mode="json"),
     }
 
 

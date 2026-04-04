@@ -3,6 +3,8 @@ from collections.abc import AsyncIterator
 from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
+    ModelResponse,
+    TextPart,
     UserPromptPart,
 )
 from pydantic_ai.models.function import FunctionModel
@@ -21,13 +23,18 @@ from just_another_coding_agent.contracts.run_events import (
 )
 from just_another_coding_agent.runtime import stream_session_run_events
 from just_another_coding_agent.runtime.compaction import (
-    build_resume_instructions,
+    build_resume_message_history,
     summarize_session_for_compaction,
 )
 from just_another_coding_agent.session import (
     append_compaction_to_session,
     append_run_to_session,
     load_session,
+)
+from just_another_coding_agent.session.replacement_history import (
+    build_compaction_replacement_messages,
+    build_compaction_summary_message,
+    extract_compaction_summary_text,
 )
 
 
@@ -37,8 +44,37 @@ def _all_parts(messages: list[ModelMessage]):
             yield part
 
 
-def _test_summary_model(*, custom_output_args: dict[str, object]) -> TestModel:
-    return TestModel(call_tools=[], custom_output_args=custom_output_args)
+def _assistant_texts(messages: list[ModelMessage]) -> list[str]:
+    return [
+        part.content
+        for part in _all_parts(messages)
+        if isinstance(part, TextPart)
+    ]
+
+
+def _test_summary_model(*, custom_output_text: str) -> TestModel:
+    return TestModel(call_tools=[], custom_output_text=custom_output_text)
+
+
+def _append_summary_compaction(
+    *,
+    path,
+    workspace_root,
+    summary_text: str,
+    token_budget: int = 400,
+):
+    loaded = load_session(path=path, workspace_root=workspace_root)
+    replacement_messages = build_compaction_replacement_messages(
+        model="test:model",
+        messages=build_resume_message_history(loaded),
+        summary_text=summary_text,
+        token_budget=token_budget,
+    )
+    return append_compaction_to_session(
+        path=path,
+        workspace_root=workspace_root,
+        replacement_messages=replacement_messages,
+    )
 
 
 async def test_auto_compaction_preserves_multi_compaction_continuity(
@@ -120,21 +156,21 @@ async def test_auto_compaction_preserves_multi_compaction_continuity(
     first_loaded = load_session(path=session_path, workspace_root=workspace_root)
     first_summary = await summarize_session_for_compaction(
         model=_test_summary_model(
-            custom_output_args={
-                "current_objective": "repair the failing verifier",
-                "established_facts": ["The project plan was reviewed."],
-                "user_preferences": ["be concise"],
-                "important_paths": ["docs/plan.md", "src/app.py"],
-                "open_questions": [],
-                "unresolved_work": ["Patch src/app.py."],
-            }
+            custom_output_text="\n".join(
+                [
+                    "- Goal: repair the failing verifier",
+                    "- Established fact: The project plan was reviewed.",
+                    "- Important path: docs/plan.md",
+                    "- Unresolved work: Patch src/app.py.",
+                ]
+            )
         ),
         loaded_session=first_loaded,
     )
-    append_compaction_to_session(
+    _append_summary_compaction(
         path=session_path,
         workspace_root=workspace_root,
-        summary=first_summary,
+        summary_text=first_summary,
     )
 
     append_run_to_session(
@@ -260,43 +296,33 @@ async def test_auto_compaction_preserves_multi_compaction_continuity(
     ):
         del model
         loaded = load_session(path=path, workspace_root=workspace_root)
-        summary = await summarize_session_for_compaction(
-            model=_test_summary_model(
-                custom_output_args={
-                    "current_objective": "ship the verified app fix",
-                    "established_facts": [
-                        "src/app.py was updated after the earlier verifier failure.",
-                        "go test ./... passed on the latest run.",
-                    ],
-                    "user_preferences": ["be concise"],
-                    "important_paths": ["src/app.py", "tests/test_app.py"],
-                    "open_questions": [],
-                    "unresolved_work": ["Send the user a final status update."],
-                }
-            ),
+        second_summary = await summarize_session_for_compaction(
+            model=FunctionModel(function=_summary_probe_function),
             loaded_session=loaded,
         )
-        return append_compaction_to_session(
+        return _append_summary_compaction(
             path=path,
             workspace_root=workspace_root,
-            summary=summary,
+            summary_text=second_summary,
         )
+
+    observed: dict[str, list[str]] = {}
 
     async def continuity_probe_stream(
         messages: list[ModelMessage],
         _agent_info: object,
     ) -> AsyncIterator[str]:
-        user_prompts = [
+        observed["user_prompts"] = [
             part.content
             for part in _all_parts(messages)
             if isinstance(part, UserPromptPart)
         ]
-        assert user_prompts == ["what should we do next?"]
-
-        yield (
-            "We fixed src/app.py, the latest go test ./... passed, and the "
-            "earlier pytest -q failure is captured in session continuity."
+        observed["assistant_texts"] = _assistant_texts(messages)
+        assert observed["user_prompts"][-1] == "what should we do next?"
+        assert any(
+            "ship the verified app fix" in text for text in observed["assistant_texts"]
         )
+        yield "send the user the verified app update"
 
     monkeypatch.setattr(
         "just_another_coding_agent.runtime.session.summarize_and_append_compaction_to_session",
@@ -333,41 +359,58 @@ async def test_auto_compaction_preserves_multi_compaction_continuity(
 
     loaded = load_session(path=session_path, workspace_root=workspace_root)
     assert loaded.latest_compaction is not None
-    resume_instructions = build_resume_instructions(loaded)
-    assert resume_instructions is not None
-    assert "Current objective: ship the verified app fix" in resume_instructions
-    assert "Established facts:" in resume_instructions
-    assert (
-        "- src/app.py was updated after the earlier verifier failure."
-        in resume_instructions
+    assert extract_compaction_summary_text(loaded.latest_compaction.replacement_messages) == (
+        "\n".join(
+            [
+                "- Goal: ship the verified app fix",
+                "- Established fact: src/app.py was updated after the earlier verifier failure.",
+                "- Established fact: go test ./... passed on the latest run.",
+                "- Important path: src/app.py",
+                "- Important path: tests/test_app.py",
+                "- Unresolved work: Send the user a final status update.",
+            ]
+        )
     )
-    assert "- go test ./... passed on the latest run." in resume_instructions
-    assert "User preferences:" in resume_instructions
-    assert "- be concise" in resume_instructions
-    assert "Important paths:" in resume_instructions
-    assert "- src/app.py" in resume_instructions
-    assert "- tests/test_app.py" in resume_instructions
-    assert "Read paths:" in resume_instructions
-    assert "- docs/plan.md" in resume_instructions
-    assert "Modified paths:" in resume_instructions
-    assert "Recent shell commands:" in resume_instructions
-    assert "- pytest -q (failed)" in resume_instructions
-    assert "- go test ./... (exit 0)" in resume_instructions
-    assert "Recent failures:" in resume_instructions
-    assert "- shell pytest -q failed: Command exited with code 1" in resume_instructions
-    assert "Unresolved work:" in resume_instructions
-    assert "- Send the user a final status update." in resume_instructions
-    assert loaded.latest_compaction.summarized_through_run_id == "run-4"
-    assert loaded.latest_compaction.summary.read_paths == [
-        "docs/plan.md",
-        "src/app.py",
-        "tests/test_app.py",
-    ]
-    assert loaded.latest_compaction.summary.modified_paths == ["src/app.py"]
-    assert loaded.latest_compaction.summary.recent_shell_commands == [
-        "pytest -q (failed)",
-        "go test ./... (exit 0)",
-    ]
-    assert loaded.latest_compaction.summary.recent_failures == [
-        "shell pytest -q failed: Command exited with code 1"
-    ]
+    assert build_compaction_summary_message(
+        "\n".join(
+            [
+                "- Goal: ship the verified app fix",
+                "- Established fact: src/app.py was updated after the earlier verifier failure.",
+                "- Established fact: go test ./... passed on the latest run.",
+                "- Important path: src/app.py",
+                "- Important path: tests/test_app.py",
+                "- Unresolved work: Send the user a final status update.",
+            ]
+        )
+    ).parts[0].content in observed["assistant_texts"]
+
+
+def _summary_probe_function(
+    messages: list[ModelMessage],
+    _agent_info: object,
+) -> ModelResponse:
+    prompt = next(
+        part.content
+        for part in _all_parts(messages)
+        if isinstance(part, UserPromptPart)
+    )
+    assert "Previous compaction summary:" in prompt
+    assert "- Goal: repair the failing verifier" in prompt
+    assert "Run run-3" in prompt
+    assert "Run run-4" in prompt
+    return ModelResponse(
+        parts=[
+            TextPart(
+                content="\n".join(
+                    [
+                        "- Goal: ship the verified app fix",
+                        "- Established fact: src/app.py was updated after the earlier verifier failure.",
+                        "- Established fact: go test ./... passed on the latest run.",
+                        "- Important path: src/app.py",
+                        "- Important path: tests/test_app.py",
+                        "- Unresolved work: Send the user a final status update.",
+                    ]
+                )
+            )
+        ]
+    )

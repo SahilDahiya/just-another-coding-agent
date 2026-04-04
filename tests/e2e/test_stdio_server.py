@@ -81,15 +81,15 @@ async def compaction_summary_function(
     return ModelResponse(
         parts=[
             TextPart(
-                content=json.dumps(
-                    {
-                        "current_objective": "finish note handling",
-                        "established_facts": ["note.txt was created"],
-                        "user_preferences": ["be concise"],
-                        "important_paths": ["note.txt"],
-                        "open_questions": ["Should we add logging?"],
-                        "unresolved_work": ["Run the final verifier."],
-                    }
+                content="\n".join(
+                    [
+                        "- Goal: finish note handling",
+                        "- Established fact: note.txt was created",
+                        "- Preference: be concise",
+                        "- Important path: note.txt",
+                        "- Open question: Should we add logging?",
+                        "- Unresolved work: Run the final verifier.",
+                    ]
                 )
             )
         ]
@@ -304,16 +304,7 @@ async def test_serve_rpc_stdio_supports_session_compact(
     assert compact_response["type"] == "rpc_response"
     assert compact_response["id"] == "req-compact"
     assert len(compact_response["response"]["compaction_id"]) == 32
-    assert compact_response["response"]["first_kept_run_id"] is None
-    assert (
-        compact_response["response"]["summary"]["current_objective"]
-        == "finish note handling"
-    )
-    assert compact_response["response"]["summary"]["important_paths"] == ["note.txt"]
-    assert compact_response["response"]["summary"]["read_paths"] == []
-    assert compact_response["response"]["summary"]["modified_paths"] == ["note.txt"]
-    assert compact_response["response"]["summary"]["recent_shell_commands"] == []
-    assert compact_response["response"]["summary"]["recent_failures"] == []
+    assert compact_response["response"]["compacted_through_run_id"]
 
     session_path = session_path_for_id(
         sessions_root=sessions_root,
@@ -325,6 +316,10 @@ async def test_serve_rpc_stdio_supports_session_compact(
     assert (
         loaded.latest_compaction.compaction_id
         == compact_response["response"]["compaction_id"]
+    )
+    assert (
+        loaded.latest_compaction.compacted_through_run_id
+        == compact_response["response"]["compacted_through_run_id"]
     )
 
 

@@ -10,7 +10,7 @@ from .platform import ShellFamily
 from .run_events import RunEvent
 from .thinking import ThinkingSetting
 
-SESSION_FORMAT_VERSION = 9
+SESSION_FORMAT_VERSION = 10
 SessionName = Annotated[
     str,
     StringConstraints(pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$"),
@@ -58,31 +58,11 @@ class SessionEventEntry(_SessionEntryBase):
     event: RunEvent
 
 
-class SessionCompactionSummary(_SessionEntryBase):
-    current_objective: str | None = None
-    current_plan: list[str] = Field(default_factory=list)
-    established_facts: list[str] = Field(default_factory=list)
-    completed_work: list[str] = Field(default_factory=list)
-    key_decisions: list[str] = Field(default_factory=list)
-    user_preferences: list[str] = Field(default_factory=list)
-    important_paths: list[str] = Field(default_factory=list)
-    read_paths: list[str] = Field(default_factory=list)
-    modified_paths: list[str] = Field(default_factory=list)
-    recent_shell_commands: list[str] = Field(default_factory=list)
-    recent_verifications: list[str] = Field(default_factory=list)
-    recent_failures: list[str] = Field(default_factory=list)
-    open_questions: list[str] = Field(default_factory=list)
-    unresolved_work: list[str] = Field(default_factory=list)
-
-
 class SessionCompactionEntry(_SessionEntryBase):
     type: Literal["session_compaction"] = "session_compaction"
     compaction_id: str
-    summarized_through_run_id: str
-    first_kept_run_id: str | None = None
-    checkpoint_through_run_id: str
-    checkpoint_messages: list[ModelMessage]
-    summary: SessionCompactionSummary
+    compacted_through_run_id: str
+    replacement_messages: list[ModelMessage]
 
 
 SessionEntry = Annotated[
@@ -154,7 +134,6 @@ __all__ = [
     "LoadedSession",
     "SESSION_FORMAT_VERSION",
     "SessionCompactionEntry",
-    "SessionCompactionSummary",
     "SessionEntry",
     "SessionEventEntry",
     "SessionForkEntry",

@@ -130,24 +130,22 @@ Current sequence:
 
 1. Add manual session compaction first.
 2. Persist a compaction entry alongside existing session entries.
-3. Persist an authoritative compaction checkpoint on that entry and rebuild resumed `message_history` from checkpoint messages plus later native run deltas.
-4. Add deterministic automatic compaction before resumed runs when measured local resume history plus reserve crosses a fraction of the effective model context window after compaction-output headroom is reserved.
+3. Persist one model-visible replacement-history artifact on that entry and rebuild resumed `message_history` from `replacement_messages` plus later native run deltas.
+4. Add deterministic automatic compaction before resumed runs when estimated local resume history plus reserve crosses a fraction of the effective model context window after compaction-output headroom is reserved.
 5. Keep live-run recovery at the canonical streamed-run boundary when it must preserve a clean public event contract.
 
 The important boundary is:
 
 - compaction manages cross-run session size
-- durable auto-compaction now prefers persisted measured response usage plus a
-  trailing estimate over a pure whole-history heuristic, preserves a
-  token-budgeted safe raw tail when possible, and counts only runs beyond that
-  kept boundary as new work for future automatic compaction
+- durable auto-compaction now uses one backend-owned token-estimation seam over
+  the actual next resumed request substrate; it does not mix in prior
+  provider-reported usage
 - automatic compaction decisions now produce explicit backend-owned budget
   reports so clients and tests can inspect why compaction did or did not
   trigger without reverse-engineering token heuristics locally
-- durable compaction entries now also persist authoritative checkpoint messages
-  plus `checkpoint_through_run_id`, so resumed history rebuilds from explicit
-  checkpoint state rather than reconstructing a synthetic summary boundary at
-  runtime
+- durable compaction entries now persist `replacement_messages` plus
+  `compacted_through_run_id`, so resumed history rebuilds from one canonical
+  model-visible compacted prefix rather than a hidden summary/checkpoint split
 - if no canonical context metadata is known for the active model, live-run
   compaction falls back to one conservative default soft char limit
   should leave the current model step and resume with explicit results
@@ -171,9 +169,10 @@ The important boundary is:
   - agent construction
   - `compaction/`
     - `session_summary.py` for durable cross-run compaction orchestration
-    - `constants.py`, `boundary.py`, `trigger.py`, `source_builder.py`, and
-      `working_set.py` for focused durable-compaction helpers
+    - `constants.py`, `boundary.py`, `trigger.py`, and `source_builder.py` for
+      focused durable-compaction helpers
     - `resume.py` for compacted session replay helpers
+  - `token_estimation.py` for the canonical backend-owned token-estimation seam
   - orchestration entrypoints
   - event translation from PydanticAI into the public contract
 - `src/just_another_coding_agent/tools/`
@@ -186,6 +185,7 @@ The important boundary is:
 - `src/just_another_coding_agent/session/`
   - session persistence
   - session load/save helpers
+  - `replacement_history.py` for replacement-message construction and validation
 - `src/just_another_coding_agent/rpc/`
   - JSON-over-stdio protocol
   - command handlers

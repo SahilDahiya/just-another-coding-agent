@@ -1,21 +1,12 @@
 from types import SimpleNamespace
 
-from pydantic_ai.messages import (
-    ModelRequest,
-    ModelResponse,
-    TextPart,
-    UserPromptPart,
-)
-from pydantic_ai.usage import RequestUsage
+from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserPromptPart
 
 from just_another_coding_agent.contracts.run_events import (
     RunStartedEvent,
     RunSucceededEvent,
 )
-from just_another_coding_agent.contracts.session import SessionCompactionSummary
 from just_another_coding_agent.runtime.compaction import (
-    build_compaction_summary_instructions,
-    build_resume_instructions,
     build_resume_message_history,
     resume,
     session_summary,
@@ -32,15 +23,13 @@ from just_another_coding_agent.session import (
     append_run_to_session,
     load_session,
 )
+from just_another_coding_agent.session.replacement_history import (
+    build_compaction_summary_message,
+)
 
 
 def test_compaction_public_api_is_split_across_submodules() -> None:
     assert resume.build_resume_message_history is build_resume_message_history
-    assert (
-        resume.build_compaction_summary_instructions
-        is build_compaction_summary_instructions
-    )
-    assert resume.build_resume_instructions is build_resume_instructions
 
     assert (
         session_summary.summarize_session_for_compaction
@@ -53,36 +42,34 @@ def test_compaction_public_api_is_split_across_submodules() -> None:
     assert session_summary.should_auto_compact_session is should_auto_compact_session
 
 
-def test_estimate_resume_history_tokens_counts_resume_instructions_with_measured_usage(
+def test_estimate_resume_history_budget_components_use_replacement_history(
     monkeypatch,
 ) -> None:
     monkeypatch.setattr(
         trigger,
         "build_resume_message_history",
         lambda _loaded_session: [
+            ModelRequest(parts=[UserPromptPart(content="user")]),
             ModelResponse(parts=[TextPart(content="done")], model_name="test"),
         ],
     )
-    monkeypatch.setattr(
-        trigger,
-        "build_resume_instructions",
-        lambda _loaded_session: "x" * 40,
-    )
-    monkeypatch.setattr(
-        trigger,
-        "_find_last_measured_usage_tokens",
-        lambda _messages: (120, 0),
-    )
 
     estimate = trigger._estimate_resume_history_budget_components(
-        SimpleNamespace(latest_compaction=None)
+        SimpleNamespace(
+            latest_compaction=SimpleNamespace(
+                replacement_messages=[
+                    ModelRequest(parts=[UserPromptPart(content="user")]),
+                    build_compaction_summary_message("summary"),
+                ]
+            )
+        ),
+        model="test:model",
     )
 
-    assert estimate.estimated_resume_message_tokens == 120
-    assert estimate.estimated_summary_tokens == 10
-    assert estimate.estimated_resume_history_tokens == 130
-    assert estimate.measured_usage_tokens == 120
-    assert estimate.estimated_trailing_tokens == 0
+    assert estimate.estimation_method == "chars_per_token_v1"
+    assert estimate.estimated_resume_message_tokens > 0
+    assert estimate.estimated_replacement_messages_tokens > 0
+    assert estimate.estimated_replacement_summary_tokens > 0
 
 
 def test_effective_compaction_context_window_reserves_output_headroom() -> None:
@@ -114,11 +101,11 @@ def test_should_auto_compact_session_uses_effective_context_window_budget(
     monkeypatch.setattr(
         trigger,
         "_estimate_resume_history_budget_components",
-        lambda loaded_session: trigger._ResumeHistoryBudgetEstimate(
+        lambda loaded_session, *, model: trigger._ResumeHistoryBudgetEstimate(
+            estimation_method="chars_per_token_v1",
             estimated_resume_message_tokens=43_000,
-            estimated_resume_history_tokens=43_000,
-            estimated_checkpoint_tokens=0,
-            estimated_summary_tokens=0,
+            estimated_replacement_messages_tokens=0,
+            estimated_replacement_summary_tokens=0,
         ),
     )
 
@@ -153,13 +140,11 @@ def test_build_auto_compaction_budget_report_records_trigger_inputs(
     monkeypatch.setattr(
         trigger,
         "_estimate_resume_history_budget_components",
-        lambda loaded_session: trigger._ResumeHistoryBudgetEstimate(
+        lambda loaded_session, *, model: trigger._ResumeHistoryBudgetEstimate(
+            estimation_method="chars_per_token_v1",
             estimated_resume_message_tokens=42_700,
-            estimated_resume_history_tokens=43_000,
-            estimated_checkpoint_tokens=900,
-            estimated_summary_tokens=300,
-            measured_usage_tokens=120,
-            estimated_trailing_tokens=42_880,
+            estimated_replacement_messages_tokens=900,
+            estimated_replacement_summary_tokens=300,
         ),
     )
 
@@ -176,17 +161,15 @@ def test_build_auto_compaction_budget_report_records_trigger_inputs(
     assert report.output_headroom_tokens == 8_000
     assert report.trigger_budget_tokens == 64_400
     assert report.prompt_reserve_tokens == 24_000
+    assert report.estimation_method == "chars_per_token_v1"
     assert report.estimated_resume_message_tokens == 42_700
-    assert report.estimated_resume_history_tokens == 43_000
-    assert report.estimated_checkpoint_tokens == 900
-    assert report.estimated_summary_tokens == 300
-    assert report.measured_usage_tokens == 120
-    assert report.estimated_trailing_tokens == 42_880
-    assert report.estimated_post_compaction_headroom_tokens == 25_000
+    assert report.estimated_replacement_messages_tokens == 900
+    assert report.estimated_replacement_summary_tokens == 300
+    assert report.estimated_post_compaction_headroom_tokens == 25_300
     assert report.runs_since_latest_compaction == 1
 
 
-def test_build_resume_instructions_uses_latest_compaction_summary(tmp_path) -> None:
+def test_build_resume_message_history_uses_replacement_messages(tmp_path) -> None:
     session_path = tmp_path / "session.jsonl"
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
@@ -205,25 +188,41 @@ def test_build_resume_instructions_uses_latest_compaction_summary(tmp_path) -> N
     append_compaction_to_session(
         path=session_path,
         workspace_root=workspace_root,
-        summary=SessionCompactionSummary(
-            current_objective="ship the fix",
-            current_plan=["run tests"],
-            unresolved_work=["send the final update"],
-        ),
+        replacement_messages=[
+            ModelRequest(parts=[UserPromptPart(content="first")]),
+            build_compaction_summary_message("summary"),
+        ],
+    )
+    append_run_to_session(
+        path=session_path,
+        workspace_root=workspace_root,
+        prompt="second",
+        thinking=None,
+        messages=[ModelRequest(parts=[UserPromptPart(content="second")])],
+        events=[
+            RunStartedEvent(run_id="run-2"),
+            RunSucceededEvent(run_id="run-2", output_text="done"),
+        ],
     )
 
     loaded = load_session(path=session_path, workspace_root=workspace_root)
-    instructions = build_resume_instructions(loaded)
+    resume_history = build_resume_message_history(loaded)
 
-    assert instructions is not None
-    assert instructions.startswith(
-        "Continue from this internal session continuity state."
-    )
-    assert "Current objective: ship the fix" in instructions
-    assert "Current plan:" in instructions
-    assert "- run tests" in instructions
-    assert "Unresolved work:" in instructions
-    assert "- send the final update" in instructions
+    assert [
+        part.content
+        for message in resume_history
+        for part in message.parts
+        if isinstance(part, UserPromptPart)
+    ] == [
+        "first",
+        "second",
+    ]
+    assert [
+        part.content
+        for message in resume_history
+        for part in message.parts
+        if isinstance(part, TextPart)
+    ] == [build_compaction_summary_message("summary").parts[0].content]
 
 
 def test_build_auto_compaction_budget_report_explains_no_new_work(
@@ -250,20 +249,8 @@ def test_build_auto_compaction_budget_report_explains_no_new_work(
     append_compaction_to_session(
         path=session_path,
         workspace_root=workspace_root,
-        summary=SessionCompactionSummary(
-            current_objective="continue from retained runs",
-            established_facts=["run-1 is summarized"],
-            user_preferences=[],
-            important_paths=[],
-            read_paths=[],
-            modified_paths=[],
-            recent_shell_commands=[],
-            recent_failures=[],
-            open_questions=[],
-            unresolved_work=["finish the task"],
-        ),
-        summarized_through_run_id="run-1",
-        first_kept_run_id="run-2",
+        compacted_through_run_id="run-2",
+        replacement_messages=[build_compaction_summary_message("summary")],
     )
 
     loaded = load_session(path=session_path, workspace_root=workspace_root)

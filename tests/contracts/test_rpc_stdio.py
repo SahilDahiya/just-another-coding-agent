@@ -107,15 +107,15 @@ async def compaction_summary_function(
     return ModelResponse(
         parts=[
             TextPart(
-                content=json.dumps(
-                    {
-                        "current_objective": "finish note handling",
-                        "established_facts": ["note.txt was created"],
-                        "user_preferences": ["be concise"],
-                        "important_paths": ["note.txt"],
-                        "open_questions": ["Should we add logging?"],
-                        "unresolved_work": ["Run the final verifier."],
-                    }
+                content="\n".join(
+                    [
+                        "- Goal: finish note handling",
+                        "- Established fact: note.txt was created",
+                        "- Preference: be concise",
+                        "- Important path: note.txt",
+                        "- Open question: Should we add logging?",
+                        "- Unresolved work: Run the final verifier.",
+                    ]
                 )
             )
         ]
@@ -822,24 +822,7 @@ async def test_handle_rpc_json_line_compacts_session_and_returns_metadata(
             "id": "req-compact",
             "response": {
                 "compaction_id": messages[0]["response"]["compaction_id"],
-                "summarized_through_run_id": created_run_id,
-                "first_kept_run_id": None,
-                "summary": {
-                    "current_objective": "finish note handling",
-                    "current_plan": [],
-                    "established_facts": ["note.txt was created"],
-                    "completed_work": [],
-                    "key_decisions": [],
-                    "user_preferences": ["be concise"],
-                    "important_paths": ["note.txt"],
-                    "read_paths": [],
-                    "modified_paths": ["note.txt"],
-                    "recent_shell_commands": [],
-                    "recent_verifications": [],
-                    "recent_failures": [],
-                    "open_questions": ["Should we add logging?"],
-                    "unresolved_work": ["Run the final verifier."],
-                },
+                "compacted_through_run_id": created_run_id,
             },
         }
     ]
@@ -851,7 +834,7 @@ async def test_handle_rpc_json_line_compacts_session_and_returns_metadata(
         loaded.latest_compaction.compaction_id
         == messages[0]["response"]["compaction_id"]
     )
-    assert loaded.latest_compaction.first_kept_run_id is None
+    assert loaded.latest_compaction.compacted_through_run_id == created_run_id
 
 
 async def test_handle_rpc_json_line_returns_invalid_session_for_empty_compaction(

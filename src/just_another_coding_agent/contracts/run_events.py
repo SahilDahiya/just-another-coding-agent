@@ -173,9 +173,7 @@ class SessionCompactionCompletedEvent(BaseModel):
 
     type: Literal["session_compaction_completed"] = "session_compaction_completed"
     compaction_id: str
-    summarized_through_run_id: str
-    first_kept_run_id: str | None = None
-    checkpoint_through_run_id: str
+    compacted_through_run_id: str
     budget_before: CompactionBudgetReport
     budget_after: CompactionBudgetReport
     estimated_tokens_saved: int

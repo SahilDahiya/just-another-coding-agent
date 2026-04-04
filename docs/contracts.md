@@ -298,9 +298,7 @@ Initial executable run slice:
   - fields:
     - `type`
     - `compaction_id`
-    - `summarized_through_run_id`
-    - `first_kept_run_id`
-    - `checkpoint_through_run_id`
+    - `compacted_through_run_id`
     - `budget_before`
     - `budget_after`
     - `estimated_tokens_saved`
@@ -469,18 +467,12 @@ Initial executable session slice:
   - canonical session persistence must omit `assistant_text_delta`; deltas are
     live RPC transport for streaming UI updates, not durable session state
 - `session_compaction`
-  - fields: `type`, `compaction_id`, `summarized_through_run_id`, `first_kept_run_id`, `checkpoint_through_run_id`, `checkpoint_messages`, `summary`
-  - `summarized_through_run_id` must reference an existing persisted `run_id`
-  - `first_kept_run_id`, when present, must reference an existing persisted
-    `run_id` that does not precede `summarized_through_run_id`
-  - `checkpoint_through_run_id` must reference an existing persisted `run_id`
-    and must not precede either the summary boundary or the kept boundary
-  - `checkpoint_messages` is the authoritative raw checkpoint tail at the
-    compaction boundary; durable summary text is stored only in `summary`
-    and rendered into ephemeral resume instructions at run time
-  - automatic compaction may keep a safe raw suffix that starts inside one run;
-    in that case `first_kept_run_id == summarized_through_run_id`
-  - `summary` is structured durable compaction state, not arbitrary untyped metadata
+  - fields: `type`, `compaction_id`, `compacted_through_run_id`, `replacement_messages`
+  - `compacted_through_run_id` must reference an existing persisted `run_id`
+  - `replacement_messages` is the canonical model-visible compacted prefix used
+    for future resumed runs
+  - `replacement_messages` must be non-empty
+  - `replacement_messages` must end with exactly one compaction summary message
 
 Ordering rules for the session slice:
 
@@ -492,21 +484,13 @@ Ordering rules for the session slice:
 - Each completed `session_run` is followed by one or more `session_event` lines for the same `run_id` and then exactly one trailing `session_messages` line for that run
 - A trailing run without `session_messages` is an incomplete run and authoritative session load must fail hard
 - `session_compaction` may appear only at a completed run boundary, never in the middle of a run
-- `session_compaction` entries are append-only and must not move the summary boundary backward
+- `session_compaction` entries are append-only and must not move the compaction boundary backward
 - Authoritative session loads must provide the expected workspace root and it must match the persisted `session_header.workspace_root` exactly
-- Session resume semantics must reconstruct effective conversation context from the latest compaction `checkpoint_messages` plus later `session_messages` strictly after `checkpoint_through_run_id`, and rebuild ephemeral continuity instructions from the latest compaction `summary`
+- Session resume semantics must reconstruct effective conversation context from the latest compaction `replacement_messages` plus later `session_messages` strictly after `compacted_through_run_id`
 - Durable cross-run compaction must be materialized into resume `message_history` before the next run starts; JACA does not use PydanticAI `history_processors` in the canonical runtime path
-- Durable compaction summaries must carry backend-owned deterministic survival
-  state in addition to model-written prose: `read_paths` for explicitly read
-  files, `modified_paths` for explicitly written or edited files,
-  `recent_shell_commands` for recent shell command/outcome snapshots,
-  `recent_verifications` for recent deterministic verification/test outcomes,
-  and `recent_failures` for recent failed tool calls or terminal run failures
-- Durable compaction summary generation must use the model only for narrative
-  fields such as `current_objective`, `current_plan`, `established_facts`,
-  `completed_work`, `key_decisions`, `user_preferences`, `important_paths`,
-  `open_questions`, and `unresolved_work`; backend-owned deterministic fields
-  must be derived from persisted run events instead of model recall
+- Durable compaction summary generation must use a plain-text model call that
+  feeds one persisted summary message into `replacement_messages`; the runtime
+  does not rebuild hidden instructions from compaction state
 - Run-local history processors may compact current-run tool-return content for
   the model when context pressure grows, but the persistence layer must restore
   the original raw tool-return content before writing `session_messages`
@@ -526,11 +510,14 @@ Ordering rules for the session slice:
 - Persisted events for a run must satisfy the streamed run contract, including exactly one terminal outcome
 - Persisted `session_event` payloads must preserve any tool `activity` metadata unchanged
 - Appending a new run must preserve all existing lines and write the header only once
-- Successful resumed runs must persist only new run deltas instead of replaying checkpoint history back into trailing `session_messages`
-- Before a resumed run starts, the runtime may append one automatic `session_compaction` entry when measured local resume history plus reserve crosses the configured fraction of the effective active model context window after compaction-output headroom is reserved
-- Automatic durable compaction may preserve a bounded raw tail by
-  message-token budget via `first_kept_run_id`; future automatic trigger
-  decisions must then count only completed runs beyond that retained boundary
+- Successful resumed runs must persist only new run deltas instead of replaying replacement history back into trailing `session_messages`
+- Before a resumed run starts, the runtime may append one automatic `session_compaction` entry when estimated local resume history plus reserve crosses the configured fraction of the effective active model context window after compaction-output headroom is reserved
+- Before a resumed run starts, the automatic trigger estimates the actual local
+  resume history the next run will use; it does not depend on prior
+  provider-reported usage
+- Automatic durable compaction may preserve a bounded recent user-message tail
+  inside `replacement_messages`; future automatic trigger decisions count only
+  completed runs beyond `compacted_through_run_id` as new work
   as new work
 - After three consecutive automatic compaction failures for one session, the runtime blocks further automatic compaction attempts for that session and fails hard until the user reduces context or starts a new session
 
@@ -573,7 +560,7 @@ Initial executable RPC slice:
     - `{"session_id": <opaque-lowercase-hex-string>}`
     - `{"session_id": <opaque-lowercase-hex-string>, "name": <backend-normalized-session-name>}` for `session.name`
     - `{"session_id": <opaque-lowercase-hex-string>, "entries": [{"kind": "user" | "assistant" | "error", "text": <string>}], "truncated": <bool>}` for `session.preview`
-    - `{"compaction_id": <opaque-lowercase-hex-string>, "summarized_through_run_id": <run_id>, "first_kept_run_id": <optional-run_id>, "summary": <structured-compaction-summary>}`
+    - `{"compaction_id": <opaque-lowercase-hex-string>, "compacted_through_run_id": <run_id>}`
 - `rpc_event`
   - fields: `type`, `id`, `event`
   - `event` must be one canonical streamed run event payload or session lifecycle event payload
@@ -597,10 +584,6 @@ Ordering rules for the RPC slice:
 - A valid `session.name` request must reference an existing `session_id`, append one backend-normalized `session_info` entry when the requested name changes, enforce workspace-local name uniqueness, and yield exactly one `rpc_response` containing that normalized session name
 - A valid `session.preview` request must reference an existing `session_id` and yields exactly one `rpc_response` containing a bounded recent-history preview derived from durable session runs; it is a presentation helper and does not change resume authority
 - A valid `session.compact` request must reference an existing `session_id` and yields exactly one `rpc_response` describing the newly appended compaction entry
-- `session.compact` responses must include the durable summary's backend-owned
-  deterministic fields (`read_paths`, `modified_paths`,
-  `recent_shell_commands`, and `recent_failures`) alongside the narrative
-  fields
 - If model-driven compaction summary generation fails, `session.compact` fails hard; it does not append a placeholder summary
 - A valid `run.start` request must reference an existing `session_id` and yields zero or more `rpc_event` lines whose embedded events satisfy the streamed run contract
 - Session lifecycle `rpc_event` payloads such as `session_compaction_started` and `session_compaction_completed` may appear before `run_started`
@@ -612,14 +595,12 @@ Ordering rules for the RPC slice:
   - `output_headroom_tokens`
   - `trigger_budget_tokens`
   - `prompt_reserve_tokens`
+  - `estimation_method`
   - `estimated_resume_message_tokens`
-  - `estimated_resume_history_tokens`
-  - `estimated_checkpoint_tokens`
-  - `estimated_summary_tokens`
+  - `estimated_replacement_messages_tokens`
+  - `estimated_replacement_summary_tokens`
   - `estimated_pre_run_tokens`
   - `estimated_post_compaction_headroom_tokens`
-  - `measured_usage_tokens`
-  - `estimated_trailing_tokens`
   - `runs_since_latest_compaction`
 - `run.start` on an existing session is the canonical continue operation; there is no separate `session.continue` command
 - Forking is a wrapper-level session-store operation today: the Python launcher
