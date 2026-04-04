@@ -212,3 +212,7 @@ __marimo__/
 
 
 /CC.zip
+
+# SWE-bench evaluation artifacts
+/logs/
+*.jaca-*.json

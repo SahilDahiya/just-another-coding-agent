@@ -24,6 +24,9 @@ test = [
   "pytest-asyncio>=0.24.0",
 ]
 trace = []
+eval-swebench = [
+  "datasets>=2.14.0",
+]
 
 [project.scripts]
 jaca = "just_another_coding_agent.__main__:main"
