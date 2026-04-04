@@ -141,7 +141,7 @@ func (g *toolGroup) render(motionTick int) (string, string) {
 			rendered.WriteByte('\n')
 		}
 		plain.WriteString(formatToolActivityLine(entry))
-		rendered.WriteString(renderToolActivityLine(entry))
+		rendered.WriteString(renderToolActivityLine(entry, motionTick))
 		for _, line := range entry.detailLines {
 			plain.WriteString(line + "\n")
 			rendered.WriteString(styleToolDetailLine(line) + "\n")
@@ -209,18 +209,19 @@ func formatToolActivityLine(entry *toolEntry) string {
 	}
 }
 
-func renderToolActivityLine(entry *toolEntry) string {
-	markerColor := defaultTheme.accent
-	if entry.outcome == "ok" {
-		if entry.groupKind == "exploration" {
-			markerColor = defaultTheme.textMuted
-		} else {
-			markerColor = defaultTheme.successSoft
-		}
-	} else if entry.outcome == "error" {
-		markerColor = defaultTheme.err
-	} else if entry.groupKind == "exploration" {
+func renderToolActivityLine(entry *toolEntry, motionTick int) string {
+	var markerColor lipgloss.TerminalColor
+	switch {
+	case entry.outcome == "ok" && entry.groupKind == "exploration":
 		markerColor = defaultTheme.textMuted
+	case entry.outcome == "ok":
+		markerColor = defaultTheme.successSoft
+	case entry.outcome == "error":
+		markerColor = defaultTheme.err
+	case entry.outcome == "":
+		markerColor = breathingMarkerColor(motionTick)
+	default:
+		markerColor = defaultTheme.accent
 	}
 	var b strings.Builder
 	b.WriteString(lipgloss.NewStyle().Foreground(markerColor).Render("● "))

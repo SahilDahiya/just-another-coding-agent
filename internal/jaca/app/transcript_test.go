@@ -153,12 +153,12 @@ func TestExplorationToolRowsUseSofterPreviewStyling(t *testing.T) {
 	normal := renderToolActivityLine(&toolEntry{
 		toolName: "read",
 		preview:  "AGENTS.md",
-	})
+	}, 0)
 	exploration := renderToolActivityLine(&toolEntry{
 		toolName:  "read",
 		preview:   "AGENTS.md",
 		groupKind: "exploration",
-	})
+	}, 0)
 
 	if normal == exploration {
 		t.Fatalf("expected exploration row styling to differ from normal row: %q", exploration)
