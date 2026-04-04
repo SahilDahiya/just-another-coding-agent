@@ -136,8 +136,8 @@ def test_append_run_persists_turn_context_snapshot(tmp_path) -> None:
 
     loaded = load_session(path=path, workspace_root=workspace_root)
 
-    assert loaded.turn_contexts == [turn_context]
     assert loaded.latest_turn_context == turn_context
+    assert loaded.has_persisted_turn_context_history is True
 
 
 def test_load_session_compaction_invalidates_latest_turn_context(tmp_path) -> None:
@@ -175,8 +175,8 @@ def test_load_session_compaction_invalidates_latest_turn_context(tmp_path) -> No
 
     loaded = load_session(path=path, workspace_root=workspace_root)
 
-    assert loaded.turn_contexts == [turn_context]
     assert loaded.latest_turn_context is None
+    assert loaded.has_persisted_turn_context_history is True
 
 
 def test_build_session_preview_uses_recent_runs_only(tmp_path) -> None:
@@ -420,8 +420,8 @@ def test_fork_session_drops_parent_turn_context_entries(tmp_path) -> None:
     raw_lines = target_path.read_text(encoding="utf-8").splitlines()
     line_types = [json.loads(line)["type"] for line in raw_lines]
 
-    assert loaded.turn_contexts == []
     assert loaded.latest_turn_context is None
+    assert loaded.has_persisted_turn_context_history is False
     assert "session_turn_context" not in line_types
 
 

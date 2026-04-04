@@ -291,7 +291,7 @@ async def stream_session_run_events(
             current_date=current_date,
             shell_family=shell_family,
             thinking=resolved_thinking,
-            has_persisted_history=bool(loaded_session.turn_contexts),
+            has_persisted_history=loaded_session.has_persisted_turn_context_history,
         )
         yield SessionTurnContextStatusEvent(
             status=turn_context_baseline.status,

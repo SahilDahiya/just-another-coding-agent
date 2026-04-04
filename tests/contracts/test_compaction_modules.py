@@ -99,7 +99,7 @@ def test_estimate_resume_history_budget_components_use_replacement_history(
                 shell_family="posix",
             ),
             latest_turn_context=None,
-            turn_contexts=[],
+            has_persisted_turn_context_history=False,
             latest_compaction=SimpleNamespace(
                 replacement_messages=[
                     ModelRequest(parts=[UserPromptPart(content="user")]),

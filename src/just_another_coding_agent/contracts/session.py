@@ -103,8 +103,8 @@ class LoadedSession(_SessionEntryBase):
     fork: SessionForkEntry | None = None
     name: SessionName | None = None
     runs: list[SessionRunRecord]
-    turn_contexts: list[SessionTurnContextEntry] = Field(default_factory=list)
     latest_turn_context: SessionTurnContextEntry | None = None
+    has_persisted_turn_context_history: bool = False
     compactions: list[SessionCompactionEntry] = Field(default_factory=list)
 
     @property

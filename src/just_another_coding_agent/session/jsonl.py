@@ -150,7 +150,8 @@ class SessionRunAppender:
                 )
             if turn_context.workspace_root != str(self._workspace_root):
                 raise SessionFormatError(
-                    "Session turn context workspace_root must match session workspace_root"
+                    "Session turn context workspace_root must match "
+                    "session workspace_root"
                 )
             if turn_context.shell_family != self._shell_family:
                 raise SessionFormatError(
@@ -394,8 +395,8 @@ def load_session(
     fork: SessionForkEntry | None = None
     name: SessionName | None = None
     runs: list[SessionRunRecord] = []
-    turn_contexts: list[SessionTurnContextEntry] = []
     latest_turn_context: SessionTurnContextEntry | None = None
+    has_persisted_turn_context_history = False
     compactions: list[SessionCompactionEntry] = []
     current_run: SessionRunRecord | None = None
     known_run_ids: set[str] = set()
@@ -489,13 +490,18 @@ def load_session(
                 )
             if entry.workspace_root != header.workspace_root:
                 raise SessionFormatError(
-                    "Session turn context workspace_root must match session workspace_root"
+                    "Session turn context workspace_root must match "
+                    "session workspace_root"
                 )
-            if turn_contexts and turn_contexts[-1].run_id == entry.run_id:
+            if (
+                has_persisted_turn_context_history
+                and latest_turn_context is not None
+                and latest_turn_context.run_id == entry.run_id
+            ):
                 raise SessionFormatError(
                     "Session turn context entry must appear at most once per run"
                 )
-            turn_contexts.append(entry)
+            has_persisted_turn_context_history = True
             latest_turn_context = entry
             continue
 
@@ -562,8 +568,8 @@ def load_session(
         fork=fork,
         name=name,
         runs=runs,
-        turn_contexts=turn_contexts,
         latest_turn_context=latest_turn_context,
+        has_persisted_turn_context_history=has_persisted_turn_context_history,
         compactions=compactions,
     )
 

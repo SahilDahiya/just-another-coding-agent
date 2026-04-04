@@ -214,7 +214,7 @@ def _estimate_resume_history_budget_components(
         current_date=current_date,
         shell_family=resolved_shell_family,
         thinking=thinking,
-        has_persisted_history=bool(loaded_session.turn_contexts),
+        has_persisted_history=loaded_session.has_persisted_turn_context_history,
     )
     runtime_context_estimate = estimate_messages_tokens(
         model=model,

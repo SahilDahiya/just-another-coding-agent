@@ -17,6 +17,12 @@ from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 from just_another_coding_agent.__main__ import main
 from just_another_coding_agent.rpc import serve_rpc_stdio
 from just_another_coding_agent.rpc.session_store import session_path_for_id
+from just_another_coding_agent.runtime.turn_context import (
+    build_runtime_context_message,
+    build_runtime_context_update_message,
+    build_runtime_context_update_text,
+    build_session_turn_context_entry,
+)
 from just_another_coding_agent.session import load_session
 
 
@@ -39,6 +45,14 @@ def _has_tool_return(messages: list[ModelMessage], *, tool_name: str) -> bool:
         isinstance(part, ToolReturnPart) and part.tool_name == tool_name
         for part in _all_parts(messages)
     )
+
+
+def _assistant_texts(messages: list[ModelMessage]) -> list[str]:
+    return [
+        part.content
+        for part in _all_parts(messages)
+        if isinstance(part, TextPart)
+    ]
 
 
 async def resume_aware_write_stream(
@@ -200,6 +214,209 @@ async def test_serve_rpc_stdio_handles_multiple_lines_in_one_process(
     )
     loaded = load_session(path=session_path, workspace_root=workspace_root)
     assert [run.prompt for run in loaded.runs] == ["create note", "what did you do?"]
+
+
+async def first_turn_text_only_stream(
+    _messages: list[ModelMessage],
+    _agent_info: object,
+) -> AsyncIterator[str]:
+    yield "done"
+
+
+async def test_serve_rpc_stdio_emits_model_and_thinking_runtime_context_update(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    fixed_session_id = "1" * 32
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+
+    monkeypatch.setattr(
+        "just_another_coding_agent.rpc.session_store.uuid4",
+        lambda: SimpleNamespace(hex=fixed_session_id),
+    )
+
+    first_input_stream = io.StringIO(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "id": "req-create",
+                        "command": "session.create",
+                        "payload": {},
+                    }
+                ),
+                json.dumps(
+                    {
+                        "id": "req-first",
+                        "command": "run.start",
+                        "payload": {
+                            "session_id": fixed_session_id,
+                            "prompt": "first",
+                        },
+                    }
+                ),
+            ]
+        )
+        + "\n"
+    )
+    first_output_stream = io.StringIO()
+
+    await serve_rpc_stdio(
+        input_stream=first_input_stream,
+        output_stream=first_output_stream,
+        model=FunctionModel(stream_function=first_turn_text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    observed: dict[str, object] = {}
+
+    async def second_turn_probe_stream(
+        messages: list[ModelMessage],
+        _agent_info: object,
+    ) -> AsyncIterator[str]:
+        observed["assistant_texts"] = _assistant_texts(messages)
+        observed["user_prompts"] = [
+            part.content
+            for part in _all_parts(messages)
+            if isinstance(part, UserPromptPart)
+        ]
+        yield "done"
+
+    second_input_stream = io.StringIO(
+        json.dumps(
+            {
+                "id": "req-second",
+                "command": "run.start",
+                "payload": {
+                    "session_id": fixed_session_id,
+                    "prompt": "second",
+                    "thinking": "high",
+                },
+            }
+        )
+        + "\n"
+    )
+    second_output_stream = io.StringIO()
+    second_model = FunctionModel(stream_function=second_turn_probe_stream)
+
+    await serve_rpc_stdio(
+        input_stream=second_input_stream,
+        output_stream=second_output_stream,
+        model=second_model,
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    messages = [
+        json.loads(line)
+        for line in second_output_stream.getvalue().splitlines()
+        if line
+    ]
+    assert [message["type"] for message in messages] == ["rpc_event"] * 4
+    assert [message["event"]["type"] for message in messages] == [
+        "session_turn_context_status",
+        "run_started",
+        "assistant_text_delta",
+        "run_succeeded",
+    ]
+    assert messages[0]["event"]["status"] == "cleared"
+    assert messages[0]["event"]["reason"] == "model_mismatch"
+
+    first_entry = build_session_turn_context_entry(
+        run_id="run-1",
+        model=FunctionModel(stream_function=first_turn_text_only_stream),
+        workspace_root=workspace_root,
+    )
+    assert observed["assistant_texts"][0] == build_runtime_context_message(
+        first_entry.runtime_context_text
+    ).parts[0].content
+    assert observed["assistant_texts"][-1] == build_runtime_context_update_message(
+        build_runtime_context_update_text(
+            entry=first_entry,
+            model=second_model,
+            workspace_root=workspace_root,
+            thinking="high",
+        )
+    ).parts[0].content
+    assert "done" in observed["assistant_texts"]
+    assert observed["user_prompts"] == ["first", "second"]
+
+
+async def test_serve_rpc_stdio_scopes_sessions_to_workspace_root(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    fixed_session_id = "2" * 32
+    first_workspace_root = tmp_path / "workspace-a"
+    first_workspace_root.mkdir()
+    second_workspace_root = tmp_path / "workspace-b"
+    second_workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+
+    monkeypatch.setattr(
+        "just_another_coding_agent.rpc.session_store.uuid4",
+        lambda: SimpleNamespace(hex=fixed_session_id),
+    )
+
+    create_input_stream = io.StringIO(
+        json.dumps(
+            {
+                "id": "req-create",
+                "command": "session.create",
+                "payload": {},
+            }
+        )
+        + "\n"
+    )
+    create_output_stream = io.StringIO()
+
+    await serve_rpc_stdio(
+        input_stream=create_input_stream,
+        output_stream=create_output_stream,
+        model=FunctionModel(stream_function=first_turn_text_only_stream),
+        workspace_root=first_workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    mismatch_input_stream = io.StringIO(
+        json.dumps(
+            {
+                "id": "req-run",
+                "command": "run.start",
+                "payload": {
+                    "session_id": fixed_session_id,
+                    "prompt": "second",
+                },
+            }
+        )
+        + "\n"
+    )
+    mismatch_output_stream = io.StringIO()
+
+    await serve_rpc_stdio(
+        input_stream=mismatch_input_stream,
+        output_stream=mismatch_output_stream,
+        model=FunctionModel(stream_function=first_turn_text_only_stream),
+        workspace_root=second_workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    messages = [
+        json.loads(line)
+        for line in mismatch_output_stream.getvalue().splitlines()
+        if line
+    ]
+    assert messages == [
+        {
+            "type": "rpc_error",
+            "id": "req-run",
+            "error_type": "UnknownSession",
+            "message": f"Unknown session_id: {fixed_session_id}",
+        }
+    ]
 
 
 async def test_serve_rpc_stdio_supports_model_catalog(
