@@ -38,6 +38,7 @@ type stubBackend struct {
 	lastCleared        string
 	lastNamedSession   string
 	lastSessionName    string
+	lastEnqueuedRun    rpc.RunEnqueuePayload
 }
 
 func newStubBackend() *stubBackend {
@@ -154,6 +155,17 @@ func (b *stubBackend) StreamRun(
 ) error {
 	return nil
 }
+func (b *stubBackend) EnqueueRun(
+	_ context.Context,
+	sessionID string,
+	prompt string,
+) (rpc.RunEnqueueResponse, error) {
+	b.lastEnqueuedRun = rpc.RunEnqueuePayload{
+		SessionID: sessionID,
+		Prompt:    prompt,
+	}
+	return rpc.RunEnqueueResponse{SessionID: sessionID, QueuedCount: 1}, nil
+}
 
 func envDerivedAuthStatus(provider string) rpc.AuthProviderStatus {
 	envKey := ""
@@ -257,6 +269,52 @@ func newTestModel() *model {
 	m.startupOnboardingSet = false
 	m.onboarding = onboardingState{}
 	return m
+}
+
+func TestTypingWhileStreamingUpdatesComposer(t *testing.T) {
+	m := newTestModel()
+	m.streaming = true
+	m.textInput.Focus()
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+	m = updated.(*model)
+
+	if got := m.textInput.Value(); got != "a" {
+		t.Fatalf("textInput.Value() = %q, want %q", got, "a")
+	}
+}
+
+func TestTabWhileStreamingQueuesFollowUp(t *testing.T) {
+	backend := newStubBackend()
+	m := newTestModel()
+	m.options.Backend = backend
+	m.streaming = true
+	m.sessionID = "session-123"
+	m.textInput.SetValue("follow up")
+	m.textInput.Focus()
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m = updated.(*model)
+	if cmd == nil {
+		t.Fatal("tab while streaming should enqueue a follow-up")
+	}
+	msg := cmd()
+	updated, _ = m.Update(msg)
+	m = updated.(*model)
+
+	if backend.lastEnqueuedRun.SessionID != "session-123" {
+		t.Fatalf("queued session id = %q, want %q", backend.lastEnqueuedRun.SessionID, "session-123")
+	}
+	if backend.lastEnqueuedRun.Prompt != "follow up" {
+		t.Fatalf("queued prompt = %q, want %q", backend.lastEnqueuedRun.Prompt, "follow up")
+	}
+	if got := m.textInput.Value(); got != "" {
+		t.Fatalf("textInput.Value() after queue = %q, want empty", got)
+	}
+	rendered := stripANSI(m.transcript.Render())
+	if !strings.Contains(rendered, "follow-up queued") {
+		t.Fatalf("transcript missing follow-up queued note: %q", rendered)
+	}
 }
 
 func testModelCatalog() *rpc.ModelCatalogResponse {

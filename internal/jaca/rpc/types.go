@@ -46,6 +46,11 @@ type RunStartPayload struct {
 	Thinking  interface{} `json:"thinking,omitempty"`
 }
 
+type RunEnqueuePayload struct {
+	SessionID string `json:"session_id"`
+	Prompt    string `json:"prompt"`
+}
+
 type EnvelopeType string
 
 const (
@@ -128,6 +133,11 @@ type AuthSetResponse struct {
 
 type AuthClearResponse struct {
 	Status AuthProviderStatus `json:"status"`
+}
+
+type RunEnqueueResponse struct {
+	SessionID   string `json:"session_id"`
+	QueuedCount int    `json:"queued_count"`
 }
 
 type SessionCompactSummary struct {

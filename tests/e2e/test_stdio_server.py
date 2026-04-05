@@ -1,3 +1,4 @@
+import asyncio
 import io
 import json
 import re
@@ -15,6 +16,11 @@ from pydantic_ai.messages import (
 from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 
 from just_another_coding_agent.__main__ import main
+from just_another_coding_agent.contracts.auth import ProviderAuthStatus
+from just_another_coding_agent.contracts.run_events import (
+    RunStartedEvent,
+    RunSucceededEvent,
+)
 from just_another_coding_agent.rpc import serve_rpc_stdio
 from just_another_coding_agent.rpc.session_store import session_path_for_id
 from just_another_coding_agent.runtime.turn_context import (
@@ -214,6 +220,201 @@ async def test_serve_rpc_stdio_handles_multiple_lines_in_one_process(
     )
     loaded = load_session(path=session_path, workspace_root=workspace_root)
     assert [run.prompt for run in loaded.runs] == ["create note", "what did you do?"]
+
+
+async def test_serve_rpc_stdio_handles_auth_status_while_run_is_streaming(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    fixed_session_id = "1" * 32
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    session_path = session_path_for_id(
+        sessions_root=sessions_root,
+        workspace_root=workspace_root,
+        session_id=fixed_session_id,
+    )
+    session_path.parent.mkdir(parents=True, exist_ok=True)
+    session_path.write_text(
+        json.dumps(
+            {
+                "type": "session_header",
+                "workspace_root": str(workspace_root),
+                "shell_family": "bash",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    input_stream = io.StringIO(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "id": "req-run",
+                        "command": "run.start",
+                        "payload": {
+                            "session_id": fixed_session_id,
+                            "prompt": "ship it",
+                        },
+                    }
+                ),
+                json.dumps(
+                    {
+                        "id": "req-auth",
+                        "command": "auth.status",
+                        "payload": {},
+                    }
+                ),
+            ]
+        )
+        + "\n"
+    )
+    output_stream = io.StringIO()
+
+    async def fake_stream_session_run_events(**_kwargs):
+        yield RunStartedEvent(run_id="run-stream")
+        await asyncio.sleep(0)
+        yield RunSucceededEvent(run_id="run-stream", output_text="done")
+
+    monkeypatch.setattr(
+        "just_another_coding_agent.rpc.stdio.stream_session_run_events",
+        fake_stream_session_run_events,
+    )
+    monkeypatch.setattr(
+        "just_another_coding_agent.rpc.stdio.list_provider_auth_statuses",
+        lambda: [
+            ProviderAuthStatus(
+                provider="openai",
+                configured=True,
+                secret_configured=True,
+                requires_secret=True,
+                source="env",
+                env_key="OPENAI_API_KEY",
+                reason="ok",
+            )
+        ],
+    )
+
+    await serve_rpc_stdio(
+        input_stream=input_stream,
+        output_stream=output_stream,
+        model=FunctionModel(function=compaction_summary_function),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    messages = [
+        json.loads(line) for line in output_stream.getvalue().splitlines() if line
+    ]
+    assert [message["type"] for message in messages] == [
+        "rpc_event",
+        "rpc_response",
+        "rpc_event",
+    ]
+    assert messages[0]["id"] == "req-run"
+    assert messages[0]["event"]["type"] == "run_started"
+    assert messages[1]["id"] == "req-auth"
+    assert messages[2]["id"] == "req-run"
+    assert messages[2]["event"]["type"] == "run_succeeded"
+
+
+async def test_serve_rpc_stdio_drains_queued_follow_up_after_run(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    fixed_session_id = "2" * 32
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    session_path = session_path_for_id(
+        sessions_root=sessions_root,
+        workspace_root=workspace_root,
+        session_id=fixed_session_id,
+    )
+    session_path.parent.mkdir(parents=True, exist_ok=True)
+    session_path.write_text(
+        json.dumps(
+            {
+                "type": "session_header",
+                "workspace_root": str(workspace_root),
+                "shell_family": "bash",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    input_stream = io.StringIO(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "id": "req-run",
+                        "command": "run.start",
+                        "payload": {
+                            "session_id": fixed_session_id,
+                            "prompt": "first",
+                        },
+                    }
+                ),
+                json.dumps(
+                    {
+                        "id": "req-enqueue",
+                        "command": "run.enqueue",
+                        "payload": {
+                            "session_id": fixed_session_id,
+                            "prompt": "second",
+                        },
+                    }
+                ),
+            ]
+        )
+        + "\n"
+    )
+    output_stream = io.StringIO()
+
+    async def fake_stream_session_run_events(*, prompt: str, **_kwargs):
+        yield RunStartedEvent(run_id=f"run-{prompt}")
+        await asyncio.sleep(0)
+        yield RunSucceededEvent(run_id=f"run-{prompt}", output_text=prompt)
+
+    monkeypatch.setattr(
+        "just_another_coding_agent.rpc.stdio.stream_session_run_events",
+        fake_stream_session_run_events,
+    )
+
+    await serve_rpc_stdio(
+        input_stream=input_stream,
+        output_stream=output_stream,
+        model=FunctionModel(function=compaction_summary_function),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    messages = [
+        json.loads(line) for line in output_stream.getvalue().splitlines() if line
+    ]
+    assert [message["type"] for message in messages] == [
+        "rpc_event",
+        "rpc_response",
+        "rpc_event",
+        "rpc_event",
+        "rpc_event",
+    ]
+    assert messages[0]["id"] == "req-run"
+    assert messages[0]["event"]["type"] == "run_started"
+    assert messages[0]["event"]["run_id"] == "run-first"
+    assert messages[1]["id"] == "req-enqueue"
+    assert messages[2]["id"] == "req-run"
+    assert messages[2]["event"]["type"] == "run_succeeded"
+    assert messages[2]["event"]["run_id"] == "run-first"
+    assert messages[3]["id"] == "req-run"
+    assert messages[3]["event"]["type"] == "run_started"
+    assert messages[3]["event"]["run_id"] == "run-second"
+    assert messages[4]["id"] == "req-run"
+    assert messages[4]["event"]["type"] == "run_succeeded"
+    assert messages[4]["event"]["run_id"] == "run-second"
 
 
 async def first_turn_text_only_stream(

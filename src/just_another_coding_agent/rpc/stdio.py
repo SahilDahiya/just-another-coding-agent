@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import json
+from collections import defaultdict, deque
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any, TextIO
@@ -35,6 +37,8 @@ from just_another_coding_agent.contracts.rpc import (
     RpcEventEnvelope,
     RpcRequest,
     RpcResponseEnvelope,
+    RunEnqueueRequest,
+    RunEnqueueResponse,
     RunStartRequest,
     SessionCompactRequest,
     SessionCompactResponse,
@@ -63,6 +67,46 @@ from just_another_coding_agent.session import (
 )
 
 _RPC_REQUEST_ADAPTER = TypeAdapter(RpcRequest)
+
+
+class _FollowUpState:
+    def __init__(self) -> None:
+        self._lock = asyncio.Lock()
+        self._active_sessions: set[str] = set()
+        self._queues: dict[str, deque[str]] = defaultdict(deque)
+
+    async def activate(self, session_id: str) -> None:
+        async with self._lock:
+            self._active_sessions.add(session_id)
+
+    async def deactivate(self, session_id: str) -> None:
+        async with self._lock:
+            self._active_sessions.discard(session_id)
+            if not self._queues.get(session_id):
+                self._queues.pop(session_id, None)
+
+    async def enqueue(self, session_id: str, prompt: str) -> int:
+        async with self._lock:
+            if session_id not in self._active_sessions:
+                raise RuntimeError(
+                    "Follow-up queueing requires an active run for this session."
+                )
+            queue = self._queues[session_id]
+            queue.append(prompt)
+            return len(queue)
+
+    async def take_next(self, session_id: str) -> str | None:
+        async with self._lock:
+            queue = self._queues.get(session_id)
+            if not queue:
+                return None
+            prompt = queue.popleft()
+            if not queue:
+                self._queues.pop(session_id, None)
+            return prompt
+
+
+_FOLLOW_UP_STATE = _FollowUpState()
 
 
 async def handle_rpc_json_line(
@@ -192,6 +236,35 @@ async def handle_rpc_json_line(
         ).model_dump_json()
         return
 
+    if isinstance(request, RunEnqueueRequest):
+        if request.payload.prompt.strip() == "":
+            yield RpcErrorEnvelope(
+                id=request.id,
+                error_type="InvalidRequest",
+                message="Follow-up prompt must not be blank",
+            ).model_dump_json()
+            return
+        try:
+            queued_count = await _FOLLOW_UP_STATE.enqueue(
+                request.payload.session_id,
+                request.payload.prompt,
+            )
+        except RuntimeError as error:
+            yield RpcErrorEnvelope(
+                id=request.id,
+                error_type="InvalidRequest",
+                message=str(error),
+            ).model_dump_json()
+            return
+        yield RpcResponseEnvelope(
+            id=request.id,
+            response=RunEnqueueResponse(
+                session_id=request.payload.session_id,
+                queued_count=queued_count,
+            ),
+        ).model_dump_json()
+        return
+
     if isinstance(request, SessionNameRequest):
         session_path = session_path_for_id(
             sessions_root=sessions_root,
@@ -316,37 +389,50 @@ async def handle_rpc_json_line(
         return
 
     assert isinstance(request, RunStartRequest)
+    await _FOLLOW_UP_STATE.activate(request.payload.session_id)
     try:
-        async for event in stream_session_run_events(
-            model=model,
-            workspace_root=workspace_root,
-            session_path=session_path,
-            prompt=request.payload.prompt,
-            tool_names=CANONICAL_TOOL_NAMES,
-            thinking=request.payload.thinking,
-        ):
-            yield RpcEventEnvelope(id=request.id, event=event).model_dump_json()
-    except SessionFormatError as error:
-        yield RpcErrorEnvelope(
-            id=request.id,
-            error_type="InvalidSession",
-            message=str(error),
-        ).model_dump_json()
-        return
-    except ProviderReadinessError as error:
-        yield RpcErrorEnvelope(
-            id=request.id,
-            error_type="ProviderNotReady",
-            message=str(error),
-        ).model_dump_json()
-        return
-    except Exception as error:
-        yield RpcErrorEnvelope(
-            id=request.id,
-            error_type="InternalError",
-            message=str(error),
-        ).model_dump_json()
-        return
+        prompt = request.payload.prompt
+        while True:
+            try:
+                async for event in stream_session_run_events(
+                    model=model,
+                    workspace_root=workspace_root,
+                    session_path=session_path,
+                    prompt=prompt,
+                    tool_names=CANONICAL_TOOL_NAMES,
+                    thinking=request.payload.thinking,
+                ):
+                    yield RpcEventEnvelope(
+                        id=request.id,
+                        event=event,
+                    ).model_dump_json()
+            except SessionFormatError as error:
+                yield RpcErrorEnvelope(
+                    id=request.id,
+                    error_type="InvalidSession",
+                    message=str(error),
+                ).model_dump_json()
+                return
+            except ProviderReadinessError as error:
+                yield RpcErrorEnvelope(
+                    id=request.id,
+                    error_type="ProviderNotReady",
+                    message=str(error),
+                ).model_dump_json()
+                return
+            except Exception as error:
+                yield RpcErrorEnvelope(
+                    id=request.id,
+                    error_type="InternalError",
+                    message=str(error),
+                ).model_dump_json()
+                return
+
+            prompt = await _FOLLOW_UP_STATE.take_next(request.payload.session_id)
+            if prompt is None:
+                return
+    finally:
+        await _FOLLOW_UP_STATE.deactivate(request.payload.session_id)
 
 
 async def serve_rpc_stdio(
@@ -357,20 +443,51 @@ async def serve_rpc_stdio(
     workspace_root: Path | str,
     sessions_root: Path | str,
 ) -> None:
+    write_lock = asyncio.Lock()
+    session_locks: dict[str, asyncio.Lock] = {}
+    pending_tasks: set[asyncio.Task[None]] = set()
+
+    async def process_line(line: str) -> None:
+        session_id = _extract_session_id_for_serialization(line)
+        session_lock = (
+            session_locks.setdefault(session_id, asyncio.Lock())
+            if session_id is not None
+            else None
+        )
+
+        async def write_response(response_line: str) -> None:
+            async with write_lock:
+                output_stream.write(response_line)
+                output_stream.write("\n")
+                output_stream.flush()
+
+        async def stream_responses() -> None:
+            async for response_line in handle_rpc_json_line(
+                line=line,
+                model=model,
+                workspace_root=workspace_root,
+                sessions_root=sessions_root,
+            ):
+                await write_response(response_line)
+
+        if session_lock is None:
+            await stream_responses()
+            return
+
+        async with session_lock:
+            await stream_responses()
+
     while True:
         line = input_stream.readline()
         if line == "":
-            return
+            break
 
-        async for response_line in handle_rpc_json_line(
-            line=line,
-            model=model,
-            workspace_root=workspace_root,
-            sessions_root=sessions_root,
-        ):
-            output_stream.write(response_line)
-            output_stream.write("\n")
-            output_stream.flush()
+        task = asyncio.create_task(process_line(line))
+        pending_tasks.add(task)
+        task.add_done_callback(pending_tasks.discard)
+
+    if pending_tasks:
+        await asyncio.gather(*pending_tasks)
 
 
 def _extract_request_id(payload: Any) -> str | None:
@@ -379,4 +496,28 @@ def _extract_request_id(payload: Any) -> str | None:
         if isinstance(request_id, str):
             return request_id
 
+    return None
+
+
+def _extract_session_id_for_serialization(line: str) -> str | None:
+    try:
+        payload = json.loads(line)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    command = payload.get("command")
+    if command not in {
+        "run.start",
+        "session.compact",
+        "session.name",
+        "session.preview",
+    }:
+        return None
+    request_payload = payload.get("payload")
+    if not isinstance(request_payload, dict):
+        return None
+    session_id = request_payload.get("session_id")
+    if isinstance(session_id, str):
+        return session_id
     return None

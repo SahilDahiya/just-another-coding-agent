@@ -71,6 +71,11 @@ type compactDoneMsg struct {
 	Err error
 }
 
+type enqueueRunDoneMsg struct {
+	Prompt string
+	Err    error
+}
+
 type modelCatalogLoadedMsg struct {
 	Catalog rpc.ModelCatalogResponse
 	Err     error
@@ -386,6 +391,16 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.refreshViewport()
 		return m, nil
+	case enqueueRunDoneMsg:
+		if msg.Err != nil {
+			m.transcript.WriteError(msg.Err.Error())
+			m.textInput.SetValue(msg.Prompt)
+			m.textInput.CursorEnd()
+		} else {
+			m.transcript.WriteNote("queue", []string{"follow-up queued", msg.Prompt})
+		}
+		m.refreshViewport()
+		return m, nil
 	case modelCatalogLoadedMsg:
 		m.modelCatalogLoading = false
 		if msg.Err != nil {
@@ -601,6 +616,9 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.refreshViewport()
 			return m, nil
 		}
+		if m.streaming {
+			return m.handleQueueFollowUp()
+		}
 		if m.shouldShowFirstRunPromptAssist() && strings.TrimSpace(m.textInput.Value()) == "" {
 			m.textInput.SetValue("/provider ")
 			m.textInput.CursorEnd()
@@ -618,16 +636,14 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleEnter()
 	}
 	var cmd tea.Cmd
-	if !m.streaming {
-		m.clearInterruptGuidance()
-		m.textInput, cmd = m.textInput.Update(msg)
-		if m.auth.Active {
-			m.clearSlashMenu()
-		} else {
-			m.syncSlashMenu()
-		}
-		m.refreshViewport()
+	m.clearInterruptGuidance()
+	m.textInput, cmd = m.textInput.Update(msg)
+	if m.auth.Active || m.streaming {
+		m.clearSlashMenu()
+	} else {
+		m.syncSlashMenu()
 	}
+	m.refreshViewport()
 	return m, cmd
 }
 
@@ -790,7 +806,6 @@ func (m *model) handleEnter() (tea.Model, tea.Cmd) {
 	m.transcript.WriteUserTurn(prompt)
 	m.phase = PhaseStreaming
 	m.streaming = true
-	m.textInput.Blur()
 	m.lastInterrupt = time.Time{}
 	m.activeRunSucceeded = false
 	m.runStartTime = time.Now()
@@ -803,6 +818,25 @@ func (m *model) handleEnter() (tea.Model, tea.Cmd) {
 	m.activeRunCancel = cancel
 	go m.runPrompt(runCtx, prompt, sessionID, thinking, backend, m.asyncCh)
 	return m, listenAsync(m.asyncCh)
+}
+
+func (m *model) handleQueueFollowUp() (tea.Model, tea.Cmd) {
+	if !m.streaming {
+		return m, nil
+	}
+	prompt := strings.TrimSpace(m.textInput.Value())
+	if prompt == "" {
+		return m, nil
+	}
+	if m.sessionID == "" {
+		m.transcript.WriteError("follow-up unavailable until the active session is ready")
+		m.refreshViewport()
+		return m, nil
+	}
+	m.textInput.SetValue("")
+	m.clearSlashMenu()
+	m.refreshViewport()
+	return m, enqueueRun(m.options.Backend, m.sessionID, prompt)
 }
 
 func (m *model) runPrompt(
@@ -968,6 +1002,15 @@ func fetchSessionPreview(backend Backend, sessionID string) tea.Cmd {
 		defer cancel()
 		preview, err := backend.SessionPreview(ctx, sessionID)
 		return sessionPreviewLoadedMsg{Preview: preview, Err: err}
+	}
+}
+
+func enqueueRun(backend Backend, sessionID string, prompt string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), authStatusTimeout)
+		defer cancel()
+		_, err := backend.EnqueueRun(ctx, sessionID, prompt)
+		return enqueueRunDoneMsg{Prompt: prompt, Err: err}
 	}
 }
 

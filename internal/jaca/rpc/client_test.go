@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"sync"
 	"testing"
 	"time"
 )
@@ -156,6 +157,109 @@ for _line in sys.stdin:
 	}
 	if got := second.Providers[0].DefaultModelID; got != "openai-responses:gpt-5.4" {
 		t.Fatalf("second DefaultModelID = %q, want %q", got, "openai-responses:gpt-5.4")
+	}
+}
+
+func TestClientAuthStatusWhileStreamRunIsActive(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell-based helper is unix-only")
+	}
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+
+	tmpDir := t.TempDir()
+	markerPath := tmpDir + "/stream-auth.txt"
+	readyPath := tmpDir + "/ready.txt"
+	client := startPythonHelperClient(
+		t,
+		markerPath,
+		readyPath,
+		`import json, os, pathlib, sys
+ready = pathlib.Path(os.environ['JACA_RPC_HELPER_READY'])
+ready.write_text('ready')
+for line in sys.stdin:
+    request = json.loads(line)
+    if request["command"] == "run.start":
+        sys.stdout.write(json.dumps({
+            "type": "rpc_event",
+            "id": request["id"],
+            "event": {"type": "run_started", "run_id": "run-1"},
+        }) + "\n")
+        sys.stdout.flush()
+    elif request["command"] == "auth.status":
+        sys.stdout.write(json.dumps({
+            "type": "rpc_response",
+            "id": request["id"],
+            "response": {
+                "providers": [{
+                    "provider": "openai",
+                    "configured": True,
+                    "secret_configured": True,
+                    "requires_secret": True,
+                    "source": "env",
+                    "env_key": "OPENAI_API_KEY",
+                    "reason": "ok",
+                }],
+                "local_secret_store": {
+                    "available": True,
+                    "message": None,
+                    "file_store_path": "",
+                },
+            },
+        }) + "\n")
+        sys.stdout.write(json.dumps({
+            "type": "rpc_event",
+            "id": "go-1",
+            "event": {"type": "run_succeeded", "run_id": "run-1", "output_text": "done"},
+        }) + "\n")
+        sys.stdout.flush()
+        break`,
+	)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	runStarted := make(chan struct{}, 1)
+	runDone := make(chan error, 1)
+	go func() {
+		runDone <- client.StreamRun(ctx, "sess-1", "ship it", "", func(event RunEvent) error {
+			if event.Type == "run_started" {
+				runStarted <- struct{}{}
+			}
+			return nil
+		})
+	}()
+
+	select {
+	case <-runStarted:
+	case err := <-runDone:
+		t.Fatalf("StreamRun() finished before run_started: %v", err)
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for run_started")
+	}
+
+	var (
+		authResp AuthStatusResponse
+		authErr  error
+		wg       sync.WaitGroup
+	)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		authResp, authErr = client.AuthStatus(ctx)
+	}()
+	wg.Wait()
+
+	if authErr != nil {
+		t.Fatalf("AuthStatus() returned error: %v", authErr)
+	}
+	if len(authResp.Providers) != 1 || authResp.Providers[0].Provider != "openai" {
+		t.Fatalf("AuthStatus() providers = %#v, want openai", authResp.Providers)
+	}
+
+	if err := <-runDone; err != nil {
+		t.Fatalf("StreamRun() returned error: %v", err)
 	}
 }
 

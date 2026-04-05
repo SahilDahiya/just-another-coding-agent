@@ -188,14 +188,31 @@ func (m *Manager) StreamRun(
 	return client.StreamRun(ctx, sessionID, prompt, thinking, sink)
 }
 
+func (m *Manager) EnqueueRun(
+	ctx context.Context,
+	sessionID string,
+	prompt string,
+) (RunEnqueueResponse, error) {
+	m.mu.Lock()
+	client, err := m.ensureStartedLocked()
+	m.mu.Unlock()
+	if err != nil {
+		return RunEnqueueResponse{}, err
+	}
+	return client.EnqueueRun(ctx, sessionID, prompt)
+}
+
 type Client struct {
 	cmd              *exec.Cmd
 	stdin            io.WriteCloser
 	stderr           bytes.Buffer
-	mu               sync.Mutex
+	writeMu          sync.Mutex
+	routeMu          sync.Mutex
 	requestID        atomic.Uint64
 	readResults      chan readResult
-	pendingEnvelopes []any
+	waiters          map[string]chan readResult
+	pendingEnvelopes map[string][]readResult
+	terminalErr      error
 }
 
 type readResult struct {
@@ -226,15 +243,18 @@ func StartClient(cfg BackendConfig) (*Client, error) {
 		return nil, err
 	}
 	client := &Client{
-		cmd:         cmd,
-		stdin:       stdin,
-		readResults: make(chan readResult, 16),
+		cmd:              cmd,
+		stdin:            stdin,
+		readResults:      make(chan readResult, 32),
+		waiters:          map[string]chan readResult{},
+		pendingEnvelopes: map[string][]readResult{},
 	}
 	cmd.Stderr = &client.stderr
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
 	go client.readLoop(stdout)
+	go client.dispatchLoop()
 	return client, nil
 }
 
@@ -326,18 +346,112 @@ func (c *Client) nextRequestID() string {
 	return fmt.Sprintf("go-%d", id)
 }
 
+func (c *Client) dispatchLoop() {
+	for result := range c.readResults {
+		if result.err != nil {
+			c.failAllWaiters(result.err)
+			return
+		}
+		requestID := envelopeRequestID(result.value)
+		if requestID == "" {
+			c.failAllWaiters(errors.New("backend emitted envelope without request id"))
+			return
+		}
+		c.routeMu.Lock()
+		waiter, ok := c.waiters[requestID]
+		if !ok {
+			c.pendingEnvelopes[requestID] = append(c.pendingEnvelopes[requestID], result)
+			c.routeMu.Unlock()
+			continue
+		}
+		c.routeMu.Unlock()
+		waiter <- result
+	}
+	c.failAllWaiters(errors.New("backend reader stopped unexpectedly"))
+}
+
+func (c *Client) failAllWaiters(err error) {
+	c.routeMu.Lock()
+	if c.terminalErr == nil {
+		c.terminalErr = err
+	}
+	waiters := c.waiters
+	c.waiters = map[string]chan readResult{}
+	c.routeMu.Unlock()
+	for _, waiter := range waiters {
+		waiter <- readResult{err: err}
+		close(waiter)
+	}
+}
+
+func (c *Client) registerWaiter(requestID string) (chan readResult, func(), error) {
+	c.routeMu.Lock()
+	defer c.routeMu.Unlock()
+	if c.terminalErr != nil {
+		return nil, nil, c.terminalErr
+	}
+	waiter := make(chan readResult, 32)
+	if pending := c.pendingEnvelopes[requestID]; len(pending) > 0 {
+		for _, result := range pending {
+			waiter <- result
+		}
+		delete(c.pendingEnvelopes, requestID)
+	}
+	c.waiters[requestID] = waiter
+	cleanup := func() {
+		c.routeMu.Lock()
+		waiter, ok := c.waiters[requestID]
+		if ok {
+			delete(c.waiters, requestID)
+			close(waiter)
+		}
+		c.routeMu.Unlock()
+	}
+	return waiter, cleanup, nil
+}
+
+func (c *Client) awaitEnvelope(
+	ctx context.Context,
+	waiter <-chan readResult,
+) (any, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case result, ok := <-waiter:
+		if !ok {
+			c.routeMu.Lock()
+			err := c.terminalErr
+			c.routeMu.Unlock()
+			if err == nil {
+				err = errors.New("backend reader stopped unexpectedly")
+			}
+			return nil, err
+		}
+		if result.err != nil {
+			return nil, result.err
+		}
+		return result.value, nil
+	}
+}
+
 func (c *Client) CreateSession(ctx context.Context) (string, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	requestID := c.nextRequestID()
+	waiter, cleanup, err := c.registerWaiter(requestID)
+	if err != nil {
+		return "", err
+	}
+	defer cleanup()
+	c.writeMu.Lock()
 	if err := c.writeRequest(Request{
 		ID:      requestID,
 		Command: "session.create",
 		Payload: SessionCreatePayload{},
 	}); err != nil {
+		c.writeMu.Unlock()
 		return "", err
 	}
-	line, err := c.readEnvelope(ctx, requestID)
+	c.writeMu.Unlock()
+	line, err := c.awaitEnvelope(ctx, waiter)
 	if err != nil {
 		return "", err
 	}
@@ -356,9 +470,13 @@ func (c *Client) CreateSession(ctx context.Context) (string, error) {
 }
 
 func (c *Client) SetSessionName(ctx context.Context, sessionID string, name string) (SessionNameResponse, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	requestID := c.nextRequestID()
+	waiter, cleanup, err := c.registerWaiter(requestID)
+	if err != nil {
+		return SessionNameResponse{}, err
+	}
+	defer cleanup()
+	c.writeMu.Lock()
 	if err := c.writeRequest(Request{
 		ID:      requestID,
 		Command: "session.name",
@@ -367,9 +485,11 @@ func (c *Client) SetSessionName(ctx context.Context, sessionID string, name stri
 			Name:      name,
 		},
 	}); err != nil {
+		c.writeMu.Unlock()
 		return SessionNameResponse{}, err
 	}
-	line, err := c.readEnvelope(ctx, requestID)
+	c.writeMu.Unlock()
+	line, err := c.awaitEnvelope(ctx, waiter)
 	if err != nil {
 		return SessionNameResponse{}, err
 	}
@@ -388,17 +508,23 @@ func (c *Client) SetSessionName(ctx context.Context, sessionID string, name stri
 }
 
 func (c *Client) SessionPreview(ctx context.Context, sessionID string) (SessionPreviewResponse, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	requestID := c.nextRequestID()
+	waiter, cleanup, err := c.registerWaiter(requestID)
+	if err != nil {
+		return SessionPreviewResponse{}, err
+	}
+	defer cleanup()
+	c.writeMu.Lock()
 	if err := c.writeRequest(Request{
 		ID:      requestID,
 		Command: "session.preview",
 		Payload: SessionPreviewPayload{SessionID: sessionID},
 	}); err != nil {
+		c.writeMu.Unlock()
 		return SessionPreviewResponse{}, err
 	}
-	line, err := c.readEnvelope(ctx, requestID)
+	c.writeMu.Unlock()
+	line, err := c.awaitEnvelope(ctx, waiter)
 	if err != nil {
 		return SessionPreviewResponse{}, err
 	}
@@ -417,17 +543,23 @@ func (c *Client) SessionPreview(ctx context.Context, sessionID string) (SessionP
 }
 
 func (c *Client) CompactSession(ctx context.Context, sessionID string) (SessionCompactResponse, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	requestID := c.nextRequestID()
+	waiter, cleanup, err := c.registerWaiter(requestID)
+	if err != nil {
+		return SessionCompactResponse{}, err
+	}
+	defer cleanup()
+	c.writeMu.Lock()
 	if err := c.writeRequest(Request{
 		ID:      requestID,
 		Command: "session.compact",
 		Payload: SessionCompactPayload{SessionID: sessionID},
 	}); err != nil {
+		c.writeMu.Unlock()
 		return SessionCompactResponse{}, err
 	}
-	line, err := c.readEnvelope(ctx, requestID)
+	c.writeMu.Unlock()
+	line, err := c.awaitEnvelope(ctx, waiter)
 	if err != nil {
 		return SessionCompactResponse{}, err
 	}
@@ -446,17 +578,23 @@ func (c *Client) CompactSession(ctx context.Context, sessionID string) (SessionC
 }
 
 func (c *Client) ModelCatalog(ctx context.Context) (ModelCatalogResponse, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	requestID := c.nextRequestID()
+	waiter, cleanup, err := c.registerWaiter(requestID)
+	if err != nil {
+		return ModelCatalogResponse{}, err
+	}
+	defer cleanup()
+	c.writeMu.Lock()
 	if err := c.writeRequest(Request{
 		ID:      requestID,
 		Command: "model.catalog",
 		Payload: ModelCatalogPayload{},
 	}); err != nil {
+		c.writeMu.Unlock()
 		return ModelCatalogResponse{}, err
 	}
-	line, err := c.readEnvelope(ctx, requestID)
+	c.writeMu.Unlock()
+	line, err := c.awaitEnvelope(ctx, waiter)
 	if err != nil {
 		return ModelCatalogResponse{}, err
 	}
@@ -475,17 +613,23 @@ func (c *Client) ModelCatalog(ctx context.Context) (ModelCatalogResponse, error)
 }
 
 func (c *Client) AuthStatus(ctx context.Context) (AuthStatusResponse, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	requestID := c.nextRequestID()
+	waiter, cleanup, err := c.registerWaiter(requestID)
+	if err != nil {
+		return AuthStatusResponse{}, err
+	}
+	defer cleanup()
+	c.writeMu.Lock()
 	if err := c.writeRequest(Request{
 		ID:      requestID,
 		Command: "auth.status",
 		Payload: AuthStatusPayload{},
 	}); err != nil {
+		c.writeMu.Unlock()
 		return AuthStatusResponse{}, err
 	}
-	line, err := c.readEnvelope(ctx, requestID)
+	c.writeMu.Unlock()
+	line, err := c.awaitEnvelope(ctx, waiter)
 	if err != nil {
 		return AuthStatusResponse{}, err
 	}
@@ -509,9 +653,13 @@ func (c *Client) SetProviderSecret(
 	secret string,
 	storage string,
 ) (AuthSetResponse, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	requestID := c.nextRequestID()
+	waiter, cleanup, err := c.registerWaiter(requestID)
+	if err != nil {
+		return AuthSetResponse{}, err
+	}
+	defer cleanup()
+	c.writeMu.Lock()
 	if err := c.writeRequest(Request{
 		ID:      requestID,
 		Command: "auth.set",
@@ -521,9 +669,11 @@ func (c *Client) SetProviderSecret(
 			Storage:  storage,
 		},
 	}); err != nil {
+		c.writeMu.Unlock()
 		return AuthSetResponse{}, err
 	}
-	line, err := c.readEnvelope(ctx, requestID)
+	c.writeMu.Unlock()
+	line, err := c.awaitEnvelope(ctx, waiter)
 	if err != nil {
 		return AuthSetResponse{}, err
 	}
@@ -545,17 +695,23 @@ func (c *Client) ClearProviderSecret(
 	ctx context.Context,
 	provider string,
 ) (AuthClearResponse, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	requestID := c.nextRequestID()
+	waiter, cleanup, err := c.registerWaiter(requestID)
+	if err != nil {
+		return AuthClearResponse{}, err
+	}
+	defer cleanup()
+	c.writeMu.Lock()
 	if err := c.writeRequest(Request{
 		ID:      requestID,
 		Command: "auth.clear",
 		Payload: AuthClearPayload{Provider: provider},
 	}); err != nil {
+		c.writeMu.Unlock()
 		return AuthClearResponse{}, err
 	}
-	line, err := c.readEnvelope(ctx, requestID)
+	c.writeMu.Unlock()
+	line, err := c.awaitEnvelope(ctx, waiter)
 	if err != nil {
 		return AuthClearResponse{}, err
 	}
@@ -580,9 +736,12 @@ func (c *Client) StreamRun(
 	thinking string,
 	sink func(RunEvent) error,
 ) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	requestID := c.nextRequestID()
+	waiter, cleanup, err := c.registerWaiter(requestID)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
 	payload := RunStartPayload{
 		SessionID: sessionID,
 		Prompt:    prompt,
@@ -597,15 +756,18 @@ func (c *Client) StreamRun(
 			payload.Thinking = thinking
 		}
 	}
+	c.writeMu.Lock()
 	if err := c.writeRequest(Request{
 		ID:      requestID,
 		Command: "run.start",
 		Payload: payload,
 	}); err != nil {
+		c.writeMu.Unlock()
 		return err
 	}
+	c.writeMu.Unlock()
 	for {
-		line, err := c.readEnvelope(ctx, requestID)
+		line, err := c.awaitEnvelope(ctx, waiter)
 		if err != nil {
 			return err
 		}
@@ -625,6 +787,48 @@ func (c *Client) StreamRun(
 	}
 }
 
+func (c *Client) EnqueueRun(
+	ctx context.Context,
+	sessionID string,
+	prompt string,
+) (RunEnqueueResponse, error) {
+	requestID := c.nextRequestID()
+	waiter, cleanup, err := c.registerWaiter(requestID)
+	if err != nil {
+		return RunEnqueueResponse{}, err
+	}
+	defer cleanup()
+	c.writeMu.Lock()
+	if err := c.writeRequest(Request{
+		ID:      requestID,
+		Command: "run.enqueue",
+		Payload: RunEnqueuePayload{
+			SessionID: sessionID,
+			Prompt:    prompt,
+		},
+	}); err != nil {
+		c.writeMu.Unlock()
+		return RunEnqueueResponse{}, err
+	}
+	c.writeMu.Unlock()
+	line, err := c.awaitEnvelope(ctx, waiter)
+	if err != nil {
+		return RunEnqueueResponse{}, err
+	}
+	switch envelope := line.(type) {
+	case ResponseEnvelope:
+		var response RunEnqueueResponse
+		if err := json.Unmarshal(envelope.Response, &response); err != nil {
+			return RunEnqueueResponse{}, err
+		}
+		return response, nil
+	case ErrorEnvelope:
+		return RunEnqueueResponse{}, fmt.Errorf("%s: %s", envelope.ErrorType, envelope.Message)
+	default:
+		return RunEnqueueResponse{}, fmt.Errorf("unexpected envelope for run.enqueue: %T", line)
+	}
+}
+
 func (c *Client) writeRequest(request Request) error {
 	data, err := json.Marshal(request)
 	if err != nil {
@@ -634,41 +838,6 @@ func (c *Client) writeRequest(request Request) error {
 		return err
 	}
 	return nil
-}
-
-func (c *Client) readEnvelope(ctx context.Context, requestID string) (any, error) {
-	if pending, ok := c.takePendingEnvelope(requestID); ok {
-		return pending, nil
-	}
-
-	for {
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case result, ok := <-c.readResults:
-			if !ok {
-				return nil, errors.New("backend reader stopped unexpectedly")
-			}
-			if result.err != nil {
-				return nil, result.err
-			}
-			if envelopeMatchesRequestID(result.value, requestID) {
-				return result.value, nil
-			}
-			c.pendingEnvelopes = append(c.pendingEnvelopes, result.value)
-		}
-	}
-}
-
-func (c *Client) takePendingEnvelope(requestID string) (any, bool) {
-	for idx, envelope := range c.pendingEnvelopes {
-		if !envelopeMatchesRequestID(envelope, requestID) {
-			continue
-		}
-		c.pendingEnvelopes = append(c.pendingEnvelopes[:idx], c.pendingEnvelopes[idx+1:]...)
-		return envelope, true
-	}
-	return nil, false
 }
 
 func envelopeMatchesRequestID(envelope any, requestID string) bool {

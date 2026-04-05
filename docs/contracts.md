@@ -597,6 +597,7 @@ Initial executable RPC slice:
     - `session.preview` with payload `{"session_id": <opaque-lowercase-hex-string>}`
     - `session.compact` with payload `{"session_id": <opaque-lowercase-hex-string>}`
     - `run.start` with payload `{"session_id": <opaque-lowercase-hex-string>, "prompt": <string>, "thinking": <optional-thinking-setting>}`
+    - `run.enqueue` with payload `{"session_id": <opaque-lowercase-hex-string>, "prompt": <string>}`
 - `rpc_response`
   - fields: `type`, `id`, `response`
   - initial response payloads:
@@ -607,6 +608,7 @@ Initial executable RPC slice:
     - `{"session_id": <opaque-lowercase-hex-string>, "name": <backend-normalized-session-name>}` for `session.name`
     - `{"session_id": <opaque-lowercase-hex-string>, "entries": [{"kind": "user" | "assistant" | "error", "text": <string>}], "truncated": <bool>}` for `session.preview`
     - `{"compaction_id": <opaque-lowercase-hex-string>, "compacted_through_run_id": <run_id>}`
+    - `{"session_id": <opaque-lowercase-hex-string>, "queued_count": <positive-int>}` for `run.enqueue`
 - `rpc_event`
   - fields: `type`, `id`, `event`
   - `event` must be one canonical streamed run event payload or session lifecycle event payload
@@ -638,6 +640,7 @@ Ordering rules for the RPC slice:
 - A valid `session.compact` request must reference an existing `session_id` and yields exactly one `rpc_response` describing the newly appended compaction entry
 - If model-driven compaction summary generation fails, `session.compact` fails hard; it does not append a placeholder summary
 - A valid `run.start` request must reference an existing `session_id` and yields zero or more `rpc_event` lines whose embedded events satisfy the streamed run contract
+- A valid `run.enqueue` request must reference an existing `session_id`, must carry a non-blank prompt, is accepted only while that session currently has an active streamed run in this backend process, and yields exactly one `rpc_response` with the resulting queued-count
 - Session lifecycle `rpc_event` payloads such as `session_compaction_started` and `session_compaction_completed` may appear before `run_started`
 - `CompactionBudgetReport` fields are:
   - `should_compact`
@@ -655,6 +658,7 @@ Ordering rules for the RPC slice:
   - `estimated_post_compaction_headroom_tokens`
   - `runs_since_latest_compaction`
 - `run.start` on an existing session is the canonical continue operation; there is no separate `session.continue` command
+- `run.enqueue` is the canonical end-of-turn follow-up queueing operation; after the active streamed run for that session ends, the backend immediately drains queued follow-ups as additional runs on the same `run.start` stream until the queue is empty
 - Forking is a wrapper-level session-store operation today: the Python launcher
   may create a new session file with one `session_fork` entry before the TUI
   starts, but RPC clients do not have a separate `session.fork` command yet

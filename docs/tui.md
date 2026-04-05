@@ -112,6 +112,9 @@ The core architectural risk is semantic drift between the Go shell and the Pytho
 - First-run setup should also be actionable from the prompt zone itself:
   show a prompt-footer hint and let `Tab` on an empty prompt open provider
   suggestions directly.
+- While a run is streaming, the composer stays editable. `Tab` with a non-blank
+  composer queues that text as a backend-owned end-of-turn follow-up instead of
+  interrupting the active run.
 - Ollama onboarding must be truthful about the two real paths:
   `/model ollama:<local-model>` for local no-auth use, and `/provider ollama`
   as an explicit local-vs-cloud chooser. Hosted Ollama means

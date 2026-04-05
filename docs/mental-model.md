@@ -56,6 +56,7 @@ Core RPC commands:
 - `session.create` -- creates a new session, returns a server-generated opaque `session_id`
 - `session.name` -- appends one backend-normalized human session name to an existing session
 - `run.start` -- runs a prompt against an existing session, streams run events back, and may carry an optional `thinking` setting
+- `run.enqueue` -- queues one non-blank follow-up prompt for an already-active session-backed run; after the current run ends, the backend drains queued follow-ups as additional runs on the same stream
 - `session.compact` -- appends one model-generated durable compaction summary entry for an existing session
 
 Example flow:
@@ -80,10 +81,16 @@ Example flow:
 {"type": "rpc_event", "id": "req-2", "event": {"type": "run_succeeded", ...}}
 ```
 ```json
-{"id": "req-3", "command": "session.compact", "payload": {"session_id": "a1b2c3..."}}
+{"id": "req-3", "command": "run.enqueue", "payload": {"session_id": "a1b2c3...", "prompt": "after that, run the tests"}}
 ```
 ```json
-{"type": "rpc_response", "id": "req-3", "response": {"compaction_id": "c0ffee...", "compacted_through_run_id": "abc"}}
+{"type": "rpc_response", "id": "req-3", "response": {"session_id": "a1b2c3...", "queued_count": 1}}
+```
+```json
+{"id": "req-4", "command": "session.compact", "payload": {"session_id": "a1b2c3..."}}
+```
+```json
+{"type": "rpc_response", "id": "req-4", "response": {"compaction_id": "c0ffee...", "compacted_through_run_id": "abc"}}
 ```
 Three response types:
 

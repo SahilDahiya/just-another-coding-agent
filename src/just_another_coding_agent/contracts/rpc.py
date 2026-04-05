@@ -114,6 +114,17 @@ class RunStartRequest(_RpcModel):
     payload: RunStartPayload
 
 
+class RunEnqueuePayload(_RpcModel):
+    session_id: SessionId
+    prompt: str
+
+
+class RunEnqueueRequest(_RpcModel):
+    id: str
+    command: Literal["run.enqueue"]
+    payload: RunEnqueuePayload
+
+
 RpcRequest = Annotated[
     SessionCreateRequest
     | SessionCompactRequest
@@ -123,7 +134,8 @@ RpcRequest = Annotated[
     | AuthStatusRequest
     | AuthSetRequest
     | AuthClearRequest
-    | RunStartRequest,
+    | RunStartRequest
+    | RunEnqueueRequest,
     Field(discriminator="command"),
 ]
 
@@ -170,6 +182,11 @@ class AuthClearResponse(_RpcModel):
     status: AuthProviderStatus
 
 
+class RunEnqueueResponse(_RpcModel):
+    session_id: SessionId
+    queued_count: int
+
+
 class RpcResponseEnvelope(_RpcModel):
     type: Literal["rpc_response"] = "rpc_response"
     id: str
@@ -182,6 +199,7 @@ class RpcResponseEnvelope(_RpcModel):
         | AuthStatusResponse
         | AuthSetResponse
         | AuthClearResponse
+        | RunEnqueueResponse
     )
 
 
@@ -221,6 +239,9 @@ __all__ = [
     "ModelCatalogResponse",
     "RunStartPayload",
     "RunStartRequest",
+    "RunEnqueuePayload",
+    "RunEnqueueRequest",
+    "RunEnqueueResponse",
     "SessionId",
     "SessionCompactPayload",
     "SessionCompactRequest",
