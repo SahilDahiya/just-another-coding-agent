@@ -66,6 +66,7 @@ OPENROUTER_CONTEXT_WINDOW_TOKENS_BY_PREFIX: tuple[tuple[str, int], ...] = (
     ("anthropic/claude-haiku-4-5", 200_000),
     ("anthropic/claude-sonnet-4-5", 200_000),
     ("anthropic/claude-opus-4-1", 200_000),
+    ("x-ai/grok-code-fast-1", 262_144),
     ("google/gemini-2.5-flash-lite", 1_048_576),
     ("google/gemini-2.5-flash", 1_048_576),
     ("google/gemini-2.5-pro", 1_048_576),

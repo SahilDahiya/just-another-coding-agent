@@ -441,6 +441,10 @@ async def test_handle_rpc_json_line_returns_backend_owned_model_catalog(
                                 "model_id": "openrouter:anthropic/claude-sonnet-4-5",
                                 "description": "OpenRouter Claude Sonnet",
                             },
+                            {
+                                "model_id": "openrouter:x-ai/grok-code-fast-1",
+                                "description": "OpenRouter Grok Code Fast 1",
+                            },
                         ],
                     },
                     {

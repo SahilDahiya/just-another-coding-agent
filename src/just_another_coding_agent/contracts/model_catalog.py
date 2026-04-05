@@ -82,6 +82,11 @@ SHIPPED_MODELS: tuple[ShippedModel, ...] = (
         default_for_provider=True,
     ),
     ShippedModel(
+        provider="openrouter",
+        model_id="openrouter:x-ai/grok-code-fast-1",
+        description="OpenRouter Grok Code Fast 1",
+    ),
+    ShippedModel(
         provider="google",
         model_id="google:gemini-2.5-flash",
         description="Fast Gemini 2.5 Flash",
