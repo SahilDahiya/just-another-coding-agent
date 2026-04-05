@@ -463,9 +463,14 @@ async def test_serve_rpc_stdio_supports_model_catalog(
         messages[0]["response"]["providers"][1]["default_model_id"]
         == "openai-responses:gpt-5.4"
     )
-    assert messages[0]["response"]["providers"][3]["provider"] == "google"
+    assert messages[0]["response"]["providers"][2]["provider"] == "openrouter"
     assert (
-        messages[0]["response"]["providers"][3]["default_model_id"]
+        messages[0]["response"]["providers"][2]["default_model_id"]
+        == "openrouter:anthropic/claude-sonnet-4-5"
+    )
+    assert messages[0]["response"]["providers"][4]["provider"] == "google"
+    assert (
+        messages[0]["response"]["providers"][4]["default_model_id"]
         == "google:gemini-2.5-flash"
     )
 

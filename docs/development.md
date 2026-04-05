@@ -84,6 +84,7 @@ canonical Python headless backend.
   evaluation, and CI flows.
 - Current foundation expects:
   - `OPENAI_API_KEY`
+  - `OPENROUTER_API_KEY`
   - `ANTHROPIC_API_KEY`
   - `GOOGLE_API_KEY`
 - Common optional runtime env vars:
@@ -98,6 +99,7 @@ The shipped provider surface currently includes:
 
 - `ollama`
 - `openai`
+- `openrouter`
 - `anthropic`
 - `google`
 

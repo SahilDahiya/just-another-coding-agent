@@ -146,7 +146,7 @@ func (m *model) currentProvider() string {
 		return m.providerFromModel()
 	}
 	switch strings.ToLower(cfg["default_provider"]) {
-	case "openai", "anthropic", "ollama", "google":
+	case "openai", "openrouter", "anthropic", "ollama", "google":
 		return strings.ToLower(cfg["default_provider"])
 	default:
 		return m.providerFromModel()
@@ -218,6 +218,7 @@ func providerSuggestions() []slashSuggestion {
 	return []slashSuggestion{
 		{Value: "ollama", Description: "Choose local or cloud Ollama"},
 		{Value: "openai", Description: "OpenAI hosted models"},
+		{Value: "openrouter", Description: "OpenRouter hosted models"},
 		{Value: "anthropic", Description: "Anthropic Claude models"},
 		{Value: "google", Description: "Google Gemini models"},
 	}
@@ -227,6 +228,7 @@ func authSuggestions() []slashSuggestion {
 	return []slashSuggestion{
 		{Value: "ollama", Description: "Store Ollama cloud API key"},
 		{Value: "openai", Description: "Store OpenAI API key"},
+		{Value: "openrouter", Description: "Store OpenRouter API key"},
 		{Value: "anthropic", Description: "Store Anthropic API key"},
 		{Value: "google", Description: "Store Google API key"},
 	}

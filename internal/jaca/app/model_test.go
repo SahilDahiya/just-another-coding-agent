@@ -90,7 +90,7 @@ func (b *stubBackend) AuthStatus(_ context.Context) (rpc.AuthStatusResponse, err
 	if b.authStatusErr != nil {
 		return rpc.AuthStatusResponse{}, b.authStatusErr
 	}
-	providers := []string{"ollama", "openai", "anthropic", "google"}
+	providers := []string{"ollama", "openai", "openrouter", "anthropic", "google"}
 	statuses := make([]rpc.AuthProviderStatus, 0, len(providers))
 	for _, provider := range providers {
 		if status, ok := b.authStatuses[provider]; ok {
@@ -162,6 +162,8 @@ func envDerivedAuthStatus(provider string) rpc.AuthProviderStatus {
 		envKey = "OLLAMA_API_KEY"
 	case "openai":
 		envKey = "OPENAI_API_KEY"
+	case "openrouter":
+		envKey = "OPENROUTER_API_KEY"
 	case "anthropic":
 		envKey = "ANTHROPIC_API_KEY"
 	case "google":
@@ -195,6 +197,10 @@ func envDerivedAuthStatus(provider string) rpc.AuthProviderStatus {
 		} else if secretConfigured {
 			reason = "ok"
 		}
+	case "openrouter":
+		if secretConfigured {
+			reason = "ok"
+		}
 	default:
 		if secretConfigured {
 			reason = "ok"
@@ -217,6 +223,8 @@ func envKeyForProvider(provider string) string {
 		return "OLLAMA_API_KEY"
 	case "openai":
 		return "OPENAI_API_KEY"
+	case "openrouter":
+		return "OPENROUTER_API_KEY"
 	case "anthropic":
 		return "ANTHROPIC_API_KEY"
 	case "google":
@@ -271,6 +279,13 @@ func testModelCatalog() *rpc.ModelCatalogResponse {
 					{ModelID: "openai-responses:gpt-5.4", Description: "Default GPT-5.4 Responses path"},
 					{ModelID: "openai-responses:gpt-5.4-mini", Description: "Faster GPT-5.4 mini Responses path"},
 					{ModelID: "openai-responses:gpt-5.3-codex", Description: "Codex-optimized GPT-5.3 Responses path"},
+				},
+			},
+			{
+				Provider:       "openrouter",
+				DefaultModelID: "openrouter:anthropic/claude-sonnet-4-5",
+				Models: []rpc.ModelCatalogModel{
+					{ModelID: "openrouter:anthropic/claude-sonnet-4-5", Description: "OpenRouter Claude Sonnet"},
 				},
 			},
 			{

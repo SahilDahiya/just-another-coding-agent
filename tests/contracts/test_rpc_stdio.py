@@ -434,6 +434,16 @@ async def test_handle_rpc_json_line_returns_backend_owned_model_catalog(
                         ],
                     },
                     {
+                        "provider": "openrouter",
+                        "default_model_id": "openrouter:anthropic/claude-sonnet-4-5",
+                        "models": [
+                            {
+                                "model_id": "openrouter:anthropic/claude-sonnet-4-5",
+                                "description": "OpenRouter Claude Sonnet",
+                            },
+                        ],
+                    },
+                    {
                         "provider": "anthropic",
                         "default_model_id": "anthropic:claude-sonnet-4-5",
                         "models": [
@@ -509,6 +519,15 @@ async def test_handle_rpc_json_line_returns_auth_status(
                 reason="missing_secret",
             ),
             ProviderAuthStatus(
+                provider="openrouter",
+                configured=False,
+                secret_configured=False,
+                requires_secret=True,
+                source="none",
+                env_key="OPENROUTER_API_KEY",
+                reason="missing_secret",
+            ),
+            ProviderAuthStatus(
                 provider="google",
                 configured=False,
                 secret_configured=False,
@@ -570,6 +589,15 @@ async def test_handle_rpc_json_line_returns_auth_status(
                         "requires_secret": True,
                         "source": "none",
                         "env_key": "ANTHROPIC_API_KEY",
+                        "reason": "missing_secret",
+                    },
+                    {
+                        "provider": "openrouter",
+                        "configured": False,
+                        "secret_configured": False,
+                        "requires_secret": True,
+                        "source": "none",
+                        "env_key": "OPENROUTER_API_KEY",
                         "reason": "missing_secret",
                     },
                     {

@@ -149,7 +149,7 @@ func SaveDefaultProvider(provider string) error {
 		return err
 	}
 	switch provider {
-	case "ollama", "openai", "anthropic", "google":
+	case "ollama", "openai", "openrouter", "anthropic", "google":
 	default:
 		return errors.New("unknown provider")
 	}
@@ -176,6 +176,7 @@ func SaveProvider(update ProviderUpdate) error {
 			config["OPENAI_BASE_URL"] = update.BaseURL
 			_ = os.Setenv("OPENAI_BASE_URL", update.BaseURL)
 		}
+	case "openrouter":
 	case "anthropic":
 	case "google":
 	default:

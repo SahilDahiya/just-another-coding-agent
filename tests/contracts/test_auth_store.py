@@ -302,3 +302,24 @@ def test_get_provider_auth_status_marks_local_openai_endpoint_ready_without_secr
     assert status.requires_secret is False
     assert status.source == "none"
     assert status.reason == "local_endpoint_no_secret_required"
+
+
+def test_get_provider_auth_status_marks_openrouter_missing_without_secret(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setattr(
+        "just_another_coding_agent.auth.SECRET_FILE_PATH",
+        tmp_path / "secrets.json",
+    )
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+
+    status = get_provider_auth_status("openrouter")
+
+    assert status.provider == "openrouter"
+    assert status.configured is False
+    assert status.secret_configured is False
+    assert status.requires_secret is True
+    assert status.source == "none"
+    assert status.env_key == "OPENROUTER_API_KEY"
+    assert status.reason == "missing_secret"

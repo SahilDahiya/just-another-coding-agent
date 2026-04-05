@@ -13,10 +13,12 @@ from pydantic_ai.models.openai import (
     OpenAIChatModel,
     OpenAIResponsesModel,
 )
+from pydantic_ai.models.openrouter import OpenRouterModel
 from pydantic_ai.models.wrapper import WrapperModel
 from pydantic_ai.providers.anthropic import AnthropicProvider
 from pydantic_ai.providers.ollama import OllamaProvider
 from pydantic_ai.providers.openai import OpenAIProvider
+from pydantic_ai.providers.openrouter import OpenRouterProvider
 from pydantic_ai.retries import AsyncTenacityTransport, RetryConfig, wait_retry_after
 from pydantic_ai.settings import ModelSettings
 from tenacity import retry_if_exception_type, stop_after_attempt
@@ -58,6 +60,16 @@ OLLAMA_CONTEXT_WINDOW_TOKENS_BY_PREFIX: tuple[tuple[str, int], ...] = (
     ("gemma4:e4b", 128_000),
     ("kimi-k2", 262_144),
 )
+OPENROUTER_CONTEXT_WINDOW_TOKENS_BY_PREFIX: tuple[tuple[str, int], ...] = (
+    ("openai/gpt-5.4-mini", 400_000),
+    ("openai/gpt-5.4", 1_050_000),
+    ("anthropic/claude-haiku-4-5", 200_000),
+    ("anthropic/claude-sonnet-4-5", 200_000),
+    ("anthropic/claude-opus-4-1", 200_000),
+    ("google/gemini-2.5-flash-lite", 1_048_576),
+    ("google/gemini-2.5-flash", 1_048_576),
+    ("google/gemini-2.5-pro", 1_048_576),
+)
 DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434/v1"
 
 
@@ -72,6 +84,8 @@ def resolve_canonical_model(model: Any) -> Model:
             return _maybe_instrument_model(_build_openai_chat_model(model))
         if model.startswith("anthropic:"):
             return _maybe_instrument_model(_build_anthropic_model(model))
+        if model.startswith("openrouter:"):
+            return _maybe_instrument_model(_build_openrouter_model(model))
         if model.startswith("google:"):
             return _maybe_instrument_model(_build_google_model(model))
         if model.startswith("ollama:"):
@@ -124,6 +138,24 @@ def _build_anthropic_provider() -> AnthropicProvider:
     if not readiness.configured:
         raise ProviderReadinessError("Anthropic is not ready: missing secret")
     return AnthropicProvider(api_key=resolve_provider_secret("anthropic"))
+
+
+def _build_openrouter_model(model_id: str) -> OpenRouterModel:
+    _, model_name = model_id.split(":", 1)
+    return OpenRouterModel(
+        model_name,
+        provider=_build_openrouter_provider(),
+    )
+
+
+def _build_openrouter_provider() -> OpenRouterProvider:
+    readiness = compute_provider_readiness("openrouter")
+    if not readiness.configured:
+        raise ProviderReadinessError("OpenRouter is not ready: missing secret")
+    return OpenRouterProvider(
+        api_key=resolve_provider_secret("openrouter"),
+        http_client=_build_retrying_openai_compatible_http_client(),
+    )
 
 
 def _build_ollama_chat_model(model_id: str) -> OpenAIChatModel:
@@ -277,7 +309,7 @@ def _supports_parallel_tool_calls(model: Model) -> bool:
     if isinstance(model, OpenAIChatModel):
         return isinstance(
             model._provider,
-            (OpenAIProvider, OllamaProvider),
+            (OpenAIProvider, OllamaProvider, OpenRouterProvider),
         )
     return isinstance(model, AnthropicModel)
 
@@ -298,6 +330,11 @@ def get_model_context_window_tokens(model: Any) -> int | None:
             return _match_model_name_prefix(
                 model.split(":", 1)[1],
                 ANTHROPIC_CONTEXT_WINDOW_TOKENS_BY_PREFIX,
+            )
+        if model.startswith("openrouter:"):
+            return _match_model_name_prefix(
+                model.split(":", 1)[1],
+                OPENROUTER_CONTEXT_WINDOW_TOKENS_BY_PREFIX,
             )
         if model.startswith("google:"):
             return _match_model_name_prefix(
@@ -330,6 +367,11 @@ def get_model_context_window_tokens(model: Any) -> int | None:
             return _match_model_name_prefix(
                 policy_model.model_name,
                 OLLAMA_CONTEXT_WINDOW_TOKENS_BY_PREFIX,
+            )
+        if isinstance(policy_model._provider, OpenRouterProvider):
+            return _match_model_name_prefix(
+                policy_model.model_name,
+                OPENROUTER_CONTEXT_WINDOW_TOKENS_BY_PREFIX,
             )
 
     if _is_google_model(policy_model):

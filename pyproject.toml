@@ -11,7 +11,7 @@ requires-python = ">=3.12"
 dependencies = [
   "keyring>=25.6.0",
   "logfire>=4.31.0",
-  "pydantic-ai-slim[anthropic,google,mcp,openai,retries]>=1.71.0,<2.0",
+  "pydantic-ai-slim[anthropic,google,mcp,openai,openrouter,retries]>=1.71.0,<2.0",
   "pydantic-evals>=1.73.0,<2.0",
 ]
 

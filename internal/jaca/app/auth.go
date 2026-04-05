@@ -244,6 +244,8 @@ func authProviderLabel(provider string) string {
 		return "Ollama"
 	case "openai":
 		return "OpenAI"
+	case "openrouter":
+		return "OpenRouter"
 	case "anthropic":
 		return "Anthropic"
 	case "google":
@@ -259,6 +261,8 @@ func authSecretLabel(provider string) string {
 		return "Ollama cloud API key"
 	case "openai":
 		return "OpenAI API key"
+	case "openrouter":
+		return "OpenRouter API key"
 	case "anthropic":
 		return "Anthropic API key"
 	case "google":

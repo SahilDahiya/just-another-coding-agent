@@ -34,6 +34,8 @@ func providerForModel(model string) string {
 		return "openai"
 	case strings.HasPrefix(value, "openai-chat:"):
 		return "openai"
+	case strings.HasPrefix(value, "openrouter:"):
+		return "openrouter"
 	case strings.HasPrefix(value, "anthropic:"):
 		return "anthropic"
 	case strings.HasPrefix(value, "google:"):
@@ -164,7 +166,7 @@ func (m *model) handleAuthCommand(arg string) {
 
 	provider := canonicalProviderName(value)
 	switch provider {
-	case "openai", "anthropic", "google", "ollama":
+	case "openai", "openrouter", "anthropic", "google", "ollama":
 		if err := m.startCredentialSetup(provider, "", "", "", ""); err != nil {
 			m.transcript.WriteNote("auth", nil)
 			m.transcript.WriteError(err.Error())
@@ -213,10 +215,12 @@ func (m *model) handleProvider(arg string) (
 			"  /provider ollama                  choose local or cloud Ollama",
 			"  /model ollama:<local-model>       use local Ollama with no key",
 			"  /provider openai                  select OpenAI",
+			"  /provider openrouter              select OpenRouter",
 			"  /provider anthropic               select Anthropic",
 			"  /provider google                  select Google Gemini",
 			"  /auth ollama                      save Ollama cloud API key",
 			"  /auth openai                      save OpenAI API key",
+			"  /auth openrouter                  save OpenRouter API key",
 			"  /auth anthropic                   save Anthropic API key",
 			"  /auth google                      save Google API key",
 			"  /auth status                      show auth source per provider",
@@ -237,7 +241,7 @@ func (m *model) handleProvider(arg string) (
 		}
 		lines, restart, err := m.applyProviderSelection(provider)
 		return lines, restart, "", err
-	case "openai", "anthropic", "google":
+	case "openai", "openrouter", "anthropic", "google":
 		hasCreds, err := m.providerHasCredentials(provider)
 		if err != nil {
 			return nil, false, "", err

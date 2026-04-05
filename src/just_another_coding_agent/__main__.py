@@ -372,6 +372,7 @@ def _scoped_config_env(config: dict[str, str]):
     managed_keys = {
         "OPENAI_API_KEY",
         "OPENAI_BASE_URL",
+        "OPENROUTER_API_KEY",
         "ANTHROPIC_API_KEY",
         "GOOGLE_API_KEY",
         "OLLAMA_API_KEY",

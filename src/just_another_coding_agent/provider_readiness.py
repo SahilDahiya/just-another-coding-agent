@@ -87,7 +87,7 @@ def get_provider_secret_state(provider: ProviderName) -> ProviderSecretState:
 
 
 def _provider_requires_secret(provider: ProviderName, *, model_id: str | None) -> bool:
-    if provider in {"anthropic", "google"}:
+    if provider in {"anthropic", "google", "openrouter"}:
         return True
     if provider == "openai":
         return not _base_url_is_local(os.environ.get("OPENAI_BASE_URL"))
@@ -121,6 +121,7 @@ def _provider_env_key(provider: ProviderName) -> str:
     env_keys: dict[ProviderName, str] = {
         "ollama": "OLLAMA_API_KEY",
         "openai": "OPENAI_API_KEY",
+        "openrouter": "OPENROUTER_API_KEY",
         "anthropic": "ANTHROPIC_API_KEY",
         "google": "GOOGLE_API_KEY",
     }
@@ -130,6 +131,8 @@ def _provider_env_key(provider: ProviderName) -> str:
 def _provider_for_model(model_id: str) -> ProviderName | None:
     if model_id.startswith(("openai:", "openai-chat:", "openai-responses:")):
         return "openai"
+    if model_id.startswith("openrouter:"):
+        return "openrouter"
     if model_id.startswith("anthropic:"):
         return "anthropic"
     if model_id.startswith("google:"):

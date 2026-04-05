@@ -11,9 +11,11 @@ from pydantic_ai.models.openai import (
     OpenAIResponsesModel,
     OpenAIResponsesModelSettings,
 )
+from pydantic_ai.models.openrouter import OpenRouterModel
 from pydantic_ai.providers.google import GoogleProvider
 from pydantic_ai.providers.ollama import OllamaProvider
 from pydantic_ai.providers.openai import OpenAIProvider
+from pydantic_ai.providers.openrouter import OpenRouterProvider
 from pydantic_ai.retries import AsyncTenacityTransport
 
 from just_another_coding_agent.contracts.model_catalog import (
@@ -79,6 +81,21 @@ def test_resolve_canonical_model_builds_explicit_google_model(
     assert model.model_name == "gemini-2.5-flash"
     assert model.system == "google-gla"
     assert isinstance(model._provider, GoogleProvider)
+
+
+def test_resolve_canonical_model_builds_explicit_openrouter_model(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+
+    model = resolve_canonical_model("openrouter:anthropic/claude-sonnet-4-5")
+    unwrapped = unwrap_instrumented_model(model)
+
+    assert isinstance(unwrapped, OpenRouterModel)
+    assert model.model_name == "anthropic/claude-sonnet-4-5"
+    assert model.system == "openrouter"
+    assert isinstance(model._provider, OpenRouterProvider)
+    assert model._provider.base_url == "https://openrouter.ai/api/v1"
 
 
 def test_resolve_canonical_model_falls_back_to_pydanticai_for_other_strings() -> None:
@@ -186,6 +203,20 @@ def test_resolve_canonical_model_uses_default_ollama_base_url_when_unset(
     assert model._provider.base_url == f"{DEFAULT_OLLAMA_BASE_URL}/"
 
 
+def test_resolve_canonical_model_rejects_missing_openrouter_secret(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setattr(
+        "just_another_coding_agent.auth.SECRET_FILE_PATH",
+        tmp_path / "secrets.json",
+    )
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+
+    with pytest.raises(RuntimeError, match="OpenRouter is not ready"):
+        resolve_canonical_model("openrouter:anthropic/claude-sonnet-4-5")
+
+
 def test_resolve_canonical_model_rejects_missing_hosted_openai_secret(
     monkeypatch,
     tmp_path,
@@ -243,6 +274,7 @@ def test_build_canonical_model_settings_unwraps_instrumented_models() -> None:
 
 def test_get_model_context_window_tokens_for_supported_models(monkeypatch) -> None:
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
     monkeypatch.setenv("GOOGLE_API_KEY", "test-key")
 
     assert get_model_context_window_tokens("openai-responses:gpt-5.3-codex") == 400_000
@@ -251,6 +283,10 @@ def test_get_model_context_window_tokens_for_supported_models(monkeypatch) -> No
     assert get_model_context_window_tokens("openai:gpt-5.4") == 1_050_000
     assert get_model_context_window_tokens("openai:gpt-5.4-mini") == 400_000
     assert get_model_context_window_tokens("openai:gpt-4o") == 128_000
+    assert (
+        get_model_context_window_tokens("openrouter:anthropic/claude-sonnet-4-5")
+        == 200_000
+    )
     assert get_model_context_window_tokens("anthropic:claude-sonnet-4-5") == 200_000
     assert get_model_context_window_tokens("anthropic:claude-haiku-4-5") == 200_000
     assert (
@@ -278,5 +314,5 @@ def test_all_backend_owned_shipped_models_have_context_windows() -> None:
 
 
 def test_backend_owned_default_model_per_provider_has_context_window() -> None:
-    for provider in ("ollama", "openai", "anthropic", "google"):
+    for provider in ("ollama", "openai", "openrouter", "anthropic", "google"):
         assert get_model_context_window_tokens(default_model_for_provider(provider))

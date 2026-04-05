@@ -6,13 +6,13 @@ import shlex
 import tomllib
 from collections.abc import Mapping
 from pathlib import Path
-
 from urllib.parse import urlparse
 
 from just_another_coding_agent.auth import resolve_provider_secret
 
 _COMMON_ENV_KEYS = ("JUST_ANOTHER_CODING_AGENT_THINKING",)
 _OPENAI_ENV_KEYS = ("OPENAI_API_KEY", "OPENAI_BASE_URL")
+_OPENROUTER_ENV_KEYS = ("OPENROUTER_API_KEY",)
 _OLLAMA_ENV_KEYS = ("OLLAMA_API_KEY", "OLLAMA_BASE_URL")
 _ANTHROPIC_ENV_KEYS = ("ANTHROPIC_API_KEY",)
 _GOOGLE_ENV_KEYS = ("GOOGLE_API_KEY",)
@@ -26,6 +26,8 @@ def _provider_env_keys_for_model(model: str) -> tuple[str, ...]:
         return _OPENAI_ENV_KEYS
     if model.startswith("openai:") or model.startswith("openai-chat:"):
         return _OPENAI_ENV_KEYS
+    if model.startswith("openrouter:"):
+        return _OPENROUTER_ENV_KEYS
     if model.startswith("ollama:"):
         return _OLLAMA_ENV_KEYS
     if model.startswith("anthropic:"):
@@ -38,6 +40,8 @@ def _provider_env_keys_for_model(model: str) -> tuple[str, ...]:
 def _provider_name_for_model(model: str) -> str:
     if model.startswith(("openai-responses:", "openai:", "openai-chat:")):
         return "openai"
+    if model.startswith("openrouter:"):
+        return "openrouter"
     if model.startswith("ollama:"):
         return "ollama"
     if model.startswith("anthropic:"):
@@ -83,6 +87,8 @@ def _inject_required_provider_secret(*, model: str, selected: dict[str, str]) ->
 def _provider_secret_env_key(model: str) -> str:
     if model.startswith(("openai-responses:", "openai:", "openai-chat:")):
         return "OPENAI_API_KEY"
+    if model.startswith("openrouter:"):
+        return "OPENROUTER_API_KEY"
     if model.startswith("ollama:"):
         return "OLLAMA_API_KEY"
     if model.startswith("anthropic:"):
@@ -94,6 +100,8 @@ def _provider_secret_env_key(model: str) -> str:
 
 def _harbor_model_requires_secret(*, model: str, selected: Mapping[str, str]) -> bool:
     if model.startswith("anthropic:") or model.startswith("google:"):
+        return True
+    if model.startswith("openrouter:"):
         return True
     if model.startswith(("openai-responses:", "openai:", "openai-chat:")):
         return not _base_url_is_local(selected.get("OPENAI_BASE_URL"))

@@ -9,9 +9,11 @@ from pydantic_ai.messages import ModelMessage, ModelResponse, TextPart
 from pydantic_ai.models.anthropic import AnthropicModel
 from pydantic_ai.models.instrumented import InstrumentedModel
 from pydantic_ai.models.openai import OpenAIChatModel, OpenAIResponsesModel
+from pydantic_ai.models.openrouter import OpenRouterModel
 from pydantic_ai.models.wrapper import WrapperModel
 from pydantic_ai.providers.ollama import OllamaProvider
 from pydantic_ai.providers.openai import OpenAIProvider
+from pydantic_ai.providers.openrouter import OpenRouterProvider
 
 from just_another_coding_agent.contracts.platform import (
     ShellFamily,
@@ -403,6 +405,10 @@ def _describe_turn_context_model(model: Any) -> str:
     if isinstance(current, OpenAIChatModel):
         if isinstance(current._provider, OllamaProvider):
             return f"ollama:{current.model_name}"
+        if isinstance(current._provider, OpenRouterProvider) or isinstance(
+            current, OpenRouterModel
+        ):
+            return f"openrouter:{current.model_name}"
         if isinstance(current._provider, OpenAIProvider):
             return f"openai-chat:{current.model_name}"
         return f"OpenAIChatModel:{current.model_name}"

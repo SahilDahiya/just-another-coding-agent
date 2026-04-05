@@ -60,6 +60,7 @@ _API_KEY_PATTERNS = frozenset(
         "passwd",
         "authorization",
         "openai_api_key",
+        "openrouter_api_key",
         "anthropic_api_key",
         "ollama_api_key",
         "google_api_key",
