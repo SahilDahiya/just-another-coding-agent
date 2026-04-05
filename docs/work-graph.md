@@ -351,6 +351,54 @@ That means the repo may add bounded policy modules for questions like:
 Those policy modules may use DSPy or similar tooling, but they must never
 replace the canonical work-graph store or mutate it implicitly.
 
+## RPC Plugin Direction
+
+If the repo later adds a DSPy-backed work-policy engine, the cleanest boundary
+is an RPC-facing plugin-style module rather than a rewrite of the canonical
+backend.
+
+That means:
+
+- the canonical backend still owns work-graph storage and validation
+- the canonical backend still owns tool semantics, sessions, and public
+  contracts
+- a bounded policy module may read inspectable work-graph state and return
+  structured proposals
+- normal backend operations remain the only path that mutates durable work
+  state
+
+The intended role is "policy advisor", not "shadow backend".
+
+Good candidates for that plugin-style policy surface:
+
+- propose child-task decomposition for one active `project`
+- propose the next best open task to execute
+- interpret a Harbor result into one explicit work action
+- propose whether a task should stay `in_progress`, become `blocked`, or move
+  to `done`
+
+Bad candidates:
+
+- direct database writes from the policy module
+- hidden prompt stuffing from unbounded work-graph state
+- a second source of truth for work-item lifecycle semantics
+- a second execution engine that bypasses backend validation
+
+The preferred contract shape is:
+
+- request bounded work-graph state plus explicit evidence such as one Harbor
+  result or one recent session excerpt
+- response with a typed action proposal
+- require the canonical backend to validate and apply any accepted action
+
+For example, a future RPC/plugin command family could look like:
+
+- `work.policy.decompose`
+- `work.policy.select_next`
+- `work.policy.resolve`
+
+Those commands should return structured proposals, not hidden side effects.
+
 ## DSPy Fit
 
 DSPy is a plausible fit for bounded work-graph policy modules because it is
@@ -433,6 +481,7 @@ Do not:
 
 - make DSPy or GEPA the source of truth for work-item state
 - let GEPA write directly to the work-graph database
+- let a policy plugin bypass canonical backend validation or storage rules
 - optimize work-graph prompts before a real evaluator exists
 - use the whole work graph as unbounded prompt context
 
