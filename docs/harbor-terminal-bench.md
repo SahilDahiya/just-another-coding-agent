@@ -252,6 +252,19 @@ This is deliberately not in-place resume. If you stop a run mid-pass, that
 partial Harbor job is left on disk but is not recorded in the bundle. Rerunning
 the launcher starts the next needed pass from the last completed recorded pass.
 
+Before opening a leaderboard PR, build one final submission tree locally and
+validate that tree completely. Do not populate a PR ref incrementally. The
+validator bot runs on every PR update, so partial uploads create noisy failure
+comments that do not help.
+
+Canonical clean-submission flow:
+
+1. finish all local Harbor passes and slice repairs
+2. assemble one final submission tree under
+   `submissions/terminal-bench/2.0/<agent>__<model>/`
+3. run a final local tree validator against that assembled tree
+4. only then upload and open the PR
+
 Useful knobs:
 
 ```bash
@@ -266,6 +279,57 @@ PASSES_PER_RUN=2 evaluations/scripts/run_tb2_submission_glm5.sh
 
 # Change the target number of trials per task.
 TARGET_TRIALS=5 evaluations/scripts/run_tb2_submission_glm5.sh
+```
+
+## Final Submission Preflight
+
+Assemble one final local submission tree from completed bundle manifests:
+
+```bash
+python evaluations/scripts/build_tb2_submission_tree.py \
+  /tmp/tb2-submission/submissions/terminal-bench/2.0/just-another-coding-agent__GLM-5 \
+  --jobs-dir jobs \
+  --bundle-dir jobs/submission-bundles/glm5-high \
+  --agent-url https://github.com/SahilDahiya/just-another-coding-agent \
+  --agent-display-name just-another-coding-agent \
+  --agent-org-display-name "Sahil Dahiya" \
+  --model-name glm-5 \
+  --model-provider zhipu \
+  --model-display-name "GLM 5" \
+  --model-org-display-name "Zhipu"
+```
+
+Then validate the final assembled tree before any upload:
+
+```bash
+python evaluations/scripts/validate_tb2_submission_tree.py \
+  /tmp/tb2-submission/submissions/terminal-bench/2.0/just-another-coding-agent__GLM-5 \
+  --expected-unique-tasks 89 \
+  --min-trials-per-task 5
+```
+
+What the final tree validator checks:
+
+- `metadata.yaml` exists and contains the required leaderboard fields
+- at least one Harbor job directory exists in the submission root
+- every trial dir has a readable `result.json`
+- every trial dir contains additional run artifacts
+- every job uses `timeout_multiplier == 1.0`
+- no forbidden timeout or resource overrides are present
+- no task checksum drift exists inside the final submission tree
+- every task checksum meets the minimum trial count
+- the final submission matches the expected unique task count
+
+This is the local gate that should pass before opening a PR. If it fails, fix
+the bundle locally and rebuild the submission tree instead of creating or
+updating a PR.
+
+## Existing Bundle Validation
+
+The existing bundle validator still matters during pass collection:
+
+```bash
+python evaluations/scripts/validate_tb2_bundle.py jobs/<job-a> jobs/<job-b> ...
 ```
 
 Submission guidance:
