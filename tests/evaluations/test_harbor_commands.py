@@ -1,6 +1,4 @@
 from evaluations.harbor.commands import build_harbor_exec_command, build_provider_env
-
-
 def test_build_provider_env_filters_to_openai_provider_env() -> None:
     env = build_provider_env(
         model="openai-responses:gpt-5.3-codex",
@@ -142,6 +140,49 @@ def test_build_provider_env_requires_logfire_credentials(monkeypatch, tmp_path) 
         )
     else:  # pragma: no cover - defensive
         raise AssertionError("Expected Harbor run without Logfire credentials to fail")
+
+
+def test_build_provider_env_injects_stored_ollama_secret_when_host_env_missing(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        "evaluations.harbor.commands.resolve_provider_secret",
+        lambda provider, allow_missing_keychain=True: (
+            "ollama-secret" if provider == "ollama" else None
+        ),
+    )
+
+    env = build_provider_env(
+        model="ollama:glm-5:cloud",
+        environ={
+            "OLLAMA_BASE_URL": "https://ollama.com/v1",
+            "JUST_ANOTHER_CODING_AGENT_THINKING": "high",
+            "LOGFIRE_TOKEN": "logfire-secret",
+        },
+    )
+
+    assert env["OLLAMA_API_KEY"] == "ollama-secret"
+
+
+def test_build_provider_env_injects_stored_openai_secret_when_host_env_missing(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        "evaluations.harbor.commands.resolve_provider_secret",
+        lambda provider, allow_missing_keychain=True: (
+            "openai-secret" if provider == "openai" else None
+        ),
+    )
+
+    env = build_provider_env(
+        model="openai-responses:gpt-5.4",
+        environ={
+            "JUST_ANOTHER_CODING_AGENT_THINKING": "high",
+            "LOGFIRE_TOKEN": "logfire-secret",
+        },
+    )
+
+    assert env["OPENAI_API_KEY"] == "openai-secret"
 
 
 def test_build_provider_env_rejects_unsupported_model_provider() -> None:

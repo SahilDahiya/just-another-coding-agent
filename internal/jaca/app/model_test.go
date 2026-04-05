@@ -21,28 +21,30 @@ func intPtr(v int) *int { return &v }
 func floatPtr(v float64) *float64 { return &v }
 
 type stubBackend struct {
-	model             string
-	modelCatalog      rpc.ModelCatalogResponse
-	modelCatalogErr   error
-	authStatuses      map[string]rpc.AuthProviderStatus
-	localSecretStore  rpc.LocalSecretStoreStatus
-	authStatusErr     error
-	setSecretErr      error
-	clearSecretErr    error
-	setSessionNameErr error
-	sessionPreview    rpc.SessionPreviewResponse
-	sessionPreviewErr error
-	restarts          int
-	lastSetSecret     rpc.AuthSetPayload
-	lastCleared       string
-	lastNamedSession  string
-	lastSessionName   string
+	model              string
+	modelCatalog       rpc.ModelCatalogResponse
+	modelCatalogErr    error
+	authStatuses       map[string]rpc.AuthProviderStatus
+	localSecretStore   rpc.LocalSecretStoreStatus
+	authStatusErr      error
+	setSecretErr       error
+	authStatusAfterSet map[string]rpc.AuthProviderStatus
+	clearSecretErr     error
+	setSessionNameErr  error
+	sessionPreview     rpc.SessionPreviewResponse
+	sessionPreviewErr  error
+	restarts           int
+	lastSetSecret      rpc.AuthSetPayload
+	lastCleared        string
+	lastNamedSession   string
+	lastSessionName    string
 }
 
 func newStubBackend() *stubBackend {
 	return &stubBackend{
-		modelCatalog: *testModelCatalog(),
-		authStatuses: map[string]rpc.AuthProviderStatus{},
+		modelCatalog:       *testModelCatalog(),
+		authStatuses:       map[string]rpc.AuthProviderStatus{},
+		authStatusAfterSet: map[string]rpc.AuthProviderStatus{},
 		localSecretStore: rpc.LocalSecretStoreStatus{
 			Available:     true,
 			FileStorePath: filepath.Join(os.TempDir(), "jaca-secrets.json"),
@@ -117,10 +119,16 @@ func (b *stubBackend) SetProviderSecret(
 		Storage:  storage,
 	}
 	status := rpc.AuthProviderStatus{
-		Provider:   provider,
-		Configured: true,
-		Source:     "keychain",
-		EnvKey:     envKeyForProvider(provider),
+		Provider:         provider,
+		Configured:       true,
+		SecretConfigured: true,
+		RequiresSecret:   true,
+		Source:           "keychain",
+		EnvKey:           envKeyForProvider(provider),
+		Reason:           "ok",
+	}
+	if overridden, ok := b.authStatusAfterSet[provider]; ok {
+		status = overridden
 	}
 	b.authStatuses[provider] = status
 	return rpc.AuthSetResponse{Status: status}, nil
@@ -160,16 +168,46 @@ func envDerivedAuthStatus(provider string) rpc.AuthProviderStatus {
 		envKey = "GOOGLE_API_KEY"
 	}
 	source := "none"
-	configured := false
+	secretConfigured := false
 	if envKey != "" && strings.TrimSpace(os.Getenv(envKey)) != "" {
 		source = "env"
-		configured = true
+		secretConfigured = true
+	}
+	requiresSecret := true
+	configured := secretConfigured
+	reason := "missing_secret"
+	switch provider {
+	case "ollama":
+		baseURL := strings.TrimSpace(os.Getenv("OLLAMA_BASE_URL"))
+		if baseURL == "" || strings.Contains(baseURL, "localhost") || strings.Contains(baseURL, "127.0.0.1") {
+			requiresSecret = false
+			configured = true
+			reason = "local_endpoint_no_secret_required"
+		} else if secretConfigured {
+			reason = "ok"
+		}
+	case "openai":
+		baseURL := strings.TrimSpace(os.Getenv("OPENAI_BASE_URL"))
+		if strings.Contains(baseURL, "localhost") || strings.Contains(baseURL, "127.0.0.1") {
+			requiresSecret = false
+			configured = true
+			reason = "local_endpoint_no_secret_required"
+		} else if secretConfigured {
+			reason = "ok"
+		}
+	default:
+		if secretConfigured {
+			reason = "ok"
+		}
 	}
 	return rpc.AuthProviderStatus{
-		Provider:   provider,
-		Configured: configured,
-		Source:     source,
-		EnvKey:     envKey,
+		Provider:         provider,
+		Configured:       configured,
+		SecretConfigured: secretConfigured,
+		RequiresSecret:   requiresSecret,
+		Source:           source,
+		EnvKey:           envKey,
+		Reason:           reason,
 	}
 }
 
@@ -634,18 +672,19 @@ func TestRunSucceededUsageAppearsInFooter(t *testing.T) {
 	m.phase = PhaseStreaming
 
 	m.Update(runEventMsg{Event: rpc.RunEvent{
-		Type:              "run_succeeded",
-		RunID:             "run-1",
-		OutputText:        "done",
-		InputTokens:       intPtr(120),
-		OutputTokens:      intPtr(45),
-		TotalTokens:       intPtr(165),
-		ContextWindowUsed: floatPtr(0.413),
+		Type:                   "run_succeeded",
+		RunID:                  "run-1",
+		OutputText:             "done",
+		InputTokens:            intPtr(120),
+		OutputTokens:           intPtr(45),
+		TotalTokens:            intPtr(165),
+		ContextWindowUsed:      floatPtr(0.413),
+		NextRequestContextUsed: floatPtr(0.07),
 	}})
 	m.Update(runEventMsg{Done: true})
 
 	rendered := stripANSI(m.View())
-	for _, want := range []string{"completed", "59% left"} {
+	for _, want := range []string{"completed", "93% left"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("view missing %q in %q", want, rendered)
 		}
@@ -1475,6 +1514,74 @@ func TestProviderWithoutKeychainStartsLocalFileAuthFlow(t *testing.T) {
 	}
 	if got := m.auth.Storage; got != "file" {
 		t.Fatalf("auth.Storage = %q, want %q", got, "file")
+	}
+}
+
+func TestAuthAnthropicWithoutKeychainUsesLocalFileFlow(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("ANTHROPIC_API_KEY", "")
+
+	backend := newStubBackend()
+	message := "No supported OS keychain backend is available for local provider secret storage."
+	backend.localSecretStore = rpc.LocalSecretStoreStatus{
+		Available:     false,
+		Message:       &message,
+		FileStorePath: filepath.Join(home, ".jaca", "secrets.json"),
+	}
+	m := newTestModel()
+	m.options.Backend = backend
+
+	m = sendRunes(m, "/auth anthropic")
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	rendered := stripANSI(m.View())
+	if !strings.Contains(rendered, "Local Secret File") {
+		t.Fatalf("view missing local-secret-file panel: %q", rendered)
+	}
+	if !strings.Contains(rendered, "Anthropic API key") {
+		t.Fatalf("view missing anthropic secret prompt: %q", rendered)
+	}
+	if !m.auth.Active {
+		t.Fatal("anthropic file auth should be active")
+	}
+	if got := m.auth.Storage; got != "file" {
+		t.Fatalf("auth.Storage = %q, want %q", got, "file")
+	}
+}
+
+func TestAuthSaveFailsIfProviderStatusStillUnconfiguredAfterSave(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("ANTHROPIC_API_KEY", "")
+
+	backend := newStubBackend()
+	message := "No supported OS keychain backend is available for local provider secret storage."
+	backend.localSecretStore = rpc.LocalSecretStoreStatus{
+		Available:     false,
+		Message:       &message,
+		FileStorePath: filepath.Join(home, ".jaca", "secrets.json"),
+	}
+	backend.authStatusAfterSet["anthropic"] = rpc.AuthProviderStatus{
+		Provider:   "anthropic",
+		Configured: false,
+		Source:     "none",
+		EnvKey:     "ANTHROPIC_API_KEY",
+	}
+	m := newTestModel()
+	m.options.Backend = backend
+
+	m = sendRunes(m, "/auth anthropic")
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+	m = sendRunes(m, "sk-ant-test")
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	if m.auth.Active {
+		t.Fatal("auth flow should close after failed persistence verification")
+	}
+	rendered := stripANSI(m.transcript.Render())
+	if !strings.Contains(rendered, "Anthropic secret did not persist") {
+		t.Fatalf("transcript missing persistence failure message: %q", rendered)
 	}
 }
 

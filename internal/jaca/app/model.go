@@ -350,12 +350,16 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.phase = PhaseStreaming
 		}
 		if msg.Event.Type == "run_succeeded" {
+			contextWindow := msg.Event.NextRequestContextUsed
+			if contextWindow == nil {
+				contextWindow = msg.Event.ContextWindowUsed
+			}
 			m.activeRunSucceeded = true
 			m.lastUsage = usageSnapshot{
 				InputTokens:   msg.Event.InputTokens,
 				OutputTokens:  msg.Event.OutputTokens,
 				TotalTokens:   msg.Event.TotalTokens,
-				ContextWindow: msg.Event.ContextWindowUsed,
+				ContextWindow: contextWindow,
 			}
 		}
 		if msg.Event.Type == "run_failed" {

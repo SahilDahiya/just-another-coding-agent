@@ -11,6 +11,9 @@ from just_another_coding_agent.contracts.auth import (
     ProviderAuthStatus,
 )
 from just_another_coding_agent.contracts.model_catalog import ProviderName
+from just_another_coding_agent.provider_readiness import (
+    compute_provider_readiness,
+)
 
 SECRET_STORE_SERVICE = "just-another-coding-agent"
 SECRET_FILE_PATH = Path.home() / ".jaca" / "secrets.json"
@@ -78,40 +81,7 @@ def resolve_provider_secret(
 
 
 def get_provider_auth_status(provider: ProviderName) -> ProviderAuthStatus:
-    env_key = _provider_env_key(provider)
-    env_value = os.environ.get(env_key, "").strip()
-    if env_value:
-        return ProviderAuthStatus(
-            provider=provider,
-            configured=True,
-            source="env",
-            env_key=env_key,
-        )
-
-    keychain_value = _get_keychain_secret(provider, allow_missing_keychain=True)
-    if keychain_value:
-        return ProviderAuthStatus(
-            provider=provider,
-            configured=True,
-            source="keychain",
-            env_key=env_key,
-        )
-
-    file_store_value = _get_file_store_secret(provider)
-    if file_store_value:
-        return ProviderAuthStatus(
-            provider=provider,
-            configured=True,
-            source="file",
-            env_key=env_key,
-        )
-
-    return ProviderAuthStatus(
-        provider=provider,
-        configured=False,
-        source="none",
-        env_key=env_key,
-    )
+    return compute_provider_readiness(provider)
 
 
 def list_provider_auth_statuses() -> list[ProviderAuthStatus]:
@@ -162,7 +132,7 @@ def set_provider_secret(
         _set_file_store_secret(provider, trimmed)
     else:  # pragma: no cover - guarded by typed callers
         raise ValueError(f"unknown auth storage: {storage}")
-    return get_provider_auth_status(provider)
+    return compute_provider_readiness(provider)
 
 
 def clear_provider_secret(provider: ProviderName) -> ProviderAuthStatus:
@@ -185,7 +155,7 @@ def clear_provider_secret(provider: ProviderName) -> ProviderAuthStatus:
                     _auth_store_error_message(keyring=keyring, error=error)
                 ) from error
     _clear_file_store_secret(provider)
-    return get_provider_auth_status(provider)
+    return compute_provider_readiness(provider)
 
 
 def _provider_env_key(provider: ProviderName) -> str:

@@ -13,7 +13,10 @@ from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 
 from just_another_coding_agent.auth import AuthStoreError
 from just_another_coding_agent.contracts.auth import ProviderAuthStatus
-from just_another_coding_agent.rpc.session_store import session_path_for_id
+from just_another_coding_agent.rpc.session_store import (
+    create_session,
+    session_path_for_id,
+)
 from just_another_coding_agent.rpc.stdio import handle_rpc_json_line
 from just_another_coding_agent.session import load_session
 
@@ -480,27 +483,39 @@ async def test_handle_rpc_json_line_returns_auth_status(
         lambda: [
             ProviderAuthStatus(
                 provider="ollama",
-                configured=False,
+                configured=True,
+                secret_configured=False,
+                requires_secret=False,
                 source="none",
                 env_key="OLLAMA_API_KEY",
+                reason="local_endpoint_no_secret_required",
             ),
             ProviderAuthStatus(
                 provider="openai",
                 configured=True,
+                secret_configured=True,
+                requires_secret=True,
                 source="keychain",
                 env_key="OPENAI_API_KEY",
+                reason="ok",
             ),
             ProviderAuthStatus(
                 provider="anthropic",
                 configured=False,
+                secret_configured=False,
+                requires_secret=True,
                 source="none",
                 env_key="ANTHROPIC_API_KEY",
+                reason="missing_secret",
             ),
             ProviderAuthStatus(
                 provider="google",
                 configured=False,
+                secret_configured=False,
+                requires_secret=True,
                 source="none",
                 env_key="GOOGLE_API_KEY",
+                reason="missing_secret",
             ),
         ],
     )
@@ -532,27 +547,39 @@ async def test_handle_rpc_json_line_returns_auth_status(
                 "providers": [
                     {
                         "provider": "ollama",
-                        "configured": False,
+                        "configured": True,
+                        "secret_configured": False,
+                        "requires_secret": False,
                         "source": "none",
                         "env_key": "OLLAMA_API_KEY",
+                        "reason": "local_endpoint_no_secret_required",
                     },
                     {
                         "provider": "openai",
                         "configured": True,
+                        "secret_configured": True,
+                        "requires_secret": True,
                         "source": "keychain",
                         "env_key": "OPENAI_API_KEY",
+                        "reason": "ok",
                     },
                     {
                         "provider": "anthropic",
                         "configured": False,
+                        "secret_configured": False,
+                        "requires_secret": True,
                         "source": "none",
                         "env_key": "ANTHROPIC_API_KEY",
+                        "reason": "missing_secret",
                     },
                     {
                         "provider": "google",
                         "configured": False,
+                        "secret_configured": False,
+                        "requires_secret": True,
                         "source": "none",
                         "env_key": "GOOGLE_API_KEY",
+                        "reason": "missing_secret",
                     },
                 ],
                 "local_secret_store": {
@@ -582,8 +609,11 @@ async def test_handle_rpc_json_line_sets_provider_secret(
             or ProviderAuthStatus(
                 provider=provider,
                 configured=True,
+                secret_configured=True,
+                requires_secret=True,
                 source="keychain",
                 env_key="GOOGLE_API_KEY",
+                reason="ok",
             )
         ),
     )
@@ -616,8 +646,11 @@ async def test_handle_rpc_json_line_sets_provider_secret(
                 "status": {
                     "provider": "google",
                     "configured": True,
+                    "secret_configured": True,
+                    "requires_secret": True,
                     "source": "keychain",
                     "env_key": "GOOGLE_API_KEY",
+                    "reason": "ok",
                 }
             },
         }
@@ -639,8 +672,11 @@ async def test_handle_rpc_json_line_clears_provider_secret(
             or ProviderAuthStatus(
                 provider=provider,
                 configured=False,
+                secret_configured=False,
+                requires_secret=True,
                 source="none",
                 env_key="OPENAI_API_KEY",
+                reason="missing_secret",
             )
         ),
     )
@@ -667,8 +703,11 @@ async def test_handle_rpc_json_line_clears_provider_secret(
                 "status": {
                     "provider": "openai",
                     "configured": False,
+                    "secret_configured": False,
+                    "requires_secret": True,
                     "source": "none",
                     "env_key": "OPENAI_API_KEY",
+                    "reason": "missing_secret",
                 }
             },
         }
@@ -772,6 +811,47 @@ async def test_handle_rpc_json_line_returns_internal_error_for_auth_clear_store_
             "id": "req-auth-clear-fail",
             "error_type": "InternalError",
             "message": "keychain backend unavailable",
+        }
+    ]
+
+
+async def test_handle_rpc_json_line_returns_provider_not_ready_for_run_start(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    session_path = create_session(
+        sessions_root=sessions_root,
+        workspace_root=workspace_root,
+    )
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "")
+    monkeypatch.setattr(
+        "just_another_coding_agent.auth.SECRET_FILE_PATH",
+        tmp_path / "secrets.json",
+    )
+
+    messages = await _rpc_messages(
+        request_payload={
+            "id": "req-run-not-ready",
+            "command": "run.start",
+            "payload": {
+                "session_id": session_path,
+                "prompt": "hello",
+            },
+        },
+        model="anthropic:claude-sonnet-4-5",
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    assert messages == [
+        {
+            "type": "rpc_error",
+            "id": "req-run-not-ready",
+            "error_type": "ProviderNotReady",
+            "message": "anthropic is not ready: missing_secret",
         }
     ]
 

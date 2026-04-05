@@ -344,9 +344,6 @@ func (m *model) applyModelSelection(model string, provider string) ([]string, bo
 }
 
 func (m *model) providerHasCredentials(provider string) (bool, error) {
-	if provider == "ollama" {
-		return m.ollamaCloudConfigured()
-	}
 	statuses, err := m.availableAuthStatus()
 	if err != nil {
 		return false, err
@@ -360,26 +357,6 @@ func (m *model) providerHasCredentials(provider string) (bool, error) {
 }
 
 func (m *model) providerHasCredentialsFresh(provider string) (bool, error) {
-	if provider == "ollama" {
-		hosted, err := m.ollamaUsesHostedEndpoint()
-		if err != nil {
-			return false, err
-		}
-		if !hosted {
-			return true, nil
-		}
-		statuses, err := m.fetchAuthStatus()
-		if err != nil {
-			return false, err
-		}
-		m.authStatus = &statuses
-		for _, status := range statuses.Providers {
-			if status.Provider == "ollama" {
-				return status.Configured, nil
-			}
-		}
-		return false, errors.New("missing ollama auth status")
-	}
 	statuses, err := m.fetchAuthStatus()
 	if err != nil {
 		return false, err
@@ -443,13 +420,6 @@ func (m *model) startCredentialSetup(
 }
 
 func (m *model) ollamaCloudConfigured() (bool, error) {
-	hosted, err := m.ollamaUsesHostedEndpoint()
-	if err != nil {
-		return false, err
-	}
-	if !hosted {
-		return true, nil
-	}
 	statuses, err := m.availableAuthStatus()
 	if err != nil {
 		return false, err
@@ -469,7 +439,7 @@ func (m *model) ollamaCloudAuthConfigured() (bool, error) {
 	}
 	for _, status := range statuses.Providers {
 		if status.Provider == "ollama" {
-			return status.Configured, nil
+			return status.SecretConfigured, nil
 		}
 	}
 	return false, errors.New("missing ollama auth status")
@@ -534,6 +504,9 @@ func (m *model) writeAuthStatus() {
 		state := "missing"
 		if status.Configured {
 			state = "configured"
+		}
+		if status.Configured && status.Reason == "local_endpoint_no_secret_required" {
+			state = "configured (no secret required)"
 		}
 		m.transcript.WriteLine(
 			fmt.Sprintf("%s: %s (%s)", status.Provider, state, status.Source),

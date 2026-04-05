@@ -49,8 +49,11 @@ def test_set_and_resolve_provider_secret_uses_keyring(monkeypatch) -> None:
 
     assert status.provider == "openai"
     assert status.configured is True
+    assert status.secret_configured is True
+    assert status.requires_secret is True
     assert status.source == "keychain"
     assert status.env_key == "OPENAI_API_KEY"
+    assert status.reason == "ok"
     assert fake.get_password(SECRET_STORE_SERVICE, "OPENAI_API_KEY") == "test-key"
     assert resolve_provider_secret("openai") == "test-key"
 
@@ -68,8 +71,11 @@ def test_get_provider_auth_status_prefers_environment(monkeypatch) -> None:
 
     assert status.provider == "google"
     assert status.configured is True
+    assert status.secret_configured is True
+    assert status.requires_secret is True
     assert status.source == "env"
     assert status.env_key == "GOOGLE_API_KEY"
+    assert status.reason == "ok"
     assert resolve_provider_secret("google") == "from-env"
 
 
@@ -86,8 +92,11 @@ def test_clear_provider_secret_removes_keychain_value(monkeypatch) -> None:
 
     assert status.provider == "anthropic"
     assert status.configured is False
+    assert status.secret_configured is False
+    assert status.requires_secret is True
     assert status.source == "none"
     assert status.env_key == "ANTHROPIC_API_KEY"
+    assert status.reason == "missing_secret"
     assert fake.get_password(SECRET_STORE_SERVICE, "ANTHROPIC_API_KEY") is None
 
 
@@ -200,8 +209,11 @@ def test_set_provider_secret_can_use_file_store_explicitly(
 
     assert status.provider == "google"
     assert status.configured is True
+    assert status.secret_configured is True
+    assert status.requires_secret is True
     assert status.source == "file"
     assert status.env_key == "GOOGLE_API_KEY"
+    assert status.reason == "ok"
     assert resolve_provider_secret("google") == "file-token"
     assert secret_path.exists()
 
@@ -221,6 +233,72 @@ def test_clear_provider_secret_removes_file_store_value(
 
     assert status.provider == "openai"
     assert status.configured is False
+    assert status.secret_configured is False
+    assert status.requires_secret is True
     assert status.source == "none"
+    assert status.reason == "missing_secret"
     assert resolve_provider_secret("openai", allow_missing_keychain=True) is None
     assert not secret_path.exists()
+
+
+def test_get_provider_auth_status_marks_local_ollama_ready_without_secret(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setattr(
+        "just_another_coding_agent.auth.SECRET_FILE_PATH",
+        tmp_path / "secrets.json",
+    )
+    monkeypatch.delenv("OLLAMA_API_KEY", raising=False)
+    monkeypatch.delenv("OLLAMA_BASE_URL", raising=False)
+
+    status = get_provider_auth_status("ollama")
+
+    assert status.provider == "ollama"
+    assert status.configured is True
+    assert status.secret_configured is False
+    assert status.requires_secret is False
+    assert status.source == "none"
+    assert status.reason == "local_endpoint_no_secret_required"
+
+
+def test_get_provider_auth_status_marks_hosted_ollama_missing_without_secret(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setattr(
+        "just_another_coding_agent.auth.SECRET_FILE_PATH",
+        tmp_path / "secrets.json",
+    )
+    monkeypatch.delenv("OLLAMA_API_KEY", raising=False)
+    monkeypatch.setenv("OLLAMA_BASE_URL", "https://ollama.com/v1")
+
+    status = get_provider_auth_status("ollama")
+
+    assert status.provider == "ollama"
+    assert status.configured is False
+    assert status.secret_configured is False
+    assert status.requires_secret is True
+    assert status.source == "none"
+    assert status.reason == "missing_secret"
+
+
+def test_get_provider_auth_status_marks_local_openai_endpoint_ready_without_secret(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setattr(
+        "just_another_coding_agent.auth.SECRET_FILE_PATH",
+        tmp_path / "secrets.json",
+    )
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("OPENAI_BASE_URL", "http://localhost:1234/v1")
+
+    status = get_provider_auth_status("openai")
+
+    assert status.provider == "openai"
+    assert status.configured is True
+    assert status.secret_configured is False
+    assert status.requires_secret is False
+    assert status.source == "none"
+    assert status.reason == "local_endpoint_no_secret_required"

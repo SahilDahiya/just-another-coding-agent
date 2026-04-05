@@ -153,6 +153,7 @@ class RunSucceededEvent(_RunEventBase):
     output_tokens: int | None = None
     total_tokens: int | None = None
     context_window_used: float | None = None
+    next_request_context_window_used: float | None = None
 
 
 class RunFailedEvent(_RunEventBase):

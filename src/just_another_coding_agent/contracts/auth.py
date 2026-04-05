@@ -8,6 +8,11 @@ from .model_catalog import ProviderName
 
 AuthSource = Literal["env", "keychain", "file", "none"]
 AuthStorageKind = Literal["keychain", "file"]
+ProviderReadinessReason = Literal[
+    "ok",
+    "missing_secret",
+    "local_endpoint_no_secret_required",
+]
 
 
 class ProviderAuthStatus(BaseModel):
@@ -15,8 +20,11 @@ class ProviderAuthStatus(BaseModel):
 
     provider: ProviderName
     configured: bool
+    secret_configured: bool
+    requires_secret: bool
     source: AuthSource
     env_key: str
+    reason: ProviderReadinessReason
 
 
 class LocalSecretStoreStatus(BaseModel):
@@ -32,4 +40,5 @@ __all__ = [
     "AuthStorageKind",
     "LocalSecretStoreStatus",
     "ProviderAuthStatus",
+    "ProviderReadinessReason",
 ]

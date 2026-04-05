@@ -20,6 +20,7 @@ from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 from pydantic_ai.models.test import TestModel
 
 import just_another_coding_agent.runtime.session as runtime_session_module
+from just_another_coding_agent.contracts.compaction import CompactionBudgetReport
 from just_another_coding_agent.contracts.run_events import (
     ReadActivityDetails,
     RunFailedEvent,
@@ -520,6 +521,51 @@ async def test_stream_session_run_events_persists_turn_context_snapshot(
         f"Current workspace root: {workspace_root.resolve()}"
         in loaded.latest_turn_context.runtime_context_text
     )
+
+
+async def test_stream_session_run_events_reports_next_request_context_window_used(
+    tmp_path, monkeypatch
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    session_path = tmp_path / "session.jsonl"
+
+    def fake_budget_report(*args, **kwargs) -> CompactionBudgetReport:
+        return CompactionBudgetReport(
+            should_compact=False,
+            reason="within_budget",
+            context_window_tokens=200_000,
+            effective_context_window_tokens=184_000,
+            output_headroom_tokens=16_000,
+            trigger_budget_tokens=128_800,
+            prompt_reserve_tokens=24_000,
+            estimation_method="chars_per_token_v1",
+            estimated_runtime_context_tokens=2_000,
+            estimated_resume_message_tokens=8_000,
+            estimated_pre_run_tokens=14_000,
+            estimated_post_compaction_headroom_tokens=170_000,
+            runs_since_latest_compaction=1,
+        )
+
+    monkeypatch.setattr(
+        runtime_session_module,
+        "build_auto_compact_session_budget_report",
+        fake_budget_report,
+    )
+
+    events = [
+        event
+        async for event in stream_session_run_events(
+            model=FunctionModel(stream_function=text_only_stream),
+            workspace_root=workspace_root,
+            session_path=session_path,
+            prompt="hello",
+        )
+    ]
+
+    terminal = events[-1]
+    assert isinstance(terminal, RunSucceededEvent)
+    assert terminal.next_request_context_window_used == 0.07
 
 
 async def test_stream_session_run_events_injects_runtime_context_prefix_on_new_run(

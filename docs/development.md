@@ -105,7 +105,9 @@ Inside the TUI:
 
 - `/auth <provider>` stores the provider secret in the local OS keychain by default, or in `~/.jaca/secrets.json` when no supported keychain backend exists
 - `/auth google` stores the hosted Gemini `GOOGLE_API_KEY` through that same local-secret path
-- `/auth status` reports `env`, `keychain`, `file`, or `none` per provider
+- `/auth status` reports backend-owned provider readiness per provider,
+  including whether the current effective path requires a secret and where any
+  discovered secret came from
 - `/auth clear <provider>` removes the stored local secret from both keychain and file storage
 
 `~/.jaca/config.json` stores only non-secret preferences such as

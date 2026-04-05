@@ -23,12 +23,25 @@ def _copy_launcher(tmp_path: Path) -> Path:
     scripts_dir = repo_root / "evaluations" / "scripts"
     scripts_dir.mkdir(parents=True)
     launcher_path = scripts_dir / SCRIPT_PATH.name
+    validator_src = (
+        Path(__file__).resolve().parents[2]
+        / "evaluations"
+        / "scripts"
+        / "validate_tb2_bundle.py"
+    )
+    validator_dst = scripts_dir / "validate_tb2_bundle.py"
     launcher_path.write_text(
         SCRIPT_PATH.read_text(encoding="utf-8").replace("\r\n", "\n"),
         encoding="utf-8",
         newline="\n",
     )
     launcher_path.chmod(0o755)
+    validator_dst.write_text(
+        validator_src.read_text(encoding="utf-8").replace("\r\n", "\n"),
+        encoding="utf-8",
+        newline="\n",
+    )
+    validator_dst.chmod(0o755)
     return launcher_path
 
 
@@ -68,8 +81,37 @@ def _launcher_env(tmp_path: Path) -> dict[str, str]:
         bin_dir / "harbor",
         (
             "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
             'printf "%s\\0" "$@" >> "$HARBOR_LOG"\n'
             'printf "\\n" >> "$HARBOR_LOG"\n'
+            'job_name=""\n'
+            'jobs_dir=""\n'
+            "tasks=(full-submission)\n"
+            'while (($#)); do\n'
+            '  case "$1" in\n'
+            '    --job-name)\n'
+            '      job_name="$2"; shift 2;;\n'
+            '    --jobs-dir)\n'
+            '      jobs_dir="$2"; shift 2;;\n'
+            '    *)\n'
+            '      shift;;\n'
+            '  esac\n'
+            'done\n'
+            'if [[ -n "${job_name}" && -n "${jobs_dir}" ]]; then\n'
+            '  mkdir -p "${jobs_dir}/${job_name}"\n'
+            '  for task in "${tasks[@]}"; do\n'
+            '    trial_dir="${jobs_dir}/${job_name}/${task}__stub"\n'
+            '    mkdir -p "${trial_dir}"\n'
+            '    TASK_NAME="$task" TRIAL_DIR="$trial_dir" python3 - <<'"'"'PY'"'"'\n'
+            'import hashlib, json, os\n'
+            'task = os.environ["TASK_NAME"]\n'
+            'trial_dir = os.environ["TRIAL_DIR"]\n'
+            'payload = {"task_name": task, "task_checksum": hashlib.sha256(task.encode()).hexdigest()}\n'
+            'with open(os.path.join(trial_dir, "result.json"), "w", encoding="utf-8") as fh:\n'
+            '    json.dump(payload, fh)\n'
+            'PY\n'
+            '  done\n'
+            'fi\n'
             'exit "${HARBOR_EXIT_CODE:-0}"\n'
         ),
     )

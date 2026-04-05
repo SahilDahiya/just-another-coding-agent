@@ -13,7 +13,8 @@ func TestDecodeEnvelopePreservesRunSucceededUsageFields(t *testing.T) {
 			"input_tokens":120,
 			"output_tokens":45,
 			"total_tokens":165,
-			"context_window_used":0.413
+			"context_window_used":0.413,
+			"next_request_context_window_used":0.07
 		}
 	}`)
 
@@ -38,6 +39,9 @@ func TestDecodeEnvelopePreservesRunSucceededUsageFields(t *testing.T) {
 	}
 	if envelope.Event.ContextWindowUsed == nil || *envelope.Event.ContextWindowUsed != 0.413 {
 		t.Fatalf("ContextWindowUsed = %v, want 0.413", envelope.Event.ContextWindowUsed)
+	}
+	if envelope.Event.NextRequestContextUsed == nil || *envelope.Event.NextRequestContextUsed != 0.07 {
+		t.Fatalf("NextRequestContextUsed = %v, want 0.07", envelope.Event.NextRequestContextUsed)
 	}
 }
 

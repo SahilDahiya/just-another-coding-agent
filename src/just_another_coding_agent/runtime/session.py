@@ -31,8 +31,17 @@ from just_another_coding_agent.contracts.run_events import (
     ToolCallStartedEvent,
     ToolCallSucceededEvent,
 )
+from just_another_coding_agent.contracts.session import (
+    LoadedSession,
+    SessionHeaderEntry,
+    SessionRunRecord,
+)
 from just_another_coding_agent.contracts.thinking import ThinkingSetting
 from just_another_coding_agent.contracts.tools import CANONICAL_TOOL_NAMES
+from just_another_coding_agent.provider_readiness import (
+    ProviderReadinessError,
+    compute_model_readiness,
+)
 from just_another_coding_agent.runtime.activity import build_failed_tool_activity
 from just_another_coding_agent.runtime.agent import build_canonical_agent
 from just_another_coding_agent.runtime.compaction import (
@@ -69,6 +78,85 @@ def _estimated_compaction_percent_saved(
         return 0.0
     saved_tokens = max(0, before_tokens - after_tokens)
     return saved_tokens / before_tokens
+
+
+def _build_loaded_session_after_success(
+    *,
+    loaded_session: LoadedSession | None,
+    workspace_root: str,
+    shell_family,
+    run_id: str,
+    prompt: str,
+    thinking: ThinkingSetting | None,
+    messages: Sequence[ModelMessage],
+    turn_context,
+) -> LoadedSession:
+    if loaded_session is None:
+        header = SessionHeaderEntry(
+            workspace_root=workspace_root,
+            shell_family=shell_family,
+        )
+        runs: list[SessionRunRecord] = []
+        compactions = []
+    else:
+        header = loaded_session.header
+        runs = list(loaded_session.runs)
+        compactions = list(loaded_session.compactions)
+
+    runs.append(
+        SessionRunRecord(
+            run_id=run_id,
+            prompt=prompt,
+            thinking=thinking,
+            messages=list(messages),
+            events=[],
+        )
+    )
+    return LoadedSession(
+        header=header,
+        fork=loaded_session.fork if loaded_session is not None else None,
+        name=loaded_session.name if loaded_session is not None else None,
+        runs=runs,
+        latest_turn_context=turn_context,
+        has_persisted_turn_context_history=True,
+        compactions=compactions,
+    )
+
+
+def _estimate_next_request_context_window_used(
+    *,
+    loaded_session: LoadedSession | None,
+    model: Any,
+    workspace_root: str,
+    current_date: date,
+    shell_family,
+    thinking: ThinkingSetting | None,
+    run_id: str,
+    prompt: str,
+    messages: Sequence[ModelMessage],
+    turn_context,
+) -> float | None:
+    projected_session = _build_loaded_session_after_success(
+        loaded_session=loaded_session,
+        workspace_root=workspace_root,
+        shell_family=shell_family,
+        run_id=run_id,
+        prompt=prompt,
+        thinking=thinking,
+        messages=messages,
+        turn_context=turn_context,
+    )
+    report = build_auto_compact_session_budget_report(
+        projected_session,
+        model=model,
+        workspace_root=workspace_root,
+        current_date=current_date,
+        shell_family=shell_family,
+        thinking=thinking,
+    )
+    if report.context_window_tokens is None or report.context_window_tokens <= 0:
+        return None
+    return round(report.estimated_pre_run_tokens / report.context_window_tokens, 3)
 
 
 def _strip_unresolved_tool_calls_from_messages(
@@ -180,6 +268,12 @@ async def stream_session_run_events(
     normalized_workspace_root = normalize_workspace_root(workspace_root)
     shell_family = detect_default_shell_family()
     current_date = date.today()
+    if isinstance(model, str):
+        readiness = compute_model_readiness(model)
+        if not readiness.configured:
+            raise ProviderReadinessError(
+                f"{readiness.provider} is not ready: {readiness.reason}"
+            )
     loaded_session = None
     if session_path.exists():
         loaded_session = load_session(
@@ -363,6 +457,31 @@ async def stream_session_run_events(
                         run_id=event.run_id,
                         prompt=prompt,
                         thinking=resolved_thinking,
+                    )
+                if isinstance(event, RunSucceededEvent):
+                    finalized_messages = (
+                        authoritative_messages
+                        if authoritative_messages is not None
+                        else list(messages)[preexisting_history_count:]
+                    )
+                    finalized_messages = strip_internal_prompt_state(finalized_messages)
+                    event = event.model_copy(
+                        update={
+                            "next_request_context_window_used": (
+                                _estimate_next_request_context_window_used(
+                                    loaded_session=loaded_session,
+                                    model=model,
+                                    workspace_root=str(normalized_workspace_root),
+                                    current_date=current_date,
+                                    shell_family=shell_family,
+                                    thinking=resolved_thinking,
+                                    run_id=event.run_id,
+                                    prompt=prompt,
+                                    messages=finalized_messages,
+                                    turn_context=run_turn_context,
+                                )
+                            )
+                        }
                     )
                 run_appender.append_event(event)
                 if isinstance(event, ToolCallStartedEvent):

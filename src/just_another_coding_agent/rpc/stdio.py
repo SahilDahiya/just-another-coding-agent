@@ -46,6 +46,7 @@ from just_another_coding_agent.contracts.rpc import (
     SessionPreviewResponse,
 )
 from just_another_coding_agent.contracts.tools import CANONICAL_TOOL_NAMES
+from just_another_coding_agent.provider_readiness import ProviderReadinessError
 from just_another_coding_agent.rpc.session_store import (
     create_session,
     session_path_for_id,
@@ -329,6 +330,13 @@ async def handle_rpc_json_line(
         yield RpcErrorEnvelope(
             id=request.id,
             error_type="InvalidSession",
+            message=str(error),
+        ).model_dump_json()
+        return
+    except ProviderReadinessError as error:
+        yield RpcErrorEnvelope(
+            id=request.id,
+            error_type="ProviderNotReady",
             message=str(error),
         ).model_dump_json()
         return

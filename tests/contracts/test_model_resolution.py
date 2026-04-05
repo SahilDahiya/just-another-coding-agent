@@ -1,5 +1,6 @@
 import os
 
+import pytest
 from pydantic_ai.models import infer_model
 from pydantic_ai.models.anthropic import AnthropicModel
 from pydantic_ai.models.function import FunctionModel
@@ -183,6 +184,36 @@ def test_resolve_canonical_model_uses_default_ollama_base_url_when_unset(
     assert isinstance(unwrapped, OpenAIChatModel)
     assert isinstance(model._provider, OllamaProvider)
     assert model._provider.base_url == f"{DEFAULT_OLLAMA_BASE_URL}/"
+
+
+def test_resolve_canonical_model_rejects_missing_hosted_openai_secret(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setattr(
+        "just_another_coding_agent.auth.SECRET_FILE_PATH",
+        tmp_path / "secrets.json",
+    )
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://example.test/v1")
+
+    with pytest.raises(RuntimeError, match="OpenAI is not ready"):
+        resolve_canonical_model("openai-responses:gpt-5.3-codex")
+
+
+def test_resolve_canonical_model_rejects_missing_hosted_ollama_secret(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setattr(
+        "just_another_coding_agent.auth.SECRET_FILE_PATH",
+        tmp_path / "secrets.json",
+    )
+    monkeypatch.delenv("OLLAMA_API_KEY", raising=False)
+    monkeypatch.setenv("OLLAMA_BASE_URL", "https://ollama.com/v1")
+
+    with pytest.raises(RuntimeError, match="Ollama cloud is not ready"):
+        resolve_canonical_model("ollama:glm-5:cloud")
 
 
 def test_resolve_canonical_model_wraps_with_instrumentation_when_enabled(

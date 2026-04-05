@@ -23,6 +23,10 @@ from tenacity import retry_if_exception_type, stop_after_attempt
 
 from just_another_coding_agent.auth import resolve_provider_secret
 from just_another_coding_agent.contracts.thinking import ThinkingSetting
+from just_another_coding_agent.provider_readiness import (
+    ProviderReadinessError,
+    compute_provider_readiness,
+)
 from just_another_coding_agent.runtime.env import trace_mode
 
 OPENAI_COMPATIBLE_RETRYABLE_STATUS_CODES = frozenset(
@@ -94,9 +98,10 @@ def _build_openai_chat_model(model_id: str) -> OpenAIChatModel:
 
 def _build_openai_provider() -> OpenAIProvider:
     base_url = os.environ.get("OPENAI_BASE_URL")
+    readiness = compute_provider_readiness("openai")
+    if not readiness.configured:
+        raise ProviderReadinessError("OpenAI is not ready: missing secret")
     api_key = resolve_provider_secret("openai")
-    if api_key is None and "OPENAI_API_KEY" not in os.environ and base_url is not None:
-        api_key = "api-key-not-set"
 
     return OpenAIProvider(
         openai_client=_build_openai_compatible_client(
@@ -115,6 +120,9 @@ def _build_anthropic_model(model_id: str) -> AnthropicModel:
 
 
 def _build_anthropic_provider() -> AnthropicProvider:
+    readiness = compute_provider_readiness("anthropic")
+    if not readiness.configured:
+        raise ProviderReadinessError("Anthropic is not ready: missing secret")
     return AnthropicProvider(api_key=resolve_provider_secret("anthropic"))
 
 
@@ -128,10 +136,10 @@ def _build_ollama_chat_model(model_id: str) -> OpenAIChatModel:
 
 def _build_ollama_provider() -> OllamaProvider:
     base_url = os.environ.get("OLLAMA_BASE_URL") or DEFAULT_OLLAMA_BASE_URL
-    api_key = (
-        resolve_provider_secret("ollama", allow_missing_keychain=True)
-        or "api-key-not-set"
-    )
+    readiness = compute_provider_readiness("ollama")
+    if readiness.requires_secret and not readiness.configured:
+        raise ProviderReadinessError("Ollama cloud is not ready: missing secret")
+    api_key = resolve_provider_secret("ollama", allow_missing_keychain=True)
     return OllamaProvider(
         openai_client=_build_openai_compatible_client(
             base_url=base_url,
@@ -143,6 +151,9 @@ def _build_ollama_provider() -> OllamaProvider:
 def _build_google_model(model_id: str) -> Model:
     google_model_cls, google_provider_cls = _google_model_types()
     _, model_name = model_id.split(":", 1)
+    readiness = compute_provider_readiness("google")
+    if not readiness.configured:
+        raise ProviderReadinessError("Google is not ready: missing secret")
     return google_model_cls(
         model_name,
         provider=google_provider_cls(api_key=resolve_provider_secret("google")),

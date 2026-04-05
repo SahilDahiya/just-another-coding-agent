@@ -102,20 +102,45 @@ func (m *model) handleAuthEnter() (tea.Model, tea.Cmd) {
 		m.refreshViewport()
 		return m, nil
 	}
-	statuses, statusErr := m.availableAuthStatus()
+
+	statuses, statusErr := m.fetchAuthStatus()
 	if statusErr == nil {
-		updated := false
-		for i := range statuses.Providers {
-			if statuses.Providers[i].Provider == response.Status.Provider {
-				statuses.Providers[i] = response.Status
-				updated = true
+		m.authStatus = &statuses
+		persisted := false
+		for _, status := range statuses.Providers {
+			if status.Provider == response.Status.Provider {
+				if !status.SecretConfigured {
+					pendingPrompt := m.auth.PendingPrompt
+					m.endAuthFlow()
+					m.restorePendingPrompt(pendingPrompt)
+					m.transcript.WriteError(
+						fmt.Sprintf(
+							"%s secret did not persist; current auth source is %s",
+							authProviderLabel(response.Status.Provider),
+							status.Source,
+						),
+					)
+					m.refreshViewport()
+					return m, nil
+				}
+				response.Status = status
+				persisted = true
 				break
 			}
 		}
-		if !updated {
-			statuses.Providers = append(statuses.Providers, response.Status)
+		if !persisted {
+			pendingPrompt := m.auth.PendingPrompt
+			m.endAuthFlow()
+			m.restorePendingPrompt(pendingPrompt)
+			m.transcript.WriteError(
+				fmt.Sprintf(
+					"%s secret did not persist; provider status unavailable after save",
+					authProviderLabel(response.Status.Provider),
+				),
+			)
+			m.refreshViewport()
+			return m, nil
 		}
-		m.authStatus = &statuses
 	}
 
 	lines := []string{

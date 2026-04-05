@@ -13,7 +13,8 @@ catalog, provider defaults, and model-context metadata. Go may fetch and render
 that catalog, but it must not hardcode or reinterpret shipped model semantics
 locally.
 Provider auth semantics follow the same rule: Python owns auth meaning,
-provider-specific credential rules, and secret-store resolution order. Go may
+provider-specific readiness rules, secret-store resolution order, and
+effective endpoint auth requirements. Go may
 render `/auth` UX, but it must not become a second owner of secret storage or
 provider-auth policy.
 

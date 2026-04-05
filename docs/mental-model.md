@@ -39,7 +39,7 @@ Rules:
 - The canonical backend does not impose a backend-level request or tool-call ceiling within a run.
 
 `stream_run_events()` in `runtime/run.py` translates PydanticAI's internal events into these canonical public events. Runtime exceptions before a terminal event are converted into canonical failure events by design. Any exception after terminal success is invalid state and is raised.
-Successful runs may also carry additive usage metadata such as `input_tokens`, `output_tokens`, `total_tokens`, and `context_window_used` when the provider reports it and the backend can determine the active model context window.
+Successful runs may also carry additive usage metadata such as `input_tokens`, `output_tokens`, `total_tokens`, `context_window_used`, and `next_request_context_window_used`. The first three describe the completed run. `next_request_context_window_used` is different: it is the backend estimate of what the next resumed request would send back to the model.
 Session-backed runs may also emit one pre-run `session_turn_context_status`
 event before `run_started` so clients can see whether the persisted
 runtime-framing baseline was missing, reused, or cleared for that run.
@@ -50,7 +50,7 @@ RPC (Remote Procedure Call) is how non-Python programs talk to this backend. The
 
 Core RPC commands:
 
-- `auth.status` -- reports backend-owned auth status per shipped provider
+- `auth.status` -- reports backend-owned provider readiness per shipped provider
 - `auth.set` -- stores one provider secret in the canonical local secret store, with an explicit storage mode
 - `auth.clear` -- removes one stored local provider secret
 - `session.create` -- creates a new session, returns a server-generated opaque `session_id`
@@ -64,7 +64,7 @@ Example flow:
 {"id": "req-0", "command": "auth.status", "payload": {}}
 ```
 ```json
-{"type": "rpc_response", "id": "req-0", "response": {"providers": [{"provider": "openai", "configured": false, "source": "none", "env_key": "OPENAI_API_KEY"}], "local_secret_store": {"available": true, "message": null, "file_store_path": "/home/user/.jaca/secrets.json"}}}
+{"type": "rpc_response", "id": "req-0", "response": {"providers": [{"provider": "openai", "configured": false, "secret_configured": false, "requires_secret": true, "source": "none", "env_key": "OPENAI_API_KEY", "reason": "missing_secret"}], "local_secret_store": {"available": true, "message": null, "file_store_path": "/home/user/.jaca/secrets.json"}}}
 ```
 ```json
 {"id": "req-1", "command": "session.create", "payload": {}}
@@ -92,7 +92,7 @@ Three response types:
   session lifecycle events such as automatic compaction
 - `rpc_error` -- protocol-level problems only (bad JSON, unknown command, unknown session, invalid session state)
 
-Clients never see filesystem paths or workspace identifiers. Session identity is an opaque hex string. Provider auth is backend-owned too: provider secrets resolve from environment first, then OS keychain, then the local secret file when keychain storage is unavailable. The config file is not a secret store, and `auth.status` tells clients whether interactive local secret storage is available before they prompt for a secret.
+Clients never see filesystem paths or workspace identifiers. Session identity is an opaque hex string. Provider auth is backend-owned too: provider secrets resolve from environment first, then OS keychain, then the local secret file when keychain storage is unavailable. Provider readiness is computed from that secret state plus the effective provider path and endpoint configuration. The config file is not a secret store, and `auth.status` tells clients both whether interactive local secret storage is available and whether each provider is currently ready to run.
 
 ### Session
 
@@ -115,7 +115,7 @@ Example:
 {"type":"session_info","name":"auth-store-cleanup-followup"}
 {"type":"session_run","run_id":"abc","prompt":"fix bug","thinking":"high"}
 {"type":"session_event","run_id":"abc","event":{"type":"run_started","run_id":"abc"}}
-{"type":"session_event","run_id":"abc","event":{"type":"run_succeeded","run_id":"abc","output_text":"done","total_tokens":1234,"context_window_used":0.031}}
+{"type":"session_event","run_id":"abc","event":{"type":"run_succeeded","run_id":"abc","output_text":"done","total_tokens":1234,"context_window_used":0.031,"next_request_context_window_used":0.018}}
 {"type":"session_messages","run_id":"abc","messages":[...]}
 {"type":"session_turn_context","run_id":"abc","model":"openai-responses:gpt-5.3-codex","thinking":"high","workspace_root":"/abs/path/to/workspace","shell_family":"posix","current_date":"2026-04-03","timezone":"America/Los_Angeles","runtime_context_text":"Current date: 2026-04-03\nCurrent timezone: America/Los_Angeles\nCurrent workspace root: /abs/path/to/workspace\nCurrent shell family: posix (bash)\nCurrent model: openai-responses:gpt-5.3-codex\nCurrent thinking setting: high"}
 {"type":"session_compaction","compaction_id":"cmp-1","compacted_through_run_id":"abc","replacement_messages":[...]}

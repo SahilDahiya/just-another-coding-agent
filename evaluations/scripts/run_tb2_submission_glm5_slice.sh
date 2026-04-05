@@ -3,6 +3,7 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_ROOT"
+VALIDATOR_SCRIPT="$REPO_ROOT/evaluations/scripts/validate_tb2_bundle.py"
 
 if [[ "${SKIP_DOTENV:-0}" != "1" && -f .env ]]; then
   set -a
@@ -168,6 +169,15 @@ run_pass() {
     echo "Rerun the script to launch the same slice pass number again." >&2
     return "$status"
   fi
+
+  local validator_args=("$JOBS_DIR/$job_name")
+  if [[ -f "$COMPLETED_JOBS_PATH" ]]; then
+    while IFS= read -r completed_job || [[ -n "$completed_job" ]]; do
+      [[ -z "$completed_job" ]] && continue
+      validator_args+=("$JOBS_DIR/$completed_job")
+    done <"$COMPLETED_JOBS_PATH"
+  fi
+  python3 "$VALIDATOR_SCRIPT" "${validator_args[@]}"
 
   printf "%s\n" "$job_name" >>"$COMPLETED_JOBS_PATH"
 }

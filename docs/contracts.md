@@ -56,6 +56,9 @@ Rules:
 - Auth status and local secret-store shapes are backend-owned contract types in
   `contracts/auth.py`; runtime auth code and RPC models both import those
   shared contract models rather than defining or mirroring them locally.
+- Provider readiness is backend-owned too. It is computed from the effective
+  provider path, endpoint configuration, and local secret-store state rather
+  than inferred from forgiving provider construction.
 - Local provider-secret resolution is backend-owned and uses this precedence:
   environment, then OS keychain, then explicit local secret file, then hard
   failure.
@@ -316,7 +319,7 @@ Initial executable run slice:
 - `assistant_text_delta`
   - fields: `type`, `run_id`, `delta`
 - `run_succeeded`
-  - fields: `type`, `run_id`, `output_text`, `input_tokens`, `output_tokens`, `total_tokens`, `context_window_used`
+  - fields: `type`, `run_id`, `output_text`, `input_tokens`, `output_tokens`, `total_tokens`, `context_window_used`, `next_request_context_window_used`
 - `run_failed`
   - fields: `type`, `run_id`, `error_type`, `message`
 
@@ -328,6 +331,7 @@ Ordering rules for the initial slice:
 - `run_succeeded` may also carry optional additive usage metadata when the model/provider reports it
 - `input_tokens`, `output_tokens`, and `total_tokens` are optional integer token counts on `run_succeeded`
 - `context_window_used` is an optional float ratio on `run_succeeded` and is omitted when the backend cannot determine the active model context window
+- `next_request_context_window_used` is an optional float ratio on `run_succeeded` representing the backend estimate of the next resumed request substrate, not the cumulative cost of all inner model/tool turns from the run that just finished
 - `budget`, `budget_before`, and `budget_after` are backend-owned
   `CompactionBudgetReport` objects. They are additive observability payloads
   for compaction decisions and must not require Go-side reinterpretation.
@@ -596,9 +600,9 @@ Initial executable RPC slice:
 - `rpc_response`
   - fields: `type`, `id`, `response`
   - initial response payloads:
-    - `{"providers": [{"provider": <provider-name>, "configured": <bool>, "source": "env" | "keychain" | "file" | "none", "env_key": <provider-env-var>}, ...], "local_secret_store": {"available": <bool>, "message": <optional-string>, "file_store_path": <abs-path>}}`
-    - `{"status": {"provider": <provider-name>, "configured": <bool>, "source": "env" | "keychain" | "file" | "none", "env_key": <provider-env-var>}}` for `auth.set`
-    - `{"status": {"provider": <provider-name>, "configured": <bool>, "source": "env" | "keychain" | "file" | "none", "env_key": <provider-env-var>}}` for `auth.clear`
+    - `{"providers": [{"provider": <provider-name>, "configured": <bool>, "secret_configured": <bool>, "requires_secret": <bool>, "source": "env" | "keychain" | "file" | "none", "env_key": <provider-env-var>, "reason": "ok" | "missing_secret" | "local_endpoint_no_secret_required"}, ...], "local_secret_store": {"available": <bool>, "message": <optional-string>, "file_store_path": <abs-path>}}`
+    - `{"status": {"provider": <provider-name>, "configured": <bool>, "secret_configured": <bool>, "requires_secret": <bool>, "source": "env" | "keychain" | "file" | "none", "env_key": <provider-env-var>, "reason": "ok" | "missing_secret" | "local_endpoint_no_secret_required"}}` for `auth.set`
+    - `{"status": {"provider": <provider-name>, "configured": <bool>, "secret_configured": <bool>, "requires_secret": <bool>, "source": "env" | "keychain" | "file" | "none", "env_key": <provider-env-var>, "reason": "ok" | "missing_secret" | "local_endpoint_no_secret_required"}}` for `auth.clear`
     - `{"session_id": <opaque-lowercase-hex-string>}`
     - `{"session_id": <opaque-lowercase-hex-string>, "name": <backend-normalized-session-name>}` for `session.name`
     - `{"session_id": <opaque-lowercase-hex-string>, "entries": [{"kind": "user" | "assistant" | "error", "text": <string>}], "truncated": <bool>}` for `session.preview`
@@ -616,6 +620,12 @@ Ordering rules for the RPC slice:
   `local_secret_store` object describing whether interactive local secret
   storage is available on this machine and where the explicit local secret file
   would live
+- `configured` means the provider is ready to run for its current effective
+  path, not merely that some secret exists
+- `secret_configured` means a secret was found through environment, keychain,
+  or explicit local file storage
+- `requires_secret` is derived from the effective provider path and endpoint
+  configuration
 - A valid `auth.set` request yields exactly one `rpc_response` and stores the
   secret in the requested backend-owned local secret store without echoing the
   secret back

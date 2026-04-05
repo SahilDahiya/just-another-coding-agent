@@ -102,10 +102,13 @@ type ModelCatalogResponse struct {
 }
 
 type AuthProviderStatus struct {
-	Provider   string `json:"provider"`
-	Configured bool   `json:"configured"`
-	Source     string `json:"source"`
-	EnvKey     string `json:"env_key"`
+	Provider         string `json:"provider"`
+	Configured       bool   `json:"configured"`
+	SecretConfigured bool   `json:"secret_configured"`
+	RequiresSecret   bool   `json:"requires_secret"`
+	Source           string `json:"source"`
+	EnvKey           string `json:"env_key"`
+	Reason           string `json:"reason"`
 }
 
 type LocalSecretStoreStatus struct {
@@ -155,26 +158,27 @@ type EventEnvelope struct {
 }
 
 type RunEvent struct {
-	Type                    string         `json:"type"`
-	RunID                   string         `json:"run_id"`
-	CompactionID            string         `json:"compaction_id,omitempty"`
-	CompactionCount         *int           `json:"compaction_count,omitempty"`
-	SummarizedThrough       string         `json:"summarized_through_run_id,omitempty"`
-	Delta                   string         `json:"delta,omitempty"`
-	ToolCallID              string         `json:"tool_call_id,omitempty"`
-	ToolName                string         `json:"tool_name,omitempty"`
-	Args                    map[string]any `json:"args,omitempty"`
-	ArgsValid               *bool          `json:"args_valid,omitempty"`
-	Result                  any            `json:"result,omitempty"`
-	Partial                 any            `json:"partial_result,omitempty"`
-	ErrorType               string         `json:"error_type,omitempty"`
-	Message                 string         `json:"message,omitempty"`
-	OutputText              string         `json:"output_text,omitempty"`
-	InputTokens             *int           `json:"input_tokens,omitempty"`
-	OutputTokens            *int           `json:"output_tokens,omitempty"`
-	TotalTokens             *int           `json:"total_tokens,omitempty"`
-	ContextWindowUsed       *float64       `json:"context_window_used,omitempty"`
-	Activity                *ToolActivity  `json:"activity,omitempty"`
+	Type                   string         `json:"type"`
+	RunID                  string         `json:"run_id"`
+	CompactionID           string         `json:"compaction_id,omitempty"`
+	CompactionCount        *int           `json:"compaction_count,omitempty"`
+	SummarizedThrough      string         `json:"summarized_through_run_id,omitempty"`
+	Delta                  string         `json:"delta,omitempty"`
+	ToolCallID             string         `json:"tool_call_id,omitempty"`
+	ToolName               string         `json:"tool_name,omitempty"`
+	Args                   map[string]any `json:"args,omitempty"`
+	ArgsValid              *bool          `json:"args_valid,omitempty"`
+	Result                 any            `json:"result,omitempty"`
+	Partial                any            `json:"partial_result,omitempty"`
+	ErrorType              string         `json:"error_type,omitempty"`
+	Message                string         `json:"message,omitempty"`
+	OutputText             string         `json:"output_text,omitempty"`
+	InputTokens            *int           `json:"input_tokens,omitempty"`
+	OutputTokens           *int           `json:"output_tokens,omitempty"`
+	TotalTokens            *int           `json:"total_tokens,omitempty"`
+	ContextWindowUsed      *float64       `json:"context_window_used,omitempty"`
+	NextRequestContextUsed *float64       `json:"next_request_context_window_used,omitempty"`
+	Activity               *ToolActivity  `json:"activity,omitempty"`
 }
 
 type ToolActivity struct {
