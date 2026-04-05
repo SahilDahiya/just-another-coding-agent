@@ -221,7 +221,7 @@ func (t *Transcript) WriteHelp() {
 		"  up                 previous prompt",
 		"  down               next prompt / restore draft",
 		"  ctrl+u             clear prompt",
-		"  esc                interrupt active run, esc again edits previous prompt",
+		"  esc                interrupt active run",
 		"  ctrl+c             copy-safe, ctrl+c again quits when idle",
 		"",
 		"provider setup",

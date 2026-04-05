@@ -107,7 +107,6 @@ type promptState struct {
 	promptHistory      []string
 	historyIndex       int
 	historyDraft       string
-	editPreviousArmed  bool
 	promptFooterNotice string
 	slashMenu          slashMenuState
 }
@@ -689,8 +688,7 @@ func (m *model) handleUpdatePromptSelection() (tea.Model, tea.Cmd) {
 func (m *model) handleInterrupt() (tea.Model, tea.Cmd) {
 	now := time.Now()
 	if m.streaming {
-		m.promptFooterNotice = "Conversation interrupted. Esc again to edit previous message."
-		m.editPreviousArmed = true
+		m.promptFooterNotice = "Conversation interrupted."
 		m.refreshViewport()
 		return m, nil
 	}
@@ -730,16 +728,9 @@ func (m *model) handleEscape() (tea.Model, tea.Cmd) {
 		m.refreshViewport()
 		return m, nil
 	}
-	if m.editPreviousArmed {
-		m.editPreviousArmed = false
-		m.promptFooterNotice = ""
-		m.restorePreviousPrompt()
-		return m, nil
-	}
 	if m.streaming {
 		m.requestRunCancel()
-		m.promptFooterNotice = "Conversation interrupted. Esc again to edit previous message."
-		m.editPreviousArmed = true
+		m.promptFooterNotice = "Conversation interrupted."
 		m.refreshViewport()
 		return m, nil
 	}
@@ -752,16 +743,6 @@ func (m *model) handleEscape() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	return m, nil
-}
-
-func (m *model) restorePreviousPrompt() {
-	if len(m.promptHistory) == 0 {
-		return
-	}
-	m.textInput.SetValue(m.promptHistory[len(m.promptHistory)-1])
-	m.historyIndex = len(m.promptHistory) - 1
-	m.syncSlashMenu()
-	m.refreshViewport()
 }
 
 func (m *model) requestRunCancel() {
@@ -810,7 +791,6 @@ func (m *model) handleEnter() (tea.Model, tea.Cmd) {
 	m.phase = PhaseStreaming
 	m.streaming = true
 	m.textInput.Blur()
-	m.editPreviousArmed = false
 	m.lastInterrupt = time.Time{}
 	m.activeRunSucceeded = false
 	m.runStartTime = time.Now()
@@ -886,7 +866,6 @@ func (m *model) resetHistoryNavigation() {
 }
 
 func (m *model) clearInterruptGuidance() {
-	m.editPreviousArmed = false
 	m.promptFooterNotice = ""
 }
 

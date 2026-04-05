@@ -79,11 +79,11 @@ func TestBuildPromptFooterTextPreservesOverride(t *testing.T) {
 	got := buildPromptFooterText(viewModel{
 		Phase:        PhaseStreaming,
 		Thinking:     "medium",
-		PromptFooter: "Conversation interrupted. Esc again to edit previous message.",
+		PromptFooter: "Conversation interrupted.",
 		RunElapsed:   10 * time.Second,
 	})
 
-	want := "Conversation interrupted. Esc again to edit previous message."
+	want := "Conversation interrupted."
 	if got != want {
 		t.Fatalf("buildPromptFooterText() = %q, want %q", got, want)
 	}

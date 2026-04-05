@@ -516,7 +516,7 @@ func TestCtrlCWhileStreamingShowsInterruptGuidanceInPromptFooter(t *testing.T) {
 	}
 
 	rendered := stripANSI(m.View())
-	if !strings.Contains(rendered, "Conversation interrupted. Esc again to edit previous message.") {
+	if !strings.Contains(rendered, "Conversation interrupted.") {
 		t.Fatalf("view missing interrupt guidance: %q", rendered)
 	}
 
@@ -617,7 +617,7 @@ func TestEscWhileStreamingWritesInterruptGuidance(t *testing.T) {
 	m = updated.(*model)
 
 	rendered := stripANSI(m.View())
-	if !strings.Contains(rendered, "Conversation interrupted. Esc again to edit previous message.") {
+	if !strings.Contains(rendered, "Conversation interrupted.") {
 		t.Fatalf("missing interrupt guidance in prompt footer: %q", rendered)
 	}
 	if !canceled {
@@ -625,7 +625,7 @@ func TestEscWhileStreamingWritesInterruptGuidance(t *testing.T) {
 	}
 }
 
-func TestSecondEscLoadsPreviousPromptIntoComposer(t *testing.T) {
+func TestSecondEscDoesNotRestorePreviousPromptIntoComposer(t *testing.T) {
 	m := newTestModel()
 	m.promptHistory = []string{"first prompt", "previous prompt"}
 	m.historyIndex = -1
@@ -636,15 +636,15 @@ func TestSecondEscLoadsPreviousPromptIntoComposer(t *testing.T) {
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	m = updated.(*model)
 
-	if !strings.Contains(stripANSI(m.View()), "Esc again to edit previous message.") {
-		t.Fatalf("first escape did not arm edit-previous flow: %q", stripANSI(m.View()))
+	if !strings.Contains(stripANSI(m.View()), "Conversation interrupted.") {
+		t.Fatalf("first escape did not render interrupt notice: %q", stripANSI(m.View()))
 	}
 
 	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	m = updated.(*model)
 
-	if got := m.textInput.Value(); got != "previous prompt" {
-		t.Fatalf("textInput.Value() = %q, want %q", got, "previous prompt")
+	if got := m.textInput.Value(); got != "" {
+		t.Fatalf("textInput.Value() = %q, want empty", got)
 	}
 }
 
@@ -676,7 +676,7 @@ func TestCtrlCWhileStreamingDoesNotRequestRunCancellation(t *testing.T) {
 		t.Fatal("expected ctrl+c to remain copy-safe while streaming")
 	}
 	rendered := stripANSI(m.View())
-	if !strings.Contains(rendered, "Conversation interrupted. Esc again to edit previous message.") {
+	if !strings.Contains(rendered, "Conversation interrupted.") {
 		t.Fatalf("missing interrupt guidance in prompt footer: %q", rendered)
 	}
 }
