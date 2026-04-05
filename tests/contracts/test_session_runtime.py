@@ -778,7 +778,7 @@ async def test_stream_session_run_events_emits_runtime_context_diff_on_shell_cha
             run_id="run-1",
             model=model,
             workspace_root=workspace_root,
-            current_date=date(2026, 4, 4),
+            current_date=date.today(),
             shell_family="posix",
         ),
     )
@@ -939,7 +939,7 @@ def test_build_runtime_context_injection_plan_uses_diff_for_date_change(
         entry=entry,
         model=model,
         workspace_root=workspace_root,
-        current_date=date(2026, 4, 4),
+        current_date=date.today(),
         has_persisted_history=True,
     )
 
@@ -947,7 +947,7 @@ def test_build_runtime_context_injection_plan_uses_diff_for_date_change(
         baseline_decision=decision,
         model=model,
         workspace_root=workspace_root,
-        current_date=date(2026, 4, 4),
+        current_date=date.today(),
     )
 
     assert [message.parts[0].content for message in plan.before_history_messages] == [
@@ -959,7 +959,7 @@ def test_build_runtime_context_injection_plan_uses_diff_for_date_change(
                 entry=entry,
                 model=model,
                 workspace_root=workspace_root,
-                current_date=date(2026, 4, 4),
+                current_date=date.today(),
             )
         ).parts[0].content
     ]
@@ -974,13 +974,13 @@ def test_build_runtime_context_injection_plan_uses_diff_for_model_change(
         run_id="run-1",
         model="different:model",
         workspace_root=workspace_root,
-        current_date=date(2026, 4, 4),
+        current_date=date.today(),
     )
     decision = evaluate_turn_context_baseline(
         entry=entry,
         model=FunctionModel(stream_function=text_only_stream),
         workspace_root=workspace_root,
-        current_date=date(2026, 4, 4),
+        current_date=date.today(),
         has_persisted_history=True,
     )
 
@@ -988,7 +988,7 @@ def test_build_runtime_context_injection_plan_uses_diff_for_model_change(
         baseline_decision=decision,
         model=FunctionModel(stream_function=text_only_stream),
         workspace_root=workspace_root,
-        current_date=date(2026, 4, 4),
+        current_date=date.today(),
     )
 
     assert [message.parts[0].content for message in plan.before_history_messages] == [
@@ -1000,7 +1000,7 @@ def test_build_runtime_context_injection_plan_uses_diff_for_model_change(
                 entry=entry,
                 model=FunctionModel(stream_function=text_only_stream),
                 workspace_root=workspace_root,
-                current_date=date(2026, 4, 4),
+                current_date=date.today(),
             )
         ).parts[0].content
     ]
@@ -1016,14 +1016,14 @@ def test_build_runtime_context_injection_plan_uses_diff_for_thinking_change(
         run_id="run-1",
         model=model,
         workspace_root=workspace_root,
-        current_date=date(2026, 4, 4),
+        current_date=date.today(),
         thinking="high",
     )
     decision = evaluate_turn_context_baseline(
         entry=entry,
         model=model,
         workspace_root=workspace_root,
-        current_date=date(2026, 4, 4),
+        current_date=date.today(),
         thinking="low",
         has_persisted_history=True,
     )
@@ -1032,7 +1032,7 @@ def test_build_runtime_context_injection_plan_uses_diff_for_thinking_change(
         baseline_decision=decision,
         model=model,
         workspace_root=workspace_root,
-        current_date=date(2026, 4, 4),
+        current_date=date.today(),
         thinking="low",
     )
 
@@ -1045,7 +1045,7 @@ def test_build_runtime_context_injection_plan_uses_diff_for_thinking_change(
                 entry=entry,
                 model=model,
                 workspace_root=workspace_root,
-                current_date=date(2026, 4, 4),
+                current_date=date.today(),
                 thinking="low",
             )
         ).parts[0].content
@@ -1062,14 +1062,14 @@ def test_build_runtime_context_injection_plan_uses_diff_for_timezone_change(
         run_id="run-1",
         model=model,
         workspace_root=workspace_root,
-        current_date=date(2026, 4, 4),
+        current_date=date.today(),
         timezone="America/Los_Angeles",
     )
     decision = evaluate_turn_context_baseline(
         entry=entry,
         model=model,
         workspace_root=workspace_root,
-        current_date=date(2026, 4, 4),
+        current_date=date.today(),
         timezone="America/New_York",
         has_persisted_history=True,
     )
@@ -1078,7 +1078,7 @@ def test_build_runtime_context_injection_plan_uses_diff_for_timezone_change(
         baseline_decision=decision,
         model=model,
         workspace_root=workspace_root,
-        current_date=date(2026, 4, 4),
+        current_date=date.today(),
         timezone="America/New_York",
     )
 
@@ -1091,7 +1091,7 @@ def test_build_runtime_context_injection_plan_uses_diff_for_timezone_change(
                 entry=entry,
                 model=model,
                 workspace_root=workspace_root,
-                current_date=date(2026, 4, 4),
+                current_date=date.today(),
                 timezone="America/New_York",
             )
         ).parts[0].content
