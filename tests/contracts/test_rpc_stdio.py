@@ -856,7 +856,7 @@ async def test_handle_rpc_json_line_returns_provider_not_ready_for_run_start(
     )
     monkeypatch.setenv("ANTHROPIC_API_KEY", "")
     monkeypatch.setattr(
-        "just_another_coding_agent.auth.SECRET_FILE_PATH",
+        "just_another_coding_agent.secret_store.SECRET_FILE_PATH",
         tmp_path / "secrets.json",
     )
 

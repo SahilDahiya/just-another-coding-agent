@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
+from just_another_coding_agent import secret_store
 from just_another_coding_agent.contracts.auth import (
     AuthSource,
     ProviderAuthStatus,
@@ -70,16 +71,13 @@ def get_provider_secret_state(provider: ProviderName) -> ProviderSecretState:
     if env_value:
         return ProviderSecretState(configured=True, source="env")
 
-    from just_another_coding_agent.auth import (
-        _get_file_store_secret,
-        _get_keychain_secret,
+    keychain_value = secret_store.get_keychain_secret(
+        provider, allow_missing_keychain=True
     )
-
-    keychain_value = _get_keychain_secret(provider, allow_missing_keychain=True)
     if keychain_value:
         return ProviderSecretState(configured=True, source="keychain")
 
-    file_store_value = _get_file_store_secret(provider)
+    file_store_value = secret_store.get_file_store_secret(provider)
     if file_store_value:
         return ProviderSecretState(configured=True, source="file")
 
@@ -118,14 +116,7 @@ def _base_url_is_local(base_url: str | None) -> bool:
 
 
 def _provider_env_key(provider: ProviderName) -> str:
-    env_keys: dict[ProviderName, str] = {
-        "ollama": "OLLAMA_API_KEY",
-        "openai": "OPENAI_API_KEY",
-        "openrouter": "OPENROUTER_API_KEY",
-        "anthropic": "ANTHROPIC_API_KEY",
-        "google": "GOOGLE_API_KEY",
-    }
-    return env_keys[provider]
+    return secret_store.provider_env_key(provider)
 
 
 def _provider_for_model(model_id: str) -> ProviderName | None:

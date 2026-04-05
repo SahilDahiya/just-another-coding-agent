@@ -208,7 +208,7 @@ def test_resolve_canonical_model_rejects_missing_openrouter_secret(
     tmp_path,
 ) -> None:
     monkeypatch.setattr(
-        "just_another_coding_agent.auth.SECRET_FILE_PATH",
+        "just_another_coding_agent.secret_store.SECRET_FILE_PATH",
         tmp_path / "secrets.json",
     )
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
@@ -222,7 +222,7 @@ def test_resolve_canonical_model_rejects_missing_hosted_openai_secret(
     tmp_path,
 ) -> None:
     monkeypatch.setattr(
-        "just_another_coding_agent.auth.SECRET_FILE_PATH",
+        "just_another_coding_agent.secret_store.SECRET_FILE_PATH",
         tmp_path / "secrets.json",
     )
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
@@ -237,7 +237,7 @@ def test_resolve_canonical_model_rejects_missing_hosted_ollama_secret(
     tmp_path,
 ) -> None:
     monkeypatch.setattr(
-        "just_another_coding_agent.auth.SECRET_FILE_PATH",
+        "just_another_coding_agent.secret_store.SECRET_FILE_PATH",
         tmp_path / "secrets.json",
     )
     monkeypatch.delenv("OLLAMA_API_KEY", raising=False)

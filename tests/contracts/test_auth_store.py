@@ -40,7 +40,7 @@ class _FakeKeyring:
 def test_set_and_resolve_provider_secret_uses_keyring(monkeypatch) -> None:
     fake = _FakeKeyring()
     monkeypatch.setattr(
-        "just_another_coding_agent.auth._load_keyring",
+        "just_another_coding_agent.secret_store._load_keyring",
         lambda: fake,
     )
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
@@ -62,7 +62,7 @@ def test_get_provider_auth_status_prefers_environment(monkeypatch) -> None:
     fake = _FakeKeyring()
     fake.set_password(SECRET_STORE_SERVICE, "GOOGLE_API_KEY", "from-keychain")
     monkeypatch.setattr(
-        "just_another_coding_agent.auth._load_keyring",
+        "just_another_coding_agent.secret_store._load_keyring",
         lambda: fake,
     )
     monkeypatch.setenv("GOOGLE_API_KEY", "from-env")
@@ -83,7 +83,7 @@ def test_clear_provider_secret_removes_keychain_value(monkeypatch) -> None:
     fake = _FakeKeyring()
     fake.set_password(SECRET_STORE_SERVICE, "ANTHROPIC_API_KEY", "test-key")
     monkeypatch.setattr(
-        "just_another_coding_agent.auth._load_keyring",
+        "just_another_coding_agent.secret_store._load_keyring",
         lambda: fake,
     )
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
@@ -103,7 +103,7 @@ def test_clear_provider_secret_removes_keychain_value(monkeypatch) -> None:
 def test_set_provider_secret_rejects_blank(monkeypatch) -> None:
     fake = _FakeKeyring()
     monkeypatch.setattr(
-        "just_another_coding_agent.auth._load_keyring",
+        "just_another_coding_agent.secret_store._load_keyring",
         lambda: fake,
     )
 
@@ -123,11 +123,11 @@ def test_missing_keyring_backend_is_tolerated_for_optional_lookup(monkeypatch) -
             raise self.errors.KeyringError("no backend")
 
     monkeypatch.setattr(
-        "just_another_coding_agent.auth._load_keyring",
+        "just_another_coding_agent.secret_store._load_keyring",
         lambda: _FailingKeyring(),
     )
     monkeypatch.setattr(
-        "just_another_coding_agent.auth.SECRET_FILE_PATH",
+        "just_another_coding_agent.secret_store.SECRET_FILE_PATH",
         Path("/tmp/pytest-jaca-no-secrets.json"),
     )
     monkeypatch.delenv("OLLAMA_API_KEY", raising=False)
@@ -153,7 +153,7 @@ def test_local_secret_store_status_reports_missing_backend(monkeypatch) -> None:
             return _FailingBackend()
 
     monkeypatch.setattr(
-        "just_another_coding_agent.auth._load_keyring",
+        "just_another_coding_agent.secret_store._load_keyring",
         lambda: _FailingKeyring(),
     )
 
@@ -184,7 +184,7 @@ def test_set_provider_secret_reports_missing_keyring_backend_actionably(
             )
 
     monkeypatch.setattr(
-        "just_another_coding_agent.auth._load_keyring",
+        "just_another_coding_agent.secret_store._load_keyring",
         lambda: _FailingKeyring(),
     )
 
@@ -201,7 +201,7 @@ def test_set_provider_secret_can_use_file_store_explicitly(
 ) -> None:
     secret_path = tmp_path / "secrets.json"
     monkeypatch.setattr(
-        "just_another_coding_agent.auth.SECRET_FILE_PATH",
+        "just_another_coding_agent.secret_store.SECRET_FILE_PATH",
         secret_path,
     )
 
@@ -224,7 +224,7 @@ def test_clear_provider_secret_removes_file_store_value(
 ) -> None:
     secret_path = tmp_path / "secrets.json"
     monkeypatch.setattr(
-        "just_another_coding_agent.auth.SECRET_FILE_PATH",
+        "just_another_coding_agent.secret_store.SECRET_FILE_PATH",
         secret_path,
     )
     set_provider_secret("openai", "file-token", storage="file")
@@ -246,7 +246,7 @@ def test_get_provider_auth_status_marks_local_ollama_ready_without_secret(
     tmp_path,
 ) -> None:
     monkeypatch.setattr(
-        "just_another_coding_agent.auth.SECRET_FILE_PATH",
+        "just_another_coding_agent.secret_store.SECRET_FILE_PATH",
         tmp_path / "secrets.json",
     )
     monkeypatch.delenv("OLLAMA_API_KEY", raising=False)
@@ -267,7 +267,7 @@ def test_get_provider_auth_status_marks_hosted_ollama_missing_without_secret(
     tmp_path,
 ) -> None:
     monkeypatch.setattr(
-        "just_another_coding_agent.auth.SECRET_FILE_PATH",
+        "just_another_coding_agent.secret_store.SECRET_FILE_PATH",
         tmp_path / "secrets.json",
     )
     monkeypatch.delenv("OLLAMA_API_KEY", raising=False)
@@ -288,7 +288,7 @@ def test_get_provider_auth_status_marks_local_openai_endpoint_ready_without_secr
     tmp_path,
 ) -> None:
     monkeypatch.setattr(
-        "just_another_coding_agent.auth.SECRET_FILE_PATH",
+        "just_another_coding_agent.secret_store.SECRET_FILE_PATH",
         tmp_path / "secrets.json",
     )
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
@@ -309,7 +309,7 @@ def test_get_provider_auth_status_marks_openrouter_missing_without_secret(
     tmp_path,
 ) -> None:
     monkeypatch.setattr(
-        "just_another_coding_agent.auth.SECRET_FILE_PATH",
+        "just_another_coding_agent.secret_store.SECRET_FILE_PATH",
         tmp_path / "secrets.json",
     )
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
