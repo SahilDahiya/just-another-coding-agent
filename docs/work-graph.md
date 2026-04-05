@@ -351,6 +351,131 @@ That means the repo may add bounded policy modules for questions like:
 Those policy modules may use DSPy or similar tooling, but they must never
 replace the canonical work-graph store or mutate it implicitly.
 
+## Kaali Direction
+
+If this repo grows a repo-wide maintenance and health system, it should be
+named `Kaali`.
+
+Kaali is not hidden memory, a background daemon with invisible intent, or a
+second secret runtime. Kaali should be designed as:
+
+- explicit
+- inspectable
+- bounded
+- purposeful
+
+The intended role is a workspace-level maintenance system that detects,
+contains, prioritizes, and drives resolution of multiplying repository entropy.
+
+Sessions remain execution threads. The work graph remains durable explicit
+work state. Kaali is the workspace-level system that uses those primitives to
+run maintenance campaigns over time.
+
+Kaali should still preserve the plugin architecture boundary described in this
+doc. The canonical backend remains authoritative for storage, validation,
+sessions, tools, and durable mutations. Kaali policy should live behind a
+bounded plugin-style or RPC-facing seam rather than becoming a shadow backend.
+
+## Kaali Skills
+
+Kaali should operate through named, inspectable skills rather than one vague
+maintenance prompt.
+
+Likely skill families include:
+
+- unseen commit review
+- bloat and rot review
+- repo health review
+- dead-code and duplication review
+- contract drift review
+- stress and weakness probing
+
+Skills should remain bounded. They are explicit review or execution doctrines,
+not arbitrary hidden prompts. In architectural terms, these skills should be
+treated as Kaali plugin capabilities: bounded policy or review modules that
+can be selected, run, and inspected explicitly.
+
+## Findings, Planning, And Promotion
+
+Each skill run should produce structured findings.
+
+Findings should then be:
+
+- deduped against each other
+- compared against existing open work
+- synthesized into a current repo-level picture
+- reprioritized under an explicit budget
+
+Not every finding should become a new work item.
+
+The healthier path is:
+
+1. skills produce findings
+2. Kaali dedupes and synthesizes them
+3. Kaali promotes only the strongest findings into durable work
+4. weaker findings become evidence on existing work items or are dropped
+
+That keeps the system useful without turning it into a task-spam machine.
+
+This planning layer should still follow the plugin boundary: skills and policy
+modules may propose findings, priorities, and promotions, but the canonical
+backend should remain the only path that validates and mutates durable work
+state.
+
+## Learning From Task Execution
+
+Every Kaali task should leave behind a learning artifact, even on failure.
+
+A failed task is still useful if it improves the next decision. Failure should
+be treated as evidence, not just a dead end.
+
+That means task execution should help Kaali learn:
+
+- what was attempted
+- what evidence was gathered
+- what failed
+- whether the failure reveals a blocker, a bad hypothesis, or a deeper issue
+- whether the result reduces uncertainty enough to reprioritize the next step
+
+The key rule is:
+
+- failure is acceptable
+- non-learning thrash is not
+
+These learning artifacts are especially important for Kaali plugins because the
+plugin layer should improve decisions over time without becoming hidden memory.
+Learned evidence should remain inspectable and grounded in explicit findings,
+work updates, and task results.
+
+## Stress Testing And Weakness Discovery
+
+Kaali should not only review code. It should also be able to stress existing
+features, generate focused tests, and try to break assumptions in a bounded
+way.
+
+This matters because many meaningful weaknesses only appear under pressure:
+
+- concurrency stress
+- failure-path stress
+- resume and compaction edge cases
+- RPC contract edge cases
+- malformed tool-call handling
+- large-output or large-file pressure
+
+Stress testing should remain purposeful:
+
+- identify a concern
+- propose a stress hypothesis
+- run a bounded stress task
+- record the learned weakness or increased confidence
+- create or update work only when justified
+
+Kaali should use stress work to reduce uncertainty and expose brittle areas,
+not to inflate test count for its own sake. Stress-testing skills should also
+respect the same plugin architecture rule: they may propose and execute bounded
+review or probing work, but the canonical backend remains responsible for
+validation, state mutation, and durable work history.
+
 ## RPC Plugin Direction
 
 If the repo later adds a DSPy-backed work-policy engine, the cleanest boundary
@@ -412,6 +537,10 @@ The strongest near-term DSPy uses here are:
 - update drafting that turns session or Harbor evidence into one explicit
   `work_update`
 - next-task selection over a bounded set of open work items
+- synthesis of multiple findings into a current repo-level picture
+- drill-down decisions after task results add new evidence
+- prioritization under an explicit token, run, or session budget
+- weakness classification after bounded stress-testing tasks
 
 Important boundary:
 
@@ -435,6 +564,8 @@ The best candidate policy slice is:
 - execution prioritization policy
 - resolution and status policy
 - Harbor-result interpretation policy
+- finding synthesis and drill-down policy
+- stress-task prioritization policy
 
 In practical terms, that means optimizing rules like:
 
@@ -460,6 +591,8 @@ module:
 - distinguishes unresolved blockers from ordinary intermediate failures
 - improves downstream Harbor task completion rather than only producing nicer
   prose
+- improves repo-health understanding after failed tasks instead of thrashing
+- chooses informative stress tasks that expose real weaknesses
 
 The key design rule is:
 
