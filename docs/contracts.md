@@ -597,7 +597,7 @@ Initial executable RPC slice:
     - `session.preview` with payload `{"session_id": <opaque-lowercase-hex-string>}`
     - `session.compact` with payload `{"session_id": <opaque-lowercase-hex-string>}`
     - `run.start` with payload `{"session_id": <opaque-lowercase-hex-string>, "prompt": <string>, "thinking": <optional-thinking-setting>}`
-    - `run.enqueue` with payload `{"session_id": <opaque-lowercase-hex-string>, "prompt": <string>}`
+    - `run.enqueue` with payload `{"session_id": <opaque-lowercase-hex-string>, "prompt": <string>, "mode": "next" | "later"}`
 - `rpc_response`
   - fields: `type`, `id`, `response`
   - initial response payloads:
@@ -658,7 +658,10 @@ Ordering rules for the RPC slice:
   - `estimated_post_compaction_headroom_tokens`
   - `runs_since_latest_compaction`
 - `run.start` on an existing session is the canonical continue operation; there is no separate `session.continue` command
-- `run.enqueue` is the canonical end-of-turn follow-up queueing operation; after the active streamed run for that session ends, the backend immediately drains queued follow-ups as additional runs on the same `run.start` stream until the queue is empty
+- `run.enqueue` is the canonical active-run queueing operation
+- `run.enqueue` with `mode: "later"` is the canonical end-of-turn follow-up queueing operation; after the active streamed run for that session ends, the backend immediately drains queued follow-ups as additional runs on the same `run.start` stream until the queue is empty
+- `run.enqueue` with `mode: "next"` is the canonical active-turn steer queueing operation; the backend may attach queued steer prompts only at a safe tool boundary before the next model round-trip in the same run
+- If a `mode: "next"` prompt is still pending when the active run ends, the backend downgrades it into the `later` queue before draining follow-ups
 - Forking is a wrapper-level session-store operation today: the Python launcher
   may create a new session file with one `session_fork` entry before the TUI
   starts, but RPC clients do not have a separate `session.fork` command yet

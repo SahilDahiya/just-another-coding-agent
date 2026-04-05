@@ -5,7 +5,7 @@ import json
 from collections import defaultdict, deque
 from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import Any, TextIO
+from typing import Any, Callable, TextIO
 
 from pydantic import TypeAdapter, ValidationError
 
@@ -73,7 +73,11 @@ class _FollowUpState:
     def __init__(self) -> None:
         self._lock = asyncio.Lock()
         self._active_sessions: set[str] = set()
-        self._queues: dict[str, deque[str]] = defaultdict(deque)
+        self._follow_up_queues: dict[str, deque[str]] = defaultdict(deque)
+        self._steer_queues: dict[str, deque[str]] = defaultdict(deque)
+        self._active_steer_targets: dict[
+            str, tuple[list[str], Callable[[list[str]], None]]
+        ] = {}
 
     async def activate(self, session_id: str) -> None:
         async with self._lock:
@@ -82,27 +86,78 @@ class _FollowUpState:
     async def deactivate(self, session_id: str) -> None:
         async with self._lock:
             self._active_sessions.discard(session_id)
-            if not self._queues.get(session_id):
-                self._queues.pop(session_id, None)
+            self._active_steer_targets.pop(session_id, None)
+            if not self._follow_up_queues.get(session_id):
+                self._follow_up_queues.pop(session_id, None)
+            if not self._steer_queues.get(session_id):
+                self._steer_queues.pop(session_id, None)
 
-    async def enqueue(self, session_id: str, prompt: str) -> int:
+    async def enqueue(
+        self,
+        session_id: str,
+        prompt: str,
+        *,
+        mode: str,
+    ) -> int:
         async with self._lock:
             if session_id not in self._active_sessions:
                 raise RuntimeError(
-                    "Follow-up queueing requires an active run for this session."
+                    "Queueing requires an active run for this session."
                 )
-            queue = self._queues[session_id]
+            if mode == "next":
+                target = self._active_steer_targets.get(session_id)
+                if target is not None:
+                    prompts, attach = target
+                    prompts.append(prompt)
+                    attach(prompts)
+                    return len(prompts)
+                queue = self._steer_queues[session_id]
+                queue.append(prompt)
+                return len(queue)
+            queue = self._follow_up_queues[session_id]
             queue.append(prompt)
             return len(queue)
 
-    async def take_next(self, session_id: str) -> str | None:
+    async def activate_steer_boundary(
+        self,
+        session_id: str,
+        attach: Callable[[list[str]], None],
+    ) -> None:
         async with self._lock:
-            queue = self._queues.get(session_id)
+            target = self._active_steer_targets.get(session_id)
+            if target is not None:
+                raise RuntimeError("Steer boundary already active for session")
+            prompts: list[str] = []
+            queue = self._steer_queues.get(session_id)
+            if queue:
+                while queue:
+                    prompts.append(queue.popleft())
+                self._steer_queues.pop(session_id, None)
+                attach(prompts)
+            self._active_steer_targets[session_id] = (prompts, attach)
+
+    async def deactivate_steer_boundary(self, session_id: str) -> None:
+        async with self._lock:
+            self._active_steer_targets.pop(session_id, None)
+
+    async def downgrade_pending_steers_to_follow_ups(self, session_id: str) -> None:
+        async with self._lock:
+            queue = self._steer_queues.get(session_id)
+            if not queue:
+                return
+            follow_ups = self._follow_up_queues[session_id]
+            while queue:
+                follow_ups.append(queue.popleft())
+            self._steer_queues.pop(session_id, None)
+
+    async def take_next_follow_up(self, session_id: str) -> str | None:
+        async with self._lock:
+            queue = self._follow_up_queues.get(session_id)
             if not queue:
                 return None
             prompt = queue.popleft()
             if not queue:
-                self._queues.pop(session_id, None)
+                self._follow_up_queues.pop(session_id, None)
             return prompt
 
 
@@ -248,6 +303,7 @@ async def handle_rpc_json_line(
             queued_count = await _FOLLOW_UP_STATE.enqueue(
                 request.payload.session_id,
                 request.payload.prompt,
+                mode=request.payload.mode,
             )
         except RuntimeError as error:
             yield RpcErrorEnvelope(
@@ -401,6 +457,17 @@ async def handle_rpc_json_line(
                     prompt=prompt,
                     tool_names=CANONICAL_TOOL_NAMES,
                     thinking=request.payload.thinking,
+                    activate_steer_boundary=lambda attach: (
+                        _FOLLOW_UP_STATE.activate_steer_boundary(
+                            request.payload.session_id,
+                            attach,
+                        )
+                    ),
+                    deactivate_steer_boundary=lambda: (
+                        _FOLLOW_UP_STATE.deactivate_steer_boundary(
+                            request.payload.session_id
+                        )
+                    ),
                 ):
                     yield RpcEventEnvelope(
                         id=request.id,
@@ -428,7 +495,12 @@ async def handle_rpc_json_line(
                 ).model_dump_json()
                 return
 
-            prompt = await _FOLLOW_UP_STATE.take_next(request.payload.session_id)
+            await _FOLLOW_UP_STATE.downgrade_pending_steers_to_follow_ups(
+                request.payload.session_id
+            )
+            prompt = await _FOLLOW_UP_STATE.take_next_follow_up(
+                request.payload.session_id
+            )
             if prompt is None:
                 return
     finally:

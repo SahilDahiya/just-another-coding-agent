@@ -115,6 +115,9 @@ The core architectural risk is semantic drift between the Go shell and the Pytho
 - While a run is streaming, the composer stays editable. `Tab` with a non-blank
   composer queues that text as a backend-owned end-of-turn follow-up instead of
   interrupting the active run.
+- While a run is streaming, `Enter` with a non-blank composer queues that text
+  as backend-owned `next` steering for the active turn instead of interrupting
+  the run. The backend attaches that steer only at the next safe tool boundary.
 - Ollama onboarding must be truthful about the two real paths:
   `/model ollama:<local-model>` for local no-auth use, and `/provider ollama`
   as an explicit local-vs-cloud chooser. Hosted Ollama means
@@ -139,7 +142,8 @@ The core architectural risk is semantic drift between the Go shell and the Pytho
 - The prompt zone should behave like a compact two-line shell composer: one input line, one low-salience footer line for state and recall hints.
 - Backend token and context-window usage should appear as restrained footer context after a completed run, not as a new panel or heavy stats surface.
 - Session lifecycle events such as `session_compaction_started`, `session_compaction_completed`, and `session_compaction_warning` may appear before `run_started`; the TUI should surface them in the transcript and switch to the compacting state only when the backend says compaction is happening, instead of silently dropping or reinterpreting them.
-- `esc` is the primary conversation-control key: first `esc` requests interrupt for an active run, second `esc` restores the previous user prompt for editing.
+- `esc` is the primary conversation-control key: it requests interrupt for an
+  active run and does not resurrect the previous prompt for editing.
 - single `ctrl+c` must remain copy-safe and non-destructive; if the shell receives it without an active selection, only an idle second `ctrl+c` may quit.
 - Historical user turns should still read like prompt echoes in the transcript, not like assistant prose.
 - Composer ergonomics should favor shell-like recall over editor-like complexity.

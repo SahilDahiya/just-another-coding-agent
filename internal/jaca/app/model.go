@@ -73,6 +73,7 @@ type compactDoneMsg struct {
 
 type enqueueRunDoneMsg struct {
 	Prompt string
+	Mode   string
 	Err    error
 }
 
@@ -397,7 +398,11 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.textInput.SetValue(msg.Prompt)
 			m.textInput.CursorEnd()
 		} else {
-			m.transcript.WriteNote("queue", []string{"follow-up queued", msg.Prompt})
+			label := "follow-up queued"
+			if msg.Mode == "next" {
+				label = "steer queued"
+			}
+			m.transcript.WriteNote("queue", []string{label, msg.Prompt})
 		}
 		m.refreshViewport()
 		return m, nil
@@ -633,6 +638,9 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.refreshViewport()
 			return m, nil
 		}
+		if m.streaming {
+			return m.handleQueueSteer()
+		}
 		return m.handleEnter()
 	}
 	var cmd tea.Cmd
@@ -836,7 +844,23 @@ func (m *model) handleQueueFollowUp() (tea.Model, tea.Cmd) {
 	m.textInput.SetValue("")
 	m.clearSlashMenu()
 	m.refreshViewport()
-	return m, enqueueRun(m.options.Backend, m.sessionID, prompt)
+	return m, enqueueRun(m.options.Backend, m.sessionID, prompt, "later")
+}
+
+func (m *model) handleQueueSteer() (tea.Model, tea.Cmd) {
+	prompt := strings.TrimSpace(m.textInput.Value())
+	if prompt == "" {
+		return m, nil
+	}
+	if m.sessionID == "" {
+		m.transcript.WriteError("steering unavailable until the active session is ready")
+		m.refreshViewport()
+		return m, nil
+	}
+	m.textInput.SetValue("")
+	m.clearSlashMenu()
+	m.refreshViewport()
+	return m, enqueueRun(m.options.Backend, m.sessionID, prompt, "next")
 }
 
 func (m *model) runPrompt(
@@ -1005,12 +1029,12 @@ func fetchSessionPreview(backend Backend, sessionID string) tea.Cmd {
 	}
 }
 
-func enqueueRun(backend Backend, sessionID string, prompt string) tea.Cmd {
+func enqueueRun(backend Backend, sessionID string, prompt string, mode string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), authStatusTimeout)
 		defer cancel()
-		_, err := backend.EnqueueRun(ctx, sessionID, prompt)
-		return enqueueRunDoneMsg{Prompt: prompt, Err: err}
+		_, err := backend.EnqueueRun(ctx, sessionID, prompt, mode)
+		return enqueueRunDoneMsg{Prompt: prompt, Mode: mode, Err: err}
 	}
 }
 

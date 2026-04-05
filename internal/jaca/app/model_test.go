@@ -159,10 +159,12 @@ func (b *stubBackend) EnqueueRun(
 	_ context.Context,
 	sessionID string,
 	prompt string,
+	mode string,
 ) (rpc.RunEnqueueResponse, error) {
 	b.lastEnqueuedRun = rpc.RunEnqueuePayload{
 		SessionID: sessionID,
 		Prompt:    prompt,
+		Mode:      mode,
 	}
 	return rpc.RunEnqueueResponse{SessionID: sessionID, QueuedCount: 1}, nil
 }
@@ -308,12 +310,45 @@ func TestTabWhileStreamingQueuesFollowUp(t *testing.T) {
 	if backend.lastEnqueuedRun.Prompt != "follow up" {
 		t.Fatalf("queued prompt = %q, want %q", backend.lastEnqueuedRun.Prompt, "follow up")
 	}
+	if backend.lastEnqueuedRun.Mode != "later" {
+		t.Fatalf("queued mode = %q, want %q", backend.lastEnqueuedRun.Mode, "later")
+	}
 	if got := m.textInput.Value(); got != "" {
 		t.Fatalf("textInput.Value() after queue = %q, want empty", got)
 	}
 	rendered := stripANSI(m.transcript.Render())
 	if !strings.Contains(rendered, "follow-up queued") {
 		t.Fatalf("transcript missing follow-up queued note: %q", rendered)
+	}
+}
+
+func TestEnterWhileStreamingQueuesSteer(t *testing.T) {
+	backend := newStubBackend()
+	m := newTestModel()
+	m.options.Backend = backend
+	m.streaming = true
+	m.sessionID = "session-123"
+	m.textInput.SetValue("be more concise")
+	m.textInput.Focus()
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(*model)
+	if cmd == nil {
+		t.Fatal("enter while streaming should queue a steer")
+	}
+	msg := cmd()
+	updated, _ = m.Update(msg)
+	m = updated.(*model)
+
+	if backend.lastEnqueuedRun.Mode != "next" {
+		t.Fatalf("queued mode = %q, want %q", backend.lastEnqueuedRun.Mode, "next")
+	}
+	if backend.lastEnqueuedRun.Prompt != "be more concise" {
+		t.Fatalf("queued prompt = %q, want %q", backend.lastEnqueuedRun.Prompt, "be more concise")
+	}
+	rendered := stripANSI(m.transcript.Render())
+	if !strings.Contains(rendered, "steer queued") {
+		t.Fatalf("transcript missing steer queued note: %q", rendered)
 	}
 }
 

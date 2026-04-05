@@ -1016,6 +1016,7 @@ async def test_handle_rpc_json_line_forwards_explicit_thinking_to_session_runtim
         prompt,
         tool_names,
         thinking=None,
+        **_kwargs,
     ):
         captured["thinking"] = thinking
         captured["prompt"] = prompt

@@ -117,6 +117,7 @@ class RunStartRequest(_RpcModel):
 class RunEnqueuePayload(_RpcModel):
     session_id: SessionId
     prompt: str
+    mode: Literal["later", "next"] = "later"
 
 
 class RunEnqueueRequest(_RpcModel):

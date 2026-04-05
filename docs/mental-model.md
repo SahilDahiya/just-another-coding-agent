@@ -56,7 +56,7 @@ Core RPC commands:
 - `session.create` -- creates a new session, returns a server-generated opaque `session_id`
 - `session.name` -- appends one backend-normalized human session name to an existing session
 - `run.start` -- runs a prompt against an existing session, streams run events back, and may carry an optional `thinking` setting
-- `run.enqueue` -- queues one non-blank follow-up prompt for an already-active session-backed run; after the current run ends, the backend drains queued follow-ups as additional runs on the same stream
+- `run.enqueue` -- queues one non-blank prompt for an already-active session-backed run, with `mode: "next" | "later"`; `next` is attached at the next tool boundary in the active run and `later` is drained after the current run ends
 - `session.compact` -- appends one model-generated durable compaction summary entry for an existing session
 
 Example flow:
@@ -81,7 +81,7 @@ Example flow:
 {"type": "rpc_event", "id": "req-2", "event": {"type": "run_succeeded", ...}}
 ```
 ```json
-{"id": "req-3", "command": "run.enqueue", "payload": {"session_id": "a1b2c3...", "prompt": "after that, run the tests"}}
+{"id": "req-3", "command": "run.enqueue", "payload": {"session_id": "a1b2c3...", "prompt": "after that, run the tests", "mode": "later"}}
 ```
 ```json
 {"type": "rpc_response", "id": "req-3", "response": {"session_id": "a1b2c3...", "queued_count": 1}}

@@ -192,6 +192,7 @@ func (m *Manager) EnqueueRun(
 	ctx context.Context,
 	sessionID string,
 	prompt string,
+	mode string,
 ) (RunEnqueueResponse, error) {
 	m.mu.Lock()
 	client, err := m.ensureStartedLocked()
@@ -199,7 +200,7 @@ func (m *Manager) EnqueueRun(
 	if err != nil {
 		return RunEnqueueResponse{}, err
 	}
-	return client.EnqueueRun(ctx, sessionID, prompt)
+	return client.EnqueueRun(ctx, sessionID, prompt, mode)
 }
 
 type Client struct {
@@ -791,6 +792,7 @@ func (c *Client) EnqueueRun(
 	ctx context.Context,
 	sessionID string,
 	prompt string,
+	mode string,
 ) (RunEnqueueResponse, error) {
 	requestID := c.nextRequestID()
 	waiter, cleanup, err := c.registerWaiter(requestID)
@@ -805,6 +807,7 @@ func (c *Client) EnqueueRun(
 		Payload: RunEnqueuePayload{
 			SessionID: sessionID,
 			Prompt:    prompt,
+			Mode:      mode,
 		},
 	}); err != nil {
 		c.writeMu.Unlock()

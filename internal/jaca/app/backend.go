@@ -20,7 +20,7 @@ type Backend interface {
 	AuthStatus(ctx context.Context) (rpc.AuthStatusResponse, error)
 	SetProviderSecret(ctx context.Context, provider string, secret string, storage string) (rpc.AuthSetResponse, error)
 	ClearProviderSecret(ctx context.Context, provider string) (rpc.AuthClearResponse, error)
-	EnqueueRun(ctx context.Context, sessionID string, prompt string) (rpc.RunEnqueueResponse, error)
+	EnqueueRun(ctx context.Context, sessionID string, prompt string, mode string) (rpc.RunEnqueueResponse, error)
 	StreamRun(
 		ctx context.Context,
 		sessionID string,

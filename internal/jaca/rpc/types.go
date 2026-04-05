@@ -49,6 +49,7 @@ type RunStartPayload struct {
 type RunEnqueuePayload struct {
 	SessionID string `json:"session_id"`
 	Prompt    string `json:"prompt"`
+	Mode      string `json:"mode,omitempty"`
 }
 
 type EnvelopeType string

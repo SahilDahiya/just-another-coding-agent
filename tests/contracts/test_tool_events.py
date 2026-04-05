@@ -1,3 +1,4 @@
+import asyncio
 import json
 from collections.abc import AsyncIterator
 from contextlib import contextmanager
@@ -13,6 +14,8 @@ from pydantic_ai.messages import (
     ModelMessage,
     RetryPromptPart,
     ToolCallPart,
+    ToolReturnPart,
+    UserPromptPart,
 )
 from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 
@@ -71,6 +74,23 @@ def _streaming_command() -> str:
         "sys.stdout.write('two\\n')\n"
         "sys.stdout.flush()\n"
         "PY"
+    )
+
+
+def _last_user_prompt(messages: list[ModelMessage]) -> str | None:
+    prompt: str | None = None
+    for message in messages:
+        for part in message.parts:
+            if isinstance(part, UserPromptPart):
+                prompt = part.content
+    return prompt
+
+
+def _has_tool_return(messages: list[ModelMessage], *, tool_name: str) -> bool:
+    return any(
+        isinstance(part, ToolReturnPart) and part.tool_name == tool_name
+        for message in messages
+        for part in message.parts
     )
 
 
@@ -377,6 +397,29 @@ async def recovering_non_zero_bash_stream(
         return
 
     yield "done"
+
+
+async def steer_aware_shell_stream(
+    messages: list[ModelMessage],
+    _agent_info: object,
+) -> AsyncIterator[str | dict[int, DeltaToolCall]]:
+    latest_prompt = _last_user_prompt(messages)
+    saw_shell = _has_tool_return(messages, tool_name="shell")
+
+    if not saw_shell:
+        yield {
+            0: DeltaToolCall(
+                name="shell",
+                json_args=json.dumps({"command": _sleep_command()}),
+                tool_call_id="call-shell-steer",
+            )
+        }
+        return
+
+    if latest_prompt not in ("be concise", ["be concise"]):
+        raise AssertionError(f"missing steer prompt, saw {latest_prompt!r}")
+
+    yield "done steered"
 
 
 async def streaming_bash_stream(
@@ -1190,3 +1233,50 @@ async def test_stream_run_events_emits_bash_tool_updates(tmp_path) -> None:
     assert final_tool_event.tool_call_id == "call-bash-stream"
     assert final_tool_event.result["exit_code"] == 0
     assert final_tool_event.result["output"].replace("\r\n", "\n") == "one\ntwo\n"
+
+
+async def test_stream_run_events_injects_pending_steer_at_tool_boundary(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    agent = build_canonical_agent(
+        model=FunctionModel(stream_function=steer_aware_shell_stream),
+        workspace_root=workspace_root,
+        tool_names=("shell",),
+    )
+
+    steer_attach_ready: asyncio.Future[object] = asyncio.Future()
+
+    async def activate_steer_boundary(attach) -> None:
+        if not steer_attach_ready.done():
+            steer_attach_ready.set_result(attach)
+
+    async def deactivate_steer_boundary() -> None:
+        return None
+
+    async def queue_steer() -> None:
+        steer_attach = await steer_attach_ready
+        steer_attach(["be concise"])
+
+    steer_task = asyncio.create_task(queue_steer())
+    try:
+        events = [
+            event
+            async for event in stream_run_events(
+                agent=agent,
+                prompt="go",
+                deps=WorkspaceDeps.from_workspace_root(workspace_root),
+                activate_steer_boundary=activate_steer_boundary,
+                deactivate_steer_boundary=deactivate_steer_boundary,
+            )
+        ]
+    finally:
+        await steer_task
+
+    assert isinstance(events[0], RunStartedEvent)
+    assert isinstance(events[1], ToolCallStartedEvent)
+    assert isinstance(events[2], ToolCallSucceededEvent)
+    assert isinstance(events[-1], RunSucceededEvent)
+    assert events[-1].output_text == "done steered"

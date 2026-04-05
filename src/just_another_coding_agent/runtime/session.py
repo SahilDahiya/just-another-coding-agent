@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from dataclasses import replace
 from datetime import date
 from pathlib import Path
@@ -255,6 +255,10 @@ async def stream_session_run_events(
     prompt: str,
     tool_names: Sequence[str] = CANONICAL_TOOL_NAMES,
     thinking: ThinkingSetting | None = None,
+    activate_steer_boundary: (
+        Callable[[Callable[[list[str]], None]], Awaitable[None]]
+    ) | None = None,
+    deactivate_steer_boundary: Callable[[], Awaitable[None]] | None = None,
 ) -> AsyncIterator[RunEvent | SessionLifecycleEvent]:
     """Stream one run and persist session entries incrementally.
 
@@ -428,7 +432,7 @@ async def stream_session_run_events(
 
     with capture_run_messages() as messages:
         try:
-            async for event in stream_run_events(
+            stream_run_kwargs = dict(
                 agent=agent,
                 prompt=prompt,
                 message_history=(preexisting_history or None),
@@ -439,7 +443,18 @@ async def stream_session_run_events(
                     shell_family=shell_family,
                 ),
                 message_history_sink=_record_message_history,
+            )
+            if (
+                activate_steer_boundary is not None
+                and deactivate_steer_boundary is not None
             ):
+                stream_run_kwargs["activate_steer_boundary"] = (
+                    activate_steer_boundary
+                )
+                stream_run_kwargs["deactivate_steer_boundary"] = (
+                    deactivate_steer_boundary
+                )
+            async for event in stream_run_events(**stream_run_kwargs):
                 if run_appender is None:
                     active_run_id = event.run_id
                     run_turn_context = build_session_turn_context_entry(

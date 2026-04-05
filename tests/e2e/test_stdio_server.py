@@ -417,6 +417,98 @@ async def test_serve_rpc_stdio_drains_queued_follow_up_after_run(
     assert messages[4]["event"]["run_id"] == "run-second"
 
 
+async def test_serve_rpc_stdio_attaches_next_queue_to_active_tool_boundary(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    fixed_session_id = "3" * 32
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    session_path = session_path_for_id(
+        sessions_root=sessions_root,
+        workspace_root=workspace_root,
+        session_id=fixed_session_id,
+    )
+    session_path.parent.mkdir(parents=True, exist_ok=True)
+    session_path.write_text(
+        json.dumps(
+            {
+                "type": "session_header",
+                "workspace_root": str(workspace_root),
+                "shell_family": "bash",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    input_stream = io.StringIO(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "id": "req-run",
+                        "command": "run.start",
+                        "payload": {
+                            "session_id": fixed_session_id,
+                            "prompt": "first",
+                        },
+                    }
+                ),
+                json.dumps(
+                    {
+                        "id": "req-enqueue-next",
+                        "command": "run.enqueue",
+                        "payload": {
+                            "session_id": fixed_session_id,
+                            "prompt": "be concise",
+                            "mode": "next",
+                        },
+                    }
+                ),
+            ]
+        )
+        + "\n"
+    )
+    output_stream = io.StringIO()
+    attached_prompts: list[str] = []
+
+    async def fake_stream_session_run_events(
+        *,
+        activate_steer_boundary,
+        deactivate_steer_boundary,
+        **_kwargs,
+    ):
+        def attach(prompts: list[str]) -> None:
+            attached_prompts[:] = prompts
+
+        yield RunStartedEvent(run_id="run-stream")
+        await activate_steer_boundary(attach)
+        await asyncio.sleep(0)
+        yield RunSucceededEvent(run_id="run-stream", output_text="done")
+        await deactivate_steer_boundary()
+
+    monkeypatch.setattr(
+        "just_another_coding_agent.rpc.stdio.stream_session_run_events",
+        fake_stream_session_run_events,
+    )
+
+    await serve_rpc_stdio(
+        input_stream=input_stream,
+        output_stream=output_stream,
+        model=FunctionModel(function=compaction_summary_function),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    messages = [
+        json.loads(line) for line in output_stream.getvalue().splitlines() if line
+    ]
+    assert messages[1]["id"] == "req-enqueue-next"
+    assert messages[1]["response"]["queued_count"] == 1
+    assert attached_prompts == ["be concise"]
+
+
 async def first_turn_text_only_stream(
     _messages: list[ModelMessage],
     _agent_info: object,
