@@ -4,6 +4,7 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_ROOT"
 VALIDATOR_SCRIPT="$REPO_ROOT/evaluations/scripts/validate_tb2_bundle.py"
+PYTHON_BIN="${PYTHON_BIN:-}"
 
 if [[ "${SKIP_DOTENV:-0}" != "1" && -f .env ]]; then
   set -a
@@ -33,6 +34,22 @@ mkdir -p "$SLICE_BUNDLE_DIR"
 
 export OLLAMA_BASE_URL
 export JUST_ANOTHER_CODING_AGENT_THINKING="$THINKING"
+
+resolve_python_bin() {
+  if [[ -n "$PYTHON_BIN" ]]; then
+    return
+  fi
+  if command -v python3 >/dev/null 2>&1; then
+    PYTHON_BIN="python3"
+    return
+  fi
+  if command -v python >/dev/null 2>&1; then
+    PYTHON_BIN="python"
+    return
+  fi
+  echo "python3 or python is required to run this script." >&2
+  exit 1
+}
 
 if [[ ! -f "$TASK_FILE" ]]; then
   echo "Task file does not exist: $TASK_FILE" >&2
@@ -177,12 +194,13 @@ run_pass() {
       validator_args+=("$JOBS_DIR/$completed_job")
     done <"$COMPLETED_JOBS_PATH"
   fi
-  python3 "$VALIDATOR_SCRIPT" "${validator_args[@]}"
+  "$PYTHON_BIN" "$VALIDATOR_SCRIPT" "${validator_args[@]}"
 
   printf "%s\n" "$job_name" >>"$COMPLETED_JOBS_PATH"
 }
 
 ensure_slice_config
+resolve_python_bin
 
 if [[ "$ACTION" == "status" ]]; then
   show_status

@@ -1,5 +1,6 @@
 import json
 import subprocess
+import sys
 from pathlib import Path
 
 BUILD_SCRIPT = (
@@ -72,7 +73,7 @@ def test_build_submission_tree_from_slice_bundles(tmp_path: Path) -> None:
     output_dir = tmp_path / "submission" / "terminal-bench" / "2.0" / "agent__model"
     result = subprocess.run(
         [
-            "python3",
+            sys.executable,
             str(BUILD_SCRIPT),
             str(output_dir),
             "--jobs-dir",
@@ -132,7 +133,7 @@ def test_validate_submission_tree_passes_for_complete_tree(tmp_path: Path) -> No
 
     result = subprocess.run(
         [
-            "python3",
+            sys.executable,
             str(VALIDATE_SCRIPT),
             str(submission_dir),
             "--expected-unique-tasks",
@@ -172,7 +173,7 @@ def test_validate_submission_tree_fails_on_trial_count_gap(tmp_path: Path) -> No
 
     result = subprocess.run(
         [
-            "python3",
+            sys.executable,
             str(VALIDATE_SCRIPT),
             str(submission_dir),
             "--expected-unique-tasks",

@@ -72,6 +72,7 @@ OPENROUTER_CONTEXT_WINDOW_TOKENS_BY_PREFIX: tuple[tuple[str, int], ...] = (
     ("google/gemini-2.5-pro", 1_048_576),
 )
 DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434/v1"
+LOCAL_OPENAI_COMPATIBLE_PLACEHOLDER_API_KEY = "local-no-auth-required"
 
 
 def resolve_canonical_model(model: Any) -> Model:
@@ -173,6 +174,8 @@ def _build_ollama_provider() -> OllamaProvider:
     if readiness.requires_secret and not readiness.configured:
         raise ProviderReadinessError("Ollama cloud is not ready: missing secret")
     api_key = resolve_provider_secret("ollama", allow_missing_keychain=True)
+    if api_key is None:
+        api_key = LOCAL_OPENAI_COMPATIBLE_PLACEHOLDER_API_KEY
     return OllamaProvider(
         openai_client=_build_openai_compatible_client(
             base_url=base_url,

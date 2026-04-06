@@ -13,6 +13,7 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 
+from just_another_coding_agent.contracts.platform import detect_default_shell_family
 from just_another_coding_agent.contracts.run_events import (
     AssistantTextDeltaEvent,
     RunFailedEvent,
@@ -44,6 +45,8 @@ from just_another_coding_agent.session.replacement_history import (
     build_compaction_summary_message,
 )
 from tests.session_test_helpers import _compaction_entry_payload
+
+_SHELL_FAMILY = detect_default_shell_family()
 
 
 def _persisted_events(events):
@@ -117,7 +120,7 @@ def test_append_run_persists_turn_context_snapshot(tmp_path) -> None:
         model="openai-responses:gpt-5.3-codex",
         thinking="high",
         workspace_root=str(workspace_root.resolve()),
-        shell_family="posix",
+        shell_family=_SHELL_FAMILY,
         current_date="2026-04-04",
         runtime_context_text="Current workspace root: /workspace",
     )
@@ -150,7 +153,7 @@ def test_load_session_compaction_invalidates_latest_turn_context(tmp_path) -> No
         model="openai-responses:gpt-5.3-codex",
         thinking="high",
         workspace_root=str(workspace_root.resolve()),
-        shell_family="posix",
+        shell_family=_SHELL_FAMILY,
         current_date="2026-04-04",
         runtime_context_text="Current workspace root: /workspace",
     )
@@ -392,7 +395,7 @@ def test_fork_session_drops_parent_turn_context_entries(tmp_path) -> None:
         model="openai-responses:gpt-5.3-codex",
         thinking="medium",
         workspace_root=str(workspace_root.resolve()),
-        shell_family="posix",
+        shell_family=_SHELL_FAMILY,
         current_date="2026-04-04",
         runtime_context_text="Current workspace root: /workspace",
     )

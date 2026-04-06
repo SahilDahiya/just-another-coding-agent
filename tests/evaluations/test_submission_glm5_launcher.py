@@ -1,5 +1,6 @@
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -102,7 +103,7 @@ def _launcher_env(tmp_path: Path) -> dict[str, str]:
             '  for task in "${tasks[@]}"; do\n'
             '    trial_dir="${jobs_dir}/${job_name}/${task}__stub"\n'
             '    mkdir -p "${trial_dir}"\n'
-            '    TASK_NAME="$task" TRIAL_DIR="$trial_dir" python3 - <<'"'"'PY'"'"'\n'
+            '    TASK_NAME="$task" TRIAL_DIR="$trial_dir" "$PYTHON_BIN" - <<'"'"'PY'"'"'\n'
             'import hashlib, json, os\n'
             'task = os.environ["TASK_NAME"]\n'
             'trial_dir = os.environ["TRIAL_DIR"]\n'
@@ -134,6 +135,7 @@ def _launcher_env(tmp_path: Path) -> dict[str, str]:
             "PASSES_PER_RUN": "1",
             "TARGET_TRIALS": "5",
             "HARBOR_LOG": str(harbor_log),
+            "PYTHON_BIN": _bash_path(Path(sys.executable)),
         }
     )
     return env

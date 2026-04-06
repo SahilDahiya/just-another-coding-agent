@@ -161,7 +161,7 @@ def test_local_secret_store_status_reports_missing_backend(monkeypatch) -> None:
 
     assert status.available is False
     assert status.message is not None
-    assert status.file_store_path.endswith(".jaca/secrets.json")
+    assert status.file_store_path.replace("\\", "/").endswith(".jaca/secrets.json")
     assert "No supported OS keychain backend is available" in status.message
 
 

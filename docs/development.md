@@ -139,8 +139,25 @@ credentials are missing, startup fails hard.
 The initial CI contract is:
 
 - install project dependencies
+- verify shipped provider imports from the resolved environment
 - run `ruff check`
 - run `pytest`
+- run Go tests for `cmd/jaca`, `cmd/jaca-read-only-worker`, and `internal/jaca/...`
+
+## Windows Validation
+
+Windows is a supported packaged target, not a best-effort afterthought.
+
+The minimum Windows health bar for this repo is:
+
+- `uv sync --extra dev --extra test` succeeds
+- shipped provider imports resolve from that environment
+- `uv run python -m pytest tests/contracts tests/e2e --ignore=tests/e2e/test_rust_read_only_worker.py tests/evaluations` succeeds
+- `go test ./cmd/jaca ./cmd/jaca-read-only-worker ./internal/jaca/...` succeeds
+- bundled wheel verification succeeds
+
+When writing tests, do not hardcode POSIX-only path assumptions for behavior that
+is claimed to be cross-platform.
 
 ## Test Strategy
 

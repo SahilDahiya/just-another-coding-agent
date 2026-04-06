@@ -3,8 +3,28 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
+
+func testAbsolutePath(t *testing.T) string {
+	t.Helper()
+
+	if runtime.GOOS == "windows" {
+		return filepath.Join(os.TempDir(), "jaca-worker-absolute.txt")
+	}
+	return "/tmp/jaca-worker-absolute.txt"
+}
+
+func testWorkspacePath(t *testing.T, parts ...string) string {
+	t.Helper()
+
+	if runtime.GOOS == "windows" {
+		base := filepath.Join("C:\\", parts[0])
+		return filepath.Join(append([]string{base}, parts[1:]...)...)
+	}
+	return filepath.Join(append([]string{"/"}, parts...)...)
+}
 
 func TestSplitLinesKeepEnds(t *testing.T) {
 	tests := []struct {
@@ -117,14 +137,17 @@ func TestTruncateMatchText(t *testing.T) {
 
 func TestFormatMatchPath(t *testing.T) {
 	t.Run("relative to workspace", func(t *testing.T) {
-		result := formatMatchPath("/home/user/project/src/main.go", "/home/user/project")
+		workspaceRoot := testWorkspacePath(t, "workspace-root")
+		filePath := filepath.Join(workspaceRoot, "src", "main.go")
+		result := formatMatchPath(filePath, workspaceRoot)
 		if result != "src/main.go" {
 			t.Errorf("got %q", result)
 		}
 	})
 
 	t.Run("workspace root itself", func(t *testing.T) {
-		result := formatMatchPath("/home/user/project", "/home/user/project")
+		workspaceRoot := testWorkspacePath(t, "workspace-root")
+		result := formatMatchPath(workspaceRoot, workspaceRoot)
 		if result != "." {
 			t.Errorf("got %q", result)
 		}
@@ -132,9 +155,10 @@ func TestFormatMatchPath(t *testing.T) {
 
 	t.Run("outside workspace returns relative with dotdot", func(t *testing.T) {
 		dir := t.TempDir()
-		result := formatMatchPath("/etc/config.toml", dir)
+		outside := filepath.Join(filepath.Dir(dir), "outside", "config.toml")
+		result := formatMatchPath(outside, dir)
 		// filepath.Rel computes a ../.. path; formatMatchPath converts to slash
-		expected, _ := filepath.Rel(dir, "/etc/config.toml")
+		expected, _ := filepath.Rel(dir, outside)
 		expected = filepath.ToSlash(expected)
 		if result != expected {
 			t.Errorf("got %q, want %q", result, expected)
@@ -178,7 +202,7 @@ func TestNormalizeWorkspaceRoot(t *testing.T) {
 	})
 
 	t.Run("nonexistent path", func(t *testing.T) {
-		_, err := normalizeWorkspaceRoot("/nonexistent/path/abc123")
+		_, err := normalizeWorkspaceRoot(filepath.Join(t.TempDir(), "missing"))
 		if err == nil {
 			t.Error("expected error for nonexistent path")
 		}
@@ -200,18 +224,19 @@ func TestResolveWorkspacePath(t *testing.T) {
 	})
 
 	t.Run("absolute path stays absolute", func(t *testing.T) {
-		result, err := resolveWorkspacePath(dir, "/tmp/file.txt")
+		absolutePath := testAbsolutePath(t)
+		result, err := resolveWorkspacePath(dir, absolutePath)
 		if err != nil {
 			t.Fatal(err)
 		}
-		expected, _ := filepath.Abs("/tmp/file.txt")
+		expected, _ := filepath.Abs(absolutePath)
 		if result != expected {
 			t.Errorf("got %q, want %q", result, expected)
 		}
 	})
 
 	t.Run("invalid workspace root fails", func(t *testing.T) {
-		_, err := resolveWorkspacePath("/nonexistent/path/abc123", "file.txt")
+		_, err := resolveWorkspacePath(filepath.Join(t.TempDir(), "missing"), "file.txt")
 		if err == nil {
 			t.Error("expected error for invalid workspace root")
 		}

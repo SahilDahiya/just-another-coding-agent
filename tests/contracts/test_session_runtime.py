@@ -21,6 +21,7 @@ from pydantic_ai.models.test import TestModel
 
 import just_another_coding_agent.runtime.session as runtime_session_module
 from just_another_coding_agent.contracts.compaction import CompactionBudgetReport
+from just_another_coding_agent.contracts.platform import detect_default_shell_family
 from just_another_coding_agent.contracts.run_events import (
     ReadActivityDetails,
     RunFailedEvent,
@@ -68,6 +69,8 @@ from just_another_coding_agent.session.replacement_history import (
     build_compaction_summary_message,
     extract_compaction_summary_text,
 )
+
+_SHELL_FAMILY = detect_default_shell_family()
 from just_another_coding_agent.tools.deps import WorkspaceDeps
 
 
@@ -623,6 +626,7 @@ async def test_stream_session_run_events_reports_missing_turn_context_baseline(
     append_run_to_session(
         path=session_path,
         workspace_root=workspace_root,
+        shell_family=_SHELL_FAMILY,
         prompt="first",
         thinking=None,
         messages=[ModelRequest(parts=[UserPromptPart(content="first")])],
@@ -666,6 +670,7 @@ async def test_stream_session_run_events_reports_reused_turn_context_baseline(
     append_run_to_session(
         path=session_path,
         workspace_root=workspace_root,
+        shell_family=_SHELL_FAMILY,
         prompt="first",
         thinking="high",
         messages=[ModelRequest(parts=[UserPromptPart(content="first")])],
@@ -714,6 +719,7 @@ async def test_stream_session_run_events_reports_cleared_turn_context_on_model_m
     append_run_to_session(
         path=session_path,
         workspace_root=workspace_root,
+        shell_family="posix",
         prompt="first",
         thinking=None,
         messages=[ModelRequest(parts=[UserPromptPart(content="first")])],
@@ -767,6 +773,7 @@ async def test_stream_session_run_events_emits_runtime_context_diff_on_shell_cha
     append_run_to_session(
         path=session_path,
         workspace_root=workspace_root,
+        shell_family="posix",
         prompt="first",
         thinking=None,
         messages=[ModelRequest(parts=[UserPromptPart(content="first")])],

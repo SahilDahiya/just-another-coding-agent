@@ -35,6 +35,11 @@ jobs:
       - name: Install dependencies
         run: uv sync --extra dev --extra test
 
+      - name: Verify shipped provider imports
+        run: >-
+          uv run python -c
+          "from pydantic_ai.models.anthropic import AnthropicModel; from pydantic_ai.models.google import GoogleModel; from pydantic_ai.models.openai import OpenAIChatModel, OpenAIResponsesModel; from pydantic_ai.models.openrouter import OpenRouterModel"
+
       - name: Lint
         run: uv run ruff check .
 
@@ -47,7 +52,7 @@ jobs:
           tests/evaluations
 
       - name: Run Go tests
-        run: go test ./cmd/jaca ./internal/jaca/...
+        run: go test ./cmd/jaca ./cmd/jaca-read-only-worker ./internal/jaca/...
 
       - name: Build bundled wheel
         env:

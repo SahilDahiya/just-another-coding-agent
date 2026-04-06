@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 from pathlib import Path
 from queue import Empty, Queue
@@ -162,6 +163,8 @@ def test_go_read_only_worker_handles_handshake_read_and_ls(tmp_path: Path) -> No
 
 
 def test_go_read_only_worker_grep_returns_after_limit_hit(tmp_path: Path) -> None:
+    if shutil.which("rg") is None:
+        pytest.skip("ripgrep (rg) is required for grep worker tests")
     repo_root = Path(__file__).resolve().parents[2]
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
@@ -203,6 +206,8 @@ def test_go_read_only_worker_grep_returns_after_limit_hit(tmp_path: Path) -> Non
 def test_go_read_only_worker_grep_returns_after_byte_limit_hit(
     tmp_path: Path,
 ) -> None:
+    if shutil.which("rg") is None:
+        pytest.skip("ripgrep (rg) is required for grep worker tests")
     repo_root = Path(__file__).resolve().parents[2]
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
