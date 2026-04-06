@@ -337,6 +337,12 @@ func TestTabWhileStreamingQueuesFollowUp(t *testing.T) {
 	if got := m.textInput.Value(); got != "" {
 		t.Fatalf("textInput.Value() after queue = %q, want empty", got)
 	}
+	updated, _ = m.Update(runEventMsg{Event: rpc.RunEvent{
+		Type:         "session_queue_state",
+		NextPrompts:  nil,
+		LaterPrompts: []string{"follow up"},
+	}})
+	m = updated.(*model)
 	rendered := stripANSI(m.View())
 	for _, want := range []string{"At end of turn", "1 queued", "↳ follow up"} {
 		if !strings.Contains(rendered, want) {
@@ -369,10 +375,33 @@ func TestEnterWhileStreamingQueuesSteer(t *testing.T) {
 	if backend.lastEnqueuedRun.Prompt != "be more concise" {
 		t.Fatalf("queued prompt = %q, want %q", backend.lastEnqueuedRun.Prompt, "be more concise")
 	}
+	updated, _ = m.Update(runEventMsg{Event: rpc.RunEvent{
+		Type:         "session_queue_state",
+		NextPrompts:  []string{"be more concise"},
+		LaterPrompts: nil,
+	}})
+	m = updated.(*model)
 	rendered := stripANSI(m.View())
 	for _, want := range []string{"After next tool call", "1 queued", "↳ be more concise"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("queued steer preview missing %q in %q", want, rendered)
+		}
+	}
+}
+
+func TestQueuedPromptBatchSubmittedShowsUserTurnInTranscript(t *testing.T) {
+	m := newTestModel()
+	updated, _ := m.Update(runEventMsg{Event: rpc.RunEvent{
+		Type:    "session_queued_prompt_batch_submitted",
+		Prompts: []string{"tighten the answer", "add tests"},
+		Mode:    "later",
+	}})
+	m = updated.(*model)
+
+	rendered := stripANSI(m.View())
+	for _, want := range []string{"> tighten the answer", "add tests"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("queued prompt submission missing %q in %q", want, rendered)
 		}
 	}
 }

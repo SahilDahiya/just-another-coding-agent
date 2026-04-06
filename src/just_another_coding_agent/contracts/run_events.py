@@ -191,10 +191,30 @@ class SessionTurnContextStatusEvent(BaseModel):
     persisted_run_id: str | None = None
 
 
+class SessionQueueStateEvent(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    type: Literal["session_queue_state"] = "session_queue_state"
+    next_prompts: list[str]
+    later_prompts: list[str]
+
+
+class SessionQueuedPromptBatchSubmittedEvent(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    type: Literal["session_queued_prompt_batch_submitted"] = (
+        "session_queued_prompt_batch_submitted"
+    )
+    mode: Literal["next", "later"]
+    prompts: list[str]
+
+
 SessionLifecycleEvent = (
     SessionCompactionStartedEvent
     | SessionCompactionCompletedEvent
     | SessionTurnContextStatusEvent
+    | SessionQueueStateEvent
+    | SessionQueuedPromptBatchSubmittedEvent
 )
 
 
@@ -225,6 +245,8 @@ __all__ = [
     "SessionCompactionCompletedEvent",
     "SessionCompactionStartedEvent",
     "SessionLifecycleEvent",
+    "SessionQueueStateEvent",
+    "SessionQueuedPromptBatchSubmittedEvent",
     "SessionTurnContextStatusEvent",
     "ShellActivityDetails",
     "ToolActivity",

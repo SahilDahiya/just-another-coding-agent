@@ -22,6 +22,14 @@ from just_another_coding_agent.rpc.stdio import _FollowUpState, handle_rpc_json_
 from just_another_coding_agent.session import load_session
 
 
+async def _noop_emit_queue_state(_event) -> None:
+    return None
+
+
+async def _noop_emit_rpc_event(_request_id: str, _event) -> None:
+    return None
+
+
 def _all_parts(messages: list[ModelMessage]):
     for message in messages:
         for part in message.parts:
@@ -147,6 +155,10 @@ async def _rpc_messages(
     sessions_root,
 ) -> list[dict[str, object]]:
     request_line = json.dumps(request_payload)
+
+    async def _emit_rpc_event(_request_id: str, _event) -> None:
+        return None
+
     return [
         json.loads(line)
         async for line in handle_rpc_json_line(
@@ -154,6 +166,7 @@ async def _rpc_messages(
             model=model,
             workspace_root=workspace_root,
             sessions_root=sessions_root,
+            emit_rpc_event=_emit_rpc_event,
         )
     ]
 
@@ -188,7 +201,11 @@ async def _create_session_id(*, workspace_root, sessions_root) -> str:
 async def test_follow_up_state_interrupt_promotes_pending_steer_to_front() -> None:
     state = _FollowUpState()
     run_task = asyncio.create_task(asyncio.Event().wait())
-    await state.activate("a" * 32, run_task=run_task)
+    await state.activate(
+        "a" * 32,
+        run_task=run_task,
+        emit_queue_state=_noop_emit_queue_state,
+    )
     await state.enqueue("a" * 32, "later prompt", mode="later")
     await state.activate_steer_boundary("a" * 32, lambda prompts: None)
     await state.enqueue("a" * 32, "steer prompt", mode="next")
@@ -210,7 +227,11 @@ async def test_follow_up_state_interrupt_preserves_fifo_within_promoted_and_late
     state = _FollowUpState()
     run_task = asyncio.create_task(asyncio.Event().wait())
     session_id = "b" * 32
-    await state.activate(session_id, run_task=run_task)
+    await state.activate(
+        session_id,
+        run_task=run_task,
+        emit_queue_state=_noop_emit_queue_state,
+    )
     await state.enqueue(session_id, "later one", mode="later")
     await state.enqueue(session_id, "later two", mode="later")
     await state.activate_steer_boundary(session_id, lambda prompts: None)
@@ -240,7 +261,11 @@ async def test_follow_up_state_downgrades_pending_next_ahead_of_existing_later(
     state = _FollowUpState()
     session_id = "c" * 32
     run_task = asyncio.create_task(asyncio.Event().wait())
-    await state.activate(session_id, run_task=run_task)
+    await state.activate(
+        session_id,
+        run_task=run_task,
+        emit_queue_state=_noop_emit_queue_state,
+    )
     await state.enqueue(session_id, "later one", mode="later")
     await state.enqueue(session_id, "later two", mode="later")
     await state.activate_steer_boundary(session_id, lambda prompts: None)
@@ -267,7 +292,11 @@ async def test_follow_up_state_interrupt_without_promotion_preserves_later_only(
     state = _FollowUpState()
     session_id = "d" * 32
     run_task = asyncio.create_task(asyncio.Event().wait())
-    await state.activate(session_id, run_task=run_task)
+    await state.activate(
+        session_id,
+        run_task=run_task,
+        emit_queue_state=_noop_emit_queue_state,
+    )
     await state.enqueue(session_id, "later one", mode="later")
     await state.activate_steer_boundary(session_id, lambda prompts: None)
     await state.enqueue(session_id, "next one", mode="next")
@@ -1168,7 +1197,12 @@ async def test_handle_rpc_json_line_forwards_explicit_thinking_to_session_runtim
     )
 
     assert captured == {"thinking": "high", "prompt": "go"}
-    assert [message["event"]["type"] for message in messages] == [
+    assert [message["type"] for message in messages] == [
+        "rpc_event",
+        "rpc_event",
+        "rpc_response",
+    ]
+    assert [message["event"]["type"] for message in messages[:-1]] == [
         "run_started",
         "run_succeeded",
     ]
@@ -1361,6 +1395,7 @@ async def test_handle_rpc_json_line_returns_invalid_json_error(tmp_path) -> None
             model=FunctionModel(stream_function=text_only_stream),
             workspace_root=workspace_root,
             sessions_root=sessions_root,
+            emit_rpc_event=_noop_emit_rpc_event,
         )
     ]
 

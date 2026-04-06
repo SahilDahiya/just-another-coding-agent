@@ -14,7 +14,7 @@ import (
 	"jaca/internal/jaca/rpc"
 )
 
-const authStatusTimeout = 8 * time.Second
+const authStatusTimeout = 30 * time.Second
 
 func canonicalProviderName(raw string) string {
 	switch strings.ToLower(strings.TrimSpace(raw)) {

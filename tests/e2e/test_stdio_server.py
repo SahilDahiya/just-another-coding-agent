@@ -2,6 +2,7 @@ import asyncio
 import io
 import json
 import re
+import sys
 from collections.abc import AsyncIterator
 from types import SimpleNamespace
 
@@ -320,20 +321,63 @@ async def test_serve_rpc_stdio_handles_auth_status_while_run_is_streaming(
     ]
     assert [message["type"] for message in messages] == [
         "rpc_event",
-        "rpc_response",
         "rpc_event",
+        "rpc_response",
         "rpc_response",
     ]
     assert messages[0]["id"] == "req-run"
     assert messages[0]["event"]["type"] == "run_started"
-    assert messages[1]["id"] == "req-auth"
-    assert messages[2]["id"] == "req-run"
-    assert messages[2]["event"]["type"] == "run_succeeded"
-    assert messages[3] == {
+    assert messages[1]["id"] == "req-run"
+    assert messages[1]["event"]["type"] == "run_succeeded"
+    assert messages[2] == {
         "type": "rpc_response",
         "id": "req-run",
         "response": {"session_id": fixed_session_id},
     }
+    assert messages[3]["id"] == "req-auth"
+    assert messages[3]["type"] == "rpc_response"
+
+
+async def test_headless_auth_status_responds_without_waiting_for_second_line(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    process = await asyncio.create_subprocess_exec(
+        sys.executable,
+        "-m",
+        "just_another_coding_agent",
+        "--headless",
+        "--model",
+        "openrouter:x-ai/grok-code-fast-1",
+        "--workspace-root",
+        str(workspace_root),
+        "--sessions-root",
+        str(sessions_root),
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    assert process.stdin is not None
+    assert process.stdout is not None
+    request = {
+        "id": "req-auth",
+        "command": "auth.status",
+        "payload": {},
+    }
+    try:
+        process.stdin.write((json.dumps(request) + "\n").encode("utf-8"))
+        await process.stdin.drain()
+
+        line = await asyncio.wait_for(process.stdout.readline(), timeout=5)
+        message = json.loads(line)
+        assert message["type"] == "rpc_response"
+        assert message["id"] == "req-auth"
+        assert "providers" in message["response"]
+    finally:
+        process.terminate()
+        await asyncio.wait_for(process.wait(), timeout=5)
 
 
 async def test_serve_rpc_stdio_drains_queued_follow_up_after_run(
@@ -392,7 +436,7 @@ async def test_serve_rpc_stdio_drains_queued_follow_up_after_run(
 
     async def fake_stream_session_run_events(*, prompt: str, **_kwargs):
         yield RunStartedEvent(run_id=f"run-{prompt}")
-        await asyncio.sleep(0)
+        await asyncio.sleep(0.05)
         yield RunSucceededEvent(run_id=f"run-{prompt}", output_text=prompt)
 
     monkeypatch.setattr(
@@ -413,7 +457,10 @@ async def test_serve_rpc_stdio_drains_queued_follow_up_after_run(
     ]
     assert [message["type"] for message in messages] == [
         "rpc_event",
+        "rpc_event",
         "rpc_response",
+        "rpc_event",
+        "rpc_event",
         "rpc_event",
         "rpc_event",
         "rpc_event",
@@ -422,17 +469,24 @@ async def test_serve_rpc_stdio_drains_queued_follow_up_after_run(
     assert messages[0]["id"] == "req-run"
     assert messages[0]["event"]["type"] == "run_started"
     assert messages[0]["event"]["run_id"] == "run-first"
-    assert messages[1]["id"] == "req-enqueue"
-    assert messages[2]["id"] == "req-run"
-    assert messages[2]["event"]["type"] == "run_succeeded"
-    assert messages[2]["event"]["run_id"] == "run-first"
+    assert messages[1]["event"]["type"] == "session_queue_state"
+    assert messages[1]["event"]["later_prompts"] == ["second"]
+    assert messages[2]["id"] == "req-enqueue"
     assert messages[3]["id"] == "req-run"
-    assert messages[3]["event"]["type"] == "run_started"
-    assert messages[3]["event"]["run_id"] == "run-second"
-    assert messages[4]["id"] == "req-run"
-    assert messages[4]["event"]["type"] == "run_succeeded"
-    assert messages[4]["event"]["run_id"] == "run-second"
-    assert messages[5] == {
+    assert messages[3]["event"]["type"] == "run_succeeded"
+    assert messages[3]["event"]["run_id"] == "run-first"
+    assert messages[4]["event"]["type"] == "session_queue_state"
+    assert messages[4]["event"]["later_prompts"] == []
+    assert messages[5]["event"]["type"] == "session_queued_prompt_batch_submitted"
+    assert messages[5]["event"]["mode"] == "later"
+    assert messages[5]["event"]["prompts"] == ["second"]
+    assert messages[6]["id"] == "req-run"
+    assert messages[6]["event"]["type"] == "run_started"
+    assert messages[6]["event"]["run_id"] == "run-second"
+    assert messages[7]["id"] == "req-run"
+    assert messages[7]["event"]["type"] == "run_succeeded"
+    assert messages[7]["event"]["run_id"] == "run-second"
+    assert messages[8] == {
         "type": "rpc_response",
         "id": "req-run",
         "response": {"session_id": fixed_session_id},
@@ -509,7 +563,7 @@ async def test_serve_rpc_stdio_batches_multiple_later_follow_ups_into_one_run(
     async def fake_stream_session_run_events(*, prompt: str, **_kwargs):
         observed_prompts.append(prompt)
         yield RunStartedEvent(run_id=f"run-{len(observed_prompts)}")
-        await asyncio.sleep(0)
+        await asyncio.sleep(0.05)
         yield RunSucceededEvent(
             run_id=f"run-{len(observed_prompts)}",
             output_text=prompt,
@@ -533,30 +587,43 @@ async def test_serve_rpc_stdio_batches_multiple_later_follow_ups_into_one_run(
     ]
     assert [message["type"] for message in messages] == [
         "rpc_event",
+        "rpc_event",
         "rpc_response",
+        "rpc_event",
         "rpc_response",
+        "rpc_event",
+        "rpc_event",
         "rpc_event",
         "rpc_event",
         "rpc_event",
         "rpc_response",
     ]
     assert observed_prompts == ["first", "second\n\nthird"]
-    assert messages[1] == {
+    assert messages[1]["event"]["type"] == "session_queue_state"
+    assert messages[1]["event"]["later_prompts"] == ["second"]
+    assert messages[2] == {
         "type": "rpc_response",
         "id": "req-enqueue-1",
         "response": {"session_id": fixed_session_id, "queued_count": 1},
     }
-    assert messages[2] == {
+    assert messages[3]["event"]["type"] == "session_queue_state"
+    assert messages[3]["event"]["later_prompts"] == ["second", "third"]
+    assert messages[4] == {
         "type": "rpc_response",
         "id": "req-enqueue-2",
         "response": {"session_id": fixed_session_id, "queued_count": 2},
     }
-    assert messages[3]["event"]["type"] == "run_succeeded"
-    assert messages[3]["event"]["output_text"] == "first"
-    assert messages[4]["event"]["type"] == "run_started"
     assert messages[5]["event"]["type"] == "run_succeeded"
-    assert messages[5]["event"]["output_text"] == "second\n\nthird"
-    assert messages[6] == {
+    assert messages[5]["event"]["output_text"] == "first"
+    assert messages[6]["event"]["type"] == "session_queue_state"
+    assert messages[6]["event"]["later_prompts"] == []
+    assert messages[7]["event"]["type"] == "session_queued_prompt_batch_submitted"
+    assert messages[7]["event"]["mode"] == "later"
+    assert messages[7]["event"]["prompts"] == ["second", "third"]
+    assert messages[8]["event"]["type"] == "run_started"
+    assert messages[9]["event"]["type"] == "run_succeeded"
+    assert messages[9]["event"]["output_text"] == "second\n\nthird"
+    assert messages[10] == {
         "type": "rpc_response",
         "id": "req-run",
         "response": {"session_id": fixed_session_id},
@@ -629,8 +696,9 @@ async def test_serve_rpc_stdio_attaches_next_queue_to_active_tool_boundary(
             attached_prompts[:] = prompts
 
         yield RunStartedEvent(run_id="run-stream")
+        await asyncio.sleep(0.05)
         await activate_steer_boundary(attach)
-        await asyncio.sleep(0)
+        await asyncio.sleep(0.05)
         yield RunSucceededEvent(run_id="run-stream", output_text="done")
         await deactivate_steer_boundary()
 
@@ -650,8 +718,13 @@ async def test_serve_rpc_stdio_attaches_next_queue_to_active_tool_boundary(
     messages = [
         json.loads(line) for line in output_stream.getvalue().splitlines() if line
     ]
-    assert messages[1]["id"] == "req-enqueue-next"
-    assert messages[1]["response"]["queued_count"] == 1
+    assert messages[1]["event"]["type"] == "session_queue_state"
+    assert messages[1]["event"]["next_prompts"] == ["be concise"]
+    assert messages[2]["id"] == "req-enqueue-next"
+    assert messages[2]["response"]["queued_count"] == 1
+    assert messages[3]["event"]["type"] == "session_queued_prompt_batch_submitted"
+    assert messages[3]["event"]["mode"] == "next"
+    assert messages[3]["event"]["prompts"] == ["be concise"]
     assert attached_prompts == ["be concise"]
 
 
@@ -759,8 +832,11 @@ async def test_serve_rpc_stdio_interrupt_promotes_next_steer_into_immediate_foll
     ]
     assert [message["type"] for message in messages] == [
         "rpc_event",
+        "rpc_event",
         "rpc_response",
+        "rpc_event",
         "rpc_response",
+        "rpc_event",
         "rpc_event",
         "rpc_event",
         "rpc_response",
@@ -768,24 +844,32 @@ async def test_serve_rpc_stdio_interrupt_promotes_next_steer_into_immediate_foll
     assert messages[0]["id"] == "req-run"
     assert messages[0]["event"]["type"] == "run_started"
     assert messages[0]["event"]["run_id"] == "run-first"
-    assert messages[1] == {
+    assert messages[1]["event"]["type"] == "session_queue_state"
+    assert messages[1]["event"]["next_prompts"] == ["second"]
+    assert messages[2] == {
         "type": "rpc_response",
         "id": "req-enqueue-next",
         "response": {"session_id": fixed_session_id, "queued_count": 1},
     }
-    assert messages[2] == {
+    assert messages[3]["event"]["type"] == "session_queue_state"
+    assert messages[3]["event"]["next_prompts"] == []
+    assert messages[3]["event"]["later_prompts"] == []
+    assert messages[4] == {
         "type": "rpc_response",
         "id": "req-interrupt",
         "response": {"session_id": fixed_session_id, "promoted_count": 1},
     }
-    assert messages[3]["id"] == "req-run"
-    assert messages[3]["event"]["type"] == "run_started"
-    assert messages[3]["event"]["run_id"] == "run-second"
-    assert messages[4]["id"] == "req-run"
-    assert messages[4]["event"]["type"] == "run_succeeded"
-    assert messages[4]["event"]["run_id"] == "run-second"
-    assert messages[4]["event"]["output_text"] == "second"
-    assert messages[5] == {
+    assert messages[5]["event"]["type"] == "session_queued_prompt_batch_submitted"
+    assert messages[5]["event"]["mode"] == "later"
+    assert messages[5]["event"]["prompts"] == ["second"]
+    assert messages[6]["id"] == "req-run"
+    assert messages[6]["event"]["type"] == "run_started"
+    assert messages[6]["event"]["run_id"] == "run-second"
+    assert messages[7]["id"] == "req-run"
+    assert messages[7]["event"]["type"] == "run_succeeded"
+    assert messages[7]["event"]["run_id"] == "run-second"
+    assert messages[7]["event"]["output_text"] == "second"
+    assert messages[8] == {
         "type": "rpc_response",
         "id": "req-run",
         "response": {"session_id": fixed_session_id},

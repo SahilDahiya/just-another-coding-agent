@@ -48,6 +48,7 @@ const (
 	completionSettle     = 850 * time.Millisecond
 	doubleInterruptDelay = 2 * time.Second
 	modelCatalogTimeout  = 8 * time.Second
+	queueControlTimeout  = 30 * time.Second
 	authStatusRetryDelay = 750 * time.Millisecond
 )
 
@@ -124,9 +125,8 @@ type promptState struct {
 }
 
 type queuedPreviewState struct {
-	Next        []string
-	Later       []string
-	AwaitingRun bool
+	Next  []string
+	Later []string
 }
 
 type runState struct {
@@ -379,21 +379,9 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				ContextWindow: contextWindow,
 			}
 		}
-		if msg.Event.Type == "run_started" && m.queuedPreview.AwaitingRun {
-			if len(m.queuedPreview.Next) > 0 {
-				m.queuedPreview.Next = nil
-			} else if len(m.queuedPreview.Later) > 0 {
-				m.queuedPreview.Later = nil
-			}
-			m.queuedPreview.AwaitingRun = len(m.queuedPreview.Next) > 0 || len(m.queuedPreview.Later) > 0
-		}
-		if (msg.Event.Type == "run_succeeded" || msg.Event.Type == "run_failed") &&
-			(len(m.queuedPreview.Next) > 0 || len(m.queuedPreview.Later) > 0) {
-			if len(m.queuedPreview.Next) > 0 && !m.queuedPreview.AwaitingRun {
-				m.queuedPreview.Later = append(append([]string{}, m.queuedPreview.Next...), m.queuedPreview.Later...)
-				m.queuedPreview.Next = nil
-			}
-			m.queuedPreview.AwaitingRun = len(m.queuedPreview.Next) > 0 || len(m.queuedPreview.Later) > 0
+		if msg.Event.Type == "session_queue_state" {
+			m.queuedPreview.Next = append([]string{}, msg.Event.NextPrompts...)
+			m.queuedPreview.Later = append([]string{}, msg.Event.LaterPrompts...)
 		}
 		if msg.Event.Type == "run_failed" && msg.Event.ErrorType != "CancelledError" {
 			m.phase = PhaseError
@@ -425,12 +413,6 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.transcript.WriteError(msg.Err.Error())
 			m.textInput.SetValue(msg.Prompt)
 			m.textInput.CursorEnd()
-		} else {
-			if msg.Mode == "next" {
-				m.queuedPreview.Next = append(m.queuedPreview.Next, msg.Prompt)
-			} else {
-				m.queuedPreview.Later = append(m.queuedPreview.Later, msg.Prompt)
-			}
 		}
 		m.refreshViewport()
 		return m, nil
@@ -439,9 +421,6 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.transcript.WriteError(msg.Err.Error())
 			m.refreshViewport()
 			return m, nil
-		}
-		if msg.PromotedCount > 0 {
-			m.queuedPreview.AwaitingRun = len(m.queuedPreview.Next) > 0 || len(m.queuedPreview.Later) > 0
 		}
 		m.refreshViewport()
 		return m, nil
@@ -1069,7 +1048,7 @@ func fetchSessionPreview(backend Backend, sessionID string) tea.Cmd {
 
 func enqueueRun(backend Backend, sessionID string, prompt string, mode string) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), authStatusTimeout)
+		ctx, cancel := context.WithTimeout(context.Background(), queueControlTimeout)
 		defer cancel()
 		_, err := backend.EnqueueRun(ctx, sessionID, prompt, mode)
 		return enqueueRunDoneMsg{Prompt: prompt, Mode: mode, Err: err}
@@ -1082,7 +1061,7 @@ func interruptRun(
 	promoteQueuedSteer bool,
 ) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), authStatusTimeout)
+		ctx, cancel := context.WithTimeout(context.Background(), queueControlTimeout)
 		defer cancel()
 		response, err := backend.InterruptRun(
 			ctx,

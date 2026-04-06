@@ -57,8 +57,8 @@ type RunEnqueuePayload struct {
 }
 
 type RunInterruptPayload struct {
-	SessionID           string `json:"session_id"`
-	PromoteQueuedSteer  bool   `json:"promote_queued_steer,omitempty"`
+	SessionID          string `json:"session_id"`
+	PromoteQueuedSteer bool   `json:"promote_queued_steer,omitempty"`
 }
 
 type EnvelopeType string
@@ -203,6 +203,10 @@ type RunEvent struct {
 	TotalTokens            *int           `json:"total_tokens,omitempty"`
 	ContextWindowUsed      *float64       `json:"context_window_used,omitempty"`
 	NextRequestContextUsed *float64       `json:"next_request_context_window_used,omitempty"`
+	NextPrompts            []string       `json:"next_prompts,omitempty"`
+	LaterPrompts           []string       `json:"later_prompts,omitempty"`
+	Prompts                []string       `json:"prompts,omitempty"`
+	Mode                   string         `json:"mode,omitempty"`
 	Activity               *ToolActivity  `json:"activity,omitempty"`
 }
 

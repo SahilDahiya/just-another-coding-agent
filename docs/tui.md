@@ -125,6 +125,14 @@ The core architectural risk is semantic drift between the Go shell and the Pytho
   compact grouped preview above the composer with one `After next tool call`
   block and one `At end of turn` block, each with a queued count and a few
   stacked prompt previews so batching is obvious without explanatory prose.
+- The Go TUI must treat that grouped preview as presentation only. Queue truth
+  comes from backend-emitted `session_queue_state` events, not from local
+  inference over `run_started`, `run_failed`, enqueue responses, or interrupt
+  responses.
+- When queued prompts are actually submitted, the transcript should render the
+  queued user text before the assistant response. That transcript truth comes
+  from backend-emitted `session_queued_prompt_batch_submitted`, not from local
+  guesswork in the Go TUI.
 - Ollama onboarding must be truthful about the two real paths:
   `/model ollama:<local-model>` for local no-auth use, and `/provider ollama`
   as an explicit local-vs-cloud chooser. Hosted Ollama means

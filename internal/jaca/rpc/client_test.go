@@ -268,6 +268,179 @@ for line in sys.stdin:
 	}
 }
 
+func TestClientEnqueueRunWhileStreamRunIsActive(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell-based helper is unix-only")
+	}
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+
+	tmpDir := t.TempDir()
+	markerPath := tmpDir + "/stream-enqueue.txt"
+	readyPath := tmpDir + "/ready.txt"
+	client := startPythonHelperClient(
+		t,
+		markerPath,
+		readyPath,
+		`import json, os, pathlib, sys
+ready = pathlib.Path(os.environ['JACA_RPC_HELPER_READY'])
+ready.write_text('ready')
+run_id = None
+for line in sys.stdin:
+    request = json.loads(line)
+    if request["command"] == "run.start":
+        run_id = request["id"]
+        sys.stdout.write(json.dumps({
+            "type": "rpc_event",
+            "id": run_id,
+            "event": {"type": "run_started", "run_id": "run-1"},
+        }) + "\n")
+        sys.stdout.flush()
+    elif request["command"] == "run.enqueue":
+        sys.stdout.write(json.dumps({
+            "type": "rpc_response",
+            "id": request["id"],
+            "response": {"session_id": "sess-1", "queued_count": 1},
+        }) + "\n")
+        sys.stdout.write(json.dumps({
+            "type": "rpc_event",
+            "id": run_id,
+            "event": {"type": "run_succeeded", "run_id": "run-1", "output_text": "done"},
+        }) + "\n")
+        sys.stdout.write(json.dumps({
+            "type": "rpc_response",
+            "id": run_id,
+            "response": {"session_id": "sess-1"},
+        }) + "\n")
+        sys.stdout.flush()
+        break`,
+	)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	runStarted := make(chan struct{}, 1)
+	runDone := make(chan error, 1)
+	go func() {
+		runDone <- client.StreamRun(ctx, "sess-1", "ship it", "", func(event RunEvent) error {
+			if event.Type == "run_started" {
+				runStarted <- struct{}{}
+			}
+			return nil
+		})
+	}()
+
+	select {
+	case <-runStarted:
+	case err := <-runDone:
+		t.Fatalf("StreamRun() finished before run_started: %v", err)
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for run_started")
+	}
+
+	resp, err := client.EnqueueRun(ctx, "sess-1", "follow up", "later")
+	if err != nil {
+		t.Fatalf("EnqueueRun() returned error: %v", err)
+	}
+	if resp.SessionID != "sess-1" {
+		t.Fatalf("SessionID = %q, want %q", resp.SessionID, "sess-1")
+	}
+	if resp.QueuedCount != 1 {
+		t.Fatalf("QueuedCount = %d, want 1", resp.QueuedCount)
+	}
+
+	if err := <-runDone; err != nil {
+		t.Fatalf("StreamRun() returned error: %v", err)
+	}
+}
+
+func TestClientEnqueueRunDoesNotStarveWhenStreamSinkIsSlow(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell-based helper is unix-only")
+	}
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+
+	tmpDir := t.TempDir()
+	markerPath := tmpDir + "/stream-slow-enqueue.txt"
+	readyPath := tmpDir + "/ready.txt"
+	client := startPythonHelperClient(
+		t,
+		markerPath,
+		readyPath,
+		`import json, os, pathlib, sys
+ready = pathlib.Path(os.environ['JACA_RPC_HELPER_READY'])
+ready.write_text('ready')
+run_id = None
+for line in sys.stdin:
+    request = json.loads(line)
+    if request["command"] == "run.start":
+        run_id = request["id"]
+        for idx in range(80):
+            sys.stdout.write(json.dumps({
+                "type": "rpc_event",
+                "id": run_id,
+                "event": {"type": "assistant_text_delta", "delta": f"chunk-{idx}"},
+            }) + "\n")
+        sys.stdout.flush()
+    elif request["command"] == "run.enqueue":
+        sys.stdout.write(json.dumps({
+            "type": "rpc_response",
+            "id": request["id"],
+            "response": {"session_id": "sess-1", "queued_count": 1},
+        }) + "\n")
+        sys.stdout.write(json.dumps({
+            "type": "rpc_response",
+            "id": run_id,
+            "response": {"session_id": "sess-1"},
+        }) + "\n")
+        sys.stdout.flush()
+        break`,
+	)
+
+	runCtx, runCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer runCancel()
+	readyForEnqueue := make(chan struct{}, 1)
+	runDone := make(chan error, 1)
+	go func() {
+		seen := 0
+		runDone <- client.StreamRun(runCtx, "sess-1", "ship it", "", func(event RunEvent) error {
+			if event.Type == "assistant_text_delta" {
+				seen++
+				if seen == 1 {
+					readyForEnqueue <- struct{}{}
+					time.Sleep(250 * time.Millisecond)
+				}
+			}
+			return nil
+		})
+	}()
+
+	select {
+	case <-readyForEnqueue:
+	case err := <-runDone:
+		t.Fatalf("StreamRun() finished before delta: %v", err)
+	case <-runCtx.Done():
+		t.Fatal("timed out waiting for first delta")
+	}
+
+	enqueueCtx, enqueueCancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer enqueueCancel()
+	resp, err := client.EnqueueRun(enqueueCtx, "sess-1", "follow up", "later")
+	if err != nil {
+		t.Fatalf("EnqueueRun() returned error: %v", err)
+	}
+	if resp.QueuedCount != 1 {
+		t.Fatalf("QueuedCount = %d, want 1", resp.QueuedCount)
+	}
+
+	if err := <-runDone; err != nil {
+		t.Fatalf("StreamRun() returned error: %v", err)
+	}
+}
+
 func startPythonHelperClient(t *testing.T, markerPath string, readyPath string, script string) *Client {
 	t.Helper()
 

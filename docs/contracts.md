@@ -641,6 +641,14 @@ Ordering rules for the RPC slice:
 - A valid `run.enqueue` request must reference an existing `session_id`, must carry a non-blank prompt, is accepted only while that session currently has an active streamed run in this backend process, and yields exactly one `rpc_response` with the resulting queued-count
 - A valid `run.interrupt` request must reference an existing `session_id`, is accepted only while that session currently has an active streamed run in this backend process, cancels that active run, and yields exactly one `rpc_response` with the resulting promoted-count
 - Session lifecycle `rpc_event` payloads such as `session_compaction_started` and `session_compaction_completed` may appear before `run_started`
+- `session_queue_state` is a backend-owned session lifecycle event that carries the authoritative active-run queue snapshot with:
+  - `next_prompts`
+  - `later_prompts`
+- Clients must render queue preview from `session_queue_state`; they must not infer queue transitions from `run_started`, `run_failed`, or local enqueue bookkeeping
+- `session_queued_prompt_batch_submitted` is a backend-owned session lifecycle event that carries the queued user text that was actually submitted with:
+  - `mode`
+  - `prompts`
+- Clients should render queued user text from `session_queued_prompt_batch_submitted` so assistant answers do not appear without the queued prompt that triggered them
 - `CompactionBudgetReport` fields are:
   - `should_compact`
   - `reason`

@@ -357,6 +357,8 @@ func (t *Transcript) ApplyRunEvent(event rpc.RunEvent) {
 		t.WriteCompactionCompleted()
 	case "session_compaction_warning":
 		t.WriteCompactionWarning(event.Message)
+	case "session_queued_prompt_batch_submitted":
+		t.WriteUserTurn(strings.Join(event.Prompts, "\n\n"))
 	case "assistant_text_delta":
 		t.appendAssistantDelta(event.Delta)
 	case "tool_call_started":

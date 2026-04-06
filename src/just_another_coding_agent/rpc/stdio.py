@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 from collections import defaultdict, deque
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, TextIO
@@ -53,6 +53,12 @@ from just_another_coding_agent.contracts.rpc import (
     SessionPreviewRequest,
     SessionPreviewResponse,
 )
+from just_another_coding_agent.contracts.run_events import (
+    RunEvent,
+    SessionLifecycleEvent,
+    SessionQueuedPromptBatchSubmittedEvent,
+    SessionQueueStateEvent,
+)
 from just_another_coding_agent.contracts.tools import CANONICAL_TOOL_NAMES
 from just_another_coding_agent.provider_readiness import ProviderReadinessError
 from just_another_coding_agent.rpc.session_store import (
@@ -91,26 +97,44 @@ class _FollowUpState:
         self._active_steer_targets: dict[
             str, tuple[list[str], Callable[[list[str]], None]]
         ] = {}
+        self._queue_event_emitters: dict[
+            str, Callable[[SessionQueueStateEvent], Awaitable[None]]
+        ] = {}
 
     async def activate(
         self,
         session_id: str,
         *,
         run_task: asyncio.Task[None],
+        emit_queue_state: Callable[[SessionQueueStateEvent], Awaitable[None]],
     ) -> None:
         async with self._lock:
             self._active_sessions.add(session_id)
             self._active_run_tasks[session_id] = run_task
+            self._queue_event_emitters[session_id] = emit_queue_state
+            event = self._build_queue_state_event_locked(session_id)
+        if event.next_prompts or event.later_prompts:
+            await emit_queue_state(event)
 
     async def deactivate(self, session_id: str) -> None:
+        emitter: Callable[[SessionQueueStateEvent], Any] | None = None
+        event: SessionQueueStateEvent | None = None
         async with self._lock:
+            previous_event = self._build_queue_state_event_locked(session_id)
             self._active_sessions.discard(session_id)
             self._active_run_tasks.pop(session_id, None)
             self._active_steer_targets.pop(session_id, None)
+            emitter = self._queue_event_emitters.pop(session_id, None)
+            if emitter is not None and (
+                previous_event.next_prompts or previous_event.later_prompts
+            ):
+                event = SessionQueueStateEvent(next_prompts=[], later_prompts=[])
             if not self._follow_up_queues.get(session_id):
                 self._follow_up_queues.pop(session_id, None)
             if not self._steer_queues.get(session_id):
                 self._steer_queues.pop(session_id, None)
+        if emitter is not None and event is not None:
+            await emitter(event)
 
     async def enqueue(
         self,
@@ -119,33 +143,55 @@ class _FollowUpState:
         *,
         mode: str,
     ) -> int:
+        emitter: Callable[[SessionQueueStateEvent], Any] | None = None
+        event: SessionQueueStateEvent | None = None
         async with self._lock:
             if session_id not in self._active_sessions:
                 raise RuntimeError(
                     "Queueing requires an active run for this session."
                 )
+            previous_event = self._build_queue_state_event_locked(session_id)
             if mode == "next":
                 target = self._active_steer_targets.get(session_id)
                 if target is not None:
                     prompts, attach = target
                     prompts.append(prompt)
                     attach(prompts)
-                    return len(prompts)
-                queue = self._steer_queues[session_id]
-                queue.append(prompt)
-                return len(queue)
-            return self._append_follow_up_locked(
-                session_id,
-                prompt=prompt,
-                kind="later",
-            )
+                    queued_count = len(prompts)
+                    emitter = self._queue_event_emitters.get(session_id)
+                    event = self._build_queue_state_event_locked(session_id)
+                else:
+                    queue = self._steer_queues[session_id]
+                    queue.append(prompt)
+                    queued_count = len(queue)
+                    emitter = self._queue_event_emitters.get(session_id)
+                    event = self._build_queue_state_event_locked(session_id)
+            else:
+                queued_count = self._append_follow_up_locked(
+                    session_id,
+                    prompt=prompt,
+                    kind="later",
+                )
+                emitter = self._queue_event_emitters.get(session_id)
+                event = self._build_queue_state_event_locked(session_id)
+        if (
+            emitter is not None
+            and event is not None
+            and previous_event != event
+        ):
+            await emitter(event)
+        return queued_count
 
     async def activate_steer_boundary(
         self,
         session_id: str,
         attach: Callable[[list[str]], None],
-    ) -> None:
+    ) -> list[str]:
+        emitter: Callable[[SessionQueueStateEvent], Any] | None = None
+        event: SessionQueueStateEvent | None = None
+        attached_prompts: list[str] = []
         async with self._lock:
+            previous_event = self._build_queue_state_event_locked(session_id)
             target = self._active_steer_targets.get(session_id)
             if target is not None:
                 raise RuntimeError("Steer boundary already active for session")
@@ -156,28 +202,72 @@ class _FollowUpState:
                     prompts.append(queue.popleft())
                 self._steer_queues.pop(session_id, None)
                 attach(prompts)
+                attached_prompts = list(prompts)
             self._active_steer_targets[session_id] = (prompts, attach)
+            emitter = self._queue_event_emitters.get(session_id)
+            event = self._build_queue_state_event_locked(session_id)
+        if (
+            emitter is not None
+            and event is not None
+            and previous_event != event
+        ):
+            await emitter(event)
+        return attached_prompts
 
     async def deactivate_steer_boundary(self, session_id: str) -> None:
+        emitter: Callable[[SessionQueueStateEvent], Any] | None = None
+        event: SessionQueueStateEvent | None = None
         async with self._lock:
+            previous_event = self._build_queue_state_event_locked(session_id)
             self._active_steer_targets.pop(session_id, None)
+            emitter = self._queue_event_emitters.get(session_id)
+            event = self._build_queue_state_event_locked(session_id)
+        if (
+            emitter is not None
+            and event is not None
+            and previous_event != event
+        ):
+            await emitter(event)
 
     async def downgrade_pending_steers_to_follow_ups(self, session_id: str) -> None:
+        emitter: Callable[[SessionQueueStateEvent], Any] | None = None
+        event: SessionQueueStateEvent | None = None
         async with self._lock:
+            previous_event = self._build_queue_state_event_locked(session_id)
             prompts = self._drain_pending_steers_locked(session_id)
             if not prompts:
                 return
             self._prepend_follow_ups_locked(session_id, prompts)
+            emitter = self._queue_event_emitters.get(session_id)
+            event = self._build_queue_state_event_locked(session_id)
+        if (
+            emitter is not None
+            and event is not None
+            and previous_event != event
+        ):
+            await emitter(event)
 
     async def take_next_follow_up_batch(self, session_id: str) -> list[str] | None:
+        emitter: Callable[[SessionQueueStateEvent], Any] | None = None
+        event: SessionQueueStateEvent | None = None
         async with self._lock:
             queue = self._follow_up_queues.get(session_id)
             if not queue:
                 return None
+            previous_event = self._build_queue_state_event_locked(session_id)
             batch = queue.popleft()
             if not queue:
                 self._follow_up_queues.pop(session_id, None)
-            return list(batch.prompts)
+            emitter = self._queue_event_emitters.get(session_id)
+            event = self._build_queue_state_event_locked(session_id)
+            prompts = list(batch.prompts)
+        if (
+            emitter is not None
+            and event is not None
+            and previous_event != event
+        ):
+            await emitter(event)
+        return prompts
 
     async def interrupt(
         self,
@@ -185,11 +275,14 @@ class _FollowUpState:
         *,
         promote_queued_steer: bool,
     ) -> int:
+        emitter: Callable[[SessionQueueStateEvent], Any] | None = None
+        event: SessionQueueStateEvent | None = None
         async with self._lock:
             if session_id not in self._active_sessions:
                 raise RuntimeError(
                     "Interrupt requires an active run for this session."
                 )
+            previous_event = self._build_queue_state_event_locked(session_id)
             run_task = self._active_run_tasks.get(session_id)
             if run_task is None:
                 raise RuntimeError(
@@ -201,8 +294,16 @@ class _FollowUpState:
                 promoted_count = len(prompts)
                 if prompts:
                     self._prepend_follow_ups_locked(session_id, prompts)
+            emitter = self._queue_event_emitters.get(session_id)
+            event = self._build_queue_state_event_locked(session_id)
             run_task.cancel()
-            return promoted_count
+        if (
+            emitter is not None
+            and event is not None
+            and previous_event != event
+        ):
+            await emitter(event)
+        return promoted_count
 
     def _drain_pending_steers_locked(self, session_id: str) -> list[str]:
         prompts: list[str] = []
@@ -243,6 +344,29 @@ class _FollowUpState:
         follow_ups.append(_QueuedPromptBatch(kind=kind, prompts=[prompt]))
         return 1
 
+    def _build_queue_state_event_locked(
+        self,
+        session_id: str,
+    ) -> SessionQueueStateEvent:
+        next_prompts: list[str] = []
+        active_target = self._active_steer_targets.get(session_id)
+        if active_target is not None:
+            active_prompts, _attach = active_target
+            next_prompts.extend(active_prompts)
+        queue = self._steer_queues.get(session_id)
+        if queue:
+            next_prompts.extend(queue)
+
+        later_prompts: list[str] = []
+        for batch in self._follow_up_queues.get(session_id, ()):
+            if batch.kind == "later":
+                later_prompts.extend(batch.prompts)
+
+        return SessionQueueStateEvent(
+            next_prompts=next_prompts,
+            later_prompts=later_prompts,
+        )
+
 
 _FOLLOW_UP_STATE = _FollowUpState()
 
@@ -257,6 +381,8 @@ async def handle_rpc_json_line(
     model: Any,
     workspace_root: Path | str,
     sessions_root: Path | str,
+    emit_rpc_event: Callable[[str, RunEvent | SessionLifecycleEvent], Awaitable[None]]
+    | None = None,
 ) -> AsyncIterator[str]:
     try:
         payload = json.loads(line)
@@ -557,9 +683,36 @@ async def handle_rpc_json_line(
     current_task = asyncio.current_task()
     if current_task is None:
         raise RuntimeError("run.start must execute inside an asyncio task")
+    if emit_rpc_event is None:
+        raise RuntimeError("run.start requires an rpc event emitter")
+
+    async def emit_queue_state(event: SessionQueueStateEvent) -> None:
+        await emit_rpc_event(request.id, event)
+
+    async def emit_submitted_prompt_batch(
+        mode: str,
+        prompts: list[str],
+    ) -> None:
+        if not prompts:
+            return
+        await emit_rpc_event(
+            request.id,
+            SessionQueuedPromptBatchSubmittedEvent(mode=mode, prompts=prompts),
+        )
+
+    async def activate_boundary(
+        attach: Callable[[list[str]], None],
+    ) -> None:
+        prompts = await _FOLLOW_UP_STATE.activate_steer_boundary(
+            request.payload.session_id,
+            attach,
+        )
+        await emit_submitted_prompt_batch("next", prompts)
+
     await _FOLLOW_UP_STATE.activate(
         request.payload.session_id,
         run_task=current_task,
+        emit_queue_state=emit_queue_state,
     )
     try:
         prompt = request.payload.prompt
@@ -572,12 +725,7 @@ async def handle_rpc_json_line(
                     prompt=prompt,
                     tool_names=CANONICAL_TOOL_NAMES,
                     thinking=request.payload.thinking,
-                    activate_steer_boundary=lambda attach: (
-                        _FOLLOW_UP_STATE.activate_steer_boundary(
-                            request.payload.session_id,
-                            attach,
-                        )
-                    ),
+                    activate_steer_boundary=activate_boundary,
                     deactivate_steer_boundary=lambda: (
                         _FOLLOW_UP_STATE.deactivate_steer_boundary(
                             request.payload.session_id
@@ -620,6 +768,7 @@ async def handle_rpc_json_line(
             )
             if prompt_batch is None:
                 break
+            await emit_submitted_prompt_batch("later", prompt_batch)
             prompt = _combine_prompt_batch(prompt_batch)
     finally:
         await _FOLLOW_UP_STATE.deactivate(request.payload.session_id)
@@ -655,12 +804,24 @@ async def serve_rpc_stdio(
                 output_stream.write("\n")
                 output_stream.flush()
 
+        async def emit_rpc_event(
+            request_id: str,
+            event: RunEvent | SessionLifecycleEvent,
+        ) -> None:
+            await write_response(
+                RpcEventEnvelope(
+                    id=request_id,
+                    event=event,
+                ).model_dump_json()
+            )
+
         async def stream_responses() -> None:
             async for response_line in handle_rpc_json_line(
                 line=line,
                 model=model,
                 workspace_root=workspace_root,
                 sessions_root=sessions_root,
+                emit_rpc_event=emit_rpc_event,
             ):
                 await write_response(response_line)
 
@@ -672,7 +833,7 @@ async def serve_rpc_stdio(
             await stream_responses()
 
     while True:
-        line = input_stream.readline()
+        line = await asyncio.to_thread(input_stream.readline)
         if line == "":
             break
 
