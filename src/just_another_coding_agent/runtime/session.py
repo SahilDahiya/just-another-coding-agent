@@ -24,7 +24,6 @@ from just_another_coding_agent.contracts.run_events import (
     RunSucceededEvent,
     SessionCompactionCompletedEvent,
     SessionCompactionStartedEvent,
-    SessionCompactionWarningEvent,
     SessionLifecycleEvent,
     SessionTurnContextStatusEvent,
     ToolCallFailedEvent,
@@ -373,14 +372,6 @@ async def stream_session_run_events(
                 ),
                 estimated_headroom_gain_tokens=estimated_headroom_gain_tokens,
             )
-            if len(loaded_session.compactions) >= 2:
-                yield SessionCompactionWarningEvent(
-                    compaction_count=len(loaded_session.compactions),
-                    message=(
-                        "Session has been compacted multiple times; continuity "
-                        "quality may degrade."
-                    ),
-                )
     if loaded_session is not None:
         turn_context_baseline = evaluate_turn_context_baseline(
             entry=loaded_session.latest_turn_context,

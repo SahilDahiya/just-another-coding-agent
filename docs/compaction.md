@@ -105,8 +105,6 @@ Operational rules:
 - it requires at least one completed run after `compacted_through_run_id`
 - after three consecutive automatic compaction failures, the runtime blocks
   further automatic attempts for that session and fails hard
-- after a second-or-later automatic compaction, the runtime emits one explicit
-  warning event before `run_started`
 
 ## Compaction Source
 

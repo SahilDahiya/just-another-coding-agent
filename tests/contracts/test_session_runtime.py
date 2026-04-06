@@ -1771,7 +1771,7 @@ async def test_stream_session_run_events_auto_compacts_stale_session_before_resu
     assert _user_prompts(loaded.runs[-1].messages) == ["follow-up"]
 
 
-async def test_stream_session_run_events_warns_after_repeated_auto_compaction(
+async def test_stream_session_run_events_continues_after_repeated_auto_compaction(
     tmp_path,
     monkeypatch,
 ) -> None:
@@ -1859,15 +1859,13 @@ async def test_stream_session_run_events_warns_after_repeated_auto_compaction(
     assert [event.type for event in events] == [
         "session_compaction_started",
         "session_compaction_completed",
-        "session_compaction_warning",
         "session_turn_context_status",
         "run_started",
         "run_succeeded",
     ]
-    assert events[2].compaction_count == 2
-    assert isinstance(events[3], SessionTurnContextStatusEvent)
-    assert events[3].status == "missing"
-    assert events[3].reason == "missing"
+    assert isinstance(events[2], SessionTurnContextStatusEvent)
+    assert events[2].status == "missing"
+    assert events[2].reason == "missing"
     loaded = load_session(path=session_path, workspace_root=workspace_root)
     assert len(loaded.compactions) == 2
     assert extract_compaction_summary_text(

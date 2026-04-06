@@ -312,8 +312,6 @@ Initial executable run slice:
     - `estimated_tokens_saved`
     - `estimated_percent_saved`
     - `estimated_headroom_gain_tokens`
-- `session_compaction_warning`
-  - fields: `type`, `compaction_count`, `message`
 - `run_started`
   - fields: `type`, `run_id`
 - `assistant_text_delta`
@@ -345,9 +343,6 @@ Ordering rules for the initial slice:
 - `session_turn_context_status.persisted_run_id` identifies the prior
   persisted run whose turn-context baseline was reused or cleared; it is null
   when no persisted baseline was available
-- After a second-or-later durable automatic compaction, the runtime emits one
-  explicit `session_compaction_warning` before `run_started` so clients can
-  surface potential continuity degradation without inventing local heuristics
 - Before any assistant text or tool lifecycle event is emitted, the runtime may hide one retryable transient failure and continue with the same public `run_id`
 - Once any assistant text or tool lifecycle event has been emitted, the runtime must not retry the run automatically
 - Consumers must not need to understand raw PydanticAI stream event kinds to consume this contract

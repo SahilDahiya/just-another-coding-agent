@@ -144,7 +144,7 @@ The core architectural risk is semantic drift between the Go shell and the Pytho
   secret file panel with clear explanatory copy about why that path was chosen.
 - The prompt zone should behave like a compact two-line shell composer: one input line, one low-salience footer line for state and recall hints.
 - Backend token and context-window usage should appear as restrained footer context after a completed run, not as a new panel or heavy stats surface.
-- Session lifecycle events such as `session_compaction_started`, `session_compaction_completed`, and `session_compaction_warning` may appear before `run_started`; the TUI should surface them in the transcript and switch to the compacting state only when the backend says compaction is happening, instead of silently dropping or reinterpreting them.
+- Session lifecycle events such as `session_compaction_started` and `session_compaction_completed` may appear before `run_started`; the TUI should surface them in the transcript and switch to the compacting state only when the backend says compaction is happening, instead of silently dropping or reinterpreting them.
 - `esc` is the primary conversation-control key: it requests interrupt for an
   active run, promotes pending steer to immediate send when present, and does
   not resurrect the previous prompt for editing.

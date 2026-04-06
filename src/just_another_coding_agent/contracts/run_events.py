@@ -182,14 +182,6 @@ class SessionCompactionCompletedEvent(BaseModel):
     estimated_headroom_gain_tokens: int | None = None
 
 
-class SessionCompactionWarningEvent(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    type: Literal["session_compaction_warning"] = "session_compaction_warning"
-    compaction_count: int
-    message: str
-
-
 class SessionTurnContextStatusEvent(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -202,7 +194,6 @@ class SessionTurnContextStatusEvent(BaseModel):
 SessionLifecycleEvent = (
     SessionCompactionStartedEvent
     | SessionCompactionCompletedEvent
-    | SessionCompactionWarningEvent
     | SessionTurnContextStatusEvent
 )
 
@@ -233,7 +224,6 @@ __all__ = [
     "RunSucceededEvent",
     "SessionCompactionCompletedEvent",
     "SessionCompactionStartedEvent",
-    "SessionCompactionWarningEvent",
     "SessionLifecycleEvent",
     "SessionTurnContextStatusEvent",
     "ShellActivityDetails",
