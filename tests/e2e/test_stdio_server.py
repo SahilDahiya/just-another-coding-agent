@@ -439,6 +439,130 @@ async def test_serve_rpc_stdio_drains_queued_follow_up_after_run(
     }
 
 
+async def test_serve_rpc_stdio_batches_multiple_later_follow_ups_into_one_run(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    fixed_session_id = "5" * 32
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    session_path = session_path_for_id(
+        sessions_root=sessions_root,
+        workspace_root=workspace_root,
+        session_id=fixed_session_id,
+    )
+    session_path.parent.mkdir(parents=True, exist_ok=True)
+    session_path.write_text(
+        json.dumps(
+            {
+                "type": "session_header",
+                "workspace_root": str(workspace_root),
+                "shell_family": "bash",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    input_stream = io.StringIO(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "id": "req-run",
+                        "command": "run.start",
+                        "payload": {
+                            "session_id": fixed_session_id,
+                            "prompt": "first",
+                        },
+                    }
+                ),
+                json.dumps(
+                    {
+                        "id": "req-enqueue-1",
+                        "command": "run.enqueue",
+                        "payload": {
+                            "session_id": fixed_session_id,
+                            "prompt": "second",
+                            "mode": "later",
+                        },
+                    }
+                ),
+                json.dumps(
+                    {
+                        "id": "req-enqueue-2",
+                        "command": "run.enqueue",
+                        "payload": {
+                            "session_id": fixed_session_id,
+                            "prompt": "third",
+                            "mode": "later",
+                        },
+                    }
+                ),
+            ]
+        )
+        + "\n"
+    )
+    output_stream = io.StringIO()
+    observed_prompts: list[str] = []
+
+    async def fake_stream_session_run_events(*, prompt: str, **_kwargs):
+        observed_prompts.append(prompt)
+        yield RunStartedEvent(run_id=f"run-{len(observed_prompts)}")
+        await asyncio.sleep(0)
+        yield RunSucceededEvent(
+            run_id=f"run-{len(observed_prompts)}",
+            output_text=prompt,
+        )
+
+    monkeypatch.setattr(
+        "just_another_coding_agent.rpc.stdio.stream_session_run_events",
+        fake_stream_session_run_events,
+    )
+
+    await serve_rpc_stdio(
+        input_stream=input_stream,
+        output_stream=output_stream,
+        model=FunctionModel(function=compaction_summary_function),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    messages = [
+        json.loads(line) for line in output_stream.getvalue().splitlines() if line
+    ]
+    assert [message["type"] for message in messages] == [
+        "rpc_event",
+        "rpc_response",
+        "rpc_response",
+        "rpc_event",
+        "rpc_event",
+        "rpc_event",
+        "rpc_response",
+    ]
+    assert observed_prompts == ["first", "second\n\nthird"]
+    assert messages[1] == {
+        "type": "rpc_response",
+        "id": "req-enqueue-1",
+        "response": {"session_id": fixed_session_id, "queued_count": 1},
+    }
+    assert messages[2] == {
+        "type": "rpc_response",
+        "id": "req-enqueue-2",
+        "response": {"session_id": fixed_session_id, "queued_count": 2},
+    }
+    assert messages[3]["event"]["type"] == "run_succeeded"
+    assert messages[3]["event"]["output_text"] == "first"
+    assert messages[4]["event"]["type"] == "run_started"
+    assert messages[5]["event"]["type"] == "run_succeeded"
+    assert messages[5]["event"]["output_text"] == "second\n\nthird"
+    assert messages[6] == {
+        "type": "rpc_response",
+        "id": "req-run",
+        "response": {"session_id": fixed_session_id},
+    }
+
+
 async def test_serve_rpc_stdio_attaches_next_queue_to_active_tool_boundary(
     tmp_path,
     monkeypatch,

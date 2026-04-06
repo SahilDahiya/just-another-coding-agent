@@ -201,8 +201,87 @@ async def test_follow_up_state_interrupt_promotes_pending_steer_to_front() -> No
     assert promoted_count == 1
     with pytest.raises(asyncio.CancelledError):
         await run_task
-    assert await state.take_next_follow_up("a" * 32) == "steer prompt"
-    assert await state.take_next_follow_up("a" * 32) == "later prompt"
+    assert await state.take_next_follow_up_batch("a" * 32) == ["steer prompt"]
+    assert await state.take_next_follow_up_batch("a" * 32) == ["later prompt"]
+
+
+async def test_follow_up_state_interrupt_preserves_fifo_within_promoted_and_later(
+) -> None:
+    state = _FollowUpState()
+    run_task = asyncio.create_task(asyncio.Event().wait())
+    session_id = "b" * 32
+    await state.activate(session_id, run_task=run_task)
+    await state.enqueue(session_id, "later one", mode="later")
+    await state.enqueue(session_id, "later two", mode="later")
+    await state.activate_steer_boundary(session_id, lambda prompts: None)
+    await state.enqueue(session_id, "next one", mode="next")
+    await state.enqueue(session_id, "next two", mode="next")
+
+    promoted_count = await state.interrupt(
+        session_id,
+        promote_queued_steer=True,
+    )
+
+    assert promoted_count == 2
+    with pytest.raises(asyncio.CancelledError):
+        await run_task
+    assert await state.take_next_follow_up_batch(session_id) == [
+        "next one",
+        "next two",
+    ]
+    assert await state.take_next_follow_up_batch(session_id) == [
+        "later one",
+        "later two",
+    ]
+
+
+async def test_follow_up_state_downgrades_pending_next_ahead_of_existing_later(
+) -> None:
+    state = _FollowUpState()
+    session_id = "c" * 32
+    run_task = asyncio.create_task(asyncio.Event().wait())
+    await state.activate(session_id, run_task=run_task)
+    await state.enqueue(session_id, "later one", mode="later")
+    await state.enqueue(session_id, "later two", mode="later")
+    await state.activate_steer_boundary(session_id, lambda prompts: None)
+    await state.enqueue(session_id, "next one", mode="next")
+    await state.enqueue(session_id, "next two", mode="next")
+
+    await state.downgrade_pending_steers_to_follow_ups(session_id)
+
+    assert await state.take_next_follow_up_batch(session_id) == [
+        "next one",
+        "next two",
+    ]
+    assert await state.take_next_follow_up_batch(session_id) == [
+        "later one",
+        "later two",
+    ]
+    run_task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await run_task
+
+
+async def test_follow_up_state_interrupt_without_promotion_preserves_later_only(
+) -> None:
+    state = _FollowUpState()
+    session_id = "d" * 32
+    run_task = asyncio.create_task(asyncio.Event().wait())
+    await state.activate(session_id, run_task=run_task)
+    await state.enqueue(session_id, "later one", mode="later")
+    await state.activate_steer_boundary(session_id, lambda prompts: None)
+    await state.enqueue(session_id, "next one", mode="next")
+
+    promoted_count = await state.interrupt(
+        session_id,
+        promote_queued_steer=False,
+    )
+
+    assert promoted_count == 0
+    with pytest.raises(asyncio.CancelledError):
+        await run_task
+    assert await state.take_next_follow_up_batch(session_id) == ["later one"]
+    assert await state.take_next_follow_up_batch(session_id) is None
 
 
 async def test_handle_rpc_json_line_creates_session_and_resumes_runs(

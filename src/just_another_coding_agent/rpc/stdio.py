@@ -4,6 +4,7 @@ import asyncio
 import json
 from collections import defaultdict, deque
 from collections.abc import AsyncIterator
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, TextIO
 
@@ -72,12 +73,20 @@ from just_another_coding_agent.session import (
 _RPC_REQUEST_ADAPTER = TypeAdapter(RpcRequest)
 
 
+@dataclass
+class _QueuedPromptBatch:
+    kind: str
+    prompts: list[str]
+
+
 class _FollowUpState:
     def __init__(self) -> None:
         self._lock = asyncio.Lock()
         self._active_sessions: set[str] = set()
         self._active_run_tasks: dict[str, asyncio.Task[None]] = {}
-        self._follow_up_queues: dict[str, deque[str]] = defaultdict(deque)
+        self._follow_up_queues: dict[str, deque[_QueuedPromptBatch]] = defaultdict(
+            deque
+        )
         self._steer_queues: dict[str, deque[str]] = defaultdict(deque)
         self._active_steer_targets: dict[
             str, tuple[list[str], Callable[[list[str]], None]]
@@ -125,9 +134,11 @@ class _FollowUpState:
                 queue = self._steer_queues[session_id]
                 queue.append(prompt)
                 return len(queue)
-            queue = self._follow_up_queues[session_id]
-            queue.append(prompt)
-            return len(queue)
+            return self._append_follow_up_locked(
+                session_id,
+                prompt=prompt,
+                kind="later",
+            )
 
     async def activate_steer_boundary(
         self,
@@ -158,15 +169,15 @@ class _FollowUpState:
                 return
             self._prepend_follow_ups_locked(session_id, prompts)
 
-    async def take_next_follow_up(self, session_id: str) -> str | None:
+    async def take_next_follow_up_batch(self, session_id: str) -> list[str] | None:
         async with self._lock:
             queue = self._follow_up_queues.get(session_id)
             if not queue:
                 return None
-            prompt = queue.popleft()
+            batch = queue.popleft()
             if not queue:
                 self._follow_up_queues.pop(session_id, None)
-            return prompt
+            return list(batch.prompts)
 
     async def interrupt(
         self,
@@ -214,11 +225,30 @@ class _FollowUpState:
         prompts: list[str],
     ) -> None:
         follow_ups = self._follow_up_queues[session_id]
-        for prompt in reversed(prompts):
-            follow_ups.appendleft(prompt)
+        follow_ups.appendleft(
+            _QueuedPromptBatch(kind="next", prompts=list(prompts))
+        )
+
+    def _append_follow_up_locked(
+        self,
+        session_id: str,
+        *,
+        prompt: str,
+        kind: str,
+    ) -> int:
+        follow_ups = self._follow_up_queues[session_id]
+        if follow_ups and follow_ups[-1].kind == kind:
+            follow_ups[-1].prompts.append(prompt)
+            return len(follow_ups[-1].prompts)
+        follow_ups.append(_QueuedPromptBatch(kind=kind, prompts=[prompt]))
+        return 1
 
 
 _FOLLOW_UP_STATE = _FollowUpState()
+
+
+def _combine_prompt_batch(prompts: list[str]) -> str:
+    return "\n\n".join(prompts)
 
 
 async def handle_rpc_json_line(
@@ -585,11 +615,12 @@ async def handle_rpc_json_line(
             await _FOLLOW_UP_STATE.downgrade_pending_steers_to_follow_ups(
                 request.payload.session_id
             )
-            prompt = await _FOLLOW_UP_STATE.take_next_follow_up(
+            prompt_batch = await _FOLLOW_UP_STATE.take_next_follow_up_batch(
                 request.payload.session_id
             )
-            if prompt is None:
+            if prompt_batch is None:
                 break
+            prompt = _combine_prompt_batch(prompt_batch)
     finally:
         await _FOLLOW_UP_STATE.deactivate(request.payload.session_id)
     yield RpcResponseEnvelope(

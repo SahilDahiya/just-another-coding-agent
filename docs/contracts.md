@@ -662,6 +662,14 @@ Ordering rules for the RPC slice:
 - `run.enqueue` with `mode: "next"` is the canonical active-turn steer queueing operation; the backend may attach queued steer prompts only at a safe tool boundary before the next model round-trip in the same run
 - If a `mode: "next"` prompt is still pending when the active run ends, the backend downgrades it into the `later` queue before draining follow-ups
 - `run.interrupt` with `promote_queued_steer: true` is the canonical promotion path from pending `next` steering into immediate follow-up delivery; any pending steer prompts are prepended to the `later` queue before the cancelled run drains queued follow-ups on the same `run.start` stream
+- Queue ordering is explicit:
+  - promoted or downgraded `next` prompts run before already-queued `later` prompts
+  - FIFO order is preserved within the promoted/downgraded `next` bucket
+  - FIFO order is preserved within the pre-existing `later` bucket
+- Queue draining is bucket-batched:
+  - multiple prompts in the same promoted/downgraded `next` bucket are combined into one follow-up prompt in FIFO order using blank-line separation
+  - multiple prompts in the same `later` bucket are combined into one follow-up prompt in FIFO order using blank-line separation
+  - promoted/downgraded `next` prompts do not merge with pre-existing `later` prompts
 - Forking is a wrapper-level session-store operation today: the Python launcher
   may create a new session file with one `session_fork` entry before the TUI
   starts, but RPC clients do not have a separate `session.fork` command yet

@@ -56,7 +56,7 @@ Core RPC commands:
 - `session.create` -- creates a new session, returns a server-generated opaque `session_id`
 - `session.name` -- appends one backend-normalized human session name to an existing session
 - `run.start` -- runs a prompt against an existing session, streams run events back, may carry an optional `thinking` setting, and ends with one final `rpc_response` after any drained follow-up runs complete
-- `run.enqueue` -- queues one non-blank prompt for an already-active session-backed run, with `mode: "next" | "later"`; `next` is attached at the next tool boundary in the active run and `later` is drained after the current run ends
+- `run.enqueue` -- queues one non-blank prompt for an already-active session-backed run, with `mode: "next" | "later"`; `next` is attached at the next tool boundary in the active run and `later` is drained after the current run ends. Multiple queued prompts in the same bucket are combined into one follow-up prompt in FIFO order using blank-line separation
 - `run.interrupt` -- cancels an already-active session-backed run; when `promote_queued_steer` is true, pending `next` steering is promoted into immediate follow-up delivery
 - `session.compact` -- appends one model-generated durable compaction summary entry for an existing session
 
