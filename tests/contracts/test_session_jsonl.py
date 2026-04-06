@@ -6,6 +6,7 @@ from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
     ModelResponse,
+    SystemPromptPart,
     TextPart,
     ToolCallPart,
     UserPromptPart,
@@ -1437,6 +1438,120 @@ def test_append_compaction_to_session_rejects_empty_session(tmp_path) -> None:
             workspace_root=workspace_root,
             replacement_messages=[build_compaction_summary_message("continue")],
         )
+
+
+def test_append_compaction_to_session_rejects_unknown_boundary_at_write_time(
+    tmp_path,
+) -> None:
+    path = tmp_path / "session.jsonl"
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    append_run_to_session(
+        path=path,
+        workspace_root=workspace_root,
+        prompt="first",
+        thinking=None,
+        events=[
+            RunStartedEvent(run_id="run-1"),
+            RunSucceededEvent(run_id="run-1", output_text="done"),
+        ],
+        messages=[ModelRequest(parts=[UserPromptPart(content="first")])],
+    )
+
+    with pytest.raises(
+        SessionFormatError,
+        match="Session compaction entry must reference an existing run_id",
+    ):
+        append_compaction_to_session(
+            path=path,
+            workspace_root=workspace_root,
+            compacted_through_run_id="run-999",
+            replacement_messages=[build_compaction_summary_message("continue")],
+        )
+
+    loaded = load_session(path=path, workspace_root=workspace_root)
+    assert loaded.compactions == []
+
+
+def test_append_compaction_to_session_rejects_backward_boundary_at_write_time(
+    tmp_path,
+) -> None:
+    path = tmp_path / "session.jsonl"
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    for run_id, prompt in [("run-1", "first"), ("run-2", "second")]:
+        append_run_to_session(
+            path=path,
+            workspace_root=workspace_root,
+            prompt=prompt,
+            thinking=None,
+            messages=[ModelRequest(parts=[UserPromptPart(content=prompt)])],
+            events=[
+                RunStartedEvent(run_id=run_id),
+                RunSucceededEvent(run_id=run_id, output_text="done"),
+            ],
+        )
+
+    append_compaction_to_session(
+        path=path,
+        workspace_root=workspace_root,
+        compacted_through_run_id="run-2",
+        replacement_messages=[build_compaction_summary_message("first summary")],
+    )
+
+    with pytest.raises(
+        SessionFormatError,
+        match="Session compaction entries must not move the compaction boundary backward",
+    ):
+        append_compaction_to_session(
+            path=path,
+            workspace_root=workspace_root,
+            compacted_through_run_id="run-1",
+            replacement_messages=[build_compaction_summary_message("second summary")],
+        )
+
+    loaded = load_session(path=path, workspace_root=workspace_root)
+    assert len(loaded.compactions) == 1
+    assert loaded.latest_compaction is not None
+    assert loaded.latest_compaction.compacted_through_run_id == "run-2"
+
+
+def test_append_compaction_to_session_rejects_invalid_replacement_messages_at_write_time(
+    tmp_path,
+) -> None:
+    path = tmp_path / "session.jsonl"
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    append_run_to_session(
+        path=path,
+        workspace_root=workspace_root,
+        prompt="first",
+        thinking=None,
+        events=[
+            RunStartedEvent(run_id="run-1"),
+            RunSucceededEvent(run_id="run-1", output_text="done"),
+        ],
+        messages=[ModelRequest(parts=[UserPromptPart(content="first")])],
+    )
+
+    with pytest.raises(
+        SessionFormatError,
+        match="Session messages must not persist system prompt parts",
+    ):
+        append_compaction_to_session(
+            path=path,
+            workspace_root=workspace_root,
+            replacement_messages=[
+                ModelRequest(parts=[SystemPromptPart(content="hidden")]),
+                build_compaction_summary_message("continue"),
+            ],
+        )
+
+    loaded = load_session(path=path, workspace_root=workspace_root)
+    assert loaded.compactions == []
 
 
 def test_load_session_tracks_compaction_entries_without_changing_message_history(

@@ -248,6 +248,28 @@ def append_compaction_to_session(
         validate_compaction_replacement_messages(replacement_messages)
     except ValueError as error:
         raise SessionFormatError(str(error)) from error
+    _validate_run_messages(replacement_messages)
+
+    try:
+        resolved_compaction_run_index = _run_index_for_id(
+            loaded,
+            resolved_compacted_through_run_id,
+        )
+    except SessionFormatError as error:
+        raise SessionFormatError(
+            "Session compaction entry must reference an existing run_id"
+        ) from error
+    latest_compaction = loaded.latest_compaction
+    if latest_compaction is not None:
+        latest_compaction_run_index = _run_index_for_id(
+            loaded,
+            latest_compaction.compacted_through_run_id,
+        )
+        if resolved_compaction_run_index < latest_compaction_run_index:
+            raise SessionFormatError(
+                "Session compaction entries must not move the compaction "
+                "boundary backward"
+            )
 
     entry = SessionCompactionEntry(
         compaction_id=uuid4().hex,
