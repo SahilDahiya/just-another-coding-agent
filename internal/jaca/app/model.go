@@ -120,6 +120,13 @@ type promptState struct {
 	historyDraft       string
 	promptFooterNotice string
 	slashMenu          slashMenuState
+	queuedPreview      queuedPreviewState
+}
+
+type queuedPreviewState struct {
+	Next        []string
+	Later       []string
+	AwaitingRun bool
 }
 
 type runState struct {
@@ -372,6 +379,22 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				ContextWindow: contextWindow,
 			}
 		}
+		if msg.Event.Type == "run_started" && m.queuedPreview.AwaitingRun {
+			if len(m.queuedPreview.Next) > 0 {
+				m.queuedPreview.Next = nil
+			} else if len(m.queuedPreview.Later) > 0 {
+				m.queuedPreview.Later = nil
+			}
+			m.queuedPreview.AwaitingRun = len(m.queuedPreview.Next) > 0 || len(m.queuedPreview.Later) > 0
+		}
+		if (msg.Event.Type == "run_succeeded" || msg.Event.Type == "run_failed") &&
+			(len(m.queuedPreview.Next) > 0 || len(m.queuedPreview.Later) > 0) {
+			if len(m.queuedPreview.Next) > 0 && !m.queuedPreview.AwaitingRun {
+				m.queuedPreview.Later = append(append([]string{}, m.queuedPreview.Next...), m.queuedPreview.Later...)
+				m.queuedPreview.Next = nil
+			}
+			m.queuedPreview.AwaitingRun = len(m.queuedPreview.Next) > 0 || len(m.queuedPreview.Later) > 0
+		}
 		if msg.Event.Type == "run_failed" && msg.Event.ErrorType != "CancelledError" {
 			m.phase = PhaseError
 		}
@@ -403,11 +426,11 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.textInput.SetValue(msg.Prompt)
 			m.textInput.CursorEnd()
 		} else {
-			label := "follow-up queued"
 			if msg.Mode == "next" {
-				label = "steer queued"
+				m.queuedPreview.Next = append(m.queuedPreview.Next, msg.Prompt)
+			} else {
+				m.queuedPreview.Later = append(m.queuedPreview.Later, msg.Prompt)
 			}
-			m.transcript.WriteNote("queue", []string{label, msg.Prompt})
 		}
 		m.refreshViewport()
 		return m, nil
@@ -418,17 +441,9 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if msg.PromotedCount > 0 {
-			m.transcript.WriteNote(
-				"queue",
-				[]string{
-					fmt.Sprintf(
-						"promoted %d pending steer message(s) to immediate follow-up",
-						msg.PromotedCount,
-					),
-				},
-			)
-			m.refreshViewport()
+			m.queuedPreview.AwaitingRun = len(m.queuedPreview.Next) > 0 || len(m.queuedPreview.Later) > 0
 		}
+		m.refreshViewport()
 		return m, nil
 	case modelCatalogLoadedMsg:
 		m.modelCatalogLoading = false
@@ -546,6 +561,8 @@ func (m *model) currentViewModel() viewModel {
 		PromptFooter:   m.currentPromptFooter(),
 		RunElapsed:     elapsed,
 		Usage:          m.lastUsage,
+		QueuedNext:     append([]string{}, m.queuedPreview.Next...),
+		QueuedLater:    append([]string{}, m.queuedPreview.Later...),
 		LinePulse:      m.linePulse,
 		SinceLastDelta: sinceLastDelta,
 		DetachedLive:   m.streaming && !m.viewport.AtBottom(),

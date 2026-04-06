@@ -337,9 +337,11 @@ func TestTabWhileStreamingQueuesFollowUp(t *testing.T) {
 	if got := m.textInput.Value(); got != "" {
 		t.Fatalf("textInput.Value() after queue = %q, want empty", got)
 	}
-	rendered := stripANSI(m.transcript.Render())
-	if !strings.Contains(rendered, "follow-up queued") {
-		t.Fatalf("transcript missing follow-up queued note: %q", rendered)
+	rendered := stripANSI(m.View())
+	for _, want := range []string{"At end of turn", "1 queued", "↳ follow up"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("queued follow-up preview missing %q in %q", want, rendered)
+		}
 	}
 }
 
@@ -367,9 +369,11 @@ func TestEnterWhileStreamingQueuesSteer(t *testing.T) {
 	if backend.lastEnqueuedRun.Prompt != "be more concise" {
 		t.Fatalf("queued prompt = %q, want %q", backend.lastEnqueuedRun.Prompt, "be more concise")
 	}
-	rendered := stripANSI(m.transcript.Render())
-	if !strings.Contains(rendered, "steer queued") {
-		t.Fatalf("transcript missing steer queued note: %q", rendered)
+	rendered := stripANSI(m.View())
+	for _, want := range []string{"After next tool call", "1 queued", "↳ be more concise"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("queued steer preview missing %q in %q", want, rendered)
+		}
 	}
 }
 

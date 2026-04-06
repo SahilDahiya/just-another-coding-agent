@@ -427,6 +427,31 @@ func TestRenderViewShowsLocalSecretFilePanel(t *testing.T) {
 	}
 }
 
+func TestRenderPromptShowsGroupedQueuedInputPreview(t *testing.T) {
+	rendered := stripANSI(renderPrompt(viewModel{
+		Phase:       PhaseStreaming,
+		Width:       80,
+		PromptValue: "draft",
+		QueuedNext:  []string{"tighten the answer", "add tests"},
+		QueuedLater: []string{"run the full suite", "summarize failures"},
+	}))
+
+	for _, want := range []string{
+		"After next tool call",
+		"2 queued",
+		"Esc sends now",
+		"↳ tighten the answer",
+		"↳ add tests",
+		"At end of turn",
+		"↳ run the full suite",
+		"↳ summarize failures",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("renderPrompt() missing %q in %q", want, rendered)
+		}
+	}
+}
+
 func TestRenderViewShowsFirstRunChooserPanel(t *testing.T) {
 	rendered := stripANSI(renderView(viewModel{
 		Width:  80,

@@ -74,6 +74,8 @@ type viewModel struct {
 	PromptFooter   string
 	RunElapsed     time.Duration
 	Usage          usageSnapshot
+	QueuedNext     []string
+	QueuedLater    []string
 	LinePulse      int
 	SinceLastDelta time.Duration
 	DetachedLive   bool
@@ -330,6 +332,9 @@ func renderPrompt(vm viewModel) string {
 	}
 	if vm.UpdatePrompt.Active {
 		promptParts = append(promptParts, renderUpdatePrompt(vm.UpdatePrompt))
+	}
+	if queuePreview := renderQueuedInputPreview(vm, ruleWidth); queuePreview != "" {
+		promptParts = append(promptParts, queuePreview)
 	}
 	promptParts = append(promptParts, topRule)
 	if vm.SlashMenu.Mode != slashMenuHidden && len(vm.SlashMenu.Rows) > 0 {
@@ -609,6 +614,89 @@ func buildPromptFooterText(vm viewModel) string {
 	default:
 		return buildIdleFooterText(vm)
 	}
+}
+
+func renderQueuedInputPreview(vm viewModel, width int) string {
+	if len(vm.QueuedNext) == 0 && len(vm.QueuedLater) == 0 {
+		return ""
+	}
+	previewStyle := lipgloss.NewStyle().
+		BorderLeft(true).
+		BorderForeground(defaultTheme.border).
+		PaddingLeft(1)
+	sectionGap := ""
+	var sections []string
+	if len(vm.QueuedNext) > 0 {
+		sections = append(sections, renderQueuedInputSection(
+			"After next tool call",
+			"Esc sends now",
+			vm.QueuedNext,
+			width,
+		))
+		sectionGap = "\n"
+	}
+	if len(vm.QueuedLater) > 0 {
+		sections = append(sections, renderQueuedInputSection(
+			"At end of turn",
+			"",
+			vm.QueuedLater,
+			width,
+		))
+	}
+	return previewStyle.Render(strings.Join(sections, sectionGap))
+}
+
+func renderQueuedInputSection(title string, hint string, prompts []string, width int) string {
+	header := lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render(title)
+	count := lipgloss.NewStyle().Foreground(defaultTheme.accentSoft).Render(
+		fmt.Sprintf("%d queued", len(prompts)),
+	)
+	headerLine := lipgloss.JoinHorizontal(lipgloss.Left, header, "  ", count)
+	if hint != "" {
+		headerLine = lipgloss.JoinHorizontal(
+			lipgloss.Left,
+			headerLine,
+			"  ",
+			lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render(hint),
+		)
+	}
+	lines := []string{headerLine}
+	maxPrompts := minInt(len(prompts), 3)
+	for i := 0; i < maxPrompts; i++ {
+		lines = append(lines, renderQueuedPromptLine(prompts[i], width))
+	}
+	if len(prompts) > maxPrompts {
+		lines = append(lines, lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render("  …"))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func renderQueuedPromptLine(prompt string, width int) string {
+	trimmed := strings.TrimSpace(prompt)
+	firstLine := trimmed
+	if idx := strings.IndexByte(firstLine, '\n'); idx >= 0 {
+		firstLine = firstLine[:idx]
+	}
+	firstLine = strings.TrimSpace(firstLine)
+	if firstLine == "" {
+		firstLine = "(blank)"
+	}
+	maxWidth := width - 12
+	if maxWidth < 16 {
+		maxWidth = 16
+	}
+	runes := []rune(firstLine)
+	if len(runes) > maxWidth {
+		firstLine = string(runes[:maxWidth-1]) + "…"
+	}
+	return lipgloss.NewStyle().Foreground(defaultTheme.textSoft).Render("  ↳ " + firstLine)
+}
+
+func minInt(a int, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func buildIdleFooterText(vm viewModel) string {

@@ -121,6 +121,10 @@ The core architectural risk is semantic drift between the Go shell and the Pytho
 - While a run is streaming, `Esc` requests a backend-owned interrupt. If
   pending `next` steering exists, the backend promotes it into immediate
   follow-up delivery before draining the queue on the same `run.start` stream.
+- Queued input should be visible by structure, not transcript chatter: show a
+  compact grouped preview above the composer with one `After next tool call`
+  block and one `At end of turn` block, each with a queued count and a few
+  stacked prompt previews so batching is obvious without explanatory prose.
 - Ollama onboarding must be truthful about the two real paths:
   `/model ollama:<local-model>` for local no-auth use, and `/provider ollama`
   as an explicit local-vs-cloud chooser. Hosted Ollama means
