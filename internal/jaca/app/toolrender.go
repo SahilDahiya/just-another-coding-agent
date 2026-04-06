@@ -28,16 +28,22 @@ type toolEntry struct {
 }
 
 type toolGroup struct {
-	index   int
-	order   []string
+	index int
+	phase string
+	order []string
 	entries map[string]*toolEntry
 }
 
-func newToolGroup(index int) *toolGroup {
+func newToolGroup(index int, phase string) *toolGroup {
 	return &toolGroup{
-		index:   index,
+		index: index,
+		phase: phase,
 		entries: map[string]*toolEntry{},
 	}
+}
+
+func (g *toolGroup) accepts(event rpc.RunEvent) bool {
+	return g.phase == buildToolPhase(event.ToolName, event.Activity)
 }
 
 func (g *toolGroup) start(event rpc.RunEvent) {
@@ -125,9 +131,7 @@ func (g *toolGroup) fail(event rpc.RunEvent) bool {
 }
 
 func (g *toolGroup) render(motionTick int) (string, string) {
-	if isExplorationGroup(g.order, g.entries) &&
-		!hasExplorationErrors(g.order, g.entries) &&
-		!hasExplorationOperationalMisses(g.order, g.entries) {
+	if isExplorationGroup(g.order, g.entries) {
 		return renderExplorationGroup(g.order, g.entries, motionTick)
 	}
 
@@ -269,34 +273,13 @@ func isExplorationGroup(order []string, entries map[string]*toolEntry) bool {
 	return true
 }
 
-func hasExplorationErrors(order []string, entries map[string]*toolEntry) bool {
-	for _, id := range order {
-		if entries[id].outcome == "error" {
-			return true
-		}
-	}
-	return false
-}
-
-func hasExplorationOperationalMisses(order []string, entries map[string]*toolEntry) bool {
-	for _, id := range order {
-		if entries[id].operationalMiss {
-			return true
-		}
-	}
-	return false
-}
-
 func isExplorationComplete(order []string, entries map[string]*toolEntry) bool {
 	for _, id := range order {
 		e := entries[id]
-		if e.operationalMiss {
-			return false
-		}
 		if e.outcome != "ok" && e.outcome != "error" && e.outcome != "" {
 			return false
 		}
-		if e.outcome == "" {
+		if e.outcome == "" && !e.operationalMiss {
 			return false
 		}
 	}
@@ -309,8 +292,11 @@ const (
 )
 
 type explorationLine struct {
-	label string
-	args  string
+	label           string
+	args            string
+	outcome         string
+	message         string
+	operationalMiss bool
 }
 
 func coalesceExplorationEntries(order []string, entries map[string]*toolEntry) []explorationLine {
@@ -342,6 +328,22 @@ func coalesceExplorationEntries(order []string, entries map[string]*toolEntry) [
 		label := entry.displayLabel
 		if label == "" {
 			label = capitalizeFirst(entry.toolName)
+		}
+
+		if entry.operationalMiss || entry.outcome == "error" {
+			message := entry.message
+			if message == "" && len(entry.resultLines) > 0 {
+				message = entry.resultLines[0]
+			}
+			flush()
+			lines = append(lines, explorationLine{
+				label:           label,
+				args:            explorationEntryArgs(entry),
+				outcome:         entry.outcome,
+				message:         message,
+				operationalMiss: entry.operationalMiss,
+			})
+			continue
 		}
 
 		switch entry.toolName {
@@ -418,6 +420,15 @@ func explorationSearchArgs(entry *toolEntry) string {
 	return query
 }
 
+func explorationEntryArgs(entry *toolEntry) string {
+	switch entry.toolName {
+	case "grep", "find":
+		return explorationSearchArgs(entry)
+	default:
+		return explorationShortPath(entry)
+	}
+}
+
 func shortenPathFallback(path string) string {
 	if path == "" {
 		return ""
@@ -440,6 +451,20 @@ func buildToolDisplayLabel(toolName string, activity *rpc.ToolActivity) string {
 		return *activity.DisplayLabel
 	}
 	return capitalizeFirst(toolName)
+}
+
+func buildToolPhase(toolName string, activity *rpc.ToolActivity) string {
+	if buildToolGroupKind(activity) == "exploration" {
+		return "exploration"
+	}
+	switch toolName {
+	case "shell":
+		return "execution"
+	case "edit", "write", "apply_patch":
+		return "editing"
+	default:
+		return "other"
+	}
 }
 
 func renderExplorationGroup(order []string, entries map[string]*toolEntry, motionTick int) (string, string) {
@@ -487,6 +512,19 @@ func renderExplorationGroup(order []string, entries map[string]*toolEntry, motio
 		if line.args != "" {
 			plainLine += " " + line.args
 			renderedLine += " " + dimStyle.Render(line.args)
+		}
+		if line.operationalMiss {
+			if line.message != "" {
+				plainLine += "  " + line.message
+				renderedLine += "  " + lipgloss.NewStyle().Foreground(defaultTheme.errSoft).Render(line.message)
+			}
+		} else if line.outcome == "error" {
+			plainLine += "  error"
+			renderedLine += "  " + lipgloss.NewStyle().Foreground(defaultTheme.err).Render("error")
+			if line.message != "" {
+				plainLine += "  " + line.message
+				renderedLine += "  " + lipgloss.NewStyle().Foreground(defaultTheme.err).Render(line.message)
+			}
 		}
 
 		plain.WriteString(plainLine + "\n")

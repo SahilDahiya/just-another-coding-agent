@@ -306,17 +306,13 @@ func (t *Transcript) WriteError(message string) {
 }
 
 func (t *Transcript) WriteCompactionStarted() {
-	t.endToolGroup()
-	t.endLiveAssistant()
-	t.ensureBlockGap()
-	t.WriteNote("compact", nil)
-	t.WriteLine("compacting session...")
 }
 
 func (t *Transcript) WriteCompactionCompleted() {
 	t.endToolGroup()
 	t.endLiveAssistant()
-	t.WriteLine("session compacted")
+	t.ensureBlockGap()
+	t.WriteNote("compacted", nil)
 }
 
 func (t *Transcript) WriteCompactionWarning(message string) {
@@ -611,12 +607,16 @@ func (t *Transcript) ensureBlockGap() {
 func (t *Transcript) startTool(event rpc.RunEvent) {
 	hadLiveAssistant := t.liveAssistantIdx >= 0
 	t.endLiveAssistant()
+	if t.toolGroup != nil && !t.toolGroup.accepts(event) {
+		t.endToolGroup()
+		t.ensureBlockGap()
+	}
 	if t.toolGroup == nil {
 		if !hadLiveAssistant {
 			t.ensureBlockGap()
 		}
 		index := t.appendBlock(&toolGroupCell{})
-		t.toolGroup = newToolGroup(index)
+		t.toolGroup = newToolGroup(index, buildToolPhase(event.ToolName, event.Activity))
 	}
 	t.toolGroup.start(event)
 	t.rewriteToolGroup()

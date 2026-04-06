@@ -296,15 +296,24 @@ func TestSessionCompactionLifecycleEventsRenderInTranscript(t *testing.T) {
 
 	plain := stripANSI(transcript.Render())
 	for _, want := range []string{
-		"note  compact",
-		"compacting session...",
-		"session compacted",
+		"note  compacted",
 		"note  warning",
 		"Session has been compacted multiple times; continuity quality may degrade.",
 	} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("compaction transcript missing %q in %q", want, plain)
 		}
+	}
+	for _, absent := range []string{
+		"compacting session...",
+		"session compacted",
+	} {
+		if strings.Contains(plain, absent) {
+			t.Fatalf("compaction transcript should not keep legacy line %q in %q", absent, plain)
+		}
+	}
+	if strings.Contains(plain, "note  compact\n") {
+		t.Fatalf("compaction transcript should not keep legacy compact note in %q", plain)
 	}
 }
 
@@ -519,7 +528,7 @@ func TestExplorationGroupTruncatesHeadAndTail(t *testing.T) {
 	}
 }
 
-func TestExplorationOperationalMissFallsBackToPerToolRendering(t *testing.T) {
+func TestExplorationOperationalMissStaysGrouped(t *testing.T) {
 	transcript := NewTranscript()
 	duration := 15
 
@@ -561,21 +570,18 @@ func TestExplorationOperationalMissFallsBackToPerToolRendering(t *testing.T) {
 	})
 
 	plain := transcript.blocks[len(transcript.blocks)-1].Plain()
-	if strings.Contains(plain, "Exploring") || strings.Contains(plain, "Explored") {
-		t.Fatalf("operational miss should fall back to per-tool rows: %q", plain)
-	}
 	for _, want := range []string{
-		"● read  agents.md  15ms",
-		"  └ No such file or directory: '/workspace/agents.md'",
-		"● read  AGENTS.md  ok",
+		"● Explored (2 tools)",
+		"  └ Read agents.md  No such file or directory: '/workspace/agents.md'",
+		"    Read AGENTS.md",
 	} {
 		if !strings.Contains(plain, want) {
-			t.Fatalf("operational miss fallback missing %q in %q", want, plain)
+			t.Fatalf("operational miss grouped block missing %q in %q", want, plain)
 		}
 	}
 }
 
-func TestExplorationHardErrorFallsBackToPerToolRendering(t *testing.T) {
+func TestExplorationHardErrorStaysGrouped(t *testing.T) {
 	transcript := NewTranscript()
 
 	transcript.ApplyRunEvent(rpc.RunEvent{
@@ -608,15 +614,13 @@ func TestExplorationHardErrorFallsBackToPerToolRendering(t *testing.T) {
 	})
 
 	plain := transcript.blocks[len(transcript.blocks)-1].Plain()
-	if strings.Contains(plain, "Exploring") || strings.Contains(plain, "Explored") {
-		t.Fatalf("hard error should fall back to per-tool rows: %q", plain)
-	}
 	for _, want := range []string{
-		"● read  run.py  ok",
-		"● grep  RetryPromptPart  error  ripgrep (rg) is not installed",
+		"● Explored (2 tools)",
+		"  └ Read run.py",
+		"    Search RetryPromptPart in src  error  ripgrep (rg) is not installed",
 	} {
 		if !strings.Contains(plain, want) {
-			t.Fatalf("hard error fallback missing %q in %q", want, plain)
+			t.Fatalf("hard error grouped block missing %q in %q", want, plain)
 		}
 	}
 }
@@ -1235,6 +1239,78 @@ func TestTranscriptKeepsCurrentLiveRunVisibleBeyondCompletedRunLimit(t *testing.
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("visible transcript missing %q in %q", want, rendered)
 		}
+	}
+}
+
+func TestToolPhaseChangeSplitsExplorationAndEditingIntoSeparateBlocks(t *testing.T) {
+	transcript := NewTranscript()
+
+	transcript.ApplyRunEvent(rpc.RunEvent{
+		Type:       "tool_call_started",
+		ToolName:   "read",
+		ToolCallID: "read-1",
+		Args:       map[string]any{"path": "AGENTS.md"},
+		Activity:   explorationActivity("read", map[string]any{"short_path": "AGENTS.md"}),
+	})
+	transcript.ApplyRunEvent(rpc.RunEvent{
+		Type:       "tool_call_succeeded",
+		ToolName:   "read",
+		ToolCallID: "read-1",
+		Result:     "content",
+		Activity:   explorationActivity("read", map[string]any{"short_path": "AGENTS.md"}),
+	})
+	transcript.ApplyRunEvent(rpc.RunEvent{
+		Type:       "tool_call_started",
+		ToolName:   "edit",
+		ToolCallID: "edit-1",
+		Args:       map[string]any{"path": "AGENTS.md"},
+		Activity:   &rpc.ToolActivity{Title: "edit AGENTS.md"},
+	})
+	transcript.ApplyRunEvent(rpc.RunEvent{
+		Type:       "tool_call_succeeded",
+		ToolName:   "edit",
+		ToolCallID: "edit-1",
+		Result:     "edited AGENTS.md",
+		Activity: &rpc.ToolActivity{
+			Title:      "edit AGENTS.md",
+			Summary:    strPtr("edit applied"),
+			DurationMS: intPtr(4),
+			Details: map[string]any{
+				"kind": "edit",
+				"path": "AGENTS.md",
+				"diff": "--- a/AGENTS.md\n+++ b/AGENTS.md\n@@ -1 +1 @@\n-old\n+new\n",
+			},
+		},
+	})
+	transcript.ApplyRunEvent(rpc.RunEvent{
+		Type:       "tool_call_started",
+		ToolName:   "read",
+		ToolCallID: "read-2",
+		Args:       map[string]any{"path": "AGENTS.md"},
+		Activity:   explorationActivity("read", map[string]any{"short_path": "AGENTS.md"}),
+	})
+	transcript.ApplyRunEvent(rpc.RunEvent{
+		Type:       "tool_call_succeeded",
+		ToolName:   "read",
+		ToolCallID: "read-2",
+		Result:     "content",
+		Activity:   explorationActivity("read", map[string]any{"short_path": "AGENTS.md"}),
+	})
+
+	rendered := transcript.Render()
+	plain := stripANSI(rendered)
+	for _, want := range []string{
+		"● Explored",
+		"  └ Read AGENTS.md",
+		"● edit  AGENTS.md  ok  4ms",
+		"● Explored",
+	} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("phase-split transcript missing %q in %q", want, plain)
+		}
+	}
+	if strings.Count(plain, "● Explored") != 2 {
+		t.Fatalf("expected two separate explored blocks in %q", plain)
 	}
 }
 

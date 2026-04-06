@@ -907,12 +907,19 @@ func TestCompactionLifecycleEventsUpdatePhaseAndTranscript(t *testing.T) {
 
 	rendered := stripANSI(m.transcript.Render())
 	for _, want := range []string{
-		"compacting session...",
-		"session compacted",
+		"note  compacted",
 		"Session has been compacted multiple times; continuity quality may degrade.",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("transcript missing %q in %q", want, rendered)
+		}
+	}
+	for _, absent := range []string{
+		"compacting session...",
+		"session compacted",
+	} {
+		if strings.Contains(rendered, absent) {
+			t.Fatalf("transcript should not contain legacy compaction line %q in %q", absent, rendered)
 		}
 	}
 }
@@ -1389,8 +1396,13 @@ func TestChoosingLocalOllamaClearsHostedEndpointImmediately(t *testing.T) {
 		t.Fatalf("backend.restarts = %d, want %d", backend.restarts, 1)
 	}
 	rendered := stripANSI(m.transcript.Render())
-	if !strings.Contains(rendered, "Ollama cloud endpoint cleared.") {
-		t.Fatalf("transcript missing local endpoint note: %q", rendered)
+	for _, want := range []string{
+		"Local Ollama selected.",
+		"Current model stays ollama:gemma4:e4b.",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("transcript missing %q in %q", want, rendered)
+		}
 	}
 }
 
