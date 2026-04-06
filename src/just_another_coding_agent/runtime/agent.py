@@ -179,10 +179,9 @@ def build_canonical_agent(
     # ever stops being `output_type=str`, this policy should be revisited rather
     # than silently inherited by a structured-output path.
     #
-    # Tool-call correction is different. Recoverable model mistakes like
-    # invented tool names or malformed tool args should get a small explicit
-    # correction budget, not an implicit framework default and not an unbounded
-    # hidden loop.
+    # Tool-call correction still uses a small framework retry budget for the
+    # normal local retry-prompt path. The runtime additionally owns the outer
+    # correction boundary when a provider rejects the poisoned run anyway.
     agent = Agent(
         resolved_model,
         output_type=str,

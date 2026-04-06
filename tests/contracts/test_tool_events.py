@@ -134,6 +134,72 @@ class StubStreamAgent:
         yield
 
 
+class RecoveringAfterProviderToolErrorAgent:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, list[ModelMessage] | None]] = []
+
+    async def run_stream_events(
+        self,
+        prompt: str,
+        *,
+        output_type: object | None = None,
+        message_history: list[ModelMessage] | None = None,
+        deps: object | None = None,
+        model_settings: object | None = None,
+        usage_limits: object | None = None,
+        instructions: object | None = None,
+    ) -> AsyncIterator[object]:
+        del output_type, deps, model_settings, usage_limits, instructions
+        self.calls.append((prompt, message_history))
+
+        if len(self.calls) == 1:
+            assert prompt == "go"
+            assert message_history is None
+            yield FunctionToolCallEvent(
+                part=ToolCallPart(
+                    "readreadread",
+                    '{"path":"README.md"}',
+                    tool_call_id="call-readreadread",
+                )
+            )
+            yield FunctionToolResultEvent(
+                result=RetryPromptPart(
+                    content=(
+                        "Unknown tool name: 'readreadread'. Available tools: 'read'"
+                    ),
+                    tool_name="readreadread",
+                    tool_call_id="call-readreadread",
+                )
+            )
+            raise RuntimeError("status_code: 400, invalid tool call arguments")
+
+        assert len(self.calls) == 2
+        assert prompt == "Unknown tool name: 'readreadread'. Available tools: 'read'"
+        assert message_history is not None
+        assert _last_user_prompt(message_history) == "go"
+        yield FunctionToolCallEvent(
+            part=ToolCallPart(
+                "read",
+                '{"path":"README.md"}',
+                tool_call_id="call-read",
+            )
+        )
+        yield FunctionToolResultEvent(
+            result=ToolReturnPart(
+                tool_name="read",
+                content="# README",
+                tool_call_id="call-read",
+            )
+        )
+        yield AgentRunResultEvent(result=AgentRunResult("done"))
+
+    @staticmethod
+    @contextmanager
+    def parallel_tool_call_execution_mode(mode: str = "parallel"):
+        assert mode == "parallel"
+        yield
+
+
 async def successful_tool_stream(
     messages: list[ModelMessage],
     _agent_info: object,
@@ -610,6 +676,42 @@ async def test_stream_run_events_retry_prompt_emits_tool_error_result() -> None:
     assert events[2].activity.duration_ms is not None
     assert events[2].activity.duration_ms >= 0
     assert events[3].output_text == "done"
+
+
+async def test_stream_run_events_restarts_after_provider_rejects_failed_tool_correction(
+) -> None:
+    agent = RecoveringAfterProviderToolErrorAgent()
+
+    events = [
+        event
+        async for event in stream_run_events(
+            agent=agent,
+            prompt="go",
+        )
+    ]
+
+    assert [event.type for event in events] == [
+        "run_started",
+        "tool_call_started",
+        "tool_call_succeeded",
+        "tool_call_started",
+        "tool_call_succeeded",
+        "run_succeeded",
+    ]
+    assert isinstance(events[1], ToolCallStartedEvent)
+    assert events[1].tool_name == "readreadread"
+    assert isinstance(events[2], ToolCallSucceededEvent)
+    assert events[2].result == {
+        "ok": False,
+        "error_type": "RetryPromptPart",
+        "message": "Unknown tool name: 'readreadread'. Available tools: 'read'",
+    }
+    assert isinstance(events[3], ToolCallStartedEvent)
+    assert events[3].tool_name == "read"
+    assert isinstance(events[4], ToolCallSucceededEvent)
+    assert events[4].result == "# README"
+    assert isinstance(events[5], RunSucceededEvent)
+    assert events[5].output_text == "done"
 
 
 async def test_stream_run_events_uses_canonical_validated_args_for_empty_string_ls_call(
