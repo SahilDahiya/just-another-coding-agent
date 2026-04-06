@@ -9,6 +9,7 @@ read_when: start here, onboarding, or you need to find the right doc quickly
 - Mental model and core concepts: [mental-model.md](mental-model.md)
 - Product scope and non-goals: [goal.md](goal.md)
 - TUI product constraints and north star: [tui.md](tui.md)
+- TUI architecture refactor plan: [tui-architecture-plan.md](tui-architecture-plan.md)
 - Target architecture: [architecture.md](architecture.md)
 - Canonical public contract: [contracts.md](contracts.md)
 - PydanticAI grounding sources: [grounding.md](grounding.md)
@@ -28,6 +29,7 @@ read_when: start here, onboarding, or you need to find the right doc quickly
 - [mental-model.md](mental-model.md) - mental model, core concepts, and how the pieces fit together
 - [goal.md](goal.md) - product target, scope, and non-goals
 - [tui.md](tui.md) - TUI product bar, hard constraints, and anti-bloat rules
+- [tui-architecture-plan.md](tui-architecture-plan.md) - TUI refactor direction, domain slices, controller shape, and rollout plan
 - [architecture.md](architecture.md) - package layout and architectural boundaries
 - [contracts.md](contracts.md) - canonical coding-agent contract
 - [grounding.md](grounding.md) - official PydanticAI grounding sources
