@@ -39,6 +39,7 @@ type stubBackend struct {
 	lastNamedSession   string
 	lastSessionName    string
 	lastEnqueuedRun    rpc.RunEnqueuePayload
+	lastInterruptedRun rpc.RunInterruptPayload
 }
 
 func newStubBackend() *stubBackend {
@@ -61,6 +62,20 @@ func (b *stubBackend) Restart(_ context.Context) error {
 }
 func (b *stubBackend) Shutdown(_ context.Context) error  { return nil }
 func (b *stubBackend) Interrupt(_ context.Context) error { return nil }
+func (b *stubBackend) InterruptRun(
+	_ context.Context,
+	sessionID string,
+	promoteQueuedSteer bool,
+) (rpc.RunInterruptResponse, error) {
+	b.lastInterruptedRun = rpc.RunInterruptPayload{
+		SessionID:          sessionID,
+		PromoteQueuedSteer: promoteQueuedSteer,
+	}
+	return rpc.RunInterruptResponse{
+		SessionID:     sessionID,
+		PromotedCount: 1,
+	}, nil
+}
 func (b *stubBackend) CreateSession(_ context.Context) (string, error) {
 	return "session", nil
 }
@@ -270,6 +285,12 @@ func newTestModel() *model {
 	m.modelCatalog = testModelCatalog()
 	m.startupOnboardingSet = false
 	m.onboarding = onboardingState{}
+	return m
+}
+
+func newTestModelWithBackend(backend Backend) *model {
+	m := newTestModel()
+	m.options.Backend = backend
 	return m
 }
 
@@ -695,17 +716,15 @@ func TestCtrlCIsNonDestructiveWhenPromptHasText(t *testing.T) {
 }
 
 func TestEscWhileStreamingWritesInterruptGuidance(t *testing.T) {
-	m := newTestModel()
+	backend := newStubBackend()
+	m := newTestModelWithBackend(backend)
 	m.streaming = true
 	m.phase = PhaseStreaming
-	canceled := false
-	m.activeRunCancel = func() {
-		canceled = true
-	}
+	m.sessionID = "session-123"
 
 	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
-	if cmd != nil {
-		t.Fatalf("expected no command, got %v", cmd)
+	if cmd == nil {
+		t.Fatal("expected interrupt command")
 	}
 	m = updated.(*model)
 
@@ -713,8 +732,23 @@ func TestEscWhileStreamingWritesInterruptGuidance(t *testing.T) {
 	if !strings.Contains(rendered, "Conversation interrupted.") {
 		t.Fatalf("missing interrupt guidance in prompt footer: %q", rendered)
 	}
-	if !canceled {
-		t.Fatal("expected first escape to request run cancellation")
+	msg := cmd()
+	done, ok := msg.(interruptRunDoneMsg)
+	if !ok {
+		t.Fatalf("interrupt command returned %T", msg)
+	}
+	if done.Err != nil {
+		t.Fatalf("interrupt command error: %v", done.Err)
+	}
+	if backend.lastInterruptedRun.SessionID != "session-123" {
+		t.Fatalf(
+			"interrupted session id = %q, want %q",
+			backend.lastInterruptedRun.SessionID,
+			"session-123",
+		)
+	}
+	if !backend.lastInterruptedRun.PromoteQueuedSteer {
+		t.Fatal("expected escape interrupt to promote queued steer")
 	}
 }
 

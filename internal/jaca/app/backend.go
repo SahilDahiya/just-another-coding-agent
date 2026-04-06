@@ -12,6 +12,7 @@ type Backend interface {
 	Restart(ctx context.Context) error
 	Shutdown(ctx context.Context) error
 	Interrupt(ctx context.Context) error
+	InterruptRun(ctx context.Context, sessionID string, promoteQueuedSteer bool) (rpc.RunInterruptResponse, error)
 	CreateSession(ctx context.Context) (string, error)
 	SetSessionName(ctx context.Context, sessionID string, name string) (rpc.SessionNameResponse, error)
 	SessionPreview(ctx context.Context, sessionID string) (rpc.SessionPreviewResponse, error)

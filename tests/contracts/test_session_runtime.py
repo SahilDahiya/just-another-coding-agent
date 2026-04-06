@@ -2196,6 +2196,73 @@ async def test_stream_session_run_events_finalizes_cancelled_run(
     assert events[3].error_type == "CancelledError"
 
 
+async def test_stream_session_run_events_yields_cancelled_run_failed_event(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    session_path = tmp_path / "session.jsonl"
+    started = asyncio.Event()
+    yielded: list[object] = []
+
+    async def cancellable_stream_run_events(
+        *,
+        agent,
+        prompt,
+        message_history=None,
+        instructions=None,
+        thinking=None,
+        deps=None,
+        message_history_sink=None,
+    ):
+        del (
+            agent,
+            prompt,
+            message_history,
+            instructions,
+            thinking,
+            deps,
+            message_history_sink,
+        )
+        yield RunStartedEvent(run_id="run-1")
+        yield ToolCallStartedEvent(
+            run_id="run-1",
+            tool_call_id="call-read",
+            tool_name="read",
+            args={"path": "README.md"},
+            args_valid=True,
+        )
+        started.set()
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(
+        "just_another_coding_agent.runtime.session.stream_run_events",
+        cancellable_stream_run_events,
+    )
+
+    async def consume() -> None:
+        async for event in stream_session_run_events(
+            model=FunctionModel(stream_function=text_only_stream),
+            workspace_root=workspace_root,
+            session_path=session_path,
+            prompt="go",
+        ):
+            yielded.append(event)
+
+    task = asyncio.create_task(consume())
+    await started.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert isinstance(yielded[0], RunStartedEvent)
+    assert isinstance(yielded[1], ToolCallStartedEvent)
+    assert isinstance(yielded[2], ToolCallFailedEvent)
+    assert isinstance(yielded[3], RunFailedEvent)
+    assert yielded[3].error_type == "CancelledError"
+
+
 async def test_stream_session_run_events_sanitize_cancelled_run_messages(
     tmp_path,
     monkeypatch,

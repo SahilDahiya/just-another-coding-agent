@@ -46,10 +46,19 @@ type RunStartPayload struct {
 	Thinking  interface{} `json:"thinking,omitempty"`
 }
 
+type RunStartResponse struct {
+	SessionID string `json:"session_id"`
+}
+
 type RunEnqueuePayload struct {
 	SessionID string `json:"session_id"`
 	Prompt    string `json:"prompt"`
 	Mode      string `json:"mode,omitempty"`
+}
+
+type RunInterruptPayload struct {
+	SessionID           string `json:"session_id"`
+	PromoteQueuedSteer  bool   `json:"promote_queued_steer,omitempty"`
 }
 
 type EnvelopeType string
@@ -139,6 +148,11 @@ type AuthClearResponse struct {
 type RunEnqueueResponse struct {
 	SessionID   string `json:"session_id"`
 	QueuedCount int    `json:"queued_count"`
+}
+
+type RunInterruptResponse struct {
+	SessionID     string `json:"session_id"`
+	PromotedCount int    `json:"promoted_count"`
 }
 
 type SessionCompactSummary struct {

@@ -213,6 +213,11 @@ for line in sys.stdin:
             "id": "go-1",
             "event": {"type": "run_succeeded", "run_id": "run-1", "output_text": "done"},
         }) + "\n")
+        sys.stdout.write(json.dumps({
+            "type": "rpc_response",
+            "id": "go-1",
+            "response": {"session_id": "sess-1"},
+        }) + "\n")
         sys.stdout.flush()
         break`,
 	)

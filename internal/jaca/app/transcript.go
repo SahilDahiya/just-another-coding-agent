@@ -369,10 +369,12 @@ func (t *Transcript) ApplyRunEvent(event rpc.RunEvent) {
 		t.failTool(event)
 	case "run_failed":
 		t.endLiveAssistant()
-		t.appendBlock(&rawCell{
-			plain:    "error  " + event.Message + "\n",
-			rendered: "error  " + event.Message + "\n",
-		})
+		if event.ErrorType != "CancelledError" {
+			t.appendBlock(&rawCell{
+				plain:    "error  " + event.Message + "\n",
+				rendered: "error  " + event.Message + "\n",
+			})
+		}
 		t.finalizeCurrentRun()
 	case "run_succeeded":
 		t.completeAssistant(event.OutputText)

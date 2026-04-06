@@ -77,6 +77,11 @@ type enqueueRunDoneMsg struct {
 	Err    error
 }
 
+type interruptRunDoneMsg struct {
+	PromotedCount int
+	Err           error
+}
+
 type modelCatalogLoadedMsg struct {
 	Catalog rpc.ModelCatalogResponse
 	Err     error
@@ -367,7 +372,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				ContextWindow: contextWindow,
 			}
 		}
-		if msg.Event.Type == "run_failed" {
+		if msg.Event.Type == "run_failed" && msg.Event.ErrorType != "CancelledError" {
 			m.phase = PhaseError
 		}
 		if msg.Event.Type == "assistant_text_delta" {
@@ -405,6 +410,25 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.transcript.WriteNote("queue", []string{label, msg.Prompt})
 		}
 		m.refreshViewport()
+		return m, nil
+	case interruptRunDoneMsg:
+		if msg.Err != nil {
+			m.transcript.WriteError(msg.Err.Error())
+			m.refreshViewport()
+			return m, nil
+		}
+		if msg.PromotedCount > 0 {
+			m.transcript.WriteNote(
+				"queue",
+				[]string{
+					fmt.Sprintf(
+						"promoted %d pending steer message(s) to immediate follow-up",
+						msg.PromotedCount,
+					),
+				},
+			)
+			m.refreshViewport()
+		}
 		return m, nil
 	case modelCatalogLoadedMsg:
 		m.modelCatalogLoading = false
@@ -753,10 +777,16 @@ func (m *model) handleEscape() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if m.streaming {
-		m.requestRunCancel()
 		m.promptFooterNotice = "Conversation interrupted."
 		m.refreshViewport()
-		return m, nil
+		if m.sessionID == "" {
+			return m, nil
+		}
+		return m, interruptRun(
+			m.options.Backend,
+			m.sessionID,
+			true,
+		)
 	}
 	if strings.TrimSpace(m.textInput.Value()) != "" {
 		m.textInput.SetValue("")
@@ -767,15 +797,6 @@ func (m *model) handleEscape() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	return m, nil
-}
-
-func (m *model) requestRunCancel() {
-	if m.activeRunCancel == nil {
-		return
-	}
-	cancel := m.activeRunCancel
-	m.activeRunCancel = nil
-	cancel()
 }
 
 func (m *model) handleEnter() (tea.Model, tea.Cmd) {
@@ -1035,6 +1056,26 @@ func enqueueRun(backend Backend, sessionID string, prompt string, mode string) t
 		defer cancel()
 		_, err := backend.EnqueueRun(ctx, sessionID, prompt, mode)
 		return enqueueRunDoneMsg{Prompt: prompt, Mode: mode, Err: err}
+	}
+}
+
+func interruptRun(
+	backend Backend,
+	sessionID string,
+	promoteQueuedSteer bool,
+) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), authStatusTimeout)
+		defer cancel()
+		response, err := backend.InterruptRun(
+			ctx,
+			sessionID,
+			promoteQueuedSteer,
+		)
+		return interruptRunDoneMsg{
+			PromotedCount: response.PromotedCount,
+			Err:           err,
+		}
 	}
 }
 

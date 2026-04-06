@@ -299,6 +299,16 @@ func TestGoTUIRPCBackendHelperProcess(t *testing.T) {
 					os.Exit(1)
 				}
 			}
+			if err := encoder.Encode(map[string]any{
+				"type": "rpc_response",
+				"id":   request.ID,
+				"response": map[string]any{
+					"session_id": payload.SessionID,
+				},
+			}); err != nil {
+				fmt.Fprintf(os.Stderr, "helper encode run.start response: %v\n", err)
+				os.Exit(1)
+			}
 		default:
 			if err := encoder.Encode(map[string]any{
 				"type":       "rpc_error",

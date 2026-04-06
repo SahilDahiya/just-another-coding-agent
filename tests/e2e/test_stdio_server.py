@@ -202,16 +202,26 @@ async def test_serve_rpc_stdio_handles_multiple_lines_in_one_process(
     ]
     assert messages[1]["event"]["status"] == "missing"
     assert messages[1]["event"]["reason"] == "missing"
-    assert [message["type"] for message in messages[7:]] == ["rpc_event"] * 4
-    assert [message["event"]["type"] for message in messages[7:]] == [
+    assert messages[7] == {
+        "type": "rpc_response",
+        "id": "req-1",
+        "response": {"session_id": fixed_session_id},
+    }
+    assert [message["type"] for message in messages[8:12]] == ["rpc_event"] * 4
+    assert [message["event"]["type"] for message in messages[8:12]] == [
         "session_turn_context_status",
         "run_started",
         "assistant_text_delta",
         "run_succeeded",
     ]
-    assert messages[7]["event"]["status"] == "reused"
-    assert messages[7]["event"]["reason"] == "matched"
-    assert messages[-1]["event"]["output_text"] == "I created note.txt"
+    assert messages[8]["event"]["status"] == "reused"
+    assert messages[8]["event"]["reason"] == "matched"
+    assert messages[11]["event"]["output_text"] == "I created note.txt"
+    assert messages[12] == {
+        "type": "rpc_response",
+        "id": "req-2",
+        "response": {"session_id": fixed_session_id},
+    }
 
     session_path = session_path_for_id(
         sessions_root=sessions_root,
@@ -312,12 +322,18 @@ async def test_serve_rpc_stdio_handles_auth_status_while_run_is_streaming(
         "rpc_event",
         "rpc_response",
         "rpc_event",
+        "rpc_response",
     ]
     assert messages[0]["id"] == "req-run"
     assert messages[0]["event"]["type"] == "run_started"
     assert messages[1]["id"] == "req-auth"
     assert messages[2]["id"] == "req-run"
     assert messages[2]["event"]["type"] == "run_succeeded"
+    assert messages[3] == {
+        "type": "rpc_response",
+        "id": "req-run",
+        "response": {"session_id": fixed_session_id},
+    }
 
 
 async def test_serve_rpc_stdio_drains_queued_follow_up_after_run(
@@ -401,6 +417,7 @@ async def test_serve_rpc_stdio_drains_queued_follow_up_after_run(
         "rpc_event",
         "rpc_event",
         "rpc_event",
+        "rpc_response",
     ]
     assert messages[0]["id"] == "req-run"
     assert messages[0]["event"]["type"] == "run_started"
@@ -415,6 +432,11 @@ async def test_serve_rpc_stdio_drains_queued_follow_up_after_run(
     assert messages[4]["id"] == "req-run"
     assert messages[4]["event"]["type"] == "run_succeeded"
     assert messages[4]["event"]["run_id"] == "run-second"
+    assert messages[5] == {
+        "type": "rpc_response",
+        "id": "req-run",
+        "response": {"session_id": fixed_session_id},
+    }
 
 
 async def test_serve_rpc_stdio_attaches_next_queue_to_active_tool_boundary(
@@ -507,6 +529,143 @@ async def test_serve_rpc_stdio_attaches_next_queue_to_active_tool_boundary(
     assert messages[1]["id"] == "req-enqueue-next"
     assert messages[1]["response"]["queued_count"] == 1
     assert attached_prompts == ["be concise"]
+
+
+async def test_serve_rpc_stdio_interrupt_promotes_next_steer_into_immediate_follow_up(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    fixed_session_id = "4" * 32
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    session_path = session_path_for_id(
+        sessions_root=sessions_root,
+        workspace_root=workspace_root,
+        session_id=fixed_session_id,
+    )
+    session_path.parent.mkdir(parents=True, exist_ok=True)
+    session_path.write_text(
+        json.dumps(
+            {
+                "type": "session_header",
+                "workspace_root": str(workspace_root),
+                "shell_family": "bash",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    input_stream = io.StringIO(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "id": "req-run",
+                        "command": "run.start",
+                        "payload": {
+                            "session_id": fixed_session_id,
+                            "prompt": "first",
+                        },
+                    }
+                ),
+                json.dumps(
+                    {
+                        "id": "req-enqueue-next",
+                        "command": "run.enqueue",
+                        "payload": {
+                            "session_id": fixed_session_id,
+                            "prompt": "second",
+                            "mode": "next",
+                        },
+                    }
+                ),
+                json.dumps(
+                    {
+                        "id": "req-interrupt",
+                        "command": "run.interrupt",
+                        "payload": {
+                            "session_id": fixed_session_id,
+                            "promote_queued_steer": True,
+                        },
+                    }
+                ),
+            ]
+        )
+        + "\n"
+    )
+    output_stream = io.StringIO()
+
+    async def fake_stream_session_run_events(
+        *,
+        prompt: str,
+        activate_steer_boundary,
+        deactivate_steer_boundary,
+        **_kwargs,
+    ):
+        def attach(_prompts: list[str]) -> None:
+            return None
+
+        yield RunStartedEvent(run_id=f"run-{prompt}")
+        await activate_steer_boundary(attach)
+        if prompt == "first":
+            try:
+                await asyncio.Event().wait()
+            finally:
+                await deactivate_steer_boundary()
+        else:
+            await deactivate_steer_boundary()
+            yield RunSucceededEvent(run_id=f"run-{prompt}", output_text=prompt)
+
+    monkeypatch.setattr(
+        "just_another_coding_agent.rpc.stdio.stream_session_run_events",
+        fake_stream_session_run_events,
+    )
+
+    await serve_rpc_stdio(
+        input_stream=input_stream,
+        output_stream=output_stream,
+        model=FunctionModel(function=compaction_summary_function),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    messages = [
+        json.loads(line) for line in output_stream.getvalue().splitlines() if line
+    ]
+    assert [message["type"] for message in messages] == [
+        "rpc_event",
+        "rpc_response",
+        "rpc_response",
+        "rpc_event",
+        "rpc_event",
+        "rpc_response",
+    ]
+    assert messages[0]["id"] == "req-run"
+    assert messages[0]["event"]["type"] == "run_started"
+    assert messages[0]["event"]["run_id"] == "run-first"
+    assert messages[1] == {
+        "type": "rpc_response",
+        "id": "req-enqueue-next",
+        "response": {"session_id": fixed_session_id, "queued_count": 1},
+    }
+    assert messages[2] == {
+        "type": "rpc_response",
+        "id": "req-interrupt",
+        "response": {"session_id": fixed_session_id, "promoted_count": 1},
+    }
+    assert messages[3]["id"] == "req-run"
+    assert messages[3]["event"]["type"] == "run_started"
+    assert messages[3]["event"]["run_id"] == "run-second"
+    assert messages[4]["id"] == "req-run"
+    assert messages[4]["event"]["type"] == "run_succeeded"
+    assert messages[4]["event"]["run_id"] == "run-second"
+    assert messages[4]["event"]["output_text"] == "second"
+    assert messages[5] == {
+        "type": "rpc_response",
+        "id": "req-run",
+        "response": {"session_id": fixed_session_id},
+    }
 
 
 async def first_turn_text_only_stream(
@@ -608,8 +767,10 @@ async def test_serve_rpc_stdio_emits_model_and_thinking_runtime_context_update(
         for line in second_output_stream.getvalue().splitlines()
         if line
     ]
-    assert [message["type"] for message in messages] == ["rpc_event"] * 4
-    assert [message["event"]["type"] for message in messages] == [
+    assert [message["type"] for message in messages] == ["rpc_event"] * 4 + [
+        "rpc_response"
+    ]
+    assert [message["event"]["type"] for message in messages[:-1]] == [
         "session_turn_context_status",
         "run_started",
         "assistant_text_delta",
@@ -636,6 +797,11 @@ async def test_serve_rpc_stdio_emits_model_and_thinking_runtime_context_update(
     ).parts[0].content
     assert "done" in observed["assistant_texts"]
     assert observed["user_prompts"] == ["first", "second"]
+    assert messages[-1] == {
+        "type": "rpc_response",
+        "id": "req-second",
+        "response": {"session_id": fixed_session_id},
+    }
 
 
 async def test_serve_rpc_stdio_scopes_sessions_to_workspace_root(

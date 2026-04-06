@@ -598,6 +598,7 @@ Initial executable RPC slice:
     - `session.compact` with payload `{"session_id": <opaque-lowercase-hex-string>}`
     - `run.start` with payload `{"session_id": <opaque-lowercase-hex-string>, "prompt": <string>, "thinking": <optional-thinking-setting>}`
     - `run.enqueue` with payload `{"session_id": <opaque-lowercase-hex-string>, "prompt": <string>, "mode": "next" | "later"}`
+    - `run.interrupt` with payload `{"session_id": <opaque-lowercase-hex-string>, "promote_queued_steer": <bool>}`
 - `rpc_response`
   - fields: `type`, `id`, `response`
   - initial response payloads:
@@ -608,7 +609,9 @@ Initial executable RPC slice:
     - `{"session_id": <opaque-lowercase-hex-string>, "name": <backend-normalized-session-name>}` for `session.name`
     - `{"session_id": <opaque-lowercase-hex-string>, "entries": [{"kind": "user" | "assistant" | "error", "text": <string>}], "truncated": <bool>}` for `session.preview`
     - `{"compaction_id": <opaque-lowercase-hex-string>, "compacted_through_run_id": <run_id>}`
+    - `{"session_id": <opaque-lowercase-hex-string>}` for `run.start`
     - `{"session_id": <opaque-lowercase-hex-string>, "queued_count": <positive-int>}` for `run.enqueue`
+    - `{"session_id": <opaque-lowercase-hex-string>, "promoted_count": <non-negative-int>}` for `run.interrupt`
 - `rpc_event`
   - fields: `type`, `id`, `event`
   - `event` must be one canonical streamed run event payload or session lifecycle event payload
@@ -639,8 +642,9 @@ Ordering rules for the RPC slice:
 - A valid `session.preview` request must reference an existing `session_id` and yields exactly one `rpc_response` containing a bounded recent-history preview derived from durable session runs; it is a presentation helper and does not change resume authority
 - A valid `session.compact` request must reference an existing `session_id` and yields exactly one `rpc_response` describing the newly appended compaction entry
 - If model-driven compaction summary generation fails, `session.compact` fails hard; it does not append a placeholder summary
-- A valid `run.start` request must reference an existing `session_id` and yields zero or more `rpc_event` lines whose embedded events satisfy the streamed run contract
+- A valid `run.start` request must reference an existing `session_id`, yields zero or more `rpc_event` lines whose embedded events satisfy the streamed run contract, and ends with exactly one final `rpc_response` after the active run and any drained follow-up runs complete
 - A valid `run.enqueue` request must reference an existing `session_id`, must carry a non-blank prompt, is accepted only while that session currently has an active streamed run in this backend process, and yields exactly one `rpc_response` with the resulting queued-count
+- A valid `run.interrupt` request must reference an existing `session_id`, is accepted only while that session currently has an active streamed run in this backend process, cancels that active run, and yields exactly one `rpc_response` with the resulting promoted-count
 - Session lifecycle `rpc_event` payloads such as `session_compaction_started` and `session_compaction_completed` may appear before `run_started`
 - `CompactionBudgetReport` fields are:
   - `should_compact`
@@ -662,6 +666,7 @@ Ordering rules for the RPC slice:
 - `run.enqueue` with `mode: "later"` is the canonical end-of-turn follow-up queueing operation; after the active streamed run for that session ends, the backend immediately drains queued follow-ups as additional runs on the same `run.start` stream until the queue is empty
 - `run.enqueue` with `mode: "next"` is the canonical active-turn steer queueing operation; the backend may attach queued steer prompts only at a safe tool boundary before the next model round-trip in the same run
 - If a `mode: "next"` prompt is still pending when the active run ends, the backend downgrades it into the `later` queue before draining follow-ups
+- `run.interrupt` with `promote_queued_steer: true` is the canonical promotion path from pending `next` steering into immediate follow-up delivery; any pending steer prompts are prepended to the `later` queue before the cancelled run drains queued follow-ups on the same `run.start` stream
 - Forking is a wrapper-level session-store operation today: the Python launcher
   may create a new session file with one `session_fork` entry before the TUI
   starts, but RPC clients do not have a separate `session.fork` command yet

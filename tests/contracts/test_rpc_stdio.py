@@ -1,3 +1,4 @@
+import asyncio
 import json
 from collections.abc import AsyncIterator
 
@@ -17,7 +18,7 @@ from just_another_coding_agent.rpc.session_store import (
     create_session,
     session_path_for_id,
 )
-from just_another_coding_agent.rpc.stdio import handle_rpc_json_line
+from just_another_coding_agent.rpc.stdio import _FollowUpState, handle_rpc_json_line
 from just_another_coding_agent.session import load_session
 
 
@@ -184,6 +185,26 @@ async def _create_session_id(*, workspace_root, sessions_root) -> str:
     return session_id
 
 
+async def test_follow_up_state_interrupt_promotes_pending_steer_to_front() -> None:
+    state = _FollowUpState()
+    run_task = asyncio.create_task(asyncio.Event().wait())
+    await state.activate("a" * 32, run_task=run_task)
+    await state.enqueue("a" * 32, "later prompt", mode="later")
+    await state.activate_steer_boundary("a" * 32, lambda prompts: None)
+    await state.enqueue("a" * 32, "steer prompt", mode="next")
+
+    promoted_count = await state.interrupt(
+        "a" * 32,
+        promote_queued_steer=True,
+    )
+
+    assert promoted_count == 1
+    with pytest.raises(asyncio.CancelledError):
+        await run_task
+    assert await state.take_next_follow_up("a" * 32) == "steer prompt"
+    assert await state.take_next_follow_up("a" * 32) == "later prompt"
+
+
 async def test_handle_rpc_json_line_creates_session_and_resumes_runs(
     tmp_path,
 ) -> None:
@@ -222,8 +243,16 @@ async def test_handle_rpc_json_line_creates_session_and_resumes_runs(
         sessions_root=sessions_root,
     )
 
-    assert [message["type"] for message in first_messages] == ["rpc_event"] * 6
-    assert [message["event"]["type"] for message in first_messages] == [
+    assert [message["type"] for message in first_messages] == [
+        "rpc_event",
+        "rpc_event",
+        "rpc_event",
+        "rpc_event",
+        "rpc_event",
+        "rpc_event",
+        "rpc_response",
+    ]
+    assert [message["event"]["type"] for message in first_messages[:-1]] == [
         "session_turn_context_status",
         "run_started",
         "tool_call_started",
@@ -233,10 +262,21 @@ async def test_handle_rpc_json_line_creates_session_and_resumes_runs(
     ]
     assert first_messages[0]["event"]["status"] == "missing"
     assert first_messages[0]["event"]["reason"] == "missing"
-    assert first_messages[-1]["event"]["output_text"] == "created"
+    assert first_messages[-2]["event"]["output_text"] == "created"
+    assert first_messages[-1] == {
+        "type": "rpc_response",
+        "id": "req-1",
+        "response": {"session_id": session_id},
+    }
 
-    assert [message["type"] for message in second_messages] == ["rpc_event"] * 4
-    assert [message["event"]["type"] for message in second_messages] == [
+    assert [message["type"] for message in second_messages] == [
+        "rpc_event",
+        "rpc_event",
+        "rpc_event",
+        "rpc_event",
+        "rpc_response",
+    ]
+    assert [message["event"]["type"] for message in second_messages[:-1]] == [
         "session_turn_context_status",
         "run_started",
         "assistant_text_delta",
@@ -244,7 +284,12 @@ async def test_handle_rpc_json_line_creates_session_and_resumes_runs(
     ]
     assert second_messages[0]["event"]["status"] == "reused"
     assert second_messages[0]["event"]["reason"] == "matched"
-    assert second_messages[-1]["event"]["output_text"] == "I created note.txt"
+    assert second_messages[-2]["event"]["output_text"] == "I created note.txt"
+    assert second_messages[-1] == {
+        "type": "rpc_response",
+        "id": "req-2",
+        "response": {"session_id": session_id},
+    }
 
     session_path = session_path_for_id(
         sessions_root=sessions_root,
@@ -1073,8 +1118,10 @@ async def test_handle_rpc_json_line_keeps_run_failure_in_event_stream_and_sessio
         sessions_root=sessions_root,
     )
 
-    assert [message["type"] for message in messages] == ["rpc_event"] * 10
-    assert [message["event"]["type"] for message in messages] == [
+    assert [message["type"] for message in messages] == (["rpc_event"] * 10) + [
+        "rpc_response"
+    ]
+    assert [message["event"]["type"] for message in messages[:-1]] == [
         "session_turn_context_status",
         "run_started",
         "tool_call_started",
@@ -1098,8 +1145,13 @@ async def test_handle_rpc_json_line_keeps_run_failure_in_event_stream_and_sessio
     }
     assert messages[5]["event"]["result"] == messages[3]["event"]["result"]
     assert messages[7]["event"]["result"] == messages[3]["event"]["result"]
-    assert messages[-2]["event"]["delta"] == "done"
-    assert messages[-1]["event"]["output_text"] == "done"
+    assert messages[-3]["event"]["delta"] == "done"
+    assert messages[-2]["event"]["output_text"] == "done"
+    assert messages[-1] == {
+        "type": "rpc_response",
+        "id": "req-2",
+        "response": {"session_id": session_id},
+    }
 
     session_path = session_path_for_id(
         sessions_root=sessions_root,

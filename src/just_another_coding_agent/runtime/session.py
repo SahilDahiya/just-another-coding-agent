@@ -513,30 +513,30 @@ async def stream_session_run_events(
                 error_type = type(error).__name__
                 message = str(error) or "run cancelled"
                 for pending_tool_call in pending_tool_calls.values():
-                    run_appender.append_event(
-                        ToolCallFailedEvent(
-                            run_id=active_run_id,
-                            tool_call_id=pending_tool_call.tool_call_id,
-                            tool_name=pending_tool_call.tool_name,
-                            error_type=error_type,
-                            message=message,
-                            activity=build_failed_tool_activity(
-                                tool_name=pending_tool_call.tool_name,
-                                args=pending_tool_call.args,
-                                args_valid=pending_tool_call.args_valid,
-                                message=message,
-                                duration_ms=0,
-                            ),
-                        )
-                    )
-                pending_tool_calls.clear()
-                run_appender.append_event(
-                    RunFailedEvent(
+                    tool_failed_event = ToolCallFailedEvent(
                         run_id=active_run_id,
+                        tool_call_id=pending_tool_call.tool_call_id,
+                        tool_name=pending_tool_call.tool_name,
                         error_type=error_type,
                         message=message,
+                        activity=build_failed_tool_activity(
+                            tool_name=pending_tool_call.tool_name,
+                            args=pending_tool_call.args,
+                            args_valid=pending_tool_call.args_valid,
+                            message=message,
+                            duration_ms=0,
+                        ),
                     )
+                    run_appender.append_event(tool_failed_event)
+                    yield tool_failed_event
+                pending_tool_calls.clear()
+                run_failed_event = RunFailedEvent(
+                    run_id=active_run_id,
+                    error_type=error_type,
+                    message=message,
                 )
+                run_appender.append_event(run_failed_event)
+                yield run_failed_event
                 failed_terminal = True
                 should_finalize = True
             raise

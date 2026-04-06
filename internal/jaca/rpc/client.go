@@ -72,6 +72,20 @@ func (m *Manager) Interrupt(ctx context.Context) error {
 	return nil
 }
 
+func (m *Manager) InterruptRun(
+	ctx context.Context,
+	sessionID string,
+	promoteQueuedSteer bool,
+) (RunInterruptResponse, error) {
+	m.mu.Lock()
+	client, err := m.ensureStartedLocked()
+	m.mu.Unlock()
+	if err != nil {
+		return RunInterruptResponse{}, err
+	}
+	return client.InterruptRun(ctx, sessionID, promoteQueuedSteer)
+}
+
 func (m *Manager) ensureStartedLocked() (*Client, error) {
 	if m.client != nil {
 		return m.client, nil
@@ -777,9 +791,19 @@ func (c *Client) StreamRun(
 			if err := sink(envelope.Event); err != nil {
 				return err
 			}
-			if envelope.Event.Type == "run_succeeded" || envelope.Event.Type == "run_failed" {
-				return nil
+			continue
+		case ResponseEnvelope:
+			var response RunStartResponse
+			if err := json.Unmarshal(envelope.Response, &response); err != nil {
+				return err
 			}
+			if response.SessionID != sessionID {
+				return fmt.Errorf(
+					"unexpected session_id for run.start: %s",
+					response.SessionID,
+				)
+			}
+			return nil
 		case ErrorEnvelope:
 			return fmt.Errorf("%s: %s", envelope.ErrorType, envelope.Message)
 		default:
@@ -829,6 +853,48 @@ func (c *Client) EnqueueRun(
 		return RunEnqueueResponse{}, fmt.Errorf("%s: %s", envelope.ErrorType, envelope.Message)
 	default:
 		return RunEnqueueResponse{}, fmt.Errorf("unexpected envelope for run.enqueue: %T", line)
+	}
+}
+
+func (c *Client) InterruptRun(
+	ctx context.Context,
+	sessionID string,
+	promoteQueuedSteer bool,
+) (RunInterruptResponse, error) {
+	requestID := c.nextRequestID()
+	waiter, cleanup, err := c.registerWaiter(requestID)
+	if err != nil {
+		return RunInterruptResponse{}, err
+	}
+	defer cleanup()
+	c.writeMu.Lock()
+	if err := c.writeRequest(Request{
+		ID:      requestID,
+		Command: "run.interrupt",
+		Payload: RunInterruptPayload{
+			SessionID:          sessionID,
+			PromoteQueuedSteer: promoteQueuedSteer,
+		},
+	}); err != nil {
+		c.writeMu.Unlock()
+		return RunInterruptResponse{}, err
+	}
+	c.writeMu.Unlock()
+	line, err := c.awaitEnvelope(ctx, waiter)
+	if err != nil {
+		return RunInterruptResponse{}, err
+	}
+	switch envelope := line.(type) {
+	case ResponseEnvelope:
+		var response RunInterruptResponse
+		if err := json.Unmarshal(envelope.Response, &response); err != nil {
+			return RunInterruptResponse{}, err
+		}
+		return response, nil
+	case ErrorEnvelope:
+		return RunInterruptResponse{}, fmt.Errorf("%s: %s", envelope.ErrorType, envelope.Message)
+	default:
+		return RunInterruptResponse{}, fmt.Errorf("unexpected envelope for run.interrupt: %T", line)
 	}
 }
 

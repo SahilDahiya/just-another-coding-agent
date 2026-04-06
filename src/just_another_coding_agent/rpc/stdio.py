@@ -39,7 +39,10 @@ from just_another_coding_agent.contracts.rpc import (
     RpcResponseEnvelope,
     RunEnqueueRequest,
     RunEnqueueResponse,
+    RunInterruptRequest,
+    RunInterruptResponse,
     RunStartRequest,
+    RunStartResponse,
     SessionCompactRequest,
     SessionCompactResponse,
     SessionCreateRequest,
@@ -73,19 +76,27 @@ class _FollowUpState:
     def __init__(self) -> None:
         self._lock = asyncio.Lock()
         self._active_sessions: set[str] = set()
+        self._active_run_tasks: dict[str, asyncio.Task[None]] = {}
         self._follow_up_queues: dict[str, deque[str]] = defaultdict(deque)
         self._steer_queues: dict[str, deque[str]] = defaultdict(deque)
         self._active_steer_targets: dict[
             str, tuple[list[str], Callable[[list[str]], None]]
         ] = {}
 
-    async def activate(self, session_id: str) -> None:
+    async def activate(
+        self,
+        session_id: str,
+        *,
+        run_task: asyncio.Task[None],
+    ) -> None:
         async with self._lock:
             self._active_sessions.add(session_id)
+            self._active_run_tasks[session_id] = run_task
 
     async def deactivate(self, session_id: str) -> None:
         async with self._lock:
             self._active_sessions.discard(session_id)
+            self._active_run_tasks.pop(session_id, None)
             self._active_steer_targets.pop(session_id, None)
             if not self._follow_up_queues.get(session_id):
                 self._follow_up_queues.pop(session_id, None)
@@ -142,13 +153,10 @@ class _FollowUpState:
 
     async def downgrade_pending_steers_to_follow_ups(self, session_id: str) -> None:
         async with self._lock:
-            queue = self._steer_queues.get(session_id)
-            if not queue:
+            prompts = self._drain_pending_steers_locked(session_id)
+            if not prompts:
                 return
-            follow_ups = self._follow_up_queues[session_id]
-            while queue:
-                follow_ups.append(queue.popleft())
-            self._steer_queues.pop(session_id, None)
+            self._prepend_follow_ups_locked(session_id, prompts)
 
     async def take_next_follow_up(self, session_id: str) -> str | None:
         async with self._lock:
@@ -159,6 +167,55 @@ class _FollowUpState:
             if not queue:
                 self._follow_up_queues.pop(session_id, None)
             return prompt
+
+    async def interrupt(
+        self,
+        session_id: str,
+        *,
+        promote_queued_steer: bool,
+    ) -> int:
+        async with self._lock:
+            if session_id not in self._active_sessions:
+                raise RuntimeError(
+                    "Interrupt requires an active run for this session."
+                )
+            run_task = self._active_run_tasks.get(session_id)
+            if run_task is None:
+                raise RuntimeError(
+                    "Interrupt requires an active run for this session."
+                )
+            promoted_count = 0
+            if promote_queued_steer:
+                prompts = self._drain_pending_steers_locked(session_id)
+                promoted_count = len(prompts)
+                if prompts:
+                    self._prepend_follow_ups_locked(session_id, prompts)
+            run_task.cancel()
+            return promoted_count
+
+    def _drain_pending_steers_locked(self, session_id: str) -> list[str]:
+        prompts: list[str] = []
+        active_target = self._active_steer_targets.get(session_id)
+        if active_target is not None:
+            active_prompts, _attach = active_target
+            if active_prompts:
+                prompts.extend(active_prompts)
+                active_prompts.clear()
+        queue = self._steer_queues.get(session_id)
+        if queue:
+            while queue:
+                prompts.append(queue.popleft())
+            self._steer_queues.pop(session_id, None)
+        return prompts
+
+    def _prepend_follow_ups_locked(
+        self,
+        session_id: str,
+        prompts: list[str],
+    ) -> None:
+        follow_ups = self._follow_up_queues[session_id]
+        for prompt in reversed(prompts):
+            follow_ups.appendleft(prompt)
 
 
 _FOLLOW_UP_STATE = _FollowUpState()
@@ -321,6 +378,28 @@ async def handle_rpc_json_line(
         ).model_dump_json()
         return
 
+    if isinstance(request, RunInterruptRequest):
+        try:
+            promoted_count = await _FOLLOW_UP_STATE.interrupt(
+                request.payload.session_id,
+                promote_queued_steer=request.payload.promote_queued_steer,
+            )
+        except RuntimeError as error:
+            yield RpcErrorEnvelope(
+                id=request.id,
+                error_type="InvalidRequest",
+                message=str(error),
+            ).model_dump_json()
+            return
+        yield RpcResponseEnvelope(
+            id=request.id,
+            response=RunInterruptResponse(
+                session_id=request.payload.session_id,
+                promoted_count=promoted_count,
+            ),
+        ).model_dump_json()
+        return
+
     if isinstance(request, SessionNameRequest):
         session_path = session_path_for_id(
             sessions_root=sessions_root,
@@ -445,7 +524,13 @@ async def handle_rpc_json_line(
         return
 
     assert isinstance(request, RunStartRequest)
-    await _FOLLOW_UP_STATE.activate(request.payload.session_id)
+    current_task = asyncio.current_task()
+    if current_task is None:
+        raise RuntimeError("run.start must execute inside an asyncio task")
+    await _FOLLOW_UP_STATE.activate(
+        request.payload.session_id,
+        run_task=current_task,
+    )
     try:
         prompt = request.payload.prompt
         while True:
@@ -480,6 +565,8 @@ async def handle_rpc_json_line(
                     message=str(error),
                 ).model_dump_json()
                 return
+            except asyncio.CancelledError:
+                pass
             except ProviderReadinessError as error:
                 yield RpcErrorEnvelope(
                     id=request.id,
@@ -502,9 +589,13 @@ async def handle_rpc_json_line(
                 request.payload.session_id
             )
             if prompt is None:
-                return
+                break
     finally:
         await _FOLLOW_UP_STATE.deactivate(request.payload.session_id)
+    yield RpcResponseEnvelope(
+        id=request.id,
+        response=RunStartResponse(session_id=request.payload.session_id),
+    ).model_dump_json()
 
 
 async def serve_rpc_stdio(

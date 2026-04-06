@@ -114,6 +114,10 @@ class RunStartRequest(_RpcModel):
     payload: RunStartPayload
 
 
+class RunStartResponse(_RpcModel):
+    session_id: SessionId
+
+
 class RunEnqueuePayload(_RpcModel):
     session_id: SessionId
     prompt: str
@@ -126,6 +130,17 @@ class RunEnqueueRequest(_RpcModel):
     payload: RunEnqueuePayload
 
 
+class RunInterruptPayload(_RpcModel):
+    session_id: SessionId
+    promote_queued_steer: bool = False
+
+
+class RunInterruptRequest(_RpcModel):
+    id: str
+    command: Literal["run.interrupt"]
+    payload: RunInterruptPayload
+
+
 RpcRequest = Annotated[
     SessionCreateRequest
     | SessionCompactRequest
@@ -136,7 +151,8 @@ RpcRequest = Annotated[
     | AuthSetRequest
     | AuthClearRequest
     | RunStartRequest
-    | RunEnqueueRequest,
+    | RunEnqueueRequest
+    | RunInterruptRequest,
     Field(discriminator="command"),
 ]
 
@@ -188,6 +204,11 @@ class RunEnqueueResponse(_RpcModel):
     queued_count: int
 
 
+class RunInterruptResponse(_RpcModel):
+    session_id: SessionId
+    promoted_count: int
+
+
 class RpcResponseEnvelope(_RpcModel):
     type: Literal["rpc_response"] = "rpc_response"
     id: str
@@ -200,7 +221,9 @@ class RpcResponseEnvelope(_RpcModel):
         | AuthStatusResponse
         | AuthSetResponse
         | AuthClearResponse
+        | RunStartResponse
         | RunEnqueueResponse
+        | RunInterruptResponse
     )
 
 
@@ -240,9 +263,13 @@ __all__ = [
     "ModelCatalogResponse",
     "RunStartPayload",
     "RunStartRequest",
+    "RunStartResponse",
     "RunEnqueuePayload",
     "RunEnqueueRequest",
     "RunEnqueueResponse",
+    "RunInterruptPayload",
+    "RunInterruptRequest",
+    "RunInterruptResponse",
     "SessionId",
     "SessionCompactPayload",
     "SessionCompactRequest",
