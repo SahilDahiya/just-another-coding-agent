@@ -73,6 +73,7 @@ type viewModel struct {
 	PromptValue    string
 	PromptFooter   string
 	RunElapsed     time.Duration
+	AwaitingFirstOutput bool
 	Usage          usageSnapshot
 	QueuedNext     []string
 	QueuedLater    []string
@@ -377,9 +378,13 @@ func renderTopRail(vm viewModel) string {
 		return ""
 	}
 	if vm.Phase == PhaseStreaming {
+		wave := buildWorkingWave(vm.MotionTick)
+		if vm.AwaitingFirstOutput {
+			wave = buildThinkingWave(vm.MotionTick)
+		}
 		return lipgloss.JoinHorizontal(
 			lipgloss.Left,
-			renderWordWave(buildWorkingWave(vm.MotionTick), vm.MotionTick),
+			renderWordWave(wave, vm.MotionTick),
 			" ",
 			lipgloss.NewStyle().
 				Foreground(defaultTheme.accentSoft).
@@ -451,9 +456,17 @@ func buildTopRailIndicator(vm viewModel) string {
 		return ""
 	}
 	if vm.Phase == PhaseStreaming {
-		return fmt.Sprintf("● %s %s (esc to interrupt)", buildWorkingWave(vm.MotionTick), formatElapsedClock(vm.RunElapsed))
+		wave := buildWorkingWave(vm.MotionTick)
+		if vm.AwaitingFirstOutput {
+			wave = buildThinkingWave(vm.MotionTick)
+		}
+		return fmt.Sprintf("● %s %s (esc to interrupt)", wave, formatElapsedClock(vm.RunElapsed))
 	}
 	return fmt.Sprintf("● %s %s (esc to interrupt)", buildCompactingWave(vm.MotionTick), formatElapsedClock(vm.RunElapsed))
+}
+
+func buildThinkingWave(motionTick int) string {
+	return buildWordWave("Thinking", motionTick)
 }
 
 func buildWorkingWave(motionTick int) string {

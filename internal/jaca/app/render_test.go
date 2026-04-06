@@ -104,6 +104,22 @@ func TestBuildTopRailIndicatorShowsFixedElapsed(t *testing.T) {
 	}
 }
 
+func TestBuildTopRailIndicatorShowsThinkingBeforeFirstOutput(t *testing.T) {
+	got := buildTopRailIndicator(viewModel{
+		Phase:               PhaseStreaming,
+		MotionTick:          3,
+		RunElapsed:          42 * time.Second,
+		AwaitingFirstOutput: true,
+	})
+
+	if !strings.Contains(got, buildThinkingWave(3)) {
+		t.Fatalf("buildTopRailIndicator() missing thinking wave: %q", got)
+	}
+	if strings.Contains(got, buildWorkingWave(3)) {
+		t.Fatalf("buildTopRailIndicator() should not show working before first output: %q", got)
+	}
+}
+
 func TestBuildTopRailIndicatorShowsDetachedWorkingState(t *testing.T) {
 	tick := 2
 	got := buildTopRailIndicator(viewModel{

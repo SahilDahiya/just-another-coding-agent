@@ -132,6 +132,7 @@ type queuedPreviewState struct {
 type runState struct {
 	phase              Phase
 	streaming          bool
+	awaitingFirstOutput bool
 	activeRunSucceeded bool
 	lastInterrupt      time.Time
 	activeRunCancel    context.CancelFunc
@@ -362,6 +363,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if msg.Event.Type == "session_compaction_started" {
 			m.phase = PhaseCompacting
+			m.awaitingFirstOutput = false
 		}
 		if msg.Event.Type == "session_compaction_completed" && m.streaming {
 			m.phase = PhaseStreaming
@@ -387,10 +389,15 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.phase = PhaseError
 		}
 		if msg.Event.Type == "assistant_text_delta" {
+			m.awaitingFirstOutput = false
 			m.pendingAssistant += msg.Event.Delta
 			m.lastDeltaTime = time.Now()
 			m.linePulse = 3
 			return m, tea.Batch(listenAsync(m.asyncCh), m.scheduleLiveFlush())
+		}
+		switch msg.Event.Type {
+		case "tool_call_started", "tool_call_updated", "tool_call_succeeded", "tool_call_failed":
+			m.awaitingFirstOutput = false
 		}
 		m.flushPendingAssistantDelta()
 		m.transcript.ApplyRunEvent(msg.Event)
@@ -539,6 +546,7 @@ func (m *model) currentViewModel() viewModel {
 		PromptValue:    m.promptView(),
 		PromptFooter:   m.currentPromptFooter(),
 		RunElapsed:     elapsed,
+		AwaitingFirstOutput: m.awaitingFirstOutput,
 		Usage:          m.lastUsage,
 		QueuedNext:     append([]string{}, m.queuedPreview.Next...),
 		QueuedLater:    append([]string{}, m.queuedPreview.Later...),
@@ -831,6 +839,7 @@ func (m *model) handleEnter() (tea.Model, tea.Cmd) {
 	m.transcript.WriteUserTurn(prompt)
 	m.phase = PhaseStreaming
 	m.streaming = true
+	m.awaitingFirstOutput = true
 	m.lastInterrupt = time.Time{}
 	m.activeRunSucceeded = false
 	m.runStartTime = time.Now()
