@@ -440,6 +440,42 @@ async def streaming_bash_stream(
     yield "done"
 
 
+async def streaming_bash_stream_with_steer_boundary(
+    messages: list[ModelMessage],
+    _agent_info: object,
+) -> AsyncIterator[str | dict[int, DeltaToolCall]]:
+    if len(messages) == 1:
+        if _SHELL_FAMILY == "powershell":
+            command = (
+                "[Console]::Out.Write('one' + [Environment]::NewLine); "
+                "[Console]::Out.Flush(); "
+                "Start-Sleep -Milliseconds 300; "
+                "[Console]::Out.Write('two' + [Environment]::NewLine); "
+                "[Console]::Out.Flush()"
+            )
+        else:
+            command = (
+                "python - <<'PY'\n"
+                "import sys, time\n"
+                "sys.stdout.write('one\\n')\n"
+                "sys.stdout.flush()\n"
+                "time.sleep(0.3)\n"
+                "sys.stdout.write('two\\n')\n"
+                "sys.stdout.flush()\n"
+                "PY"
+            )
+        yield {
+            0: DeltaToolCall(
+                name="shell",
+                json_args=json.dumps({"command": command}),
+                tool_call_id="call-bash-stream-steer",
+            )
+        }
+        return
+
+    yield "done"
+
+
 async def looping_edit_stream(
     messages: list[ModelMessage],
     _agent_info: object,
@@ -1280,3 +1316,41 @@ async def test_stream_run_events_injects_pending_steer_at_tool_boundary(
     assert isinstance(events[2], ToolCallSucceededEvent)
     assert isinstance(events[-1], RunSucceededEvent)
     assert events[-1].output_text == "done steered"
+
+
+async def test_stream_run_events_emits_bash_tool_updates_during_steer_boundary(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    agent = build_canonical_agent(
+        model=FunctionModel(stream_function=streaming_bash_stream_with_steer_boundary),
+        workspace_root=workspace_root,
+        tool_names=("shell",),
+    )
+
+    async def activate_steer_boundary(_attach) -> None:
+        return None
+
+    async def deactivate_steer_boundary() -> None:
+        return None
+
+    stream = stream_run_events(
+        agent=agent,
+        prompt="go",
+        deps=WorkspaceDeps.from_workspace_root(workspace_root),
+        activate_steer_boundary=activate_steer_boundary,
+        deactivate_steer_boundary=deactivate_steer_boundary,
+    )
+
+    assert isinstance(await anext(stream), RunStartedEvent)
+    assert isinstance(await anext(stream), ToolCallStartedEvent)
+    update_event = await asyncio.wait_for(anext(stream), timeout=0.2)
+    assert isinstance(update_event, ToolCallUpdatedEvent)
+    assert update_event.tool_call_id == "call-bash-stream-steer"
+    assert update_event.partial_result is not None
+
+    remaining_events = [event async for event in stream]
+    assert isinstance(remaining_events[-2], AssistantTextDeltaEvent)
+    assert isinstance(remaining_events[-1], RunSucceededEvent)
