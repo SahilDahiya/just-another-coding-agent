@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from collections.abc import Iterable
 from pathlib import Path
 
@@ -26,12 +25,15 @@ def _load_job_task_map(job_dir: Path) -> dict[str, str]:
         task_checksum = data.get("task_checksum")
         if not isinstance(task_name, str) or not isinstance(task_checksum, str):
             raise SystemExit(
-                f"Invalid result payload in {result_path}: missing task_name/task_checksum."
+                "Invalid result payload in "
+                f"{result_path}: missing task_name/task_checksum."
             )
         previous = task_map.get(task_name)
         if previous is not None and previous != task_checksum:
             raise SystemExit(
-                f"Job {job_dir.name} contains multiple checksums for task {task_name!r}."
+                "Job "
+                f"{job_dir.name} contains multiple checksums for task "
+                f"{task_name!r}."
             )
         task_map[task_name] = task_checksum
     if not task_map:

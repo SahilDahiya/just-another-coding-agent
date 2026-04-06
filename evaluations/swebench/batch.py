@@ -8,14 +8,13 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
-from just_another_coding_agent.contracts.thinking import ThinkingSetting
-
 from evaluations.swebench.dataset import SWEBenchTask
 from evaluations.swebench.runner import (
     SWEBenchPrediction,
     prepare_workspace,
     run_swebench_task,
 )
+from just_another_coding_agent.contracts.thinking import ThinkingSetting
 
 PREDICTIONS_FILENAME = "predictions.jsonl"
 COMPLETED_TASKS_FILENAME = "completed-tasks.txt"

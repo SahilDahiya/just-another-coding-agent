@@ -49,7 +49,9 @@ def __getattr__(name: str) -> Any:
     try:
         module_name, attribute_name = _LAZY_EXPORTS[name]
     except KeyError as error:  # pragma: no cover - standard module protocol
-        raise AttributeError(f"module {__name__!r} has no attribute {name!r}") from error
+        raise AttributeError(
+            f"module {__name__!r} has no attribute {name!r}"
+        ) from error
 
     module = import_module(module_name, __name__)
     value = getattr(module, attribute_name)

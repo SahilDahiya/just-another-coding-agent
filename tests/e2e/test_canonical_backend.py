@@ -93,15 +93,27 @@ async def _rpc_messages(
     sessions_root,
 ) -> list[dict[str, object]]:
     request_line = json.dumps(request_payload)
-    return [
-        json.loads(line)
-        async for line in handle_rpc_json_line(
-            line=request_line,
-            model=model,
-            workspace_root=workspace_root,
-            sessions_root=sessions_root,
+    messages: list[dict[str, object]] = []
+
+    async def emit_rpc_event(request_id: str, event) -> None:
+        messages.append(
+            {
+                "type": "rpc_event",
+                "id": request_id,
+                "event": json.loads(event.model_dump_json()),
+            }
         )
-    ]
+
+    async for line in handle_rpc_json_line(
+        line=request_line,
+        model=model,
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+        emit_rpc_event=emit_rpc_event,
+    ):
+        messages.append(json.loads(line))
+
+    return messages
 
 
 async def _create_session_id(*, workspace_root, sessions_root) -> str:
@@ -148,9 +160,12 @@ async def _collect_run_events(
         sessions_root=sessions_root,
     )
 
-    assert [message["type"] for message in messages] == ["rpc_event"] * len(messages)
+    assert [message["type"] for message in messages[:-1]] == ["rpc_event"] * (
+        len(messages) - 1
+    )
+    assert messages[-1]["type"] == "rpc_response"
     parsed_events: list[RunEvent | SessionLifecycleEvent] = []
-    for message in messages:
+    for message in messages[:-1]:
         event = message["event"]
         if event["type"] == "session_turn_context_status":
             parsed_events.append(

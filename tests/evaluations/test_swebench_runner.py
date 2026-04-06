@@ -1,18 +1,19 @@
 import subprocess
 
-import pytest
-
 from evaluations.swebench.dataset import SWEBenchTask
 from evaluations.swebench.runner import (
     SWEBenchPrediction,
     extract_patch,
-    prepare_workspace,
     run_swebench_task,
 )
 
 
 def _init_test_repo(path, *, commit_message="initial"):
-    subprocess.run(["git", "init", "--quiet", str(path)], check=True, capture_output=True)
+    subprocess.run(
+        ["git", "init", "--quiet", str(path)],
+        check=True,
+        capture_output=True,
+    )
     subprocess.run(
         ["git", "config", "user.email", "test@test.com"],
         cwd=path, check=True, capture_output=True,

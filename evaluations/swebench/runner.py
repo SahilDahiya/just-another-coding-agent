@@ -7,11 +7,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from just_another_coding_agent.contracts.thinking import ThinkingSetting
-
 from evaluations.bench.exec_prompt import ExecPromptError, run_exec_prompt
 from evaluations.swebench.dataset import SWEBenchTask
 from evaluations.swebench.prompt import format_swebench_prompt
+from just_another_coding_agent.contracts.thinking import ThinkingSetting
 
 
 @dataclass(frozen=True)

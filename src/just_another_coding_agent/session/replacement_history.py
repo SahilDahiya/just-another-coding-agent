@@ -96,11 +96,13 @@ def validate_compaction_replacement_messages(
         raise ValueError("Session compaction replacement_messages must be non-empty")
     if not is_compaction_summary_message(messages[-1]):
         raise ValueError(
-            "Session compaction replacement_messages must end with a compaction summary message"
+            "Session compaction replacement_messages must end with a "
+            "compaction summary message"
         )
     if any(is_compaction_summary_message(message) for message in messages[:-1]):
         raise ValueError(
-            "Session compaction replacement_messages may contain a compaction summary message only at the end"
+            "Session compaction replacement_messages may contain a compaction "
+            "summary message only at the end"
         )
 
 

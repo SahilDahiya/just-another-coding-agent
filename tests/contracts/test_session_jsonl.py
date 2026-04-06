@@ -1503,7 +1503,10 @@ def test_append_compaction_to_session_rejects_backward_boundary_at_write_time(
 
     with pytest.raises(
         SessionFormatError,
-        match="Session compaction entries must not move the compaction boundary backward",
+        match=(
+            "Session compaction entries must not move the compaction boundary "
+            "backward"
+        ),
     ):
         append_compaction_to_session(
             path=path,
@@ -1518,7 +1521,7 @@ def test_append_compaction_to_session_rejects_backward_boundary_at_write_time(
     assert loaded.latest_compaction.compacted_through_run_id == "run-2"
 
 
-def test_append_compaction_to_session_rejects_invalid_replacement_messages_at_write_time(
+def test_append_compaction_to_session_rejects_invalid_messages_at_write_time(
     tmp_path,
 ) -> None:
     path = tmp_path / "session.jsonl"

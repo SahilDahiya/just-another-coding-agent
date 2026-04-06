@@ -1,4 +1,6 @@
 from evaluations.harbor.commands import build_harbor_exec_command, build_provider_env
+
+
 def test_build_provider_env_filters_to_openai_provider_env() -> None:
     env = build_provider_env(
         model="openai-responses:gpt-5.3-codex",

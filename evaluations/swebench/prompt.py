@@ -8,14 +8,23 @@ SWEBENCH_WORKFLOW_PROMPT = "\n".join(
     [
         "# SWE-bench Workflow",
         "",
-        "You are working on a Python repository with a reported bug or feature request.",
+        (
+            "You are working on a Python repository with a reported bug or "
+            "feature request."
+        ),
         "Your goal is to produce a minimal patch that resolves the issue.",
         "",
         "- Read the problem statement carefully before exploring the codebase.",
         "- Use grep and find to locate the relevant source files.",
-        "- Understand the existing test structure so you know what will be validated.",
+        (
+            "- Understand the existing test structure so you know what will be "
+            "validated."
+        ),
         "- Make minimal, targeted changes to fix the issue.",
-        "- Do NOT modify test files unless the problem statement explicitly requires it.",
+        (
+            "- Do NOT modify test files unless the problem statement explicitly "
+            "requires it."
+        ),
         "- After making changes, run relevant tests to verify your fix.",
         "- Ensure your changes do not break existing tests.",
         "- When you are confident the fix is correct, conclude.",
