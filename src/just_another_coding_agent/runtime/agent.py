@@ -179,13 +179,13 @@ def build_canonical_agent(
     # ever stops being `output_type=str`, this policy should be revisited rather
     # than silently inherited by a structured-output path.
     #
-    # Tool-call correction still uses a small framework retry budget for the
-    # normal local retry-prompt path. The runtime additionally owns the outer
-    # correction boundary when a provider rejects the poisoned run anyway.
+    # Malformed tool correction is runtime-owned. The framework should not hide
+    # extra retry loops for invented tool names or malformed args inside one
+    # provider run; the runtime restarts from a sanitized boundary instead.
     agent = Agent(
         resolved_model,
         output_type=str,
-        retries=CANONICAL_AGENT_TOOL_CORRECTION_RETRIES,
+        retries=0,
         output_retries=CANONICAL_AGENT_OUTPUT_RETRIES,
         instructions=build_static_agent_instructions(),
         deps_type=WorkspaceDeps,

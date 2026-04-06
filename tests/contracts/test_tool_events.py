@@ -86,6 +86,27 @@ def _last_user_prompt(messages: list[ModelMessage]) -> str | None:
     return prompt
 
 
+def _user_prompt_count(messages: list[ModelMessage]) -> int:
+    return sum(
+        1
+        for message in messages
+        for part in message.parts
+        if isinstance(part, UserPromptPart)
+    )
+
+
+def _count_user_prompts_with_prefix(
+    messages: list[ModelMessage],
+    prefix: str,
+) -> int:
+    return sum(
+        1
+        for message in messages
+        for part in message.parts
+        if isinstance(part, UserPromptPart) and part.content.startswith(prefix)
+    )
+
+
 def _has_tool_return(messages: list[ModelMessage], *, tool_name: str) -> bool:
     return any(
         isinstance(part, ToolReturnPart) and part.tool_name == tool_name
@@ -290,7 +311,14 @@ async def recovering_unknown_tool_stream(
     messages: list[ModelMessage],
     _agent_info: object,
 ) -> AsyncIterator[str | dict[int, DeltaToolCall]]:
-    if len(messages) == 1:
+    if _has_tool_return(messages, tool_name="ls"):
+        yield "done"
+        return
+
+    correction_count = _count_user_prompts_with_prefix(
+        messages, "Unknown tool name:"
+    )
+    if correction_count < 2:
         yield {
             0: DeltaToolCall(
                 name="lsshell",
@@ -300,39 +328,30 @@ async def recovering_unknown_tool_stream(
         }
         return
 
-    if len(messages) == 3:
-        yield {
-            0: DeltaToolCall(
-                name="lsshell",
-                json_args="{}",
-                tool_call_id="call-unknown-2",
-            )
-        }
-        return
+    yield {
+        0: DeltaToolCall(
+            name="ls",
+            json_args='{"path":"."}',
+            tool_call_id="call-ls-1",
+        )
+    }
+    return
 
-    if len(messages) == 5:
-        yield {
-            0: DeltaToolCall(
-                name="ls",
-                json_args='{"path":"."}',
-                tool_call_id="call-ls-1",
-            )
-        }
-        return
-
-    yield "done"
 
 
 async def exhausting_unknown_tool_stream(
     messages: list[ModelMessage],
     _agent_info: object,
 ) -> AsyncIterator[str | dict[int, DeltaToolCall]]:
-    if len(messages) in {1, 3, 5}:
+    if _count_user_prompts_with_prefix(messages, "Unknown tool name:") < 3:
         yield {
             0: DeltaToolCall(
                 name="lsshell",
                 json_args="{}",
-                tool_call_id=f"call-unknown-{len(messages)}",
+                tool_call_id=(
+                    "call-unknown-"
+                    f"{_count_user_prompts_with_prefix(messages, 'Unknown tool name:')}"
+                ),
             )
         }
         return
@@ -344,7 +363,11 @@ async def recovering_invalid_tool_args_stream(
     messages: list[ModelMessage],
     _agent_info: object,
 ) -> AsyncIterator[str | dict[int, DeltaToolCall]]:
-    if len(messages) == 1:
+    if _has_tool_return(messages, tool_name="ls"):
+        yield "done"
+        return
+
+    if _count_user_prompts_with_prefix(messages, "Invalid ") == 0:
         yield {
             0: DeltaToolCall(
                 name="ls",
@@ -354,17 +377,14 @@ async def recovering_invalid_tool_args_stream(
         }
         return
 
-    if len(messages) == 3:
-        yield {
-            0: DeltaToolCall(
-                name="ls",
-                json_args='{"path":"."}',
-                tool_call_id="call-ls-valid-1",
-            )
-        }
-        return
-
-    yield "done"
+    yield {
+        0: DeltaToolCall(
+            name="ls",
+            json_args='{"path":"."}',
+            tool_call_id="call-ls-valid-1",
+        )
+    }
+    return
 
 
 async def empty_string_ls_args_stream(
@@ -607,6 +627,7 @@ async def test_stream_run_events_tool_failure_is_terminal_error_event() -> None:
         async for event in stream_run_events(
             agent=agent,
             prompt="go",
+            available_tool_names=("read",),
         )
     ]
 
@@ -655,6 +676,7 @@ async def test_stream_run_events_retry_prompt_emits_tool_error_result() -> None:
         async for event in stream_run_events(
             agent=agent,
             prompt="go",
+            available_tool_names=("read",),
         )
     ]
 
@@ -687,6 +709,7 @@ async def test_stream_run_events_restarts_after_provider_rejects_failed_tool_cor
         async for event in stream_run_events(
             agent=agent,
             prompt="go",
+            available_tool_names=("read",),
         )
     ]
 
@@ -732,6 +755,7 @@ async def test_stream_run_events_uses_canonical_validated_args_for_empty_string_
             agent=agent,
             prompt="go",
             deps=WorkspaceDeps.from_workspace_root(workspace_root),
+            available_tool_names=("ls",),
         )
     ]
 
@@ -894,6 +918,7 @@ async def test_stream_run_events_recovers_from_edit_mismatch_within_one_run(
             agent=agent,
             prompt="go",
             deps=WorkspaceDeps.from_workspace_root(workspace_root),
+            available_tool_names=("ls",),
         )
     ]
 
@@ -958,6 +983,7 @@ async def test_stream_run_events_recovers_from_missing_read_within_one_run(
             agent=agent,
             prompt="go",
             deps=WorkspaceDeps.from_workspace_root(workspace_root),
+            available_tool_names=("ls",),
         )
     ]
 
@@ -1028,6 +1054,7 @@ async def test_stream_run_events_recovers_from_unknown_tool_name_within_one_run(
             agent=agent,
             prompt="go",
             deps=WorkspaceDeps.from_workspace_root(workspace_root),
+            available_tool_names=("ls",),
         )
     ]
 
@@ -1082,6 +1109,7 @@ async def test_stream_run_events_fails_cleanly_when_unknown_tool_budget_is_exhau
             agent=agent,
             prompt="go",
             deps=WorkspaceDeps.from_workspace_root(workspace_root),
+            available_tool_names=("ls",),
         )
     ]
 
@@ -1120,6 +1148,7 @@ async def test_stream_run_events_recovers_from_invalid_tool_args_within_one_run(
             agent=agent,
             prompt="go",
             deps=WorkspaceDeps.from_workspace_root(workspace_root),
+            available_tool_names=("ls",),
         )
     ]
 
@@ -1142,7 +1171,9 @@ async def test_stream_run_events_recovers_from_invalid_tool_args_within_one_run(
     assert isinstance(events[2], ToolCallSucceededEvent)
     assert events[2].result["ok"] is False
     assert events[2].result["error_type"] == "RetryPromptPart"
-    assert "Invalid JSON" in events[2].result["message"]
+    assert events[2].result["message"] == (
+        "Invalid arguments for tool 'ls'. Fix the errors and try again."
+    )
     assert isinstance(events[3], ToolCallStartedEvent)
     assert events[3].tool_name == "ls"
     assert events[3].args == {"path": ".", "limit": 500}

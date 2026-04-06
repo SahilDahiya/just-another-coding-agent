@@ -49,6 +49,7 @@ from just_another_coding_agent.contracts.run_events import (
     ToolCallUpdatedEvent,
 )
 from just_another_coding_agent.contracts.thinking import ThinkingSetting
+from just_another_coding_agent.contracts.tools import CANONICAL_TOOL_NAMES
 from just_another_coding_agent.runtime.activity import (
     build_failed_tool_activity,
     build_started_tool_activity,
@@ -105,6 +106,11 @@ class _QueuedNodeStreamFinished:
     pass
 
 
+@dataclass(frozen=True)
+class _RestartRunWithCorrection(Exception):
+    message: str
+
+
 def _build_unbounded_usage_limits() -> UsageLimits:
     return UsageLimits(
         request_limit=None,
@@ -151,6 +157,7 @@ async def _stream_run_events_with_steer(
     thinking: ThinkingSetting | None = None,
     deps: WorkspaceDeps | None = None,
     message_history_sink: Callable[[Sequence[ModelMessage]], None] | None = None,
+    available_tool_names: Sequence[str] = CANONICAL_TOOL_NAMES,
     activate_steer_boundary: Callable[[Callable[[list[str]], None]], Awaitable[None]],
     deactivate_steer_boundary: Callable[[], Awaitable[None]],
 ) -> AsyncIterator[RunEvent]:
@@ -165,7 +172,6 @@ async def _stream_run_events_with_steer(
     while True:
         saw_streamed_event = False
         terminal_emitted = False
-        pending_retry_message: str | None = None
         attempt_history_count = len(current_message_history)
         queued_deps = deps
         if isinstance(deps, WorkspaceDeps):
@@ -309,6 +315,72 @@ async def _stream_run_events_with_steer(
                                                         args_valid=args_valid,
                                                     ),
                                                 )
+                                                malformed_message = (
+                                                    _malformed_tool_correction_message(
+                                                        tool_name=event.part.tool_name,
+                                                        raw_args=event.part.args,
+                                                        args_valid=args_valid,
+                                                        available_tool_names=available_tool_names,
+                                                    )
+                                                )
+                                                if malformed_message is not None:
+                                                    pending_tool_call = (
+                                                        pending_tool_calls.pop(
+                                                            event.tool_call_id
+                                                        )
+                                                    )
+                                                    if correction_attempts >= (
+                                                        CANONICAL_AGENT_TOOL_CORRECTION_RETRIES
+                                                    ):
+                                                        exhausted_message = (
+                                                            _tool_correction_exhausted_message(
+                                                                pending_tool_call.tool_name
+                                                            )
+                                                        )
+                                                        yield ToolCallFailedEvent(
+                                                            run_id=run_id,
+                                                            tool_call_id=event.tool_call_id,
+                                                            tool_name=pending_tool_call.tool_name,
+                                                            error_type="RuntimeError",
+                                                            message=exhausted_message,
+                                                            activity=build_failed_tool_activity(
+                                                                tool_name=pending_tool_call.tool_name,
+                                                                args=pending_tool_call.args,
+                                                                args_valid=pending_tool_call.args_valid,
+                                                                message=exhausted_message,
+                                                                duration_ms=_duration_ms_since(
+                                                                    pending_tool_call.started_at
+                                                                ),
+                                                            ),
+                                                        )
+                                                        yield RunFailedEvent(
+                                                            run_id=run_id,
+                                                            error_type="RuntimeError",
+                                                            message=exhausted_message,
+                                                        )
+                                                        return
+                                                    retry_result = _tool_error_result(
+                                                        error_type="RetryPromptPart",
+                                                        message=malformed_message,
+                                                    )
+                                                    yield ToolCallSucceededEvent(
+                                                        run_id=run_id,
+                                                        tool_call_id=event.tool_call_id,
+                                                        tool_name=pending_tool_call.tool_name,
+                                                        result=retry_result,
+                                                        activity=build_succeeded_tool_activity(
+                                                            tool_name=pending_tool_call.tool_name,
+                                                            args=pending_tool_call.args,
+                                                            args_valid=pending_tool_call.args_valid,
+                                                            result=retry_result,
+                                                            duration_ms=_duration_ms_since(
+                                                                pending_tool_call.started_at
+                                                            ),
+                                                        ),
+                                                    )
+                                                    raise _RestartRunWithCorrection(
+                                                        malformed_message
+                                                    )
                                                 continue
 
                                             if isinstance(
@@ -333,9 +405,6 @@ async def _stream_run_events_with_steer(
                                                             event.result
                                                         )
                                                     )
-                                                    pending_retry_message = (
-                                                        retry_message
-                                                    )
                                                     retry_result = _tool_error_result(
                                                         error_type="RetryPromptPart",
                                                         message=retry_message,
@@ -355,7 +424,9 @@ async def _stream_run_events_with_steer(
                                                             ),
                                                         ),
                                                     )
-                                                    continue
+                                                    raise _RestartRunWithCorrection(
+                                                        retry_message
+                                                    )
 
                                                 pending_tool_call = (
                                                     _resolve_pending_tool_call(
@@ -435,23 +506,18 @@ async def _stream_run_events_with_steer(
                 raise RuntimeError(
                     "stream_run_events received an error after terminal success"
                 ) from error
-                if (
-                    pending_retry_message is not None
-                    and _should_restart_after_failed_tool_correction(error)
-                    and correction_attempts < CANONICAL_AGENT_TOOL_CORRECTION_RETRIES
-                ):
-                    attempt_messages = _fallback_attempt_messages(
-                        list(captured_messages)[attempt_history_count:],
-                        prompt=current_prompt,
-                    )
-                    carried_messages.extend(
-                        _sanitize_failed_run_messages(attempt_messages)
-                    )
-                    current_message_history = [
-                        *current_message_history,
+
+            if isinstance(error, _RestartRunWithCorrection):
+                attempt_messages = _fallback_attempt_messages(
+                    list(captured_messages)[attempt_history_count:],
+                    prompt=current_prompt,
+                )
+                carried_messages.extend(_sanitize_failed_run_messages(attempt_messages))
+                current_message_history = [
+                    *current_message_history,
                     *carried_messages[len(current_message_history) :],
                 ]
-                current_prompt = pending_retry_message
+                current_prompt = error.message
                 correction_attempts += 1
                 pending_tool_calls.clear()
                 recovery_attempts = 0
@@ -508,6 +574,7 @@ async def stream_run_events(
     thinking: ThinkingSetting | None = None,
     deps: WorkspaceDeps | None = None,
     message_history_sink: Callable[[Sequence[ModelMessage]], None] | None = None,
+    available_tool_names: Sequence[str] = CANONICAL_TOOL_NAMES,
     activate_steer_boundary: (
         Callable[[Callable[[list[str]], None]], Awaitable[None]]
     ) | None = None,
@@ -530,6 +597,7 @@ async def stream_run_events(
             thinking=thinking,
             deps=deps,
             message_history_sink=message_history_sink,
+            available_tool_names=available_tool_names,
             activate_steer_boundary=activate_steer_boundary,
             deactivate_steer_boundary=deactivate_steer_boundary,
         ):
@@ -547,7 +615,6 @@ async def stream_run_events(
     while True:
         saw_streamed_event = False
         terminal_emitted = False
-        pending_retry_message: str | None = None
         attempt_history_count = len(current_message_history)
         queue: asyncio.Queue[object] = asyncio.Queue()
 
@@ -668,6 +735,67 @@ async def stream_run_events(
                                 args_valid=args_valid,
                             ),
                         )
+                        malformed_message = _malformed_tool_correction_message(
+                            tool_name=event.part.tool_name,
+                            raw_args=event.part.args,
+                            args_valid=args_valid,
+                            available_tool_names=available_tool_names,
+                        )
+                        if malformed_message is not None:
+                            pending_tool_call = pending_tool_calls.pop(
+                                event.tool_call_id
+                            )
+                            if (
+                                correction_attempts
+                                >= CANONICAL_AGENT_TOOL_CORRECTION_RETRIES
+                            ):
+                                exhausted_message = (
+                                    _tool_correction_exhausted_message(
+                                        pending_tool_call.tool_name
+                                    )
+                                )
+                                yield ToolCallFailedEvent(
+                                    run_id=run_id,
+                                    tool_call_id=event.tool_call_id,
+                                    tool_name=pending_tool_call.tool_name,
+                                    error_type="RuntimeError",
+                                    message=exhausted_message,
+                                    activity=build_failed_tool_activity(
+                                        tool_name=pending_tool_call.tool_name,
+                                        args=pending_tool_call.args,
+                                        args_valid=pending_tool_call.args_valid,
+                                        message=exhausted_message,
+                                        duration_ms=_duration_ms_since(
+                                            pending_tool_call.started_at
+                                        ),
+                                    ),
+                                )
+                                yield RunFailedEvent(
+                                    run_id=run_id,
+                                    error_type="RuntimeError",
+                                    message=exhausted_message,
+                                )
+                                return
+                            retry_result = _tool_error_result(
+                                error_type="RetryPromptPart",
+                                message=malformed_message,
+                            )
+                            yield ToolCallSucceededEvent(
+                                run_id=run_id,
+                                tool_call_id=event.tool_call_id,
+                                tool_name=pending_tool_call.tool_name,
+                                result=retry_result,
+                                activity=build_succeeded_tool_activity(
+                                    tool_name=pending_tool_call.tool_name,
+                                    args=pending_tool_call.args,
+                                    args_valid=pending_tool_call.args_valid,
+                                    result=retry_result,
+                                    duration_ms=_duration_ms_since(
+                                        pending_tool_call.started_at
+                                    ),
+                                ),
+                            )
+                            raise _RestartRunWithCorrection(malformed_message)
                         continue
 
                     if isinstance(event, FunctionToolResultEvent):
@@ -678,7 +806,6 @@ async def stream_run_events(
                                 result_tool_name=event.result.tool_name,
                             )
                             retry_message = _retry_prompt_message(event.result)
-                            pending_retry_message = retry_message
                             retry_result = _tool_error_result(
                                 error_type="RetryPromptPart",
                                 message=retry_message,
@@ -698,7 +825,7 @@ async def stream_run_events(
                                     ),
                                 ),
                             )
-                            continue
+                            raise _RestartRunWithCorrection(retry_message)
 
                         pending_tool_call = _resolve_pending_tool_call(
                             pending_tool_calls=pending_tool_calls,
@@ -764,11 +891,7 @@ async def stream_run_events(
                         "stream_run_events received an error after terminal success"
                     ) from error
 
-                if (
-                    pending_retry_message is not None
-                    and _should_restart_after_failed_tool_correction(error)
-                    and correction_attempts < CANONICAL_AGENT_TOOL_CORRECTION_RETRIES
-                ):
+                if isinstance(error, _RestartRunWithCorrection):
                     attempt_messages = _fallback_attempt_messages(
                         list(captured_messages)[attempt_history_count:],
                         prompt=current_prompt,
@@ -776,7 +899,7 @@ async def stream_run_events(
                     current_message_history.extend(
                         _sanitize_failed_run_messages(attempt_messages)
                     )
-                    current_prompt = pending_retry_message
+                    current_prompt = error.message
                     correction_attempts += 1
                     pending_tool_calls.clear()
                     recovery_attempts = 0
@@ -946,6 +1069,13 @@ def _tool_error_result(*, error_type: str, message: str) -> dict[str, str | bool
     }
 
 
+def _tool_correction_exhausted_message(tool_name: str) -> str:
+    return (
+        f"Tool {tool_name!r} exceeded max retries count of "
+        f"{CANONICAL_AGENT_TOOL_CORRECTION_RETRIES}"
+    )
+
+
 def _strip_unresolved_tool_calls_from_messages(
     messages: Sequence[ModelMessage],
 ) -> list[ModelMessage]:
@@ -1046,6 +1176,27 @@ def _fallback_attempt_messages(
     return [ModelRequest(parts=[UserPromptPart(content=prompt)])]
 
 
-def _should_restart_after_failed_tool_correction(error: Exception) -> bool:
-    message = str(error)
-    return "invalid tool call arguments" in message
+def _malformed_tool_correction_message(
+    *,
+    tool_name: str,
+    raw_args: str | dict[str, Any] | None,
+    args_valid: bool | None,
+    available_tool_names: Sequence[str],
+) -> str | None:
+    if tool_name not in available_tool_names:
+        available_tools = ", ".join(repr(name) for name in available_tool_names)
+        return f"Unknown tool name: {tool_name!r}. Available tools: {available_tools}"
+    if args_valid is not False:
+        return None
+    if isinstance(raw_args, str):
+        try:
+            json.loads(raw_args)
+        except json.JSONDecodeError as error:
+            return (
+                f"Invalid JSON for tool {tool_name!r}: {error.msg} at line "
+                f"{error.lineno} column {error.colno}. Fix the errors and try again."
+            )
+    return (
+        f"Invalid arguments for tool {tool_name!r}. "
+        "Fix the errors and try again."
+    )
