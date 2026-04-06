@@ -389,6 +389,11 @@ async def _stream_run_events_with_steer(
                                                 if isinstance(
                                                     event.result, RetryPromptPart
                                                 ):
+                                                    # Defensive only: malformed tool
+                                                    # correction is runtime-owned now,
+                                                    # but keep honoring an unexpected
+                                                    # RetryPromptPart if one still
+                                                    # surfaces from the framework.
                                                     pending_tool_call = (
                                                         _resolve_pending_tool_call(
                                                             pending_tool_calls=(
@@ -800,6 +805,10 @@ async def stream_run_events(
 
                     if isinstance(event, FunctionToolResultEvent):
                         if isinstance(event.result, RetryPromptPart):
+                            # Defensive only: malformed tool correction is
+                            # runtime-owned now, but keep honoring an
+                            # unexpected RetryPromptPart if one still surfaces
+                            # from the framework.
                             pending_tool_call = _resolve_pending_tool_call(
                                 pending_tool_calls=pending_tool_calls,
                                 tool_call_id=event.tool_call_id,
