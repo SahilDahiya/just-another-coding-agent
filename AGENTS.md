@@ -36,6 +36,9 @@ read_when: you are starting work in this repo or need repo-specific coding rules
 ## Hard-Cut Product Policy
 - Optimize for one canonical current-state implementation.
 - Prefer fail-fast diagnostics and explicit recovery steps.
+- Invalid durable state must never be written.
+- Write paths must enforce the full canonical invariants before persistence.
+- Read-path validation is defense in depth, not the first line of enforcement.
 - Do not add migration shims, compatibility bridges, fallback paths, or dual behavior unless the user explicitly asks for them.
 - Do not add automatic migration.
 - Do not add silent fallbacks.
