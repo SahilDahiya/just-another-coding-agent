@@ -118,6 +118,30 @@ def test_harbor_auth_file_uploads_skip_oauth_for_api_key_model(
     ]
 
 
+def test_harbor_auth_file_uploads_include_oauth_for_copilot_model(
+    monkeypatch, tmp_path
+) -> None:
+    auth_file = tmp_path / "auth.json"
+    oauth_file = tmp_path / "oauth.json"
+    auth_file.write_text('{"OPENAI_API_KEY":"test"}\n', encoding="utf-8")
+    oauth_file.write_text('{"github-copilot":{}}\n', encoding="utf-8")
+    monkeypatch.setattr(
+        "evaluations.harbor.commands.AUTH_FILE_PATH",
+        auth_file,
+    )
+    monkeypatch.setattr(
+        "evaluations.harbor.commands.OAUTH_FILE_PATH",
+        oauth_file,
+    )
+
+    uploads = harbor_auth_file_uploads("openai-chat:gpt-4.1-copilot")
+
+    assert uploads == [
+        (auth_file, "/root/.jaca/auth.json"),
+        (oauth_file, "/root/.jaca/oauth.json"),
+    ]
+
+
 def test_build_provider_env_uses_explicit_service_name_override() -> None:
     env = build_provider_env(
         model="openai-responses:gpt-5.4",
@@ -216,9 +240,7 @@ def test_build_provider_env_injects_stored_openai_secret_when_host_env_missing(
 ) -> None:
     monkeypatch.setattr(
         "evaluations.harbor.commands.resolve_provider_secret",
-        lambda provider, allow_missing_keychain=True: (
-            "openai-secret" if provider == "openai" else None
-        ),
+        lambda provider: "openai-secret" if provider == "openai" else None,
     )
 
     env = build_provider_env(

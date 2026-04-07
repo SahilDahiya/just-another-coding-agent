@@ -350,7 +350,7 @@ async def test_headless_auth_status_responds_without_waiting_for_second_line(
         "just_another_coding_agent",
         "--headless",
         "--model",
-        "openrouter:x-ai/grok-code-fast-1",
+        "openai-responses:gpt-5.4",
         "--workspace-root",
         str(workspace_root),
         "--sessions-root",
@@ -1120,25 +1120,15 @@ async def test_serve_rpc_stdio_supports_model_catalog(
     ]
     assert messages[0]["type"] == "rpc_response"
     assert messages[0]["id"] == "req-catalog"
-    assert messages[0]["response"]["providers"][0]["provider"] == "ollama"
+    assert messages[0]["response"]["providers"][0]["provider"] == "openai"
     assert (
         messages[0]["response"]["providers"][0]["default_model_id"]
-        == "ollama:kimi-k2:1t-cloud"
-    )
-    assert messages[0]["response"]["providers"][1]["provider"] == "openai"
-    assert (
-        messages[0]["response"]["providers"][1]["default_model_id"]
         == "openai-responses:gpt-5.4"
     )
-    assert messages[0]["response"]["providers"][2]["provider"] == "openrouter"
+    assert messages[0]["response"]["providers"][1]["provider"] == "anthropic"
     assert (
-        messages[0]["response"]["providers"][2]["default_model_id"]
-        == "openrouter:anthropic/claude-sonnet-4-5"
-    )
-    assert messages[0]["response"]["providers"][4]["provider"] == "google"
-    assert (
-        messages[0]["response"]["providers"][4]["default_model_id"]
-        == "google:gemini-2.5-flash"
+        messages[0]["response"]["providers"][1]["default_model_id"]
+        == "anthropic:claude-sonnet-4-5"
     )
 
 

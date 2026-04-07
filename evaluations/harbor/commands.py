@@ -84,7 +84,7 @@ def _inject_required_provider_secret(*, model: str, selected: dict[str, str]) ->
     if env_key in selected and selected[env_key].strip():
         return
     provider = _provider_name_for_model(model)
-    secret = resolve_provider_secret(provider, allow_missing_keychain=True)
+    secret = resolve_provider_secret(provider)
     if not secret:
         raise ValueError(
             f"Harbor task model {model} requires {env_key}, but no provider "

@@ -11,13 +11,7 @@ import (
 
 var envKeys = []string{
 	"OPENAI_BASE_URL",
-	"OLLAMA_BASE_URL",
 }
-
-const (
-	DefaultOllamaBaseURL = "http://localhost:11434/v1"
-	OllamaCloudBaseURL   = "https://ollama.com/v1"
-)
 
 func ConfigPath() (string, error) {
 	home := os.Getenv("HOME")
@@ -80,34 +74,6 @@ func ApplyToEnv(config map[string]string) {
 	}
 }
 
-type ProviderUpdate struct {
-	Provider string
-	BaseURL  string
-}
-
-func OllamaUsesCloudBaseURL(config map[string]string) bool {
-	baseURL := strings.TrimRight(strings.TrimSpace(os.Getenv("OLLAMA_BASE_URL")), "/")
-	if baseURL == "" {
-		baseURL = strings.TrimRight(strings.TrimSpace(config["OLLAMA_BASE_URL"]), "/")
-	}
-	return baseURL == strings.TrimRight(OllamaCloudBaseURL, "/")
-}
-
-func SaveOllamaBaseURL(baseURL string) error {
-	config, err := Load()
-	if err != nil {
-		return err
-	}
-	if strings.TrimSpace(baseURL) == "" {
-		delete(config, "OLLAMA_BASE_URL")
-		_ = os.Unsetenv("OLLAMA_BASE_URL")
-	} else {
-		config["OLLAMA_BASE_URL"] = strings.TrimSpace(baseURL)
-		_ = os.Setenv("OLLAMA_BASE_URL", strings.TrimSpace(baseURL))
-	}
-	return Save(config)
-}
-
 func SaveDefaultModel(model string) error {
 	config, err := Load()
 	if err != nil {
@@ -149,41 +115,10 @@ func SaveDefaultProvider(provider string) error {
 		return err
 	}
 	switch provider {
-	case "ollama", "openai", "openrouter", "anthropic", "google":
+	case "openai", "anthropic":
 	default:
 		return errors.New("unknown provider")
 	}
 	config["default_provider"] = provider
 	return Save(config)
-}
-
-func SaveProvider(update ProviderUpdate) error {
-	config, err := Load()
-	if err != nil {
-		return err
-	}
-	switch update.Provider {
-	case "ollama":
-		if strings.TrimSpace(update.BaseURL) == "" {
-			delete(config, "OLLAMA_BASE_URL")
-			_ = os.Unsetenv("OLLAMA_BASE_URL")
-		} else {
-			config["OLLAMA_BASE_URL"] = strings.TrimSpace(update.BaseURL)
-			_ = os.Setenv("OLLAMA_BASE_URL", strings.TrimSpace(update.BaseURL))
-		}
-	case "openai":
-		if update.BaseURL != "" {
-			config["OPENAI_BASE_URL"] = update.BaseURL
-			_ = os.Setenv("OPENAI_BASE_URL", update.BaseURL)
-		}
-	case "openrouter":
-	case "anthropic":
-	case "google":
-	default:
-		return errors.New("unknown provider")
-	}
-	if err := Save(config); err != nil {
-		return err
-	}
-	return SaveDefaultProvider(update.Provider)
 }

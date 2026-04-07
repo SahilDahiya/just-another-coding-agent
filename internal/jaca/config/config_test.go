@@ -7,126 +7,6 @@ import (
 	"testing"
 )
 
-func TestSaveProviderClearsStaleOllamaConfigAndEnv(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("OLLAMA_BASE_URL", "")
-	t.Setenv("OLLAMA_API_KEY", "")
-
-	if err := SaveProvider(ProviderUpdate{
-		Provider: "ollama",
-		BaseURL:  "https://ollama.example/v1",
-	}); err != nil {
-		t.Fatalf("SaveProvider(set) returned error: %v", err)
-	}
-
-	if err := SaveProvider(ProviderUpdate{Provider: "ollama"}); err != nil {
-		t.Fatalf("SaveProvider(clear) returned error: %v", err)
-	}
-
-	got, err := Load()
-	if err != nil {
-		t.Fatalf("Load() returned error: %v", err)
-	}
-
-	if _, ok := got["OLLAMA_BASE_URL"]; ok {
-		t.Fatalf("expected OLLAMA_BASE_URL to be removed, config=%v", got)
-	}
-	if got["default_provider"] != "ollama" {
-		t.Fatalf("default_provider = %q, want %q", got["default_provider"], "ollama")
-	}
-
-	if path, err := ConfigPath(); err != nil {
-		t.Fatalf("ConfigPath() returned error: %v", err)
-	} else if path != filepath.Join(home, ".jaca", "config.json") {
-		t.Fatalf("ConfigPath() = %q", path)
-	}
-}
-
-func TestSaveProviderSetsHostedOllamaBaseURLAndEnv(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("OLLAMA_BASE_URL", "")
-
-	if err := SaveProvider(ProviderUpdate{
-		Provider: "ollama",
-		BaseURL:  OllamaCloudBaseURL,
-	}); err != nil {
-		t.Fatalf("SaveProvider(hosted) returned error: %v", err)
-	}
-
-	got, err := Load()
-	if err != nil {
-		t.Fatalf("Load() returned error: %v", err)
-	}
-	if got["OLLAMA_BASE_URL"] != OllamaCloudBaseURL {
-		t.Fatalf(
-			"OLLAMA_BASE_URL = %q, want %q",
-			got["OLLAMA_BASE_URL"],
-			OllamaCloudBaseURL,
-		)
-	}
-	if os.Getenv("OLLAMA_BASE_URL") != OllamaCloudBaseURL {
-		t.Fatalf(
-			"env OLLAMA_BASE_URL = %q, want %q",
-			os.Getenv("OLLAMA_BASE_URL"),
-			OllamaCloudBaseURL,
-		)
-	}
-}
-
-func TestOllamaUsesCloudBaseURLOnlyForHostedEndpoint(t *testing.T) {
-	t.Setenv("OLLAMA_BASE_URL", "")
-
-	if OllamaUsesCloudBaseURL(map[string]string{}) {
-		t.Fatal("empty config should default to local Ollama mode")
-	}
-	if OllamaUsesCloudBaseURL(map[string]string{"OLLAMA_BASE_URL": DefaultOllamaBaseURL}) {
-		t.Fatal("local Ollama base URL should not require cloud auth")
-	}
-	if !OllamaUsesCloudBaseURL(map[string]string{"OLLAMA_BASE_URL": OllamaCloudBaseURL}) {
-		t.Fatal("hosted Ollama base URL should require cloud auth")
-	}
-}
-
-func TestSaveOllamaBaseURLClearsAndSetsWithoutChangingProvider(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("OLLAMA_BASE_URL", "")
-
-	if err := SaveDefaultProvider("openai"); err != nil {
-		t.Fatalf("SaveDefaultProvider() returned error: %v", err)
-	}
-	if err := SaveOllamaBaseURL(OllamaCloudBaseURL); err != nil {
-		t.Fatalf("SaveOllamaBaseURL(set) returned error: %v", err)
-	}
-
-	got, err := Load()
-	if err != nil {
-		t.Fatalf("Load() returned error: %v", err)
-	}
-	if got["default_provider"] != "openai" {
-		t.Fatalf("default_provider = %q, want %q", got["default_provider"], "openai")
-	}
-	if got["OLLAMA_BASE_URL"] != OllamaCloudBaseURL {
-		t.Fatalf("OLLAMA_BASE_URL = %q, want %q", got["OLLAMA_BASE_URL"], OllamaCloudBaseURL)
-	}
-
-	if err := SaveOllamaBaseURL(""); err != nil {
-		t.Fatalf("SaveOllamaBaseURL(clear) returned error: %v", err)
-	}
-	got, err = Load()
-	if err != nil {
-		t.Fatalf("Load() returned error: %v", err)
-	}
-	if _, ok := got["OLLAMA_BASE_URL"]; ok {
-		t.Fatalf("expected OLLAMA_BASE_URL to be removed, config=%v", got)
-	}
-	if got["default_provider"] != "openai" {
-		t.Fatalf("default_provider after clear = %q, want %q", got["default_provider"], "openai")
-	}
-}
-
 func TestLoadFailsOnCorruptConfigJSON(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -168,11 +48,11 @@ func TestSaveDefaultModelPersistsSelection(t *testing.T) {
 	}
 }
 
-func TestSaveDefaultProviderAcceptsGoogle(t *testing.T) {
+func TestSaveDefaultProviderAcceptsAnthropic(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
-	if err := SaveDefaultProvider("google"); err != nil {
+	if err := SaveDefaultProvider("anthropic"); err != nil {
 		t.Fatalf("SaveDefaultProvider() returned error: %v", err)
 	}
 
@@ -180,8 +60,19 @@ func TestSaveDefaultProviderAcceptsGoogle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load() returned error: %v", err)
 	}
-	if got["default_provider"] != "google" {
-		t.Fatalf("default_provider = %q, want %q", got["default_provider"], "google")
+	if got["default_provider"] != "anthropic" {
+		t.Fatalf("default_provider = %q, want %q", got["default_provider"], "anthropic")
+	}
+}
+
+func TestSaveDefaultProviderRejectsRemovedProviders(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	for _, provider := range []string{"ollama", "openrouter", "google"} {
+		if err := SaveDefaultProvider(provider); err == nil {
+			t.Fatalf("SaveDefaultProvider(%q) unexpectedly succeeded", provider)
+		}
 	}
 }
 
