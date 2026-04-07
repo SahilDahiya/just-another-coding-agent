@@ -13,7 +13,6 @@ from just_another_coding_agent.auth import (
     resolve_provider_secret,
 )
 from just_another_coding_agent.oauth_store import OAUTH_FILE_PATH
-from just_another_coding_agent.runtime.models import OPENAI_CODEX_MODEL_NAME_BY_ID
 from just_another_coding_agent.secret_store import AUTH_FILE_PATH
 
 _COMMON_ENV_KEYS = ("JUST_ANOTHER_CODING_AGENT_THINKING",)
@@ -184,7 +183,7 @@ def _is_openai_codex_model(model: str) -> bool:
     if not model.startswith("openai-responses:"):
         return False
     model_name = model.split(":", 1)[1]
-    return model_name in OPENAI_CODEX_MODEL_NAME_BY_ID
+    return model_name == "gpt-5-codex" or model_name.endswith("-chatgpt")
 
 
 def _is_github_copilot_model(model: str) -> bool:
