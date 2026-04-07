@@ -1,4 +1,8 @@
-from evaluations.harbor.commands import build_harbor_exec_command, build_provider_env
+from evaluations.harbor.commands import (
+    build_harbor_exec_command,
+    build_provider_env,
+    harbor_auth_file_uploads,
+)
 
 
 def test_build_provider_env_filters_to_openai_provider_env() -> None:
@@ -26,16 +30,29 @@ def test_build_provider_env_filters_to_openai_provider_env() -> None:
     }
 
 
-def test_build_provider_env_filters_to_ollama_provider_env() -> None:
+def test_build_provider_env_exports_openai_codex_oauth_credentials(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        "evaluations.harbor.commands.resolve_openai_codex_oauth_credentials_sync",
+        lambda: type(
+            "Creds",
+            (),
+            {
+                "access": "oauth-access",
+                "refresh": "oauth-refresh",
+                "expires": 1234567890000,
+                "account_id": "acct-123",
+            },
+        )(),
+    )
+
     env = build_provider_env(
-        model="ollama:kimi-k2:1t-cloud",
+        model="openai-responses:gpt-5.4-chatgpt",
         environ={
-            "JACA_TRACE_MODE": "off",
             "LOGFIRE_TOKEN": "logfire-secret",
             "OPENAI_API_KEY": "secret",
             "OPENAI_BASE_URL": "https://example.test/v1",
-            "OLLAMA_BASE_URL": "https://ollama.com/v1",
-            "OLLAMA_API_KEY": "ollama-secret",
             "ANTHROPIC_API_KEY": "anthropic-secret",
             "JUST_ANOTHER_CODING_AGENT_THINKING": "high",
             "UNRELATED": "ignored",
@@ -43,8 +60,10 @@ def test_build_provider_env_filters_to_ollama_provider_env() -> None:
     )
 
     assert env == {
-        "OLLAMA_BASE_URL": "https://ollama.com/v1",
-        "OLLAMA_API_KEY": "ollama-secret",
+        "OPENAI_CODEX_OAUTH_ACCESS_TOKEN": "oauth-access",
+        "OPENAI_CODEX_OAUTH_REFRESH_TOKEN": "oauth-refresh",
+        "OPENAI_CODEX_OAUTH_EXPIRES_AT": "1234567890000",
+        "OPENAI_CODEX_OAUTH_ACCOUNT_ID": "acct-123",
         "JUST_ANOTHER_CODING_AGENT_THINKING": "high",
         "JACA_TRACE_MODE": "logfire",
         "LOGFIRE_SERVICE_NAME": "jaca-harbor",
@@ -52,32 +71,58 @@ def test_build_provider_env_filters_to_ollama_provider_env() -> None:
     }
 
 
-def test_build_provider_env_filters_to_google_provider_env() -> None:
-    env = build_provider_env(
-        model="google:gemini-2.5-flash",
-        environ={
-            "GOOGLE_API_KEY": "google-secret",
-            "OPENAI_API_KEY": "secret",
-            "OLLAMA_API_KEY": "ollama-secret",
-            "JUST_ANOTHER_CODING_AGENT_THINKING": "high",
-            "LOGFIRE_TOKEN": "logfire-secret",
-        },
+def test_harbor_auth_file_uploads_include_auth_and_chatgpt_oauth(
+    monkeypatch, tmp_path
+) -> None:
+    auth_file = tmp_path / "auth.json"
+    oauth_file = tmp_path / "oauth.json"
+    auth_file.write_text('{"OPENAI_API_KEY":"test"}\n', encoding="utf-8")
+    oauth_file.write_text('{"openai-codex":{}}\n', encoding="utf-8")
+    monkeypatch.setattr(
+        "evaluations.harbor.commands.AUTH_FILE_PATH",
+        auth_file,
+    )
+    monkeypatch.setattr(
+        "evaluations.harbor.commands.OAUTH_FILE_PATH",
+        oauth_file,
     )
 
-    assert env == {
-        "GOOGLE_API_KEY": "google-secret",
-        "JUST_ANOTHER_CODING_AGENT_THINKING": "high",
-        "JACA_TRACE_MODE": "logfire",
-        "LOGFIRE_SERVICE_NAME": "jaca-harbor",
-        "LOGFIRE_TOKEN": "logfire-secret",
-    }
+    uploads = harbor_auth_file_uploads("openai-responses:gpt-5.4-chatgpt")
+
+    assert uploads == [
+        (auth_file, "/root/.jaca/auth.json"),
+        (oauth_file, "/root/.jaca/oauth.json"),
+    ]
+
+
+def test_harbor_auth_file_uploads_skip_oauth_for_api_key_model(
+    monkeypatch, tmp_path
+) -> None:
+    auth_file = tmp_path / "auth.json"
+    oauth_file = tmp_path / "oauth.json"
+    auth_file.write_text('{"OPENAI_API_KEY":"test"}\n', encoding="utf-8")
+    oauth_file.write_text('{"openai-codex":{}}\n', encoding="utf-8")
+    monkeypatch.setattr(
+        "evaluations.harbor.commands.AUTH_FILE_PATH",
+        auth_file,
+    )
+    monkeypatch.setattr(
+        "evaluations.harbor.commands.OAUTH_FILE_PATH",
+        oauth_file,
+    )
+
+    uploads = harbor_auth_file_uploads("openai-responses:gpt-5.4")
+
+    assert uploads == [
+        (auth_file, "/root/.jaca/auth.json"),
+    ]
 
 
 def test_build_provider_env_uses_explicit_service_name_override() -> None:
     env = build_provider_env(
-        model="ollama:kimi-k2:1t-cloud",
+        model="openai-responses:gpt-5.4",
         environ={
-            "OLLAMA_API_KEY": "ollama-secret",
+            "OPENAI_API_KEY": "openai-secret",
             "JUST_ANOTHER_CODING_AGENT_THINKING": "high",
             "JACA_TRACE_MODE": "local",
             "LOGFIRE_SERVICE_NAME": "harbor-task",
@@ -86,8 +131,7 @@ def test_build_provider_env_uses_explicit_service_name_override() -> None:
     )
 
     assert env == {
-        "OLLAMA_BASE_URL": "https://ollama.com/v1",
-        "OLLAMA_API_KEY": "ollama-secret",
+        "OPENAI_API_KEY": "openai-secret",
         "JUST_ANOTHER_CODING_AGENT_THINKING": "high",
         "JACA_TRACE_MODE": "logfire",
         "LOGFIRE_SERVICE_NAME": "harbor-task",
@@ -107,16 +151,15 @@ def test_build_provider_env_reads_logfire_token_from_default_credentials_file(
     monkeypatch.setenv("HOME", str(tmp_path))
 
     env = build_provider_env(
-        model="ollama:kimi-k2:1t-cloud",
+        model="openai-responses:gpt-5.4",
         environ={
-            "OLLAMA_API_KEY": "ollama-secret",
+            "OPENAI_API_KEY": "openai-secret",
             "JUST_ANOTHER_CODING_AGENT_THINKING": "high",
         },
     )
 
     assert env == {
-        "OLLAMA_BASE_URL": "https://ollama.com/v1",
-        "OLLAMA_API_KEY": "ollama-secret",
+        "OPENAI_API_KEY": "openai-secret",
         "JUST_ANOTHER_CODING_AGENT_THINKING": "high",
         "JACA_TRACE_MODE": "logfire",
         "LOGFIRE_SERVICE_NAME": "jaca-harbor",
@@ -129,9 +172,9 @@ def test_build_provider_env_requires_logfire_credentials(monkeypatch, tmp_path) 
     monkeypatch.setenv("HOME", str(tmp_path))
     try:
         build_provider_env(
-            model="ollama:kimi-k2:1t-cloud",
+            model="openai-responses:gpt-5.4",
             environ={
-                "OLLAMA_API_KEY": "ollama-secret",
+                "OPENAI_API_KEY": "openai-secret",
             },
         )
     except ValueError as error:
@@ -144,26 +187,28 @@ def test_build_provider_env_requires_logfire_credentials(monkeypatch, tmp_path) 
         raise AssertionError("Expected Harbor run without Logfire credentials to fail")
 
 
-def test_build_provider_env_injects_stored_ollama_secret_when_host_env_missing(
+def test_build_provider_env_requires_openai_codex_oauth_for_chatgpt_model(
     monkeypatch,
 ) -> None:
     monkeypatch.setattr(
-        "evaluations.harbor.commands.resolve_provider_secret",
-        lambda provider, allow_missing_keychain=True: (
-            "ollama-secret" if provider == "ollama" else None
-        ),
+        "evaluations.harbor.commands.resolve_openai_codex_oauth_credentials_sync",
+        lambda: None,
     )
-
-    env = build_provider_env(
-        model="ollama:glm-5:cloud",
-        environ={
-            "OLLAMA_BASE_URL": "https://ollama.com/v1",
-            "JUST_ANOTHER_CODING_AGENT_THINKING": "high",
-            "LOGFIRE_TOKEN": "logfire-secret",
-        },
-    )
-
-    assert env["OLLAMA_API_KEY"] == "ollama-secret"
+    try:
+        build_provider_env(
+            model="openai-responses:gpt-5.4-chatgpt",
+            environ={
+                "JUST_ANOTHER_CODING_AGENT_THINKING": "high",
+                "LOGFIRE_TOKEN": "logfire-secret",
+            },
+        )
+    except ValueError as error:
+        assert str(error) == (
+            "Harbor task ChatGPT model requires openai-codex OAuth login, "
+            "but no OAuth credentials are configured."
+        )
+    else:  # pragma: no cover - defensive
+        raise AssertionError("Expected Harbor ChatGPT model without OAuth to fail")
 
 
 def test_build_provider_env_injects_stored_openai_secret_when_host_env_missing(

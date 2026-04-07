@@ -25,7 +25,9 @@ to the user prompt before `run.start`, so Terminal Bench behavior stays adapter-
 
 - `harbor` is installed locally
 - the backend repo is available locally
-- provider credentials are exported in the Harbor host process environment
+- provider credentials are available on the Harbor host
+  - OpenAI and Anthropic API-key lanes read from host env or `~/.jaca/auth.json`
+  - ChatGPT OAuth lanes read from host `~/.jaca/oauth.json`
 - Logfire credentials are available in the Harbor host process environment or host home directory
   - easiest path: `uv run logfire auth` and `uv run logfire projects use <project>`
   - explicit path: `export LOGFIRE_TOKEN=...`
@@ -48,15 +50,10 @@ export JUST_ANOTHER_CODING_AGENT_THINKING=high
 export LOGFIRE_SERVICE_NAME=jaca-harbor
 ```
 
-For Ollama-backed runs through PydanticAI's `ollama:` provider:
+For ChatGPT subscription runs:
 
-```bash
-export OLLAMA_BASE_URL=https://ollama.com/v1
-export OLLAMA_API_KEY=...
-export LOGFIRE_SERVICE_NAME=jaca-harbor
-```
-
-If you are using a self-hosted Ollama server instead of Ollama Cloud, the base URL must be reachable from inside the Harbor task container. `http://localhost:11434/v1` will not work from a Docker-isolated benchmark container unless that `localhost` is inside the same container.
+- log in interactively first with `/login openai-codex`
+- Harbor will forward the current `openai-codex` OAuth credentials from the host into the task container for `openai-responses:* -chatgpt` models
 
 Harbor tasks always export traces to Logfire. The adapter forces `JACA_TRACE_MODE=logfire` inside the task container and forwards a Logfire token from the Harbor host. By default, Harbor traces use `service.name=jaca-harbor`, which separates them from normal interactive chat traces that use the default backend service name. If you want a different Harbor-specific service name, set `LOGFIRE_SERVICE_NAME` in the Harbor host process before launching `harbor run`.
 
@@ -64,21 +61,19 @@ Harbor tasks always export traces to Logfire. The adapter forces `JACA_TRACE_MOD
 
 Use the exact backend model string that PydanticAI expects.
 
-For the Codex model currently validated in this repo:
+For the OpenAI API-key Codex model currently validated in this repo:
 
 ```text
 openai-responses:gpt-5.3-codex
 ```
 
-Do not rewrite this into Harbor-style provider/model syntax. The adapter passes the string through unchanged to the backend.
-
-For Ollama Cloud, use the exact Ollama provider model string, for example:
+For the ChatGPT subscription lane:
 
 ```text
-ollama:kimi-k2:1t-cloud
+openai-responses:gpt-5.4-chatgpt
 ```
 
-The adapter still passes that string through unchanged.
+Do not rewrite this into Harbor-style provider/model syntax. The adapter passes the string through unchanged to the backend.
 
 If you want the Harbor adapter to forward an explicit thinking setting into the
 one-shot wrapper and `run.start`, export:
@@ -111,7 +106,7 @@ Use this to run against one local Harbor task or task directory:
 PYTHONPATH=$PWD/src:$PWD harbor run \
   --path /abs/path/to/task \
   --agent-import-path evaluations.harbor.agent:JustAnotherCodingAgentHarborAgent \
-  --model openai-responses:gpt-5.3-codex \
+  --model openai-responses:gpt-5.4-chatgpt \
   --n-concurrent 1 \
   --job-name just-another-coding-agent-local-smoke \
   --artifact /logs/agent/just-another-coding-agent.txt \
@@ -146,20 +141,6 @@ PYTHONPATH=$PWD/src:$PWD harbor run \
   --task-name <task-name> \
   --agent-import-path evaluations.harbor.agent:JustAnotherCodingAgentHarborAgent \
   --model openai-responses:gpt-5.3-codex \
-  --n-concurrent 1 \
-  --job-name just-another-coding-agent-<task-name> \
-  --artifact /logs/agent/just-another-coding-agent.txt \
-  --artifact /tmp/just-another-coding-agent-sessions
-```
-
-For Ollama Cloud, swap the model string and ensure `OLLAMA_BASE_URL` plus `OLLAMA_API_KEY` are exported in the Harbor host process:
-
-```bash
-PYTHONPATH=$PWD/src:$PWD harbor run \
-  --dataset terminal-bench@2.0 \
-  --task-name <task-name> \
-  --agent-import-path evaluations.harbor.agent:JustAnotherCodingAgentHarborAgent \
-  --model 'ollama:kimi-k2:1t-cloud' \
   --n-concurrent 1 \
   --job-name just-another-coding-agent-<task-name> \
   --artifact /logs/agent/just-another-coding-agent.txt \
@@ -226,6 +207,27 @@ Starter slice files can live at:
 - `tasks/a.txt`
 - `tasks/b.txt`
 - `tasks/c.txt`
+
+For the dedicated ChatGPT `gpt-5.4` submission lane, use:
+
+```bash
+evaluations/scripts/tb2_gpt54_chatgpt.sh
+```
+
+It presets:
+
+- `MODEL=openai-responses:gpt-5.4-chatgpt`
+- `JUST_ANOTHER_CODING_AGENT_THINKING=high`
+- `SUBMISSION_ID=gpt54-chatgpt-high`
+- `N_CONCURRENT=5`
+
+Examples:
+
+```bash
+evaluations/scripts/tb2_gpt54_chatgpt.sh run gpt54-chatgpt-high
+evaluations/scripts/tb2_gpt54_chatgpt.sh status gpt54-chatgpt-high
+evaluations/scripts/tb2_gpt54_chatgpt.sh run gpt54-chatgpt-high --passes 1 tasks/b.txt
+```
 
 ## Full Submission Run
 
@@ -400,7 +402,6 @@ Submission guidance for slices:
 
 Expected prerequisites before you launch it:
 
-- `OLLAMA_API_KEY` is exported or present in `.env`
 - `docker login` has already been run, to avoid image pull-rate limiting during
   Harbor task setup
 

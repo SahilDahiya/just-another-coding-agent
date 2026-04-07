@@ -222,8 +222,6 @@ if ! command -v docker >/dev/null 2>&1; then
   exit 1
 fi
 
-: "${OLLAMA_API_KEY:?Set OLLAMA_API_KEY before running this script.}"
-
 completed_passes="$(count_completed_passes)"
 if (( completed_passes >= TARGET_TRIALS )); then
   echo "Submission slice already has $completed_passes completed passes. Nothing left to run."

@@ -9,6 +9,7 @@ from pathlib import Path
 from evaluations.harbor.commands import (
     build_harbor_exec_command,
     build_provider_env,
+    harbor_auth_file_uploads,
 )
 from just_another_coding_agent.go_binaries import build_go_binary
 from just_another_coding_agent.tools.read_only_worker.launcher import (
@@ -57,7 +58,9 @@ else:
             read_only_worker_binary = _build_harbor_read_only_worker(repo_root)
 
             try:
-                mkdir_command = f"mkdir -p {target_root} {target_prebuilt_dir}"
+                mkdir_command = (
+                    f"mkdir -p {target_root} {target_prebuilt_dir} /root/.jaca"
+                )
                 await environment.exec(command=mkdir_command)
                 await environment.upload_file(
                     source_path=repo_root / "pyproject.toml",
@@ -79,6 +82,14 @@ else:
                     source_dir=repo_root / "evaluations",
                     target_dir=f"{target_root}/evaluations",
                 )
+                if self.model_name:
+                    for source_path, target_path in harbor_auth_file_uploads(
+                        self.model_name
+                    ):
+                        await environment.upload_file(
+                            source_path=source_path,
+                            target_path=target_path,
+                        )
                 await super().setup(environment)
             finally:
                 with contextlib.suppress(FileNotFoundError):
