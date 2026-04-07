@@ -81,14 +81,13 @@ def test_harbor_agent_supports_current_base_installed_agent_api(
 
     _install_fake_harbor_modules()
     monkeypatch.setenv("OPENAI_API_KEY", "openai-secret")
-    monkeypatch.setenv("OLLAMA_API_KEY", "test-key")
     monkeypatch.setenv("JUST_ANOTHER_CODING_AGENT_THINKING", "high")
     monkeypatch.setenv("LOGFIRE_TOKEN", "logfire-secret")
 
     module = importlib.import_module("evaluations.harbor.agent")
     agent = module.JustAnotherCodingAgentHarborAgent(
         logs_dir=tmp_path / "logs",
-        model_name="ollama:kimi-k2:1t-cloud",
+        model_name="openai-responses:gpt-5.4",
     )
 
     install_template_path = agent._install_agent_template_path
@@ -99,15 +98,14 @@ def test_harbor_agent_supports_current_base_installed_agent_api(
 
     assert len(commands) == 1
     assert commands[0].env == {
-        "OLLAMA_API_KEY": "test-key",
+        "OPENAI_API_KEY": "openai-secret",
         "JUST_ANOTHER_CODING_AGENT_THINKING": "high",
-        "OLLAMA_BASE_URL": "https://ollama.com/v1",
         "JACA_TRACE_MODE": "logfire",
         "LOGFIRE_SERVICE_NAME": "jaca-harbor",
         "LOGFIRE_TOKEN": "logfire-secret",
     }
     assert "evaluations.bench.exec_prompt" in commands[0].command
-    assert "--model ollama:kimi-k2:1t-cloud" in commands[0].command
+    assert "--model openai-responses:gpt-5.4" in commands[0].command
 
 
 def test_harbor_agent_uses_explicit_harbor_logfire_service_name_override(
@@ -120,7 +118,7 @@ def test_harbor_agent_uses_explicit_harbor_logfire_service_name_override(
             sys.modules.pop(module_name)
 
     _install_fake_harbor_modules()
-    monkeypatch.setenv("OLLAMA_API_KEY", "test-key")
+    monkeypatch.setenv("OPENAI_API_KEY", "openai-secret")
     monkeypatch.setenv("JUST_ANOTHER_CODING_AGENT_THINKING", "high")
     monkeypatch.setenv("LOGFIRE_TOKEN", "logfire-secret")
     monkeypatch.setenv("LOGFIRE_SERVICE_NAME", "harbor-task")
@@ -128,16 +126,15 @@ def test_harbor_agent_uses_explicit_harbor_logfire_service_name_override(
     module = importlib.import_module("evaluations.harbor.agent")
     agent = module.JustAnotherCodingAgentHarborAgent(
         logs_dir=tmp_path / "logs",
-        model_name="ollama:kimi-k2:1t-cloud",
+        model_name="openai-responses:gpt-5.4",
     )
 
     commands = agent.create_run_agent_commands("Fix the task")
 
     assert len(commands) == 1
     assert commands[0].env == {
-        "OLLAMA_API_KEY": "test-key",
+        "OPENAI_API_KEY": "openai-secret",
         "JUST_ANOTHER_CODING_AGENT_THINKING": "high",
-        "OLLAMA_BASE_URL": "https://ollama.com/v1",
         "JACA_TRACE_MODE": "logfire",
         "LOGFIRE_TOKEN": "logfire-secret",
         "LOGFIRE_SERVICE_NAME": "harbor-task",
@@ -187,7 +184,7 @@ def test_harbor_agent_setup_matches_current_environment_exec_api(
 
     agent = module.JustAnotherCodingAgentHarborAgent(
         logs_dir=tmp_path / "logs",
-        model_name="ollama:kimi-k2:1t-cloud",
+        model_name="openai-responses:gpt-5.4",
     )
     environment = FakeEnvironment()
 
@@ -195,7 +192,7 @@ def test_harbor_agent_setup_matches_current_environment_exec_api(
 
     expected_mkdir = (
         "mkdir -p /installed-agent/just-another-coding-agent "
-        "/installed-agent/just-another-coding-agent/prebuilt"
+        "/installed-agent/just-another-coding-agent/prebuilt /root/.jaca"
     )
     assert environment.exec_commands == [
         expected_mkdir,

@@ -301,9 +301,6 @@ func (t *Transcript) WriteError(message string) {
 	t.finalizeCurrentRun()
 }
 
-func (t *Transcript) WriteCompactionStarted() {
-}
-
 func (t *Transcript) WriteCompactionCompleted() {
 	t.endToolGroup()
 	t.endLiveAssistant()
@@ -343,8 +340,6 @@ func (t *Transcript) ApplySessionPreview(preview rpc.SessionPreviewResponse) {
 
 func (t *Transcript) ApplyRunEvent(event rpc.RunEvent) {
 	switch event.Type {
-	case "session_compaction_started":
-		t.WriteCompactionStarted()
 	case "session_compaction_completed":
 		t.WriteCompactionCompleted()
 	case "session_compaction_warning":

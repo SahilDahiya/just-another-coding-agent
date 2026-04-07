@@ -60,32 +60,32 @@ func themeColor(trueColor string, ansi256 string, ansi string) lipgloss.Terminal
 // per-zone background fills or panel/card chrome.
 
 type viewModel struct {
-	Phase          Phase
-	Width          int
-	Height         int
-	Model          string
-	WorkspaceRoot  string
-	Thinking       string
-	SessionID      string
-	SessionName    string
-	MotionTick     int
-	Transcript     string
-	PromptValue    string
-	PromptFooter   string
-	RunElapsed     time.Duration
+	Phase               Phase
+	Width               int
+	Height              int
+	Model               string
+	WorkspaceRoot       string
+	Thinking            string
+	SessionID           string
+	SessionName         string
+	MotionTick          int
+	Transcript          string
+	PromptValue         string
+	PromptFooter        string
+	RunElapsed          time.Duration
 	AwaitingFirstOutput bool
-	Usage          usageSnapshot
-	QueuedNext     []string
-	QueuedLater    []string
-	LinePulse      int
-	SinceLastDelta time.Duration
-	DetachedLive   bool
-	VisibleZones   int
-	SlashMenu      slashMenuState
-	UpdatePrompt   updatePromptState
-	Onboarding     onboardingOverlayView
-	Auth           authOverlayView
-	Login          loginOverlayView
+	Usage               usageSnapshot
+	QueuedNext          []string
+	QueuedLater         []string
+	LinePulse           int
+	SinceLastDelta      time.Duration
+	DetachedLive        bool
+	VisibleZones        int
+	SlashMenu           slashMenuState
+	UpdatePrompt        updatePromptState
+	Onboarding          onboardingOverlayView
+	Auth                authOverlayView
+	Login               loginOverlayView
 }
 
 type onboardingOverlayView struct {
@@ -828,19 +828,6 @@ func buildUsageFooterText(vm viewModel, detailed bool) string {
 		parts = append(parts, fmt.Sprintf("%d%% left", int(math.Round(contextLeft*100))))
 	}
 	return joinFooterParts(parts...)
-}
-
-func formatElapsed(d time.Duration) string {
-	if d <= 0 {
-		return ""
-	}
-	secs := int(d.Seconds())
-	if secs < 60 {
-		return fmt.Sprintf("%ds", secs)
-	}
-	mins := secs / 60
-	remaining := secs % 60
-	return fmt.Sprintf("%dm %ds", mins, remaining)
 }
 
 func formatElapsedClock(d time.Duration) string {

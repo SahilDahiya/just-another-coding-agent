@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import html
 import hashlib
 import json
 import secrets
@@ -379,7 +380,7 @@ async def _write_http_response(
 def _oauth_page(message: str) -> str:
     return (
         "<!doctype html><html><body>"
-        f"<p>{message}</p>"
+        f"<p>{html.escape(message)}</p>"
         "</body></html>"
     )
 

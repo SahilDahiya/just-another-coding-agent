@@ -242,7 +242,7 @@ func TestRenderTopRailShowsCompactingWave(t *testing.T) {
 
 func TestRenderLoginOverlayUsesProviderSpecificCopyForCopilot(t *testing.T) {
 	rendered := stripANSI(renderLoginOverlay(viewModel{
-		Width: 80,
+		Width:  80,
 		Height: 24,
 		Login: loginOverlayView{
 			Active:       true,
@@ -266,7 +266,7 @@ func TestRenderLoginOverlayUsesProviderSpecificCopyForCopilot(t *testing.T) {
 
 func TestRenderLoginOverlayUsesProviderSpecificCopyForChatGPT(t *testing.T) {
 	rendered := stripANSI(renderLoginOverlay(viewModel{
-		Width: 80,
+		Width:  80,
 		Height: 24,
 		Login: loginOverlayView{
 			Active:       true,
@@ -433,11 +433,11 @@ func TestRenderViewShowsCenteredAuthFilePanel(t *testing.T) {
 		Auth: authOverlayView{
 			Active:      true,
 			Title:       "Auth File",
-			Provider:    "google",
-			SecretLabel: "Google API key",
+			Provider:    "anthropic",
+			SecretLabel: "Anthropic API key",
 			InputValue:  "********",
 			HelpLines: []string{
-				`Use API key? add "GOOGLE_API_KEY" to /tmp/jaca-auth.json.`,
+				`Use API key? add "ANTHROPIC_API_KEY" to /tmp/jaca-auth.json.`,
 				"OAuth also works via /login when available.",
 				"Retry your prompt after saving.",
 			},
@@ -446,7 +446,7 @@ func TestRenderViewShowsCenteredAuthFilePanel(t *testing.T) {
 
 	for _, want := range []string{
 		"Auth File",
-		`Use API key? add "GOOGLE_API_KEY"`,
+		`Use API key? add "ANTHROPIC_API_KEY"`,
 		"/tmp/jaca-auth.json",
 		"Retry your prompt after saving.",
 	} {

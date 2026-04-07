@@ -372,11 +372,7 @@ def _scoped_config_env(config: dict[str, str]):
     managed_keys = {
         "OPENAI_API_KEY",
         "OPENAI_BASE_URL",
-        "OPENROUTER_API_KEY",
         "ANTHROPIC_API_KEY",
-        "GOOGLE_API_KEY",
-        "OLLAMA_API_KEY",
-        "OLLAMA_BASE_URL",
         "JACA_TRACE_MODE",
     }
     original_env = {key: os.environ.get(key) for key in managed_keys}

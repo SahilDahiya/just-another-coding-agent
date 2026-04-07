@@ -1167,10 +1167,6 @@ func (c *Client) writeRequest(request Request) error {
 	return nil
 }
 
-func envelopeMatchesRequestID(envelope any, requestID string) bool {
-	return envelopeRequestID(envelope) == requestID
-}
-
 func envelopeRequestID(envelope any) string {
 	switch envelope := envelope.(type) {
 	case ResponseEnvelope:

@@ -20,32 +20,6 @@ type authState struct {
 	ReturnToOnboardingKind string
 }
 
-func (m *model) startAuthFlow(
-	provider string,
-	storage string,
-	fileStorePath string,
-	pendingProvider string,
-	pendingModel string,
-	pendingPrompt string,
-	returnToOnboardingKind string,
-) {
-	m.auth = authState{
-		Active:                 true,
-		Provider:               provider,
-		Storage:                storage,
-		FileStorePath:          fileStorePath,
-		PendingProvider:        pendingProvider,
-		PendingModel:           pendingModel,
-		PendingPrompt:          pendingPrompt,
-		ReturnToOnboardingKind: returnToOnboardingKind,
-	}
-	m.textInput.SetValue("")
-	m.textInput.EchoMode = textinput.EchoPassword
-	m.textInput.EchoCharacter = '*'
-	m.clearSlashMenu()
-	m.promptFooterNotice = ""
-}
-
 func (m *model) endAuthFlow() {
 	m.auth = authState{}
 	m.textInput.EchoMode = textinput.EchoNormal

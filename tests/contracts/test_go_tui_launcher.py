@@ -164,7 +164,7 @@ def test_main_resume_launches_go_tui_with_resolved_session(
             "--app-version",
             "0.1.4",
             "--model",
-            "ollama:kimi-k2:1t-cloud",
+                "openai-responses:gpt-5.4",
             "--workspace-root",
             str(workspace_root.resolve()),
             "--sessions-root",
@@ -262,7 +262,7 @@ def test_main_resume_launches_go_tui_with_parent_fork_context(
             "--app-version",
             "0.1.4",
             "--model",
-            "ollama:kimi-k2:1t-cloud",
+                "openai-responses:gpt-5.4",
             "--workspace-root",
             str(workspace_root.resolve()),
             "--sessions-root",
@@ -363,7 +363,7 @@ def test_main_fork_launches_go_tui_with_new_session_and_parent_context(
             "--app-version",
             "0.1.4",
             "--model",
-            "ollama:kimi-k2:1t-cloud",
+                "openai-responses:gpt-5.4",
             "--workspace-root",
             str(workspace_root.resolve()),
             "--sessions-root",
@@ -547,14 +547,14 @@ def test_main_restores_config_applied_environment_after_return(
     captured: dict[str, object] = {}
 
     monkeypatch.delenv("JACA_TRACE_MODE", raising=False)
-    monkeypatch.delenv("OLLAMA_BASE_URL", raising=False)
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
     monkeypatch.setattr(
         entry,
         "load_config",
         lambda: {
-            "default_model": "ollama:glm-5:cloud",
+            "default_model": "openai-responses:gpt-5.4",
             "trace_mode": "local",
-            "OLLAMA_BASE_URL": "https://example.test/v1",
+            "OPENAI_BASE_URL": "https://example.test/v1",
         },
     )
     monkeypatch.setattr(
@@ -577,7 +577,7 @@ def test_main_restores_config_applied_environment_after_return(
     def fake_run(command, *, check, cwd=None):
         captured["command"] = command
         captured["trace_mode"] = os.environ.get("JACA_TRACE_MODE")
-        captured["ollama_base_url"] = os.environ.get("OLLAMA_BASE_URL")
+        captured["openai_base_url"] = os.environ.get("OPENAI_BASE_URL")
         return SimpleNamespace(returncode=0)
 
     monkeypatch.setattr(
@@ -596,9 +596,9 @@ def test_main_restores_config_applied_environment_after_return(
 
     assert exit_code == 0
     assert captured["trace_mode"] == "local"
-    assert captured["ollama_base_url"] == "https://example.test/v1"
+    assert captured["openai_base_url"] == "https://example.test/v1"
     assert os.environ.get("JACA_TRACE_MODE") is None
-    assert os.environ.get("OLLAMA_BASE_URL") is None
+    assert os.environ.get("OPENAI_BASE_URL") is None
 
 
 def test_main_fails_fast_when_go_binary_is_missing(
