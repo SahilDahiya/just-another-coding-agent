@@ -25,6 +25,8 @@ type stubBackend struct {
 	modelCatalog       rpc.ModelCatalogResponse
 	modelCatalogErr    error
 	authStatuses       map[string]rpc.AuthProviderStatus
+	oauthStatuses      map[string]rpc.OAuthProviderStatus
+	oauthPollDone      bool
 	localSecretStore   rpc.LocalSecretStoreStatus
 	authStatusErr      error
 	setSecretErr       error
@@ -44,12 +46,22 @@ type stubBackend struct {
 
 func newStubBackend() *stubBackend {
 	return &stubBackend{
-		modelCatalog:       *testModelCatalog(),
-		authStatuses:       map[string]rpc.AuthProviderStatus{},
+		modelCatalog: *testModelCatalog(),
+		authStatuses: map[string]rpc.AuthProviderStatus{},
+		oauthStatuses: map[string]rpc.OAuthProviderStatus{
+			"openai-codex": {
+				Provider: "openai-codex",
+				LoggedIn: false,
+			},
+			"github-copilot": {
+				Provider: "github-copilot",
+				LoggedIn: false,
+			},
+		},
 		authStatusAfterSet: map[string]rpc.AuthProviderStatus{},
 		localSecretStore: rpc.LocalSecretStoreStatus{
 			Available:     true,
-			FileStorePath: filepath.Join(os.TempDir(), "jaca-secrets.json"),
+			FileStorePath: filepath.Join(os.TempDir(), "jaca-auth.json"),
 		},
 	}
 }
@@ -106,7 +118,7 @@ func (b *stubBackend) AuthStatus(_ context.Context) (rpc.AuthStatusResponse, err
 	if b.authStatusErr != nil {
 		return rpc.AuthStatusResponse{}, b.authStatusErr
 	}
-	providers := []string{"ollama", "openai", "openrouter", "anthropic", "google"}
+	providers := []string{"openai", "anthropic"}
 	statuses := make([]rpc.AuthProviderStatus, 0, len(providers))
 	for _, provider := range providers {
 		if status, ok := b.authStatuses[provider]; ok {
@@ -118,6 +130,95 @@ func (b *stubBackend) AuthStatus(_ context.Context) (rpc.AuthStatusResponse, err
 	return rpc.AuthStatusResponse{
 		Providers:        statuses,
 		LocalSecretStore: b.localSecretStore,
+		OAuthProviders: []rpc.OAuthProviderStatus{
+			b.oauthStatuses["openai-codex"],
+			b.oauthStatuses["github-copilot"],
+		},
+	}, nil
+}
+
+func (b *stubBackend) StartOpenAICodexLogin(_ context.Context) (rpc.AuthLoginOpenAICodexStartResponse, error) {
+	return rpc.AuthLoginOpenAICodexStartResponse{
+		FlowID:       "flow-1",
+		AuthURL:      "https://auth.example.test/login",
+		Instructions: "Open the URL, finish login, then paste the redirect URL or code here.",
+	}, nil
+}
+
+func (b *stubBackend) CompleteOpenAICodexLogin(
+	_ context.Context,
+	flowID string,
+	callbackOrCode string,
+) (rpc.AuthLoginOpenAICodexCompleteResponse, error) {
+	if flowID == "" || callbackOrCode == "" {
+		return rpc.AuthLoginOpenAICodexCompleteResponse{}, fmt.Errorf("missing login completion payload")
+	}
+	accountID := "acct-test"
+	expiresAt := time.Now().Add(time.Hour).UnixMilli()
+	status := rpc.OAuthProviderStatus{
+		Provider:  "openai-codex",
+		LoggedIn:  true,
+		AccountID: &accountID,
+		ExpiresAt: &expiresAt,
+	}
+	b.oauthStatuses["openai-codex"] = status
+	return rpc.AuthLoginOpenAICodexCompleteResponse{Status: status}, nil
+}
+
+func (b *stubBackend) PollOpenAICodexLogin(
+	_ context.Context,
+	flowID string,
+) (rpc.AuthLoginOpenAICodexPollResponse, error) {
+	if flowID == "" {
+		return rpc.AuthLoginOpenAICodexPollResponse{}, fmt.Errorf("missing flow id")
+	}
+	if !b.oauthPollDone {
+		return rpc.AuthLoginOpenAICodexPollResponse{Done: false}, nil
+	}
+	accountID := "acct-test"
+	expiresAt := time.Now().Add(time.Hour).UnixMilli()
+	status := rpc.OAuthProviderStatus{
+		Provider:  "openai-codex",
+		LoggedIn:  true,
+		AccountID: &accountID,
+		ExpiresAt: &expiresAt,
+	}
+	b.oauthStatuses["openai-codex"] = status
+	return rpc.AuthLoginOpenAICodexPollResponse{
+		Done:   true,
+		Status: &status,
+	}, nil
+}
+
+func (b *stubBackend) StartGitHubCopilotLogin(_ context.Context, _ string) (rpc.AuthLoginGitHubCopilotStartResponse, error) {
+	return rpc.AuthLoginGitHubCopilotStartResponse{
+		FlowID:       "gh-flow-1",
+		AuthURL:      "https://github.com/login/device",
+		Instructions: "Enter code: ABCD-EFGH",
+		UserCode:     "ABCD-EFGH",
+	}, nil
+}
+
+func (b *stubBackend) PollGitHubCopilotLogin(
+	_ context.Context,
+	flowID string,
+) (rpc.AuthLoginGitHubCopilotPollResponse, error) {
+	if flowID == "" {
+		return rpc.AuthLoginGitHubCopilotPollResponse{}, fmt.Errorf("missing flow id")
+	}
+	if !b.oauthPollDone {
+		return rpc.AuthLoginGitHubCopilotPollResponse{Done: false}, nil
+	}
+	expiresAt := time.Now().Add(time.Hour).UnixMilli()
+	status := rpc.OAuthProviderStatus{
+		Provider:  "github-copilot",
+		LoggedIn:  true,
+		ExpiresAt: &expiresAt,
+	}
+	b.oauthStatuses["github-copilot"] = status
+	return rpc.AuthLoginGitHubCopilotPollResponse{
+		Done:   true,
+		Status: &status,
 	}, nil
 }
 func (b *stubBackend) SetProviderSecret(
@@ -139,7 +240,7 @@ func (b *stubBackend) SetProviderSecret(
 		Configured:       true,
 		SecretConfigured: true,
 		RequiresSecret:   true,
-		Source:           "keychain",
+		Source:           "file",
 		EnvKey:           envKeyForProvider(provider),
 		Reason:           "ok",
 	}
@@ -187,16 +288,10 @@ func (b *stubBackend) EnqueueRun(
 func envDerivedAuthStatus(provider string) rpc.AuthProviderStatus {
 	envKey := ""
 	switch provider {
-	case "ollama":
-		envKey = "OLLAMA_API_KEY"
 	case "openai":
 		envKey = "OPENAI_API_KEY"
-	case "openrouter":
-		envKey = "OPENROUTER_API_KEY"
 	case "anthropic":
 		envKey = "ANTHROPIC_API_KEY"
-	case "google":
-		envKey = "GOOGLE_API_KEY"
 	}
 	source := "none"
 	secretConfigured := false
@@ -207,33 +302,8 @@ func envDerivedAuthStatus(provider string) rpc.AuthProviderStatus {
 	requiresSecret := true
 	configured := secretConfigured
 	reason := "missing_secret"
-	switch provider {
-	case "ollama":
-		baseURL := strings.TrimSpace(os.Getenv("OLLAMA_BASE_URL"))
-		if baseURL == "" || strings.Contains(baseURL, "localhost") || strings.Contains(baseURL, "127.0.0.1") {
-			requiresSecret = false
-			configured = true
-			reason = "local_endpoint_no_secret_required"
-		} else if secretConfigured {
-			reason = "ok"
-		}
-	case "openai":
-		baseURL := strings.TrimSpace(os.Getenv("OPENAI_BASE_URL"))
-		if strings.Contains(baseURL, "localhost") || strings.Contains(baseURL, "127.0.0.1") {
-			requiresSecret = false
-			configured = true
-			reason = "local_endpoint_no_secret_required"
-		} else if secretConfigured {
-			reason = "ok"
-		}
-	case "openrouter":
-		if secretConfigured {
-			reason = "ok"
-		}
-	default:
-		if secretConfigured {
-			reason = "ok"
-		}
+	if secretConfigured {
+		reason = "ok"
 	}
 	return rpc.AuthProviderStatus{
 		Provider:         provider,
@@ -248,16 +318,10 @@ func envDerivedAuthStatus(provider string) rpc.AuthProviderStatus {
 
 func envKeyForProvider(provider string) string {
 	switch provider {
-	case "ollama":
-		return "OLLAMA_API_KEY"
 	case "openai":
 		return "OPENAI_API_KEY"
-	case "openrouter":
-		return "OPENROUTER_API_KEY"
 	case "anthropic":
 		return "ANTHROPIC_API_KEY"
-	case "google":
-		return "GOOGLE_API_KEY"
 	default:
 		return ""
 	}
@@ -270,7 +334,7 @@ func normalizeTestSessionName(name string) string {
 
 func newTestModel() *model {
 	m := New(Options{
-		Model:         "ollama:test",
+		Model:         "openai-responses:gpt-5.4",
 		WorkspaceRoot: "/workspace",
 		Thinking:      "medium",
 	}).(*model)
@@ -410,29 +474,42 @@ func testModelCatalog() *rpc.ModelCatalogResponse {
 	return &rpc.ModelCatalogResponse{
 		Providers: []rpc.ModelCatalogProvider{
 			{
-				Provider:       "ollama",
-				DefaultModelID: "ollama:kimi-k2:1t-cloud",
-				Models: []rpc.ModelCatalogModel{
-					{ModelID: "ollama:kimi-k2:1t-cloud", Description: "Current default Kimi K2"},
-					{ModelID: "ollama:glm-5:cloud", Description: "GLM-5 cloud path"},
-					{ModelID: "ollama:qwen3.5:397b-cloud", Description: "Qwen 3.5 397B cloud"},
-					{ModelID: "ollama:qwen3-coder-next", Description: "Qwen3 Coder Next"},
-				},
-			},
-			{
 				Provider:       "openai",
 				DefaultModelID: "openai-responses:gpt-5.4",
 				Models: []rpc.ModelCatalogModel{
 					{ModelID: "openai-responses:gpt-5.4", Description: "Default GPT-5.4 Responses path"},
 					{ModelID: "openai-responses:gpt-5.4-mini", Description: "Faster GPT-5.4 mini Responses path"},
 					{ModelID: "openai-responses:gpt-5.3-codex", Description: "Codex-optimized GPT-5.3 Responses path"},
-				},
-			},
-			{
-				Provider:       "openrouter",
-				DefaultModelID: "openrouter:anthropic/claude-sonnet-4-5",
-				Models: []rpc.ModelCatalogModel{
-					{ModelID: "openrouter:anthropic/claude-sonnet-4-5", Description: "OpenRouter Claude Sonnet"},
+					{ModelID: "openai-responses:gpt-5-codex", Description: "Experimental ChatGPT subscription Codex path"},
+					{ModelID: "openai-responses:gpt-5-chatgpt", Description: "Experimental ChatGPT subscription GPT-5 path"},
+					{ModelID: "openai-responses:gpt-5-mini-chatgpt", Description: "Experimental ChatGPT subscription GPT-5 mini path"},
+					{ModelID: "openai-responses:gpt-5.1-chatgpt", Description: "Experimental ChatGPT subscription GPT-5.1 path"},
+					{ModelID: "openai-responses:gpt-5.1-codex-chatgpt", Description: "Experimental ChatGPT subscription GPT-5.1 Codex path"},
+					{ModelID: "openai-responses:gpt-5.1-codex-mini-chatgpt", Description: "Experimental ChatGPT subscription GPT-5.1 Codex Mini path"},
+					{ModelID: "openai-responses:gpt-5.1-codex-max-chatgpt", Description: "Experimental ChatGPT subscription GPT-5.1 Codex Max path"},
+					{ModelID: "openai-responses:gpt-5.2-chatgpt", Description: "Experimental ChatGPT subscription GPT-5.2 path"},
+					{ModelID: "openai-responses:gpt-5.2-codex-chatgpt", Description: "Experimental ChatGPT subscription GPT-5.2 Codex path"},
+					{ModelID: "openai-responses:gpt-5.3-codex-chatgpt", Description: "Experimental ChatGPT subscription GPT-5.3 Codex path"},
+					{ModelID: "openai-responses:gpt-5.4-chatgpt", Description: "Experimental ChatGPT subscription GPT-5.4 path"},
+					{ModelID: "openai-responses:gpt-5.4-mini-chatgpt", Description: "Experimental ChatGPT subscription GPT-5.4 mini path"},
+					{ModelID: "openai-responses:gpt-5-copilot", Description: "Experimental GitHub Copilot GPT-5 path"},
+					{ModelID: "openai-responses:gpt-5-mini-copilot", Description: "Experimental GitHub Copilot GPT-5 mini path"},
+					{ModelID: "openai-responses:gpt-5.1-copilot", Description: "Experimental GitHub Copilot GPT-5.1 path"},
+					{ModelID: "openai-responses:gpt-5.1-codex-copilot", Description: "Experimental GitHub Copilot GPT-5.1 Codex path"},
+					{ModelID: "openai-responses:gpt-5.1-codex-mini-copilot", Description: "Experimental GitHub Copilot GPT-5.1 Codex Mini path"},
+					{ModelID: "openai-responses:gpt-5.1-codex-max-copilot", Description: "Experimental GitHub Copilot GPT-5.1 Codex Max path"},
+					{ModelID: "openai-responses:gpt-5.2-copilot", Description: "Experimental GitHub Copilot GPT-5.2 path"},
+					{ModelID: "openai-responses:gpt-5.2-codex-copilot", Description: "Experimental GitHub Copilot GPT-5.2 Codex path"},
+					{ModelID: "openai-responses:gpt-5.3-codex-copilot", Description: "Experimental GitHub Copilot GPT-5.3 Codex path"},
+					{ModelID: "openai-responses:gpt-5.4-copilot", Description: "Experimental GitHub Copilot GPT-5.4 path"},
+					{ModelID: "openai-responses:gpt-5.4-mini-copilot", Description: "Experimental GitHub Copilot GPT-5.4 mini path"},
+					{ModelID: "openai-chat:gpt-4.1-copilot", Description: "Experimental GitHub Copilot GPT-4.1 path"},
+					{ModelID: "openai-chat:gpt-4o-copilot", Description: "Experimental GitHub Copilot GPT-4o path"},
+					{ModelID: "openai-chat:gemini-2.5-pro-copilot", Description: "Experimental GitHub Copilot Gemini 2.5 Pro path"},
+					{ModelID: "openai-chat:gemini-3-flash-preview-copilot", Description: "Experimental GitHub Copilot Gemini 3 Flash path"},
+					{ModelID: "openai-chat:gemini-3-pro-preview-copilot", Description: "Experimental GitHub Copilot Gemini 3 Pro path"},
+					{ModelID: "openai-chat:gemini-3.1-pro-preview-copilot", Description: "Experimental GitHub Copilot Gemini 3.1 Pro path"},
+					{ModelID: "openai-chat:grok-code-fast-1-copilot", Description: "Experimental GitHub Copilot Grok Code Fast 1 path"},
 				},
 			},
 			{
@@ -441,15 +518,12 @@ func testModelCatalog() *rpc.ModelCatalogResponse {
 				Models: []rpc.ModelCatalogModel{
 					{ModelID: "anthropic:claude-sonnet-4-5", Description: "Balanced Claude Sonnet"},
 					{ModelID: "anthropic:claude-opus-4-1", Description: "Stronger Claude Opus"},
-				},
-			},
-			{
-				Provider:       "google",
-				DefaultModelID: "google:gemini-2.5-flash",
-				Models: []rpc.ModelCatalogModel{
-					{ModelID: "google:gemini-2.5-flash", Description: "Fast Gemini 2.5 Flash"},
-					{ModelID: "google:gemini-2.5-flash-lite", Description: "Cheaper Gemini 2.5 Flash-Lite"},
-					{ModelID: "google:gemini-2.5-pro", Description: "Stronger Gemini 2.5 Pro"},
+					{ModelID: "anthropic:claude-haiku-4.5-copilot", Description: "Experimental GitHub Copilot Claude Haiku 4.5 path"},
+					{ModelID: "anthropic:claude-opus-4.5-copilot", Description: "Experimental GitHub Copilot Claude Opus 4.5 path"},
+					{ModelID: "anthropic:claude-opus-4.6-copilot", Description: "Experimental GitHub Copilot Claude Opus 4.6 path"},
+					{ModelID: "anthropic:claude-sonnet-4-copilot", Description: "Experimental GitHub Copilot Claude Sonnet 4 path"},
+					{ModelID: "anthropic:claude-sonnet-4.5-copilot", Description: "Experimental GitHub Copilot Claude Sonnet 4.5 path"},
+					{ModelID: "anthropic:claude-sonnet-4.6-copilot", Description: "Experimental GitHub Copilot Claude Sonnet 4.6 path"},
 				},
 			},
 		},
@@ -931,7 +1005,7 @@ func TestSlashShowsInlineCommandSuggestions(t *testing.T) {
 
 	rendered := stripANSI(m.View())
 	for _, want := range []string{
-		"/provider",
+		"/login",
 		"/model",
 		"/trace",
 	} {
@@ -939,30 +1013,25 @@ func TestSlashShowsInlineCommandSuggestions(t *testing.T) {
 			t.Fatalf("view missing slash suggestion %q in %q", want, rendered)
 		}
 	}
-	if got := stripANSI(m.transcript.Render()); strings.Contains(got, "/provider") {
+	if got := stripANSI(m.transcript.Render()); strings.Contains(got, "/login") {
 		t.Fatalf("transcript changed while browsing slash suggestions: %q", got)
 	}
 }
 
-func TestTabOnProviderSuggestionCommitsCommandAndShowsProviderOptions(t *testing.T) {
+func TestTabOnLoginSuggestionCommitsCommandAndShowsLoginOptions(t *testing.T) {
 	m := newTestModel()
 
-	m = sendRunes(m, "/pro")
+	m = sendRunes(m, "/log")
 	m = sendKey(m, tea.KeyMsg{Type: tea.KeyTab})
 
-	if got := m.textInput.Value(); got != "/provider " {
-		t.Fatalf("textInput.Value() = %q, want %q", got, "/provider ")
+	if got := m.textInput.Value(); got != "/login " {
+		t.Fatalf("textInput.Value() = %q, want %q", got, "/login ")
 	}
 
 	rendered := stripANSI(m.View())
-	for _, want := range []string{
-		"ollama",
-		"openai",
-		"anthropic",
-		"google",
-	} {
+	for _, want := range []string{"openai-codex", "github-copilot"} {
 		if !strings.Contains(rendered, want) {
-			t.Fatalf("view missing provider suggestion %q in %q", want, rendered)
+			t.Fatalf("view missing login suggestion %q in %q", want, rendered)
 		}
 	}
 }
@@ -981,17 +1050,17 @@ func TestSelectingTraceSuggestionCommitsOnlyToPrompt(t *testing.T) {
 	}
 }
 
-func TestAuthSlashSuggestionsIncludeOllama(t *testing.T) {
+func TestAuthSlashSuggestionsIncludeSupportedProviders(t *testing.T) {
 	m := newTestModel()
 
 	m = sendRunes(m, "/auth ")
 
 	rendered := stripANSI(m.View())
-	if !strings.Contains(rendered, "ollama") {
-		t.Fatalf("view missing ollama auth suggestion in %q", rendered)
+	if !strings.Contains(rendered, "openai") {
+		t.Fatalf("view missing openai auth suggestion in %q", rendered)
 	}
-	if !strings.Contains(rendered, "google") {
-		t.Fatalf("view missing google auth suggestion in %q", rendered)
+	if !strings.Contains(rendered, "anthropic") {
+		t.Fatalf("view missing anthropic auth suggestion in %q", rendered)
 	}
 }
 
@@ -1030,17 +1099,17 @@ func TestModelCommandPersistsSelection(t *testing.T) {
 	m := newTestModel()
 	m.options.Backend = newStubBackend()
 
-	m = sendRunes(m, "/model openai-responses:gpt-5.4")
+	m = sendRunes(m, "/model openai-responses:gpt-5.4-mini")
 	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
 
-	if got := m.options.Model; got != "openai-responses:gpt-5.4" {
-		t.Fatalf("options.Model = %q, want %q", got, "openai-responses:gpt-5.4")
+	if got := m.options.Model; got != "openai-responses:gpt-5.4-mini" {
+		t.Fatalf("options.Model = %q, want %q", got, "openai-responses:gpt-5.4-mini")
 	}
 	data, err := os.ReadFile(home + "/.jaca/config.json")
 	if err != nil {
 		t.Fatalf("ReadFile() returned error: %v", err)
 	}
-	if !strings.Contains(string(data), `"default_model": "openai-responses:gpt-5.4"`) {
+	if !strings.Contains(string(data), `"default_model": "openai-responses:gpt-5.4-mini"`) {
 		t.Fatalf("config.json missing persisted model: %q", string(data))
 	}
 	if !strings.Contains(string(data), `"default_provider": "openai"`) {
@@ -1082,11 +1151,11 @@ func TestStartupAuthStatusShowsFirstRunOnboarding(t *testing.T) {
 
 	rendered := stripANSI(m.View())
 	for _, want := range []string{
-		"Get Started",
-		"1. Ollama",
-		"2. OpenAI",
-		"3. Anthropic",
-		"4. Google Gemini",
+		"Connect JACA",
+		"1. ChatGPT subscription",
+		"2. GitHub Copilot subscription",
+		"3. OpenAI API key",
+		"4. Anthropic API key",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("startup onboarding missing %q in %q", want, rendered)
@@ -1111,7 +1180,7 @@ func TestNewWithFreshHomeStartsChooserImmediately(t *testing.T) {
 	t.Setenv("HOME", home)
 
 	m := New(Options{
-		Model:         "ollama:test",
+		Model:         "openai-responses:gpt-5.4",
 		WorkspaceRoot: "/workspace",
 		Thinking:      "medium",
 	}).(*model)
@@ -1120,7 +1189,7 @@ func TestNewWithFreshHomeStartsChooserImmediately(t *testing.T) {
 		t.Fatalf("onboarding state = %#v, want active provider chooser", m.onboarding)
 	}
 	rendered := stripANSI(m.View())
-	for _, want := range []string{"Get Started", "1. Ollama", "2. OpenAI", "4. Google Gemini"} {
+	for _, want := range []string{"Connect JACA", "1. ChatGPT subscription", "4. Anthropic API key"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("initial chooser missing %q in %q", want, rendered)
 		}
@@ -1139,11 +1208,11 @@ func TestFirstRunChooserDoesNotDependOnAuthStatus(t *testing.T) {
 	}
 	rendered := stripANSI(m.View())
 	for _, want := range []string{
-		"Get Started",
-		"1. Ollama",
-		"2. OpenAI",
-		"3. Anthropic",
-		"4. Google Gemini",
+		"Connect JACA",
+		"1. ChatGPT subscription",
+		"2. GitHub Copilot subscription",
+		"3. OpenAI API key",
+		"4. Anthropic API key",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("first-run chooser missing %q in %q", want, rendered)
@@ -1151,9 +1220,19 @@ func TestFirstRunChooserDoesNotDependOnAuthStatus(t *testing.T) {
 	}
 }
 
-func TestEscapeFromFirstRunAuthReturnsToProviderChooser(t *testing.T) {
+func TestMaybeStartOnboardingStartsOpenAICodexLoginCommandForOAuthModel(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	if err := os.MkdirAll(filepath.Join(home, ".jaca"), 0o755); err != nil {
+		t.Fatalf("MkdirAll() returned error: %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(home, ".jaca", "config.json"),
+		[]byte(`{"default_provider":"openai","default_model":"openai-responses:gpt-5.4-chatgpt"}`),
+		0o644,
+	); err != nil {
+		t.Fatalf("WriteFile() returned error: %v", err)
+	}
 
 	backend := newStubBackend()
 	status, err := backend.AuthStatus(context.Background())
@@ -1163,29 +1242,65 @@ func TestEscapeFromFirstRunAuthReturnsToProviderChooser(t *testing.T) {
 
 	m := newTestModel()
 	m.options.Backend = backend
+	m.authStatus = &status
 
-	updated, _ := m.Update(authStatusLoadedMsg{Status: status})
+	cmd := m.maybeStartOnboarding()
+	if cmd == nil {
+		t.Fatal("maybeStartOnboarding() should return login start command")
+	}
+	if !m.login.Active {
+		t.Fatal("ChatGPT onboarding login should activate overlay before RPC response")
+	}
+
+	updated, next := m.Update(cmd())
 	m = updated.(*model)
-	m = sendKey(m, tea.KeyMsg{Runes: []rune("2"), Type: tea.KeyRunes})
-	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
-	if !m.auth.Active {
-		t.Fatal("openai selection should start auth")
+	if next == nil {
+		t.Fatal("expected follow-up polling command after starting ChatGPT login")
+	}
+	if m.login.FlowID == "" {
+		t.Fatal("expected login flow id after starting ChatGPT login")
+	}
+}
+
+func TestMaybeStartOnboardingStartsGitHubCopilotLoginCommandForOAuthModel(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := os.MkdirAll(filepath.Join(home, ".jaca"), 0o755); err != nil {
+		t.Fatalf("MkdirAll() returned error: %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(home, ".jaca", "config.json"),
+		[]byte(`{"default_provider":"openai","default_model":"openai-responses:gpt-5.4-copilot"}`),
+		0o644,
+	); err != nil {
+		t.Fatalf("WriteFile() returned error: %v", err)
 	}
 
-	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEsc})
+	backend := newStubBackend()
+	status, err := backend.AuthStatus(context.Background())
+	if err != nil {
+		t.Fatalf("AuthStatus() returned error: %v", err)
+	}
 
-	if m.auth.Active {
-		t.Fatal("esc should close auth panel")
+	m := newTestModel()
+	m.options.Backend = backend
+	m.authStatus = &status
+
+	cmd := m.maybeStartOnboarding()
+	if cmd == nil {
+		t.Fatal("maybeStartOnboarding() should return login start command")
 	}
-	if !m.onboarding.Active || m.onboarding.Kind != "provider" {
-		t.Fatalf("onboarding state = %#v, want provider chooser", m.onboarding)
+	if !m.login.Active {
+		t.Fatal("Copilot onboarding login should activate overlay before RPC response")
 	}
-	if m.onboarding.Selected != 1 {
-		t.Fatalf("onboarding.Selected = %d, want 1 for openai", m.onboarding.Selected)
+
+	updated, next := m.Update(cmd())
+	m = updated.(*model)
+	if next == nil {
+		t.Fatal("expected follow-up polling command after starting Copilot login")
 	}
-	rendered := stripANSI(m.View())
-	if !strings.Contains(rendered, "Get Started") || !strings.Contains(rendered, "2. OpenAI") {
-		t.Fatalf("provider chooser missing after esc: %q", rendered)
+	if got := m.login.Provider; got != "github-copilot" {
+		t.Fatalf("login.Provider = %q, want github-copilot", got)
 	}
 }
 
@@ -1208,18 +1323,18 @@ func TestFirstRunEscapeThenTabOpensProviderSuggestions(t *testing.T) {
 	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEsc})
 	m = sendKey(m, tea.KeyMsg{Type: tea.KeyTab})
 
-	if got := m.textInput.Value(); got != "/provider " {
-		t.Fatalf("textInput.Value() = %q, want %q", got, "/provider ")
+	if got := m.textInput.Value(); got != "/login " {
+		t.Fatalf("textInput.Value() = %q, want %q", got, "/login ")
 	}
 	rendered := stripANSI(m.View())
-	for _, want := range []string{"ollama", "openai", "anthropic", "google"} {
+	for _, want := range []string{"openai-codex", "github-copilot"} {
 		if !strings.Contains(rendered, want) {
-			t.Fatalf("provider suggestion %q missing in %q", want, rendered)
+			t.Fatalf("login suggestion %q missing in %q", want, rendered)
 		}
 	}
 }
 
-func TestFirstRunChoosingOpenAIOpensSecureSetupPanel(t *testing.T) {
+func TestFirstRunChoosingOpenAIShowsAuthFileNote(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
@@ -1234,18 +1349,24 @@ func TestFirstRunChoosingOpenAIOpensSecureSetupPanel(t *testing.T) {
 
 	updated, _ := m.Update(authStatusLoadedMsg{Status: status})
 	m = updated.(*model)
-	m = sendKey(m, tea.KeyMsg{Runes: []rune("2"), Type: tea.KeyRunes})
+	m = sendKey(m, tea.KeyMsg{Runes: []rune("3"), Type: tea.KeyRunes})
 	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
 
-	rendered := stripANSI(m.View())
-	if !strings.Contains(rendered, "Secure Setup") || !strings.Contains(rendered, "OpenAI API key") {
-		t.Fatalf("view missing openai secure setup panel after chooser selection: %q", rendered)
-	}
 	if m.onboarding.Active {
 		t.Fatal("onboarding chooser should close after provider selection")
 	}
-	if !m.auth.Active || m.auth.Provider != "openai" {
-		t.Fatalf("auth state = %#v, want active openai auth", m.auth)
+	if m.auth.Active {
+		t.Fatalf("auth state should stay inactive: %#v", m.auth)
+	}
+	rendered := stripANSI(m.transcript.Render())
+	for _, want := range []string{
+		`Use API key? add "OPENAI_API_KEY"`,
+		"/tmp/jaca-auth.json",
+		"OAuth also works via /login when available.",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("transcript missing %q in %q", want, rendered)
+		}
 	}
 }
 
@@ -1270,7 +1391,7 @@ func TestFirstRunChoosingConfiguredAnthropicSkipsAuth(t *testing.T) {
 
 	updated, _ := m.Update(authStatusLoadedMsg{Status: status})
 	m = updated.(*model)
-	m = sendKey(m, tea.KeyMsg{Runes: []rune("3"), Type: tea.KeyRunes})
+	m = sendKey(m, tea.KeyMsg{Runes: []rune("4"), Type: tea.KeyRunes})
 	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
 
 	if m.auth.Active {
@@ -1295,118 +1416,7 @@ func TestFirstRunChoosingConfiguredAnthropicSkipsAuth(t *testing.T) {
 	}
 }
 
-func TestFirstRunChoosingConfiguredHostedOllamaSkipsAuth(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-
-	backend := newStubBackend()
-	backend.authStatuses["ollama"] = rpc.AuthProviderStatus{
-		Provider:   "ollama",
-		Configured: true,
-		Source:     "file",
-		EnvKey:     "OLLAMA_API_KEY",
-	}
-	status, err := backend.AuthStatus(context.Background())
-	if err != nil {
-		t.Fatalf("AuthStatus() returned error: %v", err)
-	}
-
-	m := newTestModel()
-	m.options.Backend = backend
-
-	updated, _ := m.Update(authStatusLoadedMsg{Status: status})
-	m = updated.(*model)
-	m = sendKey(m, tea.KeyMsg{Runes: []rune("1"), Type: tea.KeyRunes})
-	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
-	m = sendKey(m, tea.KeyMsg{Runes: []rune("2"), Type: tea.KeyRunes})
-	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
-
-	if m.auth.Active {
-		t.Fatal("configured hosted ollama should not reopen auth")
-	}
-	if m.onboarding.Active {
-		t.Fatal("ollama mode chooser should close after configured hosted selection")
-	}
-	configText, err := os.ReadFile(home + "/.jaca/config.json")
-	if err != nil {
-		t.Fatalf("ReadFile() returned error: %v", err)
-	}
-	if !strings.Contains(string(configText), `"default_provider": "ollama"`) {
-		t.Fatalf("config.json missing ollama provider selection: %q", string(configText))
-	}
-	if !strings.Contains(string(configText), `"OLLAMA_BASE_URL": "https://ollama.com/v1"`) {
-		t.Fatalf("config.json missing hosted ollama base URL: %q", string(configText))
-	}
-}
-
-func TestFirstRunChoosingOllamaShowsModeChooser(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-
-	backend := newStubBackend()
-	status, err := backend.AuthStatus(context.Background())
-	if err != nil {
-		t.Fatalf("AuthStatus() returned error: %v", err)
-	}
-
-	m := newTestModel()
-	m.options.Backend = backend
-
-	updated, _ := m.Update(authStatusLoadedMsg{Status: status})
-	m = updated.(*model)
-	m = sendKey(m, tea.KeyMsg{Runes: []rune("1"), Type: tea.KeyRunes})
-	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
-
-	rendered := stripANSI(m.View())
-	for _, want := range []string{"Choose Ollama Mode", "1. Local Ollama", "2. Hosted Ollama"} {
-		if !strings.Contains(rendered, want) {
-			t.Fatalf("ollama mode chooser missing %q in %q", want, rendered)
-		}
-	}
-	if !m.onboarding.Active || m.onboarding.Kind != "ollama" {
-		t.Fatalf("onboarding state = %#v, want active ollama chooser", m.onboarding)
-	}
-}
-
-func TestChoosingLocalOllamaClearsHostedEndpointImmediately(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-
-	if err := config.SaveOllamaBaseURL(config.OllamaCloudBaseURL); err != nil {
-		t.Fatalf("SaveOllamaBaseURL() returned error: %v", err)
-	}
-
-	backend := newStubBackend()
-	m := newTestModel()
-	m.options.Backend = backend
-	m.options.Model = "ollama:gemma4:e4b"
-	m.onboarding = onboardingState{Active: true, Kind: "ollama", Selected: 0}
-
-	updated, _ := m.completeOnboardingSelection()
-	m = updated.(*model)
-
-	got, err := config.Load()
-	if err != nil {
-		t.Fatalf("Load() returned error: %v", err)
-	}
-	if _, ok := got["OLLAMA_BASE_URL"]; ok {
-		t.Fatalf("local ollama selection should clear hosted base URL: %v", got)
-	}
-	if backend.restarts != 1 {
-		t.Fatalf("backend.restarts = %d, want %d", backend.restarts, 1)
-	}
-	rendered := stripANSI(m.transcript.Render())
-	for _, want := range []string{
-		"Local Ollama selected.",
-		"Current model stays ollama:gemma4:e4b.",
-	} {
-		if !strings.Contains(rendered, want) {
-			t.Fatalf("transcript missing %q in %q", want, rendered)
-		}
-	}
-}
-
-func TestStartupAuthStatusAutoStartsAuthForPersistedProviderWithoutCredentials(t *testing.T) {
+func TestStartupAuthStatusWritesAuthFileNoteForPersistedProviderWithoutCredentials(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("OPENAI_API_KEY", "")
@@ -1431,19 +1441,12 @@ func TestStartupAuthStatusAutoStartsAuthForPersistedProviderWithoutCredentials(t
 	updated, _ := m.Update(authStatusLoadedMsg{Status: status})
 	m = updated.(*model)
 
-	if !m.auth.Active {
-		t.Fatal("startup auth should start masked auth flow for missing openai credentials")
-	}
-	if m.auth.Provider != "openai" {
-		t.Fatalf("auth.Provider = %q, want %q", m.auth.Provider, "openai")
+	if m.auth.Active {
+		t.Fatalf("startup auth should not open auth overlay: %#v", m.auth)
 	}
 	rendered := stripANSI(m.transcript.Render())
-	if strings.Contains(rendered, "note  provider setup") {
-		t.Fatalf("startup should not write provider setup note: %q", rendered)
-	}
-	view := stripANSI(m.View())
-	if !strings.Contains(view, "Secure Setup") || !strings.Contains(view, "OpenAI API key") {
-		t.Fatalf("view missing openai secure setup panel: %q", view)
+	if !strings.Contains(rendered, `Use API key? add "OPENAI_API_KEY"`) {
+		t.Fatalf("startup transcript missing auth-file note: %q", rendered)
 	}
 }
 
@@ -1476,80 +1479,6 @@ func TestStartupAuthStatusTimeoutSchedulesRetry(t *testing.T) {
 	}
 }
 
-func TestStartupAuthStatusAutoStartsAuthForPersistedHostedOllamaSelection(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("OLLAMA_API_KEY", "")
-
-	if err := config.SaveProvider(config.ProviderUpdate{
-		Provider: "ollama",
-		BaseURL:  config.OllamaCloudBaseURL,
-	}); err != nil {
-		t.Fatalf("SaveProvider() returned error: %v", err)
-	}
-	if err := config.SaveDefaultModel("ollama:kimi-k2:1t-cloud"); err != nil {
-		t.Fatalf("SaveDefaultModel() returned error: %v", err)
-	}
-
-	backend := newStubBackend()
-	status, err := backend.AuthStatus(context.Background())
-	if err != nil {
-		t.Fatalf("AuthStatus() returned error: %v", err)
-	}
-
-	m := newTestModel()
-	m.options.Model = "ollama:kimi-k2:1t-cloud"
-	m.options.Backend = backend
-
-	updated, _ := m.Update(authStatusLoadedMsg{Status: status})
-	m = updated.(*model)
-
-	if !m.auth.Active {
-		t.Fatal("startup auth should start masked auth flow for hosted ollama selection")
-	}
-	if m.auth.Provider != "ollama" {
-		t.Fatalf("auth.Provider = %q, want %q", m.auth.Provider, "ollama")
-	}
-	rendered := stripANSI(m.transcript.Render())
-	if strings.Contains(rendered, "the shipped Ollama provider path uses hosted Ollama models") {
-		t.Fatalf("startup should not write hosted ollama setup note: %q", rendered)
-	}
-	view := stripANSI(m.View())
-	if !strings.Contains(view, "Secure Setup") || !strings.Contains(view, "Ollama cloud API key") {
-		t.Fatalf("view missing ollama secure setup panel: %q", view)
-	}
-}
-
-func TestStartupAuthStatusDoesNotStartAuthForPersistedLocalOllamaSelection(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("OLLAMA_API_KEY", "")
-
-	if err := config.SaveProvider(config.ProviderUpdate{Provider: "ollama"}); err != nil {
-		t.Fatalf("SaveProvider() returned error: %v", err)
-	}
-	if err := config.SaveDefaultModel("ollama:llama3.2"); err != nil {
-		t.Fatalf("SaveDefaultModel() returned error: %v", err)
-	}
-
-	backend := newStubBackend()
-	status, err := backend.AuthStatus(context.Background())
-	if err != nil {
-		t.Fatalf("AuthStatus() returned error: %v", err)
-	}
-
-	m := newTestModel()
-	m.options.Model = "ollama:llama3.2"
-	m.options.Backend = backend
-
-	updated, _ := m.Update(authStatusLoadedMsg{Status: status})
-	m = updated.(*model)
-
-	if m.auth.Active {
-		t.Fatalf("local ollama startup should not start auth: %#v", m.auth)
-	}
-}
-
 func TestModelCommandRequestsCatalogWhenMissing(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -1573,6 +1502,169 @@ func TestModelCommandRequestsCatalogWhenMissing(t *testing.T) {
 	}
 }
 
+func TestLoginSlashStartsBackgroundOpenAICodexLogin(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	m := newTestModel()
+	m.options.Backend = newStubBackend()
+
+	m = sendRunes(m, "/login openai-codex")
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(*model)
+	if cmd == nil {
+		t.Fatal("expected login start command")
+	}
+	updated, _ = m.Update(cmd())
+	m = updated.(*model)
+
+	if m.login.Active {
+		t.Fatal("expected login overlay to close after URL is ready")
+	}
+	if got := m.login.Provider; got != "openai-codex" {
+		t.Fatalf("login.Provider = %q, want openai-codex", got)
+	}
+	if got := m.login.FlowID; got != "flow-1" {
+		t.Fatalf("login.FlowID = %q, want flow-1", got)
+	}
+	if !m.login.Waiting {
+		t.Fatal("expected login flow to keep waiting for callback")
+	}
+	rendered := stripANSI(m.View())
+	if !strings.Contains(rendered, "https://auth.example.test/login") {
+		t.Fatalf("view missing login URL note: %q", rendered)
+	}
+}
+
+func TestOAuthModelSelectionStartsLoginInsteadOfOpenAISecretFlow(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("OPENAI_API_KEY", "")
+
+	m := newTestModel()
+	m.options.Backend = newStubBackend()
+
+	m = sendRunes(m, "/model openai-responses:gpt-5-codex")
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(*model)
+	if cmd == nil {
+		t.Fatal("expected login start command")
+	}
+	updated, _ = m.Update(cmd())
+	m = updated.(*model)
+
+	if m.login.Active {
+		t.Fatal("expected login overlay to close after URL is ready")
+	}
+	if m.auth.Active {
+		t.Fatal("oauth-backed model selection should not start provider secret auth")
+	}
+	if got := m.login.PendingModel; got != "openai-responses:gpt-5-codex" {
+		t.Fatalf("login.PendingModel = %q", got)
+	}
+	if !m.login.Waiting {
+		t.Fatal("expected background login wait state")
+	}
+}
+
+func TestLoginSlashStartsBackgroundGitHubCopilotLogin(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	m := newTestModel()
+	m.options.Backend = newStubBackend()
+
+	m = sendRunes(m, "/login github-copilot")
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(*model)
+	if cmd == nil {
+		t.Fatal("expected login start command")
+	}
+	if !m.login.Active {
+		t.Fatal("expected copilot login overlay to activate before RPC response")
+	}
+	updated, _ = m.Update(cmd())
+	m = updated.(*model)
+
+	if m.login.Active {
+		t.Fatal("expected login overlay to stay closed for device-code flow")
+	}
+	if got := m.login.Provider; got != "github-copilot" {
+		t.Fatalf("login.Provider = %q, want github-copilot", got)
+	}
+	if got := m.login.FlowID; got != "gh-flow-1" {
+		t.Fatalf("login.FlowID = %q, want gh-flow-1", got)
+	}
+	if !m.login.Waiting {
+		t.Fatal("expected background login wait state")
+	}
+	rendered := stripANSI(m.View())
+	if !strings.Contains(rendered, "https://github.com/login/device") {
+		t.Fatalf("view missing device login URL note: %q", rendered)
+	}
+	if !strings.Contains(rendered, "ABCD-EFGH") {
+		t.Fatalf("view missing device code note: %q", rendered)
+	}
+}
+
+func TestHandleLoginEnterUsesProviderSpecificCompletion(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	m := newTestModel()
+	m.options.Backend = newStubBackend()
+	m.login = loginState{
+		Active:   true,
+		Provider: "github-copilot",
+		FlowID:   "gh-flow-1",
+	}
+	m.textInput.SetValue("manual-code")
+
+	updated, cmd := m.handleLoginEnter()
+	m = updated.(*model)
+	if cmd != nil {
+		t.Fatalf("handleLoginEnter() returned unexpected command for Copilot: %#v", cmd)
+	}
+	rendered := stripANSI(m.transcript.Render())
+	if !strings.Contains(rendered, "GitHub Copilot device-code login completes in the browser") {
+		t.Fatalf("transcript missing Copilot completion guidance: %q", rendered)
+	}
+	if m.textInput.Value() != "manual-code" {
+		t.Fatalf("textInput.Value() = %q, want unchanged for Copilot", m.textInput.Value())
+	}
+}
+
+func TestCopilotOAuthModelSelectionStartsLoginInsteadOfOpenAISecretFlow(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("OPENAI_API_KEY", "")
+
+	m := newTestModel()
+	m.options.Backend = newStubBackend()
+
+	m = sendRunes(m, "/model openai-responses:gpt-5-mini-copilot")
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(*model)
+	if cmd == nil {
+		t.Fatal("expected login start command")
+	}
+	updated, _ = m.Update(cmd())
+	m = updated.(*model)
+
+	if m.auth.Active {
+		t.Fatal("copilot oauth-backed model selection should not start provider secret auth")
+	}
+	if got := m.login.PendingModel; got != "openai-responses:gpt-5-mini-copilot" {
+		t.Fatalf("login.PendingModel = %q", got)
+	}
+	if got := m.login.Provider; got != "github-copilot" {
+		t.Fatalf("login.Provider = %q", got)
+	}
+	if !m.login.Waiting {
+		t.Fatal("expected background login wait state")
+	}
+}
+
 func TestTraceCommandPersistsMode(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -1592,7 +1684,7 @@ func TestTraceCommandPersistsMode(t *testing.T) {
 	}
 }
 
-func TestProviderWithoutCredentialsStartsMaskedAuthFlow(t *testing.T) {
+func TestAuthCommandShowsAuthFileInstructions(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("OPENAI_API_KEY", "")
@@ -1600,344 +1692,48 @@ func TestProviderWithoutCredentialsStartsMaskedAuthFlow(t *testing.T) {
 	m := newTestModel()
 	m.options.Backend = newStubBackend()
 
-	m = sendRunes(m, "/provider openai")
+	m = sendRunes(m, "/auth openai")
 	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
 
-	rendered := stripANSI(m.View())
-	if !strings.Contains(rendered, "Secure Setup") || !strings.Contains(rendered, "OpenAI API key") {
-		t.Fatalf("view missing secure setup panel after provider selection: %q", rendered)
-	}
-	masked := sendRunes(m, "super-secret")
-	rendered = stripANSI(masked.View())
-	if strings.Contains(rendered, "super-secret") {
-		t.Fatalf("secret leaked into rendered view: %q", rendered)
-	}
-	if got := masked.promptHistory; len(got) != 1 || got[0] != "/provider openai" {
-		t.Fatalf("promptHistory = %#v, want only the non-secret provider command", got)
-	}
-}
-
-func TestOllamaProviderCommandOpensModeChooser(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("OLLAMA_API_KEY", "")
-
-	m := newTestModel()
-	m.options.Backend = newStubBackend()
-
-	m = sendRunes(m, "/provider ollama")
-	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
-
-	rendered := stripANSI(m.View())
-	for _, want := range []string{"Choose Ollama Mode", "1. Local Ollama", "2. Hosted Ollama"} {
-		if !strings.Contains(rendered, want) {
-			t.Fatalf("view missing %q after /provider ollama: %q", want, rendered)
-		}
-	}
-	if m.auth.Active {
-		t.Fatalf("ollama provider command should not jump straight to auth: %#v", m.auth)
-	}
-}
-
-func TestProviderWithoutCredentialsShowsSecureSetupPanel(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("OPENAI_API_KEY", "")
-
-	m := newTestModel()
-	m.options.Backend = newStubBackend()
-
-	m = sendRunes(m, "/provider openai")
-	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
-
-	rendered := stripANSI(m.View())
+	rendered := stripANSI(m.transcript.Render())
 	for _, want := range []string{
-		"Secure Setup",
-		"OpenAI API key",
-		"Enter your OpenAI API key",
-		"Stored in the OS keychain",
-		"Not added to transcript or prompt history",
-		"Enter saves. Esc cancels.",
+		`Use API key? add "OPENAI_API_KEY"`,
+		"/tmp/jaca-auth.json",
+		"OAuth also works via /login when available.",
+		"Retry your prompt after saving.",
 	} {
 		if !strings.Contains(rendered, want) {
-			t.Fatalf("secure setup panel missing %q in %q", want, rendered)
+			t.Fatalf("auth instructions missing %q in %q", want, rendered)
 		}
 	}
-	if transcript := stripANSI(m.transcript.Render()); strings.Contains(transcript, "note  secure setup") {
-		t.Fatalf("secure setup panel should not write transcript note: %q", transcript)
-	}
-}
-
-func TestProviderWithoutKeychainStartsLocalFileAuthFlow(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("OPENAI_API_KEY", "")
-
-	backend := newStubBackend()
-	message := "No supported OS keychain backend is available for local provider secret storage."
-	backend.localSecretStore = rpc.LocalSecretStoreStatus{
-		Available:     false,
-		Message:       &message,
-		FileStorePath: filepath.Join(home, ".jaca", "secrets.json"),
-	}
-	m := newTestModel()
-	m.options.Backend = backend
-
-	m = sendRunes(m, "/provider openai")
-	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
-
-	rendered := stripANSI(m.View())
-	if !strings.Contains(rendered, "Local Secret File") {
-		t.Fatalf("view missing local-secret-file panel: %q", rendered)
-	}
-	if !strings.Contains(rendered, "OS keychain unavailable; using local secret file instead") {
-		t.Fatalf("view missing automatic file-store reason: %q", rendered)
-	}
-	if !strings.Contains(rendered, "secrets.json") {
-		t.Fatalf("view missing file-store path: %q", rendered)
-	}
-	if !m.auth.Active {
-		t.Fatal("file auth should be active")
-	}
-	if got := m.auth.Storage; got != "file" {
-		t.Fatalf("auth.Storage = %q, want %q", got, "file")
-	}
-}
-
-func TestAuthAnthropicWithoutKeychainUsesLocalFileFlow(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("ANTHROPIC_API_KEY", "")
-
-	backend := newStubBackend()
-	message := "No supported OS keychain backend is available for local provider secret storage."
-	backend.localSecretStore = rpc.LocalSecretStoreStatus{
-		Available:     false,
-		Message:       &message,
-		FileStorePath: filepath.Join(home, ".jaca", "secrets.json"),
-	}
-	m := newTestModel()
-	m.options.Backend = backend
-
-	m = sendRunes(m, "/auth anthropic")
-	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
-
-	rendered := stripANSI(m.View())
-	if !strings.Contains(rendered, "Local Secret File") {
-		t.Fatalf("view missing local-secret-file panel: %q", rendered)
-	}
-	if !strings.Contains(rendered, "Anthropic API key") {
-		t.Fatalf("view missing anthropic secret prompt: %q", rendered)
-	}
-	if !m.auth.Active {
-		t.Fatal("anthropic file auth should be active")
-	}
-	if got := m.auth.Storage; got != "file" {
-		t.Fatalf("auth.Storage = %q, want %q", got, "file")
-	}
-}
-
-func TestAuthSaveFailsIfProviderStatusStillUnconfiguredAfterSave(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("ANTHROPIC_API_KEY", "")
-
-	backend := newStubBackend()
-	message := "No supported OS keychain backend is available for local provider secret storage."
-	backend.localSecretStore = rpc.LocalSecretStoreStatus{
-		Available:     false,
-		Message:       &message,
-		FileStorePath: filepath.Join(home, ".jaca", "secrets.json"),
-	}
-	backend.authStatusAfterSet["anthropic"] = rpc.AuthProviderStatus{
-		Provider:   "anthropic",
-		Configured: false,
-		Source:     "none",
-		EnvKey:     "ANTHROPIC_API_KEY",
-	}
-	m := newTestModel()
-	m.options.Backend = backend
-
-	m = sendRunes(m, "/auth anthropic")
-	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
-	m = sendRunes(m, "sk-ant-test")
-	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
-
 	if m.auth.Active {
-		t.Fatal("auth flow should close after failed persistence verification")
+		t.Fatalf("auth flow should stay inactive: %#v", m.auth)
 	}
+}
+
+func TestAuthAnthropicShowsAuthFileInstructions(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("ANTHROPIC_API_KEY", "")
+
+	backend := newStubBackend()
+	backend.localSecretStore = rpc.LocalSecretStoreStatus{
+		Available:     true,
+		FileStorePath: filepath.Join(home, ".jaca", "auth.json"),
+	}
+	m := newTestModel()
+	m.options.Backend = backend
+
+	m = sendRunes(m, "/auth anthropic")
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+
 	rendered := stripANSI(m.transcript.Render())
-	if !strings.Contains(rendered, "Anthropic secret did not persist") {
-		t.Fatalf("transcript missing persistence failure message: %q", rendered)
+	if !strings.Contains(rendered, `Use API key? add "ANTHROPIC_API_KEY"`) {
+		t.Fatalf("transcript missing anthropic auth note: %q", rendered)
 	}
 }
 
-func TestPromptWithMissingGoogleCredentialsStartsAuthInsteadOfRun(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("GOOGLE_API_KEY", "")
-
-	if err := config.SaveDefaultProvider("google"); err != nil {
-		t.Fatalf("SaveDefaultProvider() returned error: %v", err)
-	}
-	if err := config.SaveDefaultModel("google:gemini-2.5-flash"); err != nil {
-		t.Fatalf("SaveDefaultModel() returned error: %v", err)
-	}
-
-	backend := newStubBackend()
-	message := "No supported OS keychain backend is available for local provider secret storage."
-	backend.localSecretStore = rpc.LocalSecretStoreStatus{
-		Available:     false,
-		Message:       &message,
-		FileStorePath: filepath.Join(home, ".jaca", "secrets.json"),
-	}
-	m := newTestModel()
-	m.options.Backend = backend
-	m.options.Model = "google:gemini-2.5-flash"
-
-	m = sendRunes(m, "hello")
-	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	m = updated.(*model)
-
-	if !m.auth.Active {
-		t.Fatal("missing google credentials should open auth instead of starting a run")
-	}
-	if m.streaming {
-		t.Fatal("model run should not start when provider credentials are missing")
-	}
-}
-
-func TestPromptRefreshesAuthStatusBeforeStartingRun(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("GOOGLE_API_KEY", "")
-
-	if err := config.SaveDefaultProvider("google"); err != nil {
-		t.Fatalf("SaveDefaultProvider() returned error: %v", err)
-	}
-	if err := config.SaveDefaultModel("google:gemini-2.5-flash"); err != nil {
-		t.Fatalf("SaveDefaultModel() returned error: %v", err)
-	}
-
-	backend := newStubBackend()
-	message := "No supported OS keychain backend is available for local provider secret storage."
-	backend.localSecretStore = rpc.LocalSecretStoreStatus{
-		Available:     false,
-		Message:       &message,
-		FileStorePath: filepath.Join(home, ".jaca", "secrets.json"),
-	}
-	backend.authStatuses["google"] = rpc.AuthProviderStatus{
-		Provider:   "google",
-		Configured: true,
-		Source:     "file",
-		EnvKey:     "GOOGLE_API_KEY",
-	}
-	m := newTestModel()
-	m.options.Backend = backend
-	m.options.Model = "google:gemini-2.5-flash"
-	m.authStatus = &rpc.AuthStatusResponse{
-		Providers: []rpc.AuthProviderStatus{
-			{
-				Provider:   "google",
-				Configured: true,
-				Source:     "file",
-				EnvKey:     "GOOGLE_API_KEY",
-			},
-		},
-		LocalSecretStore: backend.localSecretStore,
-	}
-	delete(backend.authStatuses, "google")
-
-	m = sendRunes(m, "hello")
-	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	m = updated.(*model)
-
-	if !m.auth.Active {
-		t.Fatal("fresh auth status should reopen auth when credentials disappeared")
-	}
-	if m.streaming {
-		t.Fatal("model run should not start when refreshed auth status reports missing credentials")
-	}
-}
-
-func TestGoogleProviderWithoutCredentialsStartsMaskedAuthFlow(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("GOOGLE_API_KEY", "")
-
-	m := newTestModel()
-	m.options.Backend = newStubBackend()
-
-	m = sendRunes(m, "/provider google")
-	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
-
-	rendered := stripANSI(m.View())
-	if !strings.Contains(rendered, "Secure Setup") || !strings.Contains(rendered, "Google API key") {
-		t.Fatalf("view missing google secure setup panel after provider selection: %q", rendered)
-	}
-	masked := sendRunes(m, "super-secret")
-	rendered = stripANSI(masked.View())
-	if strings.Contains(rendered, "super-secret") {
-		t.Fatalf("secret leaked into rendered view: %q", rendered)
-	}
-	if got := masked.promptHistory; len(got) != 1 || got[0] != "/provider google" {
-		t.Fatalf("promptHistory = %#v, want only the non-secret provider command", got)
-	}
-}
-
-func TestAuthOllamaUsesCloudSpecificSecretLabel(t *testing.T) {
-	m := newTestModel()
-	m.options.Backend = newStubBackend()
-
-	m = sendRunes(m, "/auth ollama")
-	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
-
-	rendered := stripANSI(m.View())
-	if !strings.Contains(rendered, "Ollama cloud API key") {
-		t.Fatalf("secure setup panel missing ollama cloud label: %q", rendered)
-	}
-}
-
-func TestGoogleAuthSubmissionAppliesPendingModelSelection(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("GOOGLE_API_KEY", "")
-
-	backend := newStubBackend()
-	m := newTestModel()
-	m.options.Backend = backend
-
-	m = sendRunes(m, "/model google:gemini-2.5-flash")
-	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
-	m = sendRunes(m, "google-token")
-	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
-
-	if got := m.options.Model; got != "google:gemini-2.5-flash" {
-		t.Fatalf("options.Model = %q, want %q", got, "google:gemini-2.5-flash")
-	}
-	data, err := os.ReadFile(home + "/.jaca/config.json")
-	if err != nil {
-		t.Fatalf("ReadFile() returned error: %v", err)
-	}
-	configText := string(data)
-	if !strings.Contains(configText, `"default_provider": "google"`) {
-		t.Fatalf("config.json missing provider selection: %q", configText)
-	}
-	if !strings.Contains(configText, `"default_model": "google:gemini-2.5-flash"`) {
-		t.Fatalf("config.json missing model selection: %q", configText)
-	}
-	if strings.Contains(configText, `"GOOGLE_API_KEY"`) {
-		t.Fatalf("config.json should not store google credential: %q", configText)
-	}
-	if strings.Contains(stripANSI(m.transcript.Render()), "google-token") {
-		t.Fatalf("secret leaked into transcript: %q", stripANSI(m.transcript.Render()))
-	}
-	if backend.lastSetSecret.Provider != "google" || backend.lastSetSecret.Secret != "google-token" || backend.lastSetSecret.Storage != "keychain" {
-		t.Fatalf("backend lastSetSecret = %#v", backend.lastSetSecret)
-	}
-}
-
-func TestPromptRequiringAuthIsRestoredAfterSuccessfulSubmission(t *testing.T) {
+func TestPromptRequiringAuthStaysInComposer(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("OPENAI_API_KEY", "")
@@ -1950,53 +1746,16 @@ func TestPromptRequiringAuthIsRestoredAfterSuccessfulSubmission(t *testing.T) {
 	m = sendRunes(m, "run go tests")
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = updated.(*model)
-	if !m.auth.Active {
-		t.Fatal("missing credentials should open auth")
-	}
-
-	m = sendRunes(m, "openai-token")
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	m = updated.(*model)
 
 	if got := m.textInput.Value(); got != "run go tests" {
 		t.Fatalf("textInput.Value() = %q, want original prompt restored", got)
-	}
-	if m.auth.Active {
-		t.Fatal("auth overlay should close after successful auth")
 	}
 	if m.streaming {
-		t.Fatal("successful auth should restore the prompt, not start the run automatically")
+		t.Fatal("missing auth should not start the run automatically")
 	}
 }
 
-func TestPromptRequiringAuthIsRestoredOnEscape(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("OPENAI_API_KEY", "")
-
-	m := newTestModel()
-	m.options.Backend = newStubBackend()
-	m.options.Model = "openai-responses:gpt-5.4"
-
-	m = sendRunes(m, "run go tests")
-	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	m = updated.(*model)
-	if !m.auth.Active {
-		t.Fatal("missing credentials should open auth")
-	}
-
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
-	m = updated.(*model)
-
-	if got := m.textInput.Value(); got != "run go tests" {
-		t.Fatalf("textInput.Value() = %q, want original prompt restored", got)
-	}
-	if m.auth.Active {
-		t.Fatal("auth overlay should close after escape")
-	}
-}
-
-func TestModelWithoutCredentialsStartsMaskedAuthFlow(t *testing.T) {
+func TestModelWithoutCredentialsShowsAuthFileNote(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("OPENAI_API_KEY", "")
@@ -2005,95 +1764,25 @@ func TestModelWithoutCredentialsStartsMaskedAuthFlow(t *testing.T) {
 	m := newTestModel()
 	m.options.Backend = backend
 
-	m = sendRunes(m, "/model openai-responses:gpt-5.4")
+	m = sendRunes(m, "/model openai-responses:gpt-5.4-mini")
 	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
 
-	rendered := stripANSI(m.View())
-	if !strings.Contains(rendered, "Secure Setup") || !strings.Contains(rendered, "OpenAI API key") {
-		t.Fatalf("view missing secure setup panel after model selection: %q", rendered)
+	rendered := stripANSI(m.transcript.Render())
+	if !strings.Contains(rendered, `Use API key? add "OPENAI_API_KEY"`) {
+		t.Fatalf("transcript missing auth note after model selection: %q", rendered)
 	}
-	if got := m.promptHistory; len(got) != 1 || got[0] != "/model openai-responses:gpt-5.4" {
+	if got := m.promptHistory; len(got) != 1 || got[0] != "/model openai-responses:gpt-5.4-mini" {
 		t.Fatalf("promptHistory = %#v, want only the non-secret model command", got)
-	}
-}
-
-func TestLocalOllamaModelDoesNotStartAuthFlow(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("OLLAMA_API_KEY", "")
-
-	m := newTestModel()
-	m.options.Backend = newStubBackend()
-
-	m = sendRunes(m, "/model ollama:llama3.2")
-	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
-
-	if m.auth.Active {
-		t.Fatal("local ollama model selection should not start auth")
-	}
-	if got := m.options.Model; got != "ollama:llama3.2" {
-		t.Fatalf("options.Model = %q, want %q", got, "ollama:llama3.2")
-	}
-}
-
-func TestHostedOllamaModelStartsMaskedAuthFlow(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("OLLAMA_API_KEY", "")
-
-	m := newTestModel()
-	m.options.Backend = newStubBackend()
-
-	m = sendRunes(m, "/model ollama:kimi-k2:1t-cloud")
-	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
-
-	rendered := stripANSI(m.View())
-	if !strings.Contains(rendered, "Secure Setup") || !strings.Contains(rendered, "Ollama cloud API key") {
-		t.Fatalf("view missing hosted Ollama secure setup panel after model selection: %q", rendered)
-	}
-}
-
-func TestLocalOllamaModelClearsHostedBaseURL(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("OLLAMA_API_KEY", "test-key")
-
-	if err := config.SaveProvider(config.ProviderUpdate{
-		Provider: "ollama",
-		BaseURL:  config.OllamaCloudBaseURL,
-	}); err != nil {
-		t.Fatalf("SaveProvider() returned error: %v", err)
-	}
-	if err := config.SaveDefaultModel("ollama:kimi-k2:1t-cloud"); err != nil {
-		t.Fatalf("SaveDefaultModel() returned error: %v", err)
-	}
-
-	m := newTestModel()
-	m.options.Model = "ollama:kimi-k2:1t-cloud"
-	m.options.Backend = newStubBackend()
-
-	m = sendRunes(m, "/model ollama:llama3.2")
-	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
-
-	got, err := config.Load()
-	if err != nil {
-		t.Fatalf("Load() returned error: %v", err)
-	}
-	if _, ok := got["OLLAMA_BASE_URL"]; ok {
-		t.Fatalf("local ollama model selection should clear hosted base URL: %v", got)
-	}
-	if got["default_model"] != "ollama:llama3.2" {
-		t.Fatalf("default_model = %q, want %q", got["default_model"], "ollama:llama3.2")
 	}
 }
 
 func TestAuthStatusCommandRendersProviderSources(t *testing.T) {
 	backend := newStubBackend()
-	backend.authStatuses["google"] = rpc.AuthProviderStatus{
-		Provider:   "google",
+	backend.authStatuses["anthropic"] = rpc.AuthProviderStatus{
+		Provider:   "anthropic",
 		Configured: true,
-		Source:     "keychain",
-		EnvKey:     "GOOGLE_API_KEY",
+		Source:     "file",
+		EnvKey:     "ANTHROPIC_API_KEY",
 	}
 
 	m := newTestModel()
@@ -2103,8 +1792,8 @@ func TestAuthStatusCommandRendersProviderSources(t *testing.T) {
 	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
 
 	rendered := stripANSI(m.transcript.Render())
-	if !strings.Contains(rendered, "google: configured (keychain)") {
-		t.Fatalf("transcript missing google auth status: %q", rendered)
+	if !strings.Contains(rendered, "anthropic: configured (file)") {
+		t.Fatalf("transcript missing anthropic auth status: %q", rendered)
 	}
 }
 
@@ -2113,7 +1802,7 @@ func TestAuthClearCommandCallsBackend(t *testing.T) {
 	backend.authStatuses["openai"] = rpc.AuthProviderStatus{
 		Provider:   "openai",
 		Configured: true,
-		Source:     "keychain",
+		Source:     "file",
 		EnvKey:     "OPENAI_API_KEY",
 	}
 
@@ -2192,7 +1881,7 @@ func TestSessionCommandShowsForkLineage(t *testing.T) {
 func TestNewForkedSessionShowsForkNote(t *testing.T) {
 	teaModel := New(Options{
 		AppVersion:            "0.1.4",
-		Model:                 "ollama:kimi-k2:1t-cloud",
+		Model:                 "openai-responses:gpt-5.4",
 		WorkspaceRoot:         "/workspace",
 		SessionsRoot:          "/sessions",
 		SessionID:             "fedcba9876543210fedcba9876543210",
@@ -2221,7 +1910,7 @@ func TestNameCommandWithoutActiveSessionFailsHard(t *testing.T) {
 	}
 }
 
-func TestAuthSubmissionStoresCredentialWithoutLeakingSecret(t *testing.T) {
+func TestProviderSelectionDoesNotHandleAPIKeysInTUI(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("OPENAI_API_KEY", "")
@@ -2230,38 +1919,19 @@ func TestAuthSubmissionStoresCredentialWithoutLeakingSecret(t *testing.T) {
 	m := newTestModel()
 	m.options.Backend = backend
 
-	m = sendRunes(m, "/provider openai")
-	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
-	m = sendRunes(m, "super-secret")
+	m = sendRunes(m, "/auth openai")
 	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
 
-	data, err := os.ReadFile(home + "/.jaca/config.json")
-	if err != nil {
-		t.Fatalf("ReadFile() returned error: %v", err)
-	}
-	configText := string(data)
-	if strings.Contains(configText, `"OPENAI_API_KEY"`) {
-		t.Fatalf("config.json should not store openai credential: %q", configText)
-	}
-	if !strings.Contains(configText, `"default_provider": "openai"`) {
-		t.Fatalf("config.json missing provider selection: %q", configText)
-	}
-	if !strings.Contains(configText, `"default_model": "openai-responses:gpt-5.4"`) {
-		t.Fatalf("config.json missing default model selection: %q", configText)
-	}
 	transcript := stripANSI(m.transcript.Render())
-	if strings.Contains(transcript, "super-secret") {
-		t.Fatalf("secret leaked into transcript: %q", transcript)
+	if !strings.Contains(transcript, `Use API key? add "OPENAI_API_KEY"`) {
+		t.Fatalf("transcript missing auth-file note: %q", transcript)
 	}
-	if len(m.promptHistory) != 1 || m.promptHistory[0] != "/provider openai" {
-		t.Fatalf("promptHistory = %#v, want only the provider command", m.promptHistory)
-	}
-	if backend.lastSetSecret.Provider != "openai" || backend.lastSetSecret.Secret != "super-secret" || backend.lastSetSecret.Storage != "keychain" {
+	if backend.lastSetSecret.Provider != "" || backend.lastSetSecret.Secret != "" {
 		t.Fatalf("backend lastSetSecret = %#v", backend.lastSetSecret)
 	}
 }
 
-func TestAuthSubmissionAppliesPendingModelSelection(t *testing.T) {
+func TestModelSelectionWithoutCredentialsDoesNotPersistPendingChoice(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("OPENAI_API_KEY", "")
@@ -2272,30 +1942,14 @@ func TestAuthSubmissionAppliesPendingModelSelection(t *testing.T) {
 
 	m = sendRunes(m, "/model openai-responses:gpt-5.4")
 	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
-	m = sendRunes(m, "super-secret")
-	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
 
 	if got := m.options.Model; got != "openai-responses:gpt-5.4" {
-		t.Fatalf("options.Model = %q, want %q", got, "openai-responses:gpt-5.4")
-	}
-	data, err := os.ReadFile(home + "/.jaca/config.json")
-	if err != nil {
-		t.Fatalf("ReadFile() returned error: %v", err)
-	}
-	configText := string(data)
-	if !strings.Contains(configText, `"default_provider": "openai"`) {
-		t.Fatalf("config.json missing provider selection: %q", configText)
-	}
-	if !strings.Contains(configText, `"default_model": "openai-responses:gpt-5.4"`) {
-		t.Fatalf("config.json missing model selection: %q", configText)
-	}
-	if strings.Contains(configText, `"OPENAI_API_KEY"`) {
-		t.Fatalf("config.json should not store openai credential: %q", configText)
+		t.Fatalf("options.Model = %q, want unchanged current model", got)
 	}
 	if strings.Contains(stripANSI(m.transcript.Render()), "super-secret") {
 		t.Fatalf("secret leaked into transcript: %q", stripANSI(m.transcript.Render()))
 	}
-	if backend.lastSetSecret.Provider != "openai" || backend.lastSetSecret.Secret != "super-secret" || backend.lastSetSecret.Storage != "keychain" {
+	if backend.lastSetSecret.Provider != "" || backend.lastSetSecret.Secret != "" {
 		t.Fatalf("backend lastSetSecret = %#v", backend.lastSetSecret)
 	}
 }

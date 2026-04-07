@@ -9,11 +9,8 @@ from pydantic_ai.messages import ModelMessage, ModelResponse, TextPart
 from pydantic_ai.models.anthropic import AnthropicModel
 from pydantic_ai.models.instrumented import InstrumentedModel
 from pydantic_ai.models.openai import OpenAIChatModel, OpenAIResponsesModel
-from pydantic_ai.models.openrouter import OpenRouterModel
 from pydantic_ai.models.wrapper import WrapperModel
-from pydantic_ai.providers.ollama import OllamaProvider
 from pydantic_ai.providers.openai import OpenAIProvider
-from pydantic_ai.providers.openrouter import OpenRouterProvider
 
 from just_another_coding_agent.contracts.platform import (
     ShellFamily,
@@ -25,7 +22,10 @@ from just_another_coding_agent.runtime.agent import (
     build_runtime_context_text,
     detect_current_timezone_label,
 )
-from just_another_coding_agent.runtime.models import resolve_canonical_model
+from just_another_coding_agent.runtime.models import (
+    get_external_model_id,
+    resolve_canonical_model,
+)
 from just_another_coding_agent.tools._workspace import normalize_workspace_root
 
 RUNTIME_CONTEXT_MESSAGE_HEADER = "Runtime context for this turn:"
@@ -395,6 +395,10 @@ def _describe_turn_context_model(model: Any) -> str:
     if isinstance(model, str):
         return model
 
+    external_model_id = get_external_model_id(model)
+    if external_model_id is not None:
+        return external_model_id
+
     resolved_model = resolve_canonical_model(model)
     current = resolved_model
     while isinstance(current, (InstrumentedModel, WrapperModel)):
@@ -403,12 +407,6 @@ def _describe_turn_context_model(model: Any) -> str:
     if isinstance(current, OpenAIResponsesModel):
         return f"openai-responses:{current.model_name}"
     if isinstance(current, OpenAIChatModel):
-        if isinstance(current._provider, OllamaProvider):
-            return f"ollama:{current.model_name}"
-        if isinstance(current._provider, OpenRouterProvider) or isinstance(
-            current, OpenRouterModel
-        ):
-            return f"openrouter:{current.model_name}"
         if isinstance(current._provider, OpenAIProvider):
             return f"openai-chat:{current.model_name}"
         return f"OpenAIChatModel:{current.model_name}"
@@ -417,8 +415,6 @@ def _describe_turn_context_model(model: Any) -> str:
 
     model_name = getattr(current, "model_name", None)
     if isinstance(model_name, str) and model_name:
-        if type(current).__name__ == "GoogleModel":
-            return f"google:{model_name}"
         return f"{type(current).__name__}:{model_name}"
 
     return type(current).__name__

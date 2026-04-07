@@ -1,6 +1,11 @@
 package app
 
-import "testing"
+import (
+	"strings"
+	"testing"
+
+	"jaca/internal/jaca/rpc"
+)
 
 func TestSlashCommandSuggestionsComeFromRegistry(t *testing.T) {
 	rows := slashCommandSuggestions()
@@ -34,47 +39,105 @@ func TestBuildSlashMenuStateUsesRegistryArgumentSuggestions(t *testing.T) {
 	}
 }
 
-func TestModelSuggestionsIncludeExpandedOllamaModels(t *testing.T) {
-	rows := modelSuggestions(*testModelCatalog(), "ollama")
+func TestModelSuggestionsRequireLoadedAuthStatus(t *testing.T) {
+	rows := modelSuggestions(*testModelCatalog(), nil)
 
-	want := map[string]bool{
-		"ollama:kimi-k2:1t-cloud":   false,
-		"ollama:glm-5:cloud":        false,
-		"ollama:qwen3.5:397b-cloud": false,
-		"ollama:qwen3-coder-next":   false,
-	}
-
-	for _, row := range rows {
-		if _, ok := want[row.Value]; ok {
-			want[row.Value] = true
-		}
-	}
-
-	for value, seen := range want {
-		if !seen {
-			t.Fatalf("modelSuggestions(ollama) missing %q", value)
-		}
+	if len(rows) != 0 {
+		t.Fatalf("modelSuggestions(nil authStatus) = %#v, want none", rows)
 	}
 }
 
-func TestModelSuggestionsIncludeGoogleModels(t *testing.T) {
-	rows := modelSuggestions(*testModelCatalog(), "google")
+func TestModelSuggestionsIncludeConfiguredAPIKeyAndOAuthModels(t *testing.T) {
+	status := &rpc.AuthStatusResponse{
+		Providers: []rpc.AuthProviderStatus{
+			{Provider: "openai", Configured: true},
+			{Provider: "anthropic", Configured: true},
+		},
+		OAuthProviders: []rpc.OAuthProviderStatus{
+			{Provider: "openai-codex", LoggedIn: true},
+			{Provider: "github-copilot", LoggedIn: true},
+		},
+	}
+	rows := modelSuggestions(*testModelCatalog(), status)
 
-	want := map[string]bool{
-		"google:gemini-2.5-flash":      false,
-		"google:gemini-2.5-flash-lite": false,
-		"google:gemini-2.5-pro":        false,
+	want := map[string]string{
+		"openai-responses:gpt-5.4":                    "[api-key]",
+		"openai-responses:gpt-5.4-mini":               "[api-key]",
+		"openai-responses:gpt-5.3-codex":              "[api-key]",
+		"openai-responses:gpt-5-codex":                "[oauth]",
+		"openai-responses:gpt-5-chatgpt":              "[oauth]",
+		"openai-responses:gpt-5-mini-chatgpt":         "[oauth]",
+		"openai-responses:gpt-5.1-chatgpt":            "[oauth]",
+		"openai-responses:gpt-5.1-codex-chatgpt":      "[oauth]",
+		"openai-responses:gpt-5.1-codex-mini-chatgpt": "[oauth]",
+		"openai-responses:gpt-5.1-codex-max-chatgpt":  "[oauth]",
+		"openai-responses:gpt-5.2-chatgpt":            "[oauth]",
+		"openai-responses:gpt-5.2-codex-chatgpt":      "[oauth]",
+		"openai-responses:gpt-5.3-codex-chatgpt":      "[oauth]",
+		"openai-responses:gpt-5.4-chatgpt":            "[oauth]",
+		"openai-responses:gpt-5.4-mini-chatgpt":       "[oauth]",
+		"openai-responses:gpt-5-copilot":              "[oauth]",
+		"openai-responses:gpt-5-mini-copilot":         "[oauth]",
+		"openai-responses:gpt-5.1-copilot":            "[oauth]",
+		"openai-responses:gpt-5.1-codex-copilot":      "[oauth]",
+		"openai-responses:gpt-5.1-codex-mini-copilot": "[oauth]",
+		"openai-responses:gpt-5.1-codex-max-copilot":  "[oauth]",
+		"openai-responses:gpt-5.2-copilot":            "[oauth]",
+		"openai-responses:gpt-5.2-codex-copilot":      "[oauth]",
+		"openai-responses:gpt-5.3-codex-copilot":      "[oauth]",
+		"openai-responses:gpt-5.4-copilot":            "[oauth]",
+		"openai-responses:gpt-5.4-mini-copilot":       "[oauth]",
+		"openai-chat:gpt-4.1-copilot":                 "[oauth]",
+		"openai-chat:gpt-4o-copilot":                  "[oauth]",
+		"openai-chat:gemini-2.5-pro-copilot":          "[oauth]",
+		"openai-chat:gemini-3-flash-preview-copilot":  "[oauth]",
+		"openai-chat:gemini-3-pro-preview-copilot":    "[oauth]",
+		"openai-chat:gemini-3.1-pro-preview-copilot":  "[oauth]",
+		"openai-chat:grok-code-fast-1-copilot":        "[oauth]",
+		"anthropic:claude-sonnet-4-5":                 "[api-key]",
+		"anthropic:claude-opus-4-1":                   "[api-key]",
+		"anthropic:claude-haiku-4.5-copilot":          "[oauth]",
+		"anthropic:claude-opus-4.5-copilot":           "[oauth]",
+		"anthropic:claude-opus-4.6-copilot":           "[oauth]",
+		"anthropic:claude-sonnet-4-copilot":           "[oauth]",
+		"anthropic:claude-sonnet-4.5-copilot":         "[oauth]",
+		"anthropic:claude-sonnet-4.6-copilot":         "[oauth]",
 	}
 
 	for _, row := range rows {
-		if _, ok := want[row.Value]; ok {
-			want[row.Value] = true
+		label, ok := want[row.Value]
+		if !ok {
+			continue
 		}
+		if !strings.Contains(row.Description, label) {
+			t.Fatalf("row %q missing label %q in %q", row.Value, label, row.Description)
+		}
+		delete(want, row.Value)
 	}
 
-	for value, seen := range want {
-		if !seen {
-			t.Fatalf("modelSuggestions(google) missing %q", value)
+	for value := range want {
+		t.Fatalf("modelSuggestions(...) missing %q", value)
+	}
+}
+
+func TestModelSuggestionsHideUnavailableModels(t *testing.T) {
+	status := &rpc.AuthStatusResponse{
+		Providers: []rpc.AuthProviderStatus{
+			{Provider: "anthropic", Configured: true},
+		},
+		OAuthProviders: []rpc.OAuthProviderStatus{
+			{Provider: "openai-codex", LoggedIn: false},
+			{Provider: "github-copilot", LoggedIn: false},
+		},
+	}
+	rows := modelSuggestions(*testModelCatalog(), status)
+
+	for _, row := range rows {
+		if strings.HasPrefix(row.Value, "openai-responses:") {
+			t.Fatalf("unexpected unavailable openai model in suggestions: %#v", rows)
 		}
+	}
+	if len(rows) != 2 {
+		t.Fatalf("len(rows) = %d, want 2 anthropic models", len(rows))
 	}
 }

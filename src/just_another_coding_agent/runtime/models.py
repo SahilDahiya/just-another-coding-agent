@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import os
-from functools import lru_cache
 from typing import Any
 
 import httpx
+from anthropic import AsyncAnthropic
 from openai import AsyncOpenAI, DefaultAsyncHttpxClient
 from pydantic_ai.models import Model, infer_model
 from pydantic_ai.models.anthropic import AnthropicModel
@@ -13,18 +13,22 @@ from pydantic_ai.models.openai import (
     OpenAIChatModel,
     OpenAIResponsesModel,
 )
-from pydantic_ai.models.openrouter import OpenRouterModel
 from pydantic_ai.models.wrapper import WrapperModel
 from pydantic_ai.providers.anthropic import AnthropicProvider
-from pydantic_ai.providers.ollama import OllamaProvider
 from pydantic_ai.providers.openai import OpenAIProvider
-from pydantic_ai.providers.openrouter import OpenRouterProvider
 from pydantic_ai.retries import AsyncTenacityTransport, RetryConfig, wait_retry_after
 from pydantic_ai.settings import ModelSettings
 from tenacity import retry_if_exception_type, stop_after_attempt
 
-from just_another_coding_agent.auth import resolve_provider_secret
+from just_another_coding_agent.auth import (
+    resolve_github_copilot_oauth_credentials_sync,
+    resolve_openai_codex_oauth_credentials_sync,
+    resolve_provider_secret,
+)
 from just_another_coding_agent.contracts.thinking import ThinkingSetting
+from just_another_coding_agent.oauth_github_copilot import (
+    get_github_copilot_base_url,
+)
 from just_another_coding_agent.provider_readiness import (
     ProviderReadinessError,
     compute_provider_readiness,
@@ -36,43 +40,78 @@ OPENAI_COMPATIBLE_RETRYABLE_STATUS_CODES = frozenset(
 )
 OPENAI_COMPATIBLE_HTTP_RETRY_ATTEMPTS = 3
 OPENAI_COMPATIBLE_HTTP_RETRY_MAX_WAIT_SECONDS = 30
+OPENAI_CODEX_MODEL_NAME_BY_ID: dict[str, str] = {
+    "gpt-5-codex": "gpt-5-codex",
+    "gpt-5-chatgpt": "gpt-5",
+    "gpt-5-mini-chatgpt": "gpt-5-mini",
+    "gpt-5.1-chatgpt": "gpt-5.1",
+    "gpt-5.1-codex-chatgpt": "gpt-5.1-codex",
+    "gpt-5.1-codex-mini-chatgpt": "gpt-5.1-codex-mini",
+    "gpt-5.1-codex-max-chatgpt": "gpt-5.1-codex-max",
+    "gpt-5.2-chatgpt": "gpt-5.2",
+    "gpt-5.2-codex-chatgpt": "gpt-5.2-codex",
+    "gpt-5.3-codex-chatgpt": "gpt-5.3-codex",
+    "gpt-5.4-chatgpt": "gpt-5.4",
+    "gpt-5.4-mini-chatgpt": "gpt-5.4-mini",
+}
 OPENAI_CONTEXT_WINDOW_TOKENS_BY_PREFIX: tuple[tuple[str, int], ...] = (
+    ("gpt-5.4-mini-chatgpt", 400_000),
+    ("gpt-5.4-chatgpt", 400_000),
+    ("gpt-5.3-codex-chatgpt", 400_000),
+    ("gpt-5.2-codex-chatgpt", 400_000),
+    ("gpt-5.2-chatgpt", 264_000),
+    ("gpt-5.1-codex-max-chatgpt", 400_000),
+    ("gpt-5.1-codex-mini-chatgpt", 400_000),
+    ("gpt-5.1-codex-chatgpt", 400_000),
+    ("gpt-5.1-chatgpt", 264_000),
+    ("gpt-5-mini-chatgpt", 264_000),
+    ("gpt-5-chatgpt", 128_000),
+    ("gpt-5.4-mini-copilot", 400_000),
+    ("gpt-5.4-copilot", 400_000),
+    ("gpt-5.3-codex-copilot", 400_000),
+    ("gpt-5.2-codex-copilot", 400_000),
+    ("gpt-5.2-copilot", 264_000),
+    ("gpt-5.1-codex-max-copilot", 400_000),
+    ("gpt-5.1-codex-mini-copilot", 400_000),
+    ("gpt-5.1-codex-copilot", 400_000),
+    ("gpt-5.1-copilot", 264_000),
+    ("gpt-5-mini-copilot", 264_000),
+    ("gpt-5-copilot", 128_000),
+    ("gpt-4.1-copilot", 128_000),
+    ("gpt-4o-copilot", 128_000),
+    ("gemini-2.5-pro-copilot", 128_000),
+    ("gemini-3-flash-preview-copilot", 128_000),
+    ("gemini-3-pro-preview-copilot", 128_000),
+    ("gemini-3.1-pro-preview-copilot", 128_000),
+    ("grok-code-fast-1-copilot", 128_000),
     ("gpt-5.4-mini", 400_000),
     ("gpt-5.4", 1_050_000),
+    ("gpt-5-mini", 264_000),
     ("gpt-5.3-codex", 400_000),
     ("gpt-5-codex", 400_000),
     ("gpt-4o", 128_000),
 )
 ANTHROPIC_CONTEXT_WINDOW_TOKENS_BY_PREFIX: tuple[tuple[str, int], ...] = (
+    ("claude-opus-4.6-copilot", 1_000_000),
+    ("claude-sonnet-4.6-copilot", 1_000_000),
+    ("claude-sonnet-4-copilot", 216_000),
+    ("claude-opus-4.5-copilot", 160_000),
+    ("claude-haiku-4.5-copilot", 144_000),
+    ("claude-sonnet-4.5-copilot", 144_000),
     ("claude-haiku-4-5", 200_000),
     ("claude-sonnet-4-5", 200_000),
     ("claude-opus-4-1", 200_000),
 )
-GOOGLE_CONTEXT_WINDOW_TOKENS_BY_PREFIX: tuple[tuple[str, int], ...] = (
-    ("gemini-2.5-flash-lite", 1_048_576),
-    ("gemini-2.5-flash", 1_048_576),
-    ("gemini-2.5-pro", 1_048_576),
-)
-OLLAMA_CONTEXT_WINDOW_TOKENS_BY_PREFIX: tuple[tuple[str, int], ...] = (
-    ("qwen3.5", 262_144),
-    ("qwen3-coder-next", 262_144),
-    ("glm-5", 198_000),
-    ("gemma4:e4b", 128_000),
-    ("kimi-k2", 262_144),
-)
-OPENROUTER_CONTEXT_WINDOW_TOKENS_BY_PREFIX: tuple[tuple[str, int], ...] = (
-    ("openai/gpt-5.4-mini", 400_000),
-    ("openai/gpt-5.4", 1_050_000),
-    ("anthropic/claude-haiku-4-5", 200_000),
-    ("anthropic/claude-sonnet-4-5", 200_000),
-    ("anthropic/claude-opus-4-1", 200_000),
-    ("x-ai/grok-code-fast-1", 262_144),
-    ("google/gemini-2.5-flash-lite", 1_048_576),
-    ("google/gemini-2.5-flash", 1_048_576),
-    ("google/gemini-2.5-pro", 1_048_576),
-)
-DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434/v1"
-LOCAL_OPENAI_COMPATIBLE_PLACEHOLDER_API_KEY = "local-no-auth-required"
+OPENAI_CODEX_BASE_URL = "https://chatgpt.com/backend-api/codex"
+EXTERNAL_MODEL_ID_ATTR = "_jaca_external_model_id"
+COPILOT_HEADERS = {
+    "User-Agent": "GitHubCopilotChat/0.35.0",
+    "Editor-Version": "vscode/1.107.0",
+    "Editor-Plugin-Version": "copilot-chat/0.35.0",
+    "Copilot-Integration-Id": "vscode-chat",
+    "X-Initiator": "user",
+    "Openai-Intent": "conversation-edits",
+}
 
 
 def resolve_canonical_model(model: Any) -> Model:
@@ -81,23 +120,35 @@ def resolve_canonical_model(model: Any) -> Model:
 
     if isinstance(model, str):
         if model.startswith("openai-responses:"):
-            return _maybe_instrument_model(_build_openai_responses_model(model))
+            return _maybe_instrument_model(
+                _tag_external_model_id(_build_openai_responses_model(model), model)
+            )
         if model.startswith("openai:") or model.startswith("openai-chat:"):
-            return _maybe_instrument_model(_build_openai_chat_model(model))
+            return _maybe_instrument_model(
+                _tag_external_model_id(_build_openai_chat_model(model), model)
+            )
         if model.startswith("anthropic:"):
-            return _maybe_instrument_model(_build_anthropic_model(model))
-        if model.startswith("openrouter:"):
-            return _maybe_instrument_model(_build_openrouter_model(model))
-        if model.startswith("google:"):
-            return _maybe_instrument_model(_build_google_model(model))
-        if model.startswith("ollama:"):
-            return _maybe_instrument_model(_build_ollama_chat_model(model))
+            return _maybe_instrument_model(
+                _tag_external_model_id(_build_anthropic_model(model), model)
+            )
 
     return _maybe_instrument_model(infer_model(model))
 
 
 def _build_openai_responses_model(model_id: str) -> OpenAIResponsesModel:
     _, model_name = model_id.split(":", 1)
+    codex_model_name = _openai_codex_model_name(model_name)
+    if codex_model_name is not None:
+        return OpenAIResponsesModel(
+            codex_model_name,
+            provider=_build_openai_codex_oauth_provider(),
+        )
+    copilot_model_name = _github_copilot_model_name(model_name)
+    if copilot_model_name is not None:
+        return OpenAIResponsesModel(
+            copilot_model_name,
+            provider=_build_github_copilot_provider(),
+        )
     return OpenAIResponsesModel(
         model_name,
         provider=_build_openai_provider(),
@@ -106,6 +157,12 @@ def _build_openai_responses_model(model_id: str) -> OpenAIResponsesModel:
 
 def _build_openai_chat_model(model_id: str) -> OpenAIChatModel:
     _, model_name = model_id.split(":", 1)
+    copilot_model_name = _github_copilot_model_name(model_name)
+    if copilot_model_name is not None:
+        return OpenAIChatModel(
+            copilot_model_name,
+            provider=_build_github_copilot_provider(),
+        )
     return OpenAIChatModel(
         model_name,
         provider=_build_openai_provider(),
@@ -113,7 +170,6 @@ def _build_openai_chat_model(model_id: str) -> OpenAIChatModel:
 
 
 def _build_openai_provider() -> OpenAIProvider:
-    base_url = os.environ.get("OPENAI_BASE_URL")
     readiness = compute_provider_readiness("openai")
     if not readiness.configured:
         raise ProviderReadinessError("OpenAI is not ready: missing secret")
@@ -121,14 +177,57 @@ def _build_openai_provider() -> OpenAIProvider:
 
     return OpenAIProvider(
         openai_client=_build_openai_compatible_client(
-            base_url=base_url,
+            base_url=os.environ.get("OPENAI_BASE_URL"),
             api_key=api_key,
+        )
+    )
+
+
+def _build_openai_codex_oauth_provider() -> OpenAIProvider:
+    credentials = resolve_openai_codex_oauth_credentials_sync()
+    if credentials is None:
+        raise ProviderReadinessError(
+            "ChatGPT subscription login required for openai-responses:gpt-5-codex"
+        )
+    return OpenAIProvider(
+        openai_client=_build_openai_compatible_client(
+            base_url=OPENAI_CODEX_BASE_URL,
+            api_key=credentials.access,
+            default_headers={
+                "chatgpt-account-id": credentials.account_id,
+                "originator": "jaca",
+                "OpenAI-Beta": "responses=experimental",
+            },
+        )
+    )
+
+
+def _build_github_copilot_provider() -> OpenAIProvider:
+    credentials = resolve_github_copilot_oauth_credentials_sync()
+    if credentials is None:
+        raise ProviderReadinessError(
+            "GitHub Copilot login required for Copilot-backed openai-responses models"
+        )
+    return OpenAIProvider(
+        openai_client=_build_openai_compatible_client(
+            base_url=get_github_copilot_base_url(
+                credentials.access,
+                credentials.enterprise_domain,
+            ),
+            api_key=credentials.access,
+            default_headers=COPILOT_HEADERS,
         )
     )
 
 
 def _build_anthropic_model(model_id: str) -> AnthropicModel:
     _, model_name = model_id.split(":", 1)
+    copilot_model_name = _github_copilot_model_name(model_name)
+    if copilot_model_name is not None:
+        return AnthropicModel(
+            copilot_model_name,
+            provider=_build_github_copilot_anthropic_provider(),
+        )
     return AnthropicModel(
         model_name,
         provider=_build_anthropic_provider(),
@@ -142,57 +241,22 @@ def _build_anthropic_provider() -> AnthropicProvider:
     return AnthropicProvider(api_key=resolve_provider_secret("anthropic"))
 
 
-def _build_openrouter_model(model_id: str) -> OpenRouterModel:
-    _, model_name = model_id.split(":", 1)
-    return OpenRouterModel(
-        model_name,
-        provider=_build_openrouter_provider(),
-    )
-
-
-def _build_openrouter_provider() -> OpenRouterProvider:
-    readiness = compute_provider_readiness("openrouter")
-    if not readiness.configured:
-        raise ProviderReadinessError("OpenRouter is not ready: missing secret")
-    return OpenRouterProvider(
-        api_key=resolve_provider_secret("openrouter"),
-        http_client=_build_retrying_openai_compatible_http_client(),
-    )
-
-
-def _build_ollama_chat_model(model_id: str) -> OpenAIChatModel:
-    _, model_name = model_id.split(":", 1)
-    return OpenAIChatModel(
-        model_name,
-        provider=_build_ollama_provider(),
-    )
-
-
-def _build_ollama_provider() -> OllamaProvider:
-    base_url = os.environ.get("OLLAMA_BASE_URL") or DEFAULT_OLLAMA_BASE_URL
-    readiness = compute_provider_readiness("ollama")
-    if readiness.requires_secret and not readiness.configured:
-        raise ProviderReadinessError("Ollama cloud is not ready: missing secret")
-    api_key = resolve_provider_secret("ollama", allow_missing_keychain=True)
-    if api_key is None:
-        api_key = LOCAL_OPENAI_COMPATIBLE_PLACEHOLDER_API_KEY
-    return OllamaProvider(
-        openai_client=_build_openai_compatible_client(
-            base_url=base_url,
-            api_key=api_key,
+def _build_github_copilot_anthropic_provider() -> AnthropicProvider:
+    credentials = resolve_github_copilot_oauth_credentials_sync()
+    if credentials is None:
+        raise ProviderReadinessError(
+            "GitHub Copilot login required for Copilot-backed anthropic models"
         )
-    )
-
-
-def _build_google_model(model_id: str) -> Model:
-    google_model_cls, google_provider_cls = _google_model_types()
-    _, model_name = model_id.split(":", 1)
-    readiness = compute_provider_readiness("google")
-    if not readiness.configured:
-        raise ProviderReadinessError("Google is not ready: missing secret")
-    return google_model_cls(
-        model_name,
-        provider=google_provider_cls(api_key=resolve_provider_secret("google")),
+    return AnthropicProvider(
+        anthropic_client=AsyncAnthropic(
+            auth_token=credentials.access,
+            base_url=get_github_copilot_base_url(
+                credentials.access,
+                credentials.enterprise_domain,
+            ),
+            default_headers=COPILOT_HEADERS,
+            max_retries=0,
+        )
     )
 
 
@@ -200,10 +264,12 @@ def _build_openai_compatible_client(
     *,
     base_url: str | None,
     api_key: str | None,
+    default_headers: dict[str, str] | None = None,
 ) -> AsyncOpenAI:
     return AsyncOpenAI(
         base_url=base_url,
         api_key=api_key,
+        default_headers=default_headers,
         http_client=_build_retrying_openai_compatible_http_client(),
         max_retries=0,
     )
@@ -231,22 +297,6 @@ def _raise_for_retryable_openai_status(response: httpx.Response) -> None:
         response.raise_for_status()
 
 
-@lru_cache(maxsize=1)
-def _google_model_types() -> tuple[type[Model], type[Any]]:
-    from pydantic_ai.models.google import GoogleModel
-    from pydantic_ai.providers.google import GoogleProvider
-
-    return GoogleModel, GoogleProvider
-
-
-def _is_google_model(model: Model) -> bool:
-    try:
-        google_model_cls, _ = _google_model_types()
-    except ImportError:
-        return False
-    return isinstance(model, google_model_cls)
-
-
 def build_canonical_model_settings(
     *,
     model: Any = None,
@@ -258,6 +308,7 @@ def build_canonical_model_settings(
         policy_model = _unwrap_policy_model(resolved_model)
         settings.update(resolved_model.settings or {})
         _apply_parallel_tool_call_policy(settings=settings, model=policy_model)
+        _apply_openai_codex_policy(settings=settings, model=policy_model)
     if thinking is not None:
         settings["thinking"] = thinking
 
@@ -307,15 +358,57 @@ def _apply_parallel_tool_call_policy(*, settings: dict[str, Any], model: Model) 
         settings["parallel_tool_calls"] = True
 
 
+def _apply_openai_codex_policy(*, settings: dict[str, Any], model: Model) -> None:
+    if not isinstance(model, OpenAIResponsesModel):
+        return
+    if not isinstance(model._provider, OpenAIProvider):
+        return
+    base_url = str(model._provider.base_url)
+    is_codex_backend = base_url == f"{OPENAI_CODEX_BASE_URL}/"
+    is_copilot_backend = "githubcopilot.com" in base_url
+    if not is_codex_backend and not is_copilot_backend:
+        return
+    # The ChatGPT Codex and Copilot backends reject standard Responses
+    # continuation semantics; each request must be a fresh non-stored input.
+    settings.pop("openai_previous_response_id", None)
+    settings["openai_store"] = False
+
+
+def _github_copilot_model_name(model_name: str) -> str | None:
+    if not model_name.endswith("-copilot"):
+        return None
+    base_model = model_name[: -len("-copilot")]
+    if not base_model:
+        return None
+    return base_model
+
+
+def _openai_codex_model_name(model_name: str) -> str | None:
+    return OPENAI_CODEX_MODEL_NAME_BY_ID.get(model_name)
+
+
 def _supports_parallel_tool_calls(model: Model) -> bool:
     if isinstance(model, OpenAIResponsesModel):
         return isinstance(model._provider, OpenAIProvider)
     if isinstance(model, OpenAIChatModel):
-        return isinstance(
-            model._provider,
-            (OpenAIProvider, OllamaProvider, OpenRouterProvider),
-        )
+        return isinstance(model._provider, OpenAIProvider)
     return isinstance(model, AnthropicModel)
+
+
+def get_external_model_id(model: Any) -> str | None:
+    if isinstance(model, str):
+        return model
+
+    resolved_model = resolve_canonical_model(model)
+    current: Any = resolved_model
+    while True:
+        model_id = getattr(current, EXTERNAL_MODEL_ID_ATTR, None)
+        if isinstance(model_id, str) and model_id:
+            return model_id
+        if not isinstance(current, WrapperModel):
+            break
+        current = current.wrapped
+    return None
 
 
 def get_model_context_window_tokens(model: Any) -> int | None:
@@ -335,25 +428,13 @@ def get_model_context_window_tokens(model: Any) -> int | None:
                 model.split(":", 1)[1],
                 ANTHROPIC_CONTEXT_WINDOW_TOKENS_BY_PREFIX,
             )
-        if model.startswith("openrouter:"):
-            return _match_model_name_prefix(
-                model.split(":", 1)[1],
-                OPENROUTER_CONTEXT_WINDOW_TOKENS_BY_PREFIX,
-            )
-        if model.startswith("google:"):
-            return _match_model_name_prefix(
-                model.split(":", 1)[1],
-                GOOGLE_CONTEXT_WINDOW_TOKENS_BY_PREFIX,
-            )
-        if model.startswith("ollama:"):
-            return _match_model_name_prefix(
-                model.split(":", 1)[1],
-                OLLAMA_CONTEXT_WINDOW_TOKENS_BY_PREFIX,
-            )
         return None
 
     resolved_model = resolve_canonical_model(model)
     policy_model = _unwrap_policy_model(resolved_model)
+    external_model_id = get_external_model_id(policy_model)
+    if external_model_id:
+        return get_model_context_window_tokens(external_model_id)
 
     if isinstance(policy_model, OpenAIResponsesModel):
         return _match_model_name_prefix(
@@ -367,22 +448,6 @@ def get_model_context_window_tokens(model: Any) -> int | None:
                 policy_model.model_name,
                 OPENAI_CONTEXT_WINDOW_TOKENS_BY_PREFIX,
             )
-        if isinstance(policy_model._provider, OllamaProvider):
-            return _match_model_name_prefix(
-                policy_model.model_name,
-                OLLAMA_CONTEXT_WINDOW_TOKENS_BY_PREFIX,
-            )
-        if isinstance(policy_model._provider, OpenRouterProvider):
-            return _match_model_name_prefix(
-                policy_model.model_name,
-                OPENROUTER_CONTEXT_WINDOW_TOKENS_BY_PREFIX,
-            )
-
-    if _is_google_model(policy_model):
-        return _match_model_name_prefix(
-            policy_model.model_name,
-            GOOGLE_CONTEXT_WINDOW_TOKENS_BY_PREFIX,
-        )
 
     if isinstance(policy_model, AnthropicModel):
         return _match_model_name_prefix(
@@ -403,8 +468,14 @@ def _match_model_name_prefix(
     return None
 
 
+def _tag_external_model_id(model: Model, model_id: str) -> Model:
+    setattr(model, EXTERNAL_MODEL_ID_ATTR, model_id)
+    return model
+
+
 __all__ = [
     "build_canonical_model_settings",
+    "get_external_model_id",
     "get_model_context_window_tokens",
     "resolve_canonical_model",
 ]

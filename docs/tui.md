@@ -133,12 +133,6 @@ The core architectural risk is semantic drift between the Go shell and the Pytho
   queued user text before the assistant response. That transcript truth comes
   from backend-emitted `session_queued_prompt_batch_submitted`, not from local
   guesswork in the Go TUI.
-- Ollama onboarding must be truthful about the two real paths:
-  `/model ollama:<local-model>` for local no-auth use, and `/provider ollama`
-  as an explicit local-vs-cloud chooser. Hosted Ollama means
-  `https://ollama.com/v1` plus an API key; local Ollama does not prompt for
-  auth, clears the hosted endpoint immediately, and uses local Ollama on the
-  next run whenever the active model already starts with `ollama:`.
 - Masked auth should feel explicitly secure, not like ordinary chat input:
   provider-specific labeling, a centered secure setup panel, a masked input
   field, and clear copy that the secret is not written into transcript or
@@ -147,13 +141,12 @@ The core architectural risk is semantic drift between the Go shell and the Pytho
   fine-grained personal access token and call out the required account
   permission `Models -> Read-only` instead of making the user infer that from
   docs.
-- Google Gemini should behave like the other hosted providers in the TUI:
-  first-run setup, `/provider google`, and `/auth google` all flow through the
-  same masked `GOOGLE_API_KEY` capture path instead of inventing separate UI
-  behavior.
-- If the backend reports that interactive local secret storage is unavailable,
-  the TUI should skip the normal keychain panel and go directly to the local
-  secret file panel with clear explanatory copy about why that path was chosen.
+- The TUI must not collect API keys directly. Hosted-provider setup should
+  point to the backend-owned auth file and keep OAuth under `/login`.
+- First-run setup should prioritize the four supported access lanes:
+  ChatGPT subscription, GitHub Copilot subscription, OpenAI API key, and
+  Anthropic API key. Removed providers should not survive in slash help,
+  onboarding copy, or picker suggestions.
 - The prompt zone should behave like a compact two-line shell composer: one input line, one low-salience footer line for state and recall hints.
 - Backend token and context-window usage should appear as restrained footer context after a completed run, not as a new panel or heavy stats surface.
 - Session lifecycle events such as `session_compaction_started` and `session_compaction_completed` may appear before `run_started`; the TUI should surface them in the transcript and switch to the compacting state only when the backend says compaction is happening, instead of silently dropping or reinterpreting them.

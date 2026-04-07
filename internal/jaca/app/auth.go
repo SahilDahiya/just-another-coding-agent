@@ -202,54 +202,31 @@ func (m *model) restorePendingPrompt(prompt string) {
 	m.syncSlashMenu()
 }
 
-func authSetupLines(provider string) []string {
-	return authSetupLinesForStorage(provider, "keychain", "")
-}
-
 func authOverlayTitle(storage string) string {
-	if storage == "file" {
-		return "Local Secret File"
-	}
-	return "Secure Setup"
+	return "Auth File"
 }
 
-func authSetupLinesForStorage(provider string, storage string, fileStorePath string) []string {
-	if storage == "file" {
-		lines := []string{
-			fmt.Sprintf("Enter your %s", authSecretLabel(provider)),
-		}
-		lines = append(
-			lines,
-			"OS keychain unavailable; using local secret file instead",
-			fmt.Sprintf("Stored in %s", fileStorePath),
-			"Enter saves. Esc cancels.",
-		)
-		return lines
+func authSetupLines(provider string, fileStorePath string) []string {
+	return authFileSetupLines(provider, fileStorePath)
+}
+
+func authFileSetupLines(provider string, fileStorePath string) []string {
+	if strings.TrimSpace(fileStorePath) == "" {
+		fileStorePath = "~/.jaca/auth.json"
 	}
-	lines := []string{
-		fmt.Sprintf("Enter your %s", authSecretLabel(provider)),
+	return []string{
+		fmt.Sprintf("Use API key? add %q to %s.", authEnvKey(provider), fileStorePath),
+		"OAuth also works via /login when available.",
+		"Retry your prompt after saving.",
 	}
-	lines = append(
-		lines,
-		"Stored in the OS keychain",
-		"Not added to transcript or prompt history",
-		"Enter saves. Esc cancels.",
-	)
-	return lines
 }
 
 func authProviderLabel(provider string) string {
 	switch provider {
-	case "ollama":
-		return "Ollama"
 	case "openai":
 		return "OpenAI"
-	case "openrouter":
-		return "OpenRouter"
 	case "anthropic":
 		return "Anthropic"
-	case "google":
-		return "Google"
 	default:
 		return strings.ToUpper(provider)
 	}
@@ -257,17 +234,22 @@ func authProviderLabel(provider string) string {
 
 func authSecretLabel(provider string) string {
 	switch provider {
-	case "ollama":
-		return "Ollama cloud API key"
 	case "openai":
 		return "OpenAI API key"
-	case "openrouter":
-		return "OpenRouter API key"
 	case "anthropic":
 		return "Anthropic API key"
-	case "google":
-		return "Google API key"
 	default:
 		return "provider secret"
+	}
+}
+
+func authEnvKey(provider string) string {
+	switch provider {
+	case "openai":
+		return "OPENAI_API_KEY"
+	case "anthropic":
+		return "ANTHROPIC_API_KEY"
+	default:
+		return "PROVIDER_API_KEY"
 	}
 }

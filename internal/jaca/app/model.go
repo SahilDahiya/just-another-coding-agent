@@ -130,18 +130,18 @@ type queuedPreviewState struct {
 }
 
 type runState struct {
-	phase              Phase
-	streaming          bool
+	phase               Phase
+	streaming           bool
 	awaitingFirstOutput bool
-	activeRunSucceeded bool
-	lastInterrupt      time.Time
-	activeRunCancel    context.CancelFunc
-	runStartTime       time.Time
-	lastDeltaTime      time.Time
-	pendingAssistant   string
-	liveFlushScheduled bool
-	asyncCh            chan tea.Msg
-	lastUsage          usageSnapshot
+	activeRunSucceeded  bool
+	lastInterrupt       time.Time
+	activeRunCancel     context.CancelFunc
+	runStartTime        time.Time
+	lastDeltaTime       time.Time
+	pendingAssistant    string
+	liveFlushScheduled  bool
+	asyncCh             chan tea.Msg
+	lastUsage           usageSnapshot
 }
 
 type layoutState struct {
@@ -162,6 +162,7 @@ type backendState struct {
 
 type overlayState struct {
 	auth                 authState
+	login                loginState
 	startupOnboardingSet bool
 	onboarding           onboardingState
 	updatePrompt         updatePromptState
@@ -442,10 +443,10 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		catalog := msg.Catalog
 		m.modelCatalog = &catalog
-		m.maybeStartOnboarding()
+		cmd := m.maybeStartOnboarding()
 		m.syncSlashMenu()
 		m.refreshViewport()
-		return m, nil
+		return m, cmd
 	case authStatusLoadedMsg:
 		m.authStatusLoading = false
 		if msg.Err != nil {
@@ -460,9 +461,114 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		status := msg.Status
 		m.authStatus = &status
-		m.maybeStartOnboarding()
+		cmd := m.maybeStartOnboarding()
 		m.refreshViewport()
-		return m, nil
+		return m, cmd
+	case startOpenAICodexLoginMsg:
+		if msg.Err != nil {
+			m.endLoginFlow()
+			m.transcript.WriteError(msg.Err.Error())
+			m.refreshViewport()
+			return m, nil
+		}
+		m.login.FlowID = msg.Response.FlowID
+		m.login.AuthURL = msg.Response.AuthURL
+		m.login.Instructions = msg.Response.Instructions
+		m.login.Active = false
+		m.login.Waiting = true
+		m.transcript.WriteNote("login", []string{
+			"Open this URL in your browser:",
+			msg.Response.AuthURL,
+			"Waiting for browser callback on http://localhost:1455/auth/callback",
+			"If auto-return fails, finish with /login openai-codex <redirect-url-or-code>",
+		})
+		if err := bestEffortOpenBrowser(msg.Response.AuthURL); err != nil {
+			m.transcript.WriteLine("browser did not open automatically")
+			m.transcript.WriteLine(err.Error())
+		}
+		m.refreshViewport()
+		return m, pollOpenAICodexLogin(m.options.Backend, m.login.FlowID)
+	case startGitHubCopilotLoginMsg:
+		if msg.Err != nil {
+			m.endLoginFlow()
+			m.transcript.WriteError(msg.Err.Error())
+			m.refreshViewport()
+			return m, nil
+		}
+		m.login.FlowID = msg.Response.FlowID
+		m.login.AuthURL = msg.Response.AuthURL
+		m.login.Instructions = msg.Response.Instructions
+		m.login.Active = false
+		m.login.Waiting = true
+		m.transcript.WriteNote("login", []string{
+			"Open this URL in your browser:",
+			msg.Response.AuthURL,
+			fmt.Sprintf("Enter code: %s", msg.Response.UserCode),
+			"Waiting for GitHub Copilot device-code approval",
+		})
+		if err := bestEffortOpenBrowser(msg.Response.AuthURL); err != nil {
+			m.transcript.WriteLine("browser did not open automatically")
+			m.transcript.WriteLine(err.Error())
+		}
+		m.refreshViewport()
+		return m, pollGitHubCopilotLogin(m.options.Backend, m.login.FlowID)
+	case completeOpenAICodexLoginMsg:
+		if msg.Err != nil {
+			m.transcript.WriteError(msg.Err.Error())
+			m.refreshViewport()
+			return m, nil
+		}
+		lines := []string{"ChatGPT subscription login complete"}
+		if msg.Response.Status.AccountID != nil && *msg.Response.Status.AccountID != "" {
+			lines = append(lines, fmt.Sprintf("account: %s", *msg.Response.Status.AccountID))
+		}
+		return m.finishLoginSuccess(lines)
+	case pollOpenAICodexLoginMsg:
+		if !m.login.Waiting || m.login.FlowID == "" {
+			return m, nil
+		}
+		if msg.Err != nil {
+			if strings.Contains(msg.Err.Error(), "unknown OpenAI Codex login flow") {
+				return m, nil
+			}
+			m.transcript.WriteError(msg.Err.Error())
+			m.refreshViewport()
+			return m, nil
+		}
+		if !msg.Response.Done {
+			return m, pollOpenAICodexLogin(m.options.Backend, m.login.FlowID)
+		}
+		if msg.Response.Status == nil {
+			m.transcript.WriteError("openai codex login completed without status")
+			m.refreshViewport()
+			return m, nil
+		}
+		lines := []string{"ChatGPT subscription login complete"}
+		if msg.Response.Status.AccountID != nil && *msg.Response.Status.AccountID != "" {
+			lines = append(lines, fmt.Sprintf("account: %s", *msg.Response.Status.AccountID))
+		}
+		return m.finishLoginSuccess(lines)
+	case pollGitHubCopilotLoginMsg:
+		if !m.login.Waiting || m.login.FlowID == "" {
+			return m, nil
+		}
+		if msg.Err != nil {
+			if strings.Contains(msg.Err.Error(), "unknown GitHub Copilot login flow") {
+				return m, nil
+			}
+			m.transcript.WriteError(msg.Err.Error())
+			m.refreshViewport()
+			return m, nil
+		}
+		if !msg.Response.Done {
+			return m, pollGitHubCopilotLogin(m.options.Backend, m.login.FlowID)
+		}
+		if msg.Response.Status == nil {
+			m.transcript.WriteError("github copilot login completed without status")
+			m.refreshViewport()
+			return m, nil
+		}
+		return m.finishLoginSuccess([]string{"GitHub Copilot login complete"})
 	case sessionPreviewLoadedMsg:
 		m.sessionPreviewLoading = false
 		m.sessionPreviewLoaded = true
@@ -518,6 +624,39 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+func (m *model) finishLoginSuccess(lines []string) (tea.Model, tea.Cmd) {
+	pendingModel := m.login.PendingModel
+	pendingPrompt := m.login.PendingPrompt
+	m.endLoginFlow()
+	m.transcript.WriteNote("login", lines)
+	if statuses, err := m.fetchAuthStatus(); err == nil {
+		m.authStatus = &statuses
+	} else {
+		m.transcript.WriteError(fmt.Sprintf("auth status: %v", err))
+	}
+	if pendingModel != "" {
+		selectedLines, restart, err := m.applyModelSelection(
+			pendingModel,
+			providerForModel(pendingModel),
+		)
+		if err != nil {
+			m.transcript.WriteError(err.Error())
+			m.restorePendingPrompt(pendingPrompt)
+			m.refreshViewport()
+			return m, nil
+		}
+		for _, line := range selectedLines {
+			m.transcript.WriteLine(line)
+		}
+		if restart && m.options.Backend != nil {
+			m.restartBackendWithCurrentEnv()
+		}
+	}
+	m.restorePendingPrompt(pendingPrompt)
+	m.refreshViewport()
+	return m, nil
+}
+
 func (m *model) View() string {
 	vm := m.currentViewModel()
 	return renderView(vm)
@@ -533,29 +672,29 @@ func (m *model) currentViewModel() viewModel {
 		sinceLastDelta = time.Since(m.lastDeltaTime)
 	}
 	return viewModel{
-		Phase:          m.phase,
-		Width:          m.width,
-		Height:         m.height,
-		Model:          m.options.Model,
-		WorkspaceRoot:  m.options.WorkspaceRoot,
-		Thinking:       m.options.Thinking,
-		SessionID:      m.sessionID,
-		SessionName:    m.sessionName,
-		MotionTick:     m.motionTick,
-		Transcript:     m.viewport.View(),
-		PromptValue:    m.promptView(),
-		PromptFooter:   m.currentPromptFooter(),
-		RunElapsed:     elapsed,
+		Phase:               m.phase,
+		Width:               m.width,
+		Height:              m.height,
+		Model:               m.options.Model,
+		WorkspaceRoot:       m.options.WorkspaceRoot,
+		Thinking:            m.options.Thinking,
+		SessionID:           m.sessionID,
+		SessionName:         m.sessionName,
+		MotionTick:          m.motionTick,
+		Transcript:          m.viewport.View(),
+		PromptValue:         m.promptView(),
+		PromptFooter:        m.currentPromptFooter(),
+		RunElapsed:          elapsed,
 		AwaitingFirstOutput: m.awaitingFirstOutput,
-		Usage:          m.lastUsage,
-		QueuedNext:     append([]string{}, m.queuedPreview.Next...),
-		QueuedLater:    append([]string{}, m.queuedPreview.Later...),
-		LinePulse:      m.linePulse,
-		SinceLastDelta: sinceLastDelta,
-		DetachedLive:   m.streaming && !m.viewport.AtBottom(),
-		VisibleZones:   m.visibleZones,
-		SlashMenu:      m.slashMenu,
-		UpdatePrompt:   m.updatePrompt,
+		Usage:               m.lastUsage,
+		QueuedNext:          append([]string{}, m.queuedPreview.Next...),
+		QueuedLater:         append([]string{}, m.queuedPreview.Later...),
+		LinePulse:           m.linePulse,
+		SinceLastDelta:      sinceLastDelta,
+		DetachedLive:        m.streaming && !m.viewport.AtBottom(),
+		VisibleZones:        m.visibleZones,
+		SlashMenu:           m.slashMenu,
+		UpdatePrompt:        m.updatePrompt,
 		Onboarding: onboardingOverlayView{
 			Active:      m.onboarding.Active,
 			Selected:    m.onboarding.Selected,
@@ -569,7 +708,14 @@ func (m *model) currentViewModel() viewModel {
 			Provider:    m.auth.Provider,
 			SecretLabel: authSecretLabel(m.auth.Provider),
 			InputValue:  m.textInput.View(),
-			HelpLines:   authSetupLinesForStorage(m.auth.Provider, m.auth.Storage, m.auth.FileStorePath),
+			HelpLines:   authSetupLines(m.auth.Provider, m.auth.FileStorePath),
+		},
+		Login: loginOverlayView{
+			Active:       m.login.Active,
+			Provider:     m.login.Provider,
+			AuthURL:      m.login.AuthURL,
+			Instructions: m.login.Instructions,
+			InputValue:   m.textInput.View(),
 		},
 	}
 }
@@ -581,8 +727,11 @@ func (m *model) currentPromptFooter() string {
 	if m.onboarding.Active {
 		return ""
 	}
+	if m.login.Active || m.auth.Active {
+		return ""
+	}
 	if m.shouldShowFirstRunPromptAssist() {
-		return "first-time setup: tab to choose a provider, or /model ollama:<local-model> for local Ollama"
+		return "first-time setup: tab to connect ChatGPT, Copilot, OpenAI, or Anthropic"
 	}
 	return ""
 }
@@ -590,6 +739,12 @@ func (m *model) currentPromptFooter() string {
 func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.onboarding.Active {
 		return m.handleOnboardingKey(msg)
+	}
+	if m.login.Active && msg.String() != "esc" && msg.String() != "enter" {
+		switch msg.String() {
+		case "up", "down":
+			return m, nil
+		}
 	}
 	if m.updatePrompt.Active {
 		return m.handleUpdatePromptKey(msg)
@@ -653,7 +808,7 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.handleQueueFollowUp()
 		}
 		if m.shouldShowFirstRunPromptAssist() && strings.TrimSpace(m.textInput.Value()) == "" {
-			m.textInput.SetValue("/provider ")
+			m.textInput.SetValue("/login ")
 			m.textInput.CursorEnd()
 			m.syncSlashMenu()
 			m.refreshViewport()
@@ -674,7 +829,7 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.clearInterruptGuidance()
 	m.textInput, cmd = m.textInput.Update(msg)
-	if m.auth.Active || m.streaming {
+	if m.auth.Active || m.login.Active || m.streaming {
 		m.clearSlashMenu()
 	} else {
 		m.syncSlashMenu()
@@ -775,6 +930,13 @@ func (m *model) handleEscape() (tea.Model, tea.Cmd) {
 		m.refreshViewport()
 		return m, nil
 	}
+	if m.login.Active {
+		pendingPrompt := m.login.PendingPrompt
+		m.endLoginFlow()
+		m.restorePendingPrompt(pendingPrompt)
+		m.refreshViewport()
+		return m, nil
+	}
 	if m.slashMenuVisible() {
 		m.clearSlashMenu()
 		m.refreshViewport()
@@ -804,6 +966,9 @@ func (m *model) handleEscape() (tea.Model, tea.Cmd) {
 }
 
 func (m *model) handleEnter() (tea.Model, tea.Cmd) {
+	if m.login.Active {
+		return m.handleLoginEnter()
+	}
 	prompt := strings.TrimSpace(m.textInput.Value())
 	if prompt == "" || m.streaming {
 		return m, nil
@@ -819,18 +984,40 @@ func (m *model) handleEnter() (tea.Model, tea.Cmd) {
 		return m.handleSlashCommand(prompt)
 	}
 	provider := m.currentProvider()
-	hasCreds, err := m.providerHasCredentialsFresh(provider)
-	if err != nil {
-		m.transcript.WriteError(err.Error())
-		m.refreshViewport()
-		return m, nil
-	}
-	if !hasCreds {
-		if err := m.startCredentialSetup(provider, "", "", "", prompt); err != nil {
+	if isOpenAICodexOAuthModel(m.options.Model) {
+		loggedIn, err := m.openAICodexLoggedInFresh()
+		if err != nil {
 			m.transcript.WriteError(err.Error())
+			m.refreshViewport()
+			return m, nil
 		}
-		m.refreshViewport()
-		return m, nil
+		if !loggedIn {
+			return m.startOpenAICodexLoginFlow(m.options.Model, prompt)
+		}
+	} else if isGitHubCopilotOAuthModel(m.options.Model) {
+		loggedIn, err := m.githubCopilotLoggedInFresh()
+		if err != nil {
+			m.transcript.WriteError(err.Error())
+			m.refreshViewport()
+			return m, nil
+		}
+		if !loggedIn {
+			return m.startGitHubCopilotLoginFlow(m.options.Model, prompt)
+		}
+	} else {
+		hasCreds, err := m.providerHasCredentialsFresh(provider)
+		if err != nil {
+			m.transcript.WriteError(err.Error())
+			m.refreshViewport()
+			return m, nil
+		}
+		if !hasCreds {
+			if err := m.startCredentialSetup(provider, "", "", "", prompt); err != nil {
+				m.transcript.WriteError(err.Error())
+			}
+			m.refreshViewport()
+			return m, nil
+		}
 	}
 	m.recordPromptHistory(prompt)
 	m.textInput.SetValue("")

@@ -6,8 +6,9 @@ from pydantic import BaseModel, ConfigDict
 
 from .model_catalog import ProviderName
 
-AuthSource = Literal["env", "keychain", "file", "none"]
-AuthStorageKind = Literal["keychain", "file"]
+AuthSource = Literal["env", "file", "none"]
+AuthStorageKind = Literal["file"]
+OAuthProviderName = Literal["openai-codex", "github-copilot"]
 ProviderReadinessReason = Literal[
     "ok",
     "missing_secret",
@@ -35,10 +36,21 @@ class LocalSecretStoreStatus(BaseModel):
     file_store_path: str
 
 
+class OAuthProviderStatus(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    provider: OAuthProviderName
+    logged_in: bool
+    account_id: str | None = None
+    expires_at: int | None = None
+
+
 __all__ = [
     "AuthSource",
     "AuthStorageKind",
     "LocalSecretStoreStatus",
+    "OAuthProviderName",
+    "OAuthProviderStatus",
     "ProviderAuthStatus",
     "ProviderReadinessReason",
 ]

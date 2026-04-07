@@ -5,6 +5,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from .auth import LocalSecretStoreStatus as RpcLocalSecretStoreStatus
+from .auth import OAuthProviderStatus
 from .auth import ProviderAuthStatus as AuthProviderStatus
 from .model_catalog import ProviderName
 from .run_events import RunEvent, SessionLifecycleEvent
@@ -83,7 +84,7 @@ class AuthStatusRequest(_RpcModel):
 class AuthSetPayload(_RpcModel):
     provider: ProviderName
     secret: str
-    storage: Literal["keychain", "file"] = "keychain"
+    storage: Literal["file"] = "file"
 
 
 class AuthSetRequest(_RpcModel):
@@ -100,6 +101,57 @@ class AuthClearRequest(_RpcModel):
     id: str
     command: Literal["auth.clear"]
     payload: AuthClearPayload
+
+
+class AuthLoginOpenAICodexStartPayload(_RpcModel):
+    pass
+
+
+class AuthLoginOpenAICodexStartRequest(_RpcModel):
+    id: str
+    command: Literal["auth.login_openai_codex.start"]
+    payload: AuthLoginOpenAICodexStartPayload
+
+
+class AuthLoginOpenAICodexCompletePayload(_RpcModel):
+    flow_id: str
+    callback_or_code: str
+
+
+class AuthLoginOpenAICodexCompleteRequest(_RpcModel):
+    id: str
+    command: Literal["auth.login_openai_codex.complete"]
+    payload: AuthLoginOpenAICodexCompletePayload
+
+
+class AuthLoginOpenAICodexPollPayload(_RpcModel):
+    flow_id: str
+
+
+class AuthLoginOpenAICodexPollRequest(_RpcModel):
+    id: str
+    command: Literal["auth.login_openai_codex.poll"]
+    payload: AuthLoginOpenAICodexPollPayload
+
+
+class AuthLoginGitHubCopilotStartPayload(_RpcModel):
+    enterprise_domain: str | None = None
+
+
+class AuthLoginGitHubCopilotStartRequest(_RpcModel):
+    id: str
+    command: Literal["auth.login_github_copilot.start"]
+    payload: AuthLoginGitHubCopilotStartPayload
+
+
+class AuthLoginGitHubCopilotPollPayload(_RpcModel):
+    flow_id: str
+
+
+class AuthLoginGitHubCopilotPollRequest(_RpcModel):
+    id: str
+    command: Literal["auth.login_github_copilot.poll"]
+    payload: AuthLoginGitHubCopilotPollPayload
 
 
 class RunStartPayload(_RpcModel):
@@ -150,6 +202,11 @@ RpcRequest = Annotated[
     | AuthStatusRequest
     | AuthSetRequest
     | AuthClearRequest
+    | AuthLoginOpenAICodexStartRequest
+    | AuthLoginOpenAICodexCompleteRequest
+    | AuthLoginOpenAICodexPollRequest
+    | AuthLoginGitHubCopilotStartRequest
+    | AuthLoginGitHubCopilotPollRequest
     | RunStartRequest
     | RunEnqueueRequest
     | RunInterruptRequest,
@@ -189,6 +246,7 @@ class ModelCatalogResponse(_RpcModel):
 class AuthStatusResponse(_RpcModel):
     providers: list[AuthProviderStatus]
     local_secret_store: RpcLocalSecretStoreStatus
+    oauth_providers: list[OAuthProviderStatus]
 
 
 class AuthSetResponse(_RpcModel):
@@ -197,6 +255,33 @@ class AuthSetResponse(_RpcModel):
 
 class AuthClearResponse(_RpcModel):
     status: AuthProviderStatus
+
+
+class AuthLoginOpenAICodexStartResponse(_RpcModel):
+    flow_id: str
+    auth_url: str
+    instructions: str
+
+
+class AuthLoginOpenAICodexCompleteResponse(_RpcModel):
+    status: OAuthProviderStatus
+
+
+class AuthLoginOpenAICodexPollResponse(_RpcModel):
+    done: bool
+    status: OAuthProviderStatus | None = None
+
+
+class AuthLoginGitHubCopilotStartResponse(_RpcModel):
+    flow_id: str
+    auth_url: str
+    instructions: str
+    user_code: str
+
+
+class AuthLoginGitHubCopilotPollResponse(_RpcModel):
+    done: bool
+    status: OAuthProviderStatus | None = None
 
 
 class RunEnqueueResponse(_RpcModel):
@@ -221,6 +306,11 @@ class RpcResponseEnvelope(_RpcModel):
         | AuthStatusResponse
         | AuthSetResponse
         | AuthClearResponse
+        | AuthLoginOpenAICodexStartResponse
+        | AuthLoginOpenAICodexCompleteResponse
+        | AuthLoginOpenAICodexPollResponse
+        | AuthLoginGitHubCopilotStartResponse
+        | AuthLoginGitHubCopilotPollResponse
         | RunStartResponse
         | RunEnqueueResponse
         | RunInterruptResponse
@@ -244,6 +334,18 @@ __all__ = [
     "AuthClearPayload",
     "AuthClearRequest",
     "AuthClearResponse",
+    "AuthLoginOpenAICodexCompletePayload",
+    "AuthLoginOpenAICodexCompleteRequest",
+    "AuthLoginOpenAICodexCompleteResponse",
+    "AuthLoginOpenAICodexStartPayload",
+    "AuthLoginOpenAICodexStartRequest",
+    "AuthLoginOpenAICodexStartResponse",
+    "AuthLoginGitHubCopilotPollPayload",
+    "AuthLoginGitHubCopilotPollRequest",
+    "AuthLoginGitHubCopilotPollResponse",
+    "AuthLoginGitHubCopilotStartPayload",
+    "AuthLoginGitHubCopilotStartRequest",
+    "AuthLoginGitHubCopilotStartResponse",
     "AuthProviderStatus",
     "AuthSetPayload",
     "AuthSetRequest",

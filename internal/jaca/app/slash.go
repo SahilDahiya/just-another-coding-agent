@@ -42,8 +42,8 @@ type slashCommandSpec struct {
 }
 
 var slashCommands = []slashCommandSpec{
-	{Value: "/provider", Description: "Switch active provider", AcceptsArgs: true, ArgSuggestions: (*model).providerSlashSuggestions, Execute: (*model).executeProviderSlash},
-	{Value: "/auth", Description: "Authenticate a cloud provider", AcceptsArgs: true, ArgSuggestions: (*model).authSlashSuggestions, Execute: (*model).executeAuthSlash},
+	{Value: "/login", Description: "Set up ChatGPT or GitHub Copilot", AcceptsArgs: true, ArgSuggestions: (*model).loginSlashSuggestions, Execute: (*model).executeLoginSlash},
+	{Value: "/auth", Description: "Advanced: show auth.json entry for API-key auth", AcceptsArgs: true, ArgSuggestions: (*model).authSlashSuggestions, Execute: (*model).executeAuthSlash},
 	{Value: "/model", Description: "Switch active model", AcceptsArgs: true, ArgSuggestions: (*model).modelSlashSuggestions, Execute: (*model).executeModelSlash},
 	{Value: "/trace", Description: "Set tracing mode", AcceptsArgs: true, ArgSuggestions: (*model).traceSlashSuggestions, Execute: (*model).executeTraceSlash},
 	{Value: "/thinking", Description: "Set thinking effort", AcceptsArgs: true, Execute: (*model).executeThinkingSlash},
@@ -146,7 +146,7 @@ func (m *model) currentProvider() string {
 		return m.providerFromModel()
 	}
 	switch strings.ToLower(cfg["default_provider"]) {
-	case "openai", "openrouter", "anthropic", "ollama", "google":
+	case "openai", "anthropic":
 		return strings.ToLower(cfg["default_provider"])
 	default:
 		return m.providerFromModel()
@@ -156,7 +156,7 @@ func (m *model) currentProvider() string {
 func (m *model) providerFromModel() string {
 	provider := providerForModel(m.options.Model)
 	if provider == "" {
-		return "ollama"
+		return "openai"
 	}
 	return provider
 }
@@ -214,23 +214,10 @@ func slashCommandSuggestions() []slashSuggestion {
 	return rows
 }
 
-func providerSuggestions() []slashSuggestion {
-	return []slashSuggestion{
-		{Value: "ollama", Description: "Choose local or cloud Ollama"},
-		{Value: "openai", Description: "OpenAI hosted models"},
-		{Value: "openrouter", Description: "OpenRouter hosted models"},
-		{Value: "anthropic", Description: "Anthropic Claude models"},
-		{Value: "google", Description: "Google Gemini models"},
-	}
-}
-
 func authSuggestions() []slashSuggestion {
 	return []slashSuggestion{
-		{Value: "ollama", Description: "Store Ollama cloud API key"},
-		{Value: "openai", Description: "Store OpenAI API key"},
-		{Value: "openrouter", Description: "Store OpenRouter API key"},
-		{Value: "anthropic", Description: "Store Anthropic API key"},
-		{Value: "google", Description: "Store Google API key"},
+		{Value: "openai", Description: "Show auth.json entry for OpenAI"},
+		{Value: "anthropic", Description: "Show auth.json entry for Anthropic"},
 	}
 }
 
@@ -251,16 +238,16 @@ func lookupSlashCommand(name string) (slashCommandSpec, bool) {
 	return slashCommandSpec{}, false
 }
 
-func (m *model) providerSlashSuggestions() []slashSuggestion {
-	return providerSuggestions()
-}
-
 func (m *model) authSlashSuggestions() []slashSuggestion {
 	return authSuggestions()
 }
 
 func (m *model) modelSlashSuggestions() []slashSuggestion {
-	return m.catalogModelSuggestions(m.currentProvider())
+	return m.catalogModelSuggestions()
+}
+
+func (m *model) loginSlashSuggestions() []slashSuggestion {
+	return openAICodexLoginSuggestions()
 }
 
 func (m *model) traceSlashSuggestions() []slashSuggestion {
@@ -339,16 +326,14 @@ func (m *model) executeNameSlash(arg string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m *model) executeProviderSlash(arg string) (tea.Model, tea.Cmd) {
-	m.handleProviderCommand(strings.TrimSpace(arg))
-	m.refreshViewport()
-	return m, nil
-}
-
 func (m *model) executeAuthSlash(arg string) (tea.Model, tea.Cmd) {
 	m.handleAuthCommand(strings.TrimSpace(arg))
 	m.refreshViewport()
 	return m, nil
+}
+
+func (m *model) executeLoginSlash(arg string) (tea.Model, tea.Cmd) {
+	return m.handleLoginCommand(strings.TrimSpace(arg))
 }
 
 func (m *model) executeTraceSlash(arg string) (tea.Model, tea.Cmd) {
@@ -393,28 +378,83 @@ func (m *model) executeQuitSlash(_ string) (tea.Model, tea.Cmd) {
 	return m, tea.Quit
 }
 
-func (m *model) catalogModelSuggestions(provider string) []slashSuggestion {
+func (m *model) catalogModelSuggestions() []slashSuggestion {
 	if m.modelCatalog == nil {
 		return nil
 	}
-	return modelSuggestions(*m.modelCatalog, provider)
+	return modelSuggestions(*m.modelCatalog, m.authStatus)
 }
 
-func modelSuggestions(catalog rpc.ModelCatalogResponse, provider string) []slashSuggestion {
+func modelSuggestions(
+	catalog rpc.ModelCatalogResponse,
+	authStatus *rpc.AuthStatusResponse,
+) []slashSuggestion {
+	if authStatus == nil {
+		return nil
+	}
+	rows := make([]slashSuggestion, 0)
 	for _, providerCatalog := range catalog.Providers {
-		if providerCatalog.Provider != provider {
-			continue
-		}
-		rows := make([]slashSuggestion, 0, len(providerCatalog.Models))
 		for _, model := range providerCatalog.Models {
+			accessLabel, available := modelAccessLabel(
+				model.ModelID,
+				providerCatalog.Provider,
+				authStatus,
+			)
+			if !available {
+				continue
+			}
+			description := model.Description
+			if accessLabel != "" {
+				description = fmt.Sprintf("%s [%s]", description, accessLabel)
+			}
 			rows = append(rows, slashSuggestion{
 				Value:       model.ModelID,
-				Description: model.Description,
+				Description: description,
 			})
 		}
-		return rows
 	}
-	return nil
+	return rows
+}
+
+func modelAccessLabel(
+	modelID string,
+	provider string,
+	authStatus *rpc.AuthStatusResponse,
+) (string, bool) {
+	if isOpenAICodexOAuthModel(modelID) {
+		return "oauth", oauthLoggedIn(authStatus, "openai-codex")
+	}
+	if isGitHubCopilotOAuthModel(modelID) {
+		return "oauth", oauthLoggedIn(authStatus, "github-copilot")
+	}
+	return "api-key", providerConfiguredForSuggestions(authStatus, provider)
+}
+
+func oauthLoggedIn(statuses *rpc.AuthStatusResponse, provider string) bool {
+	if statuses == nil {
+		return false
+	}
+	for _, status := range statuses.OAuthProviders {
+		if status.Provider == provider {
+			return status.LoggedIn
+		}
+	}
+	return false
+}
+
+func providerConfiguredForSuggestions(
+	statuses *rpc.AuthStatusResponse,
+	provider string,
+) bool {
+	if statuses == nil {
+		return false
+	}
+	for _, status := range statuses.Providers {
+		if status.Provider == provider {
+			return status.Configured
+		}
+	}
+	return false
 }
 
 func filterSuggestions(rows []slashSuggestion, query string) []slashSuggestion {

@@ -34,17 +34,22 @@ func providerForModel(model string) string {
 		return "openai"
 	case strings.HasPrefix(value, "openai-chat:"):
 		return "openai"
-	case strings.HasPrefix(value, "openrouter:"):
-		return "openrouter"
 	case strings.HasPrefix(value, "anthropic:"):
 		return "anthropic"
-	case strings.HasPrefix(value, "google:"):
-		return "google"
-	case strings.HasPrefix(value, "ollama:"):
-		return "ollama"
 	default:
 		return ""
 	}
+}
+
+func isOpenAICodexOAuthModel(model string) bool {
+	value := strings.ToLower(strings.TrimSpace(model))
+	return value == "openai-responses:gpt-5-codex" ||
+		(strings.HasPrefix(value, "openai-responses:") && strings.HasSuffix(value, "-chatgpt"))
+}
+
+func isGitHubCopilotOAuthModel(model string) bool {
+	value := strings.ToLower(strings.TrimSpace(model))
+	return providerForModel(value) != "" && strings.HasSuffix(value, "-copilot")
 }
 
 func modelMatchesProvider(model string, provider string) bool {
@@ -66,23 +71,25 @@ func (m *model) handleModelCommand(arg string) (tea.Model, tea.Cmd) {
 		m.refreshViewport()
 		return m, cmd
 	}
-	if provider == "ollama" {
-		if m.isHostedOllamaModel(value) {
-			hasCreds, err := m.ollamaCloudAuthConfigured()
-			if err != nil {
-				m.transcript.WriteError(err.Error())
-				m.refreshViewport()
-				return m, cmd
-			}
-			if !hasCreds {
-				if err := m.startCredentialSetup(provider, provider, value, "", ""); err != nil {
-					m.transcript.WriteError(err.Error())
-					m.refreshViewport()
-					return m, cmd
-				}
-				m.refreshViewport()
-				return m, cmd
-			}
+	if isOpenAICodexOAuthModel(value) {
+		loggedIn, err := m.openAICodexLoggedIn()
+		if err != nil {
+			m.transcript.WriteError(err.Error())
+			m.refreshViewport()
+			return m, cmd
+		}
+		if !loggedIn {
+			return m.startOpenAICodexLoginFlow(value, "")
+		}
+	} else if isGitHubCopilotOAuthModel(value) {
+		loggedIn, err := m.githubCopilotLoggedIn()
+		if err != nil {
+			m.transcript.WriteError(err.Error())
+			m.refreshViewport()
+			return m, cmd
+		}
+		if !loggedIn {
+			return m.startGitHubCopilotLoginFlow(value, "")
 		}
 	} else {
 		hasCreds, err := m.providerHasCredentials(provider)
@@ -166,7 +173,7 @@ func (m *model) handleAuthCommand(arg string) {
 
 	provider := canonicalProviderName(value)
 	switch provider {
-	case "openai", "openrouter", "anthropic", "google", "ollama":
+	case "openai", "anthropic":
 		if err := m.startCredentialSetup(provider, "", "", "", ""); err != nil {
 			m.transcript.WriteNote("auth", nil)
 			m.transcript.WriteError(err.Error())
@@ -177,103 +184,12 @@ func (m *model) handleAuthCommand(arg string) {
 	}
 }
 
-func (m *model) handleProviderCommand(arg string) {
-	if canonicalProviderName(strings.TrimSpace(arg)) == "ollama" {
-		m.transcript.WriteNote("provider", nil)
-		m.onboarding = onboardingState{Active: true, Kind: "ollama", Selected: 0}
-		return
-	}
-	lines, restart, startAuth, err := m.handleProvider(arg)
-	if err != nil {
-		m.transcript.WriteError(err.Error())
-		return
-	}
-	if startAuth != "" {
-		if err := m.startCredentialSetup(startAuth, startAuth, "", "", ""); err != nil {
-			m.transcript.WriteError(err.Error())
-		}
-		return
-	}
-	for _, line := range lines {
-		m.transcript.WriteLine(line)
-	}
-	if restart && m.options.Backend != nil {
-		m.restartBackendWithCurrentEnv()
-	}
-}
-
-func (m *model) handleProvider(arg string) (
-	lines []string,
-	restart bool,
-	startAuth string,
-	err error,
-) {
-	m.transcript.WriteNote("provider", nil)
-	if strings.TrimSpace(arg) == "" {
-		return []string{
-			"usage",
-			"  /provider ollama                  choose local or cloud Ollama",
-			"  /model ollama:<local-model>       use local Ollama with no key",
-			"  /provider openai                  select OpenAI",
-			"  /provider openrouter              select OpenRouter",
-			"  /provider anthropic               select Anthropic",
-			"  /provider google                  select Google Gemini",
-			"  /auth ollama                      save Ollama cloud API key",
-			"  /auth openai                      save OpenAI API key",
-			"  /auth openrouter                  save OpenRouter API key",
-			"  /auth anthropic                   save Anthropic API key",
-			"  /auth google                      save Google API key",
-			"  /auth status                      show auth source per provider",
-			"  /auth clear <provider>            clear stored keychain secret",
-			"",
-			"provider selection is saved to ~/.jaca/config.json",
-		}, false, "", nil
-	}
-	provider := canonicalProviderName(arg)
-	switch provider {
-	case "ollama":
-		hasCreds, err := m.ollamaCloudConfigured()
-		if err != nil {
-			return nil, false, "", err
-		}
-		if !hasCreds {
-			return nil, false, provider, nil
-		}
-		lines, restart, err := m.applyProviderSelection(provider)
-		return lines, restart, "", err
-	case "openai", "openrouter", "anthropic", "google":
-		hasCreds, err := m.providerHasCredentials(provider)
-		if err != nil {
-			return nil, false, "", err
-		}
-		if !hasCreds {
-			return nil, false, provider, nil
-		}
-		lines, restart, err := m.applyProviderSelection(provider)
-		return lines, restart, "", err
-	default:
-		return nil, false, "", fmt.Errorf("unknown provider: %s", arg)
-	}
-}
-
 func (m *model) applyProviderSelection(provider string) ([]string, bool, error) {
-	if provider == "ollama" {
-		if err := config.SaveProvider(config.ProviderUpdate{
-			Provider: "ollama",
-			BaseURL:  config.OllamaCloudBaseURL,
-		}); err != nil {
-			return nil, false, err
-		}
-	} else {
-		if err := config.SaveDefaultProvider(provider); err != nil {
-			return nil, false, err
-		}
+	if err := config.SaveDefaultProvider(provider); err != nil {
+		return nil, false, err
 	}
 
 	lines := []string{fmt.Sprintf("provider set to %s", provider)}
-	if provider == "ollama" {
-		lines = append(lines, "Ollama mode set to cloud")
-	}
 	if !modelMatchesProvider(m.options.Model, provider) {
 		nextModel, err := m.defaultModelForProvider(provider)
 		if err != nil {
@@ -308,24 +224,8 @@ func (m *model) defaultModelForProvider(provider string) (string, error) {
 
 func (m *model) applyModelSelection(model string, provider string) ([]string, bool, error) {
 	previousProvider := m.currentProvider()
-	modeLine := ""
-	if provider == "ollama" {
-		update := config.ProviderUpdate{Provider: "ollama"}
-		if m.isHostedOllamaModel(model) {
-			update.BaseURL = config.OllamaCloudBaseURL
-			if modeLine != "Ollama mode set to cloud" {
-				modeLine = "Ollama mode set to cloud"
-			}
-		} else {
-			modeLine = "Ollama mode set to local"
-		}
-		if err := config.SaveProvider(update); err != nil {
-			return nil, false, err
-		}
-	} else {
-		if err := config.SaveDefaultProvider(provider); err != nil {
-			return nil, false, err
-		}
+	if err := config.SaveDefaultProvider(provider); err != nil {
+		return nil, false, err
 	}
 	if err := config.SaveDefaultModel(model); err != nil {
 		return nil, false, err
@@ -334,9 +234,6 @@ func (m *model) applyModelSelection(model string, provider string) ([]string, bo
 	lines := []string{}
 	if previousProvider != provider {
 		lines = append(lines, fmt.Sprintf("provider set to %s", provider))
-	}
-	if modeLine != "" {
-		lines = append(lines, modeLine)
 	}
 
 	m.options.Model = model
@@ -360,6 +257,32 @@ func (m *model) providerHasCredentials(provider string) (bool, error) {
 	return false, fmt.Errorf("unknown provider: %s", provider)
 }
 
+func (m *model) openAICodexLoggedIn() (bool, error) {
+	statuses, err := m.availableAuthStatus()
+	if err != nil {
+		return false, err
+	}
+	for _, status := range statuses.OAuthProviders {
+		if status.Provider == "openai-codex" {
+			return status.LoggedIn, nil
+		}
+	}
+	return false, nil
+}
+
+func (m *model) githubCopilotLoggedIn() (bool, error) {
+	statuses, err := m.availableAuthStatus()
+	if err != nil {
+		return false, err
+	}
+	for _, status := range statuses.OAuthProviders {
+		if status.Provider == "github-copilot" {
+			return status.LoggedIn, nil
+		}
+	}
+	return false, nil
+}
+
 func (m *model) providerHasCredentialsFresh(provider string) (bool, error) {
 	statuses, err := m.fetchAuthStatus()
 	if err != nil {
@@ -372,6 +295,34 @@ func (m *model) providerHasCredentialsFresh(provider string) (bool, error) {
 		}
 	}
 	return false, fmt.Errorf("unknown provider: %s", provider)
+}
+
+func (m *model) openAICodexLoggedInFresh() (bool, error) {
+	statuses, err := m.fetchAuthStatus()
+	if err != nil {
+		return false, err
+	}
+	m.authStatus = &statuses
+	for _, status := range statuses.OAuthProviders {
+		if status.Provider == "openai-codex" {
+			return status.LoggedIn, nil
+		}
+	}
+	return false, nil
+}
+
+func (m *model) githubCopilotLoggedInFresh() (bool, error) {
+	statuses, err := m.fetchAuthStatus()
+	if err != nil {
+		return false, err
+	}
+	m.authStatus = &statuses
+	for _, status := range statuses.OAuthProviders {
+		if status.Provider == "github-copilot" {
+			return status.LoggedIn, nil
+		}
+	}
+	return false, nil
 }
 
 func (m *model) restartBackendWithCurrentEnv() {
@@ -397,84 +348,18 @@ func (m *model) startCredentialSetup(
 		if status.Provider != provider {
 			continue
 		}
-		if !statuses.LocalSecretStore.Available {
-			m.startAuthFlow(
-				provider,
-				"file",
-				statuses.LocalSecretStore.FileStorePath,
-				pendingProvider,
-				pendingModel,
-				pendingPrompt,
-				returnToOnboardingKind,
-			)
-			return nil
-		}
-		m.startAuthFlow(
-			provider,
-			"keychain",
-			"",
-			pendingProvider,
-			pendingModel,
-			pendingPrompt,
-			returnToOnboardingKind,
+		m.transcript.WriteNote(
+			"auth",
+			authFileSetupLines(provider, statuses.LocalSecretStore.FileStorePath),
 		)
+		m.auth.PendingProvider = pendingProvider
+		m.auth.PendingModel = pendingModel
+		m.auth.PendingPrompt = pendingPrompt
+		m.auth.ReturnToOnboardingKind = returnToOnboardingKind
 		return nil
 	}
 	return fmt.Errorf("unknown provider: %s", provider)
 }
-
-func (m *model) ollamaCloudConfigured() (bool, error) {
-	statuses, err := m.availableAuthStatus()
-	if err != nil {
-		return false, err
-	}
-	for _, status := range statuses.Providers {
-		if status.Provider == "ollama" {
-			return status.Configured, nil
-		}
-	}
-	return false, errors.New("missing ollama auth status")
-}
-
-func (m *model) ollamaCloudAuthConfigured() (bool, error) {
-	statuses, err := m.availableAuthStatus()
-	if err != nil {
-		return false, err
-	}
-	for _, status := range statuses.Providers {
-		if status.Provider == "ollama" {
-			return status.SecretConfigured, nil
-		}
-	}
-	return false, errors.New("missing ollama auth status")
-}
-
-func (m *model) isHostedOllamaModel(model string) bool {
-	if providerForModel(model) != "ollama" || m.modelCatalog == nil {
-		return false
-	}
-	for _, providerCatalog := range m.modelCatalog.Providers {
-		if providerCatalog.Provider != "ollama" {
-			continue
-		}
-		for _, candidate := range providerCatalog.Models {
-			if candidate.ModelID == model {
-				return true
-			}
-		}
-		return false
-	}
-	return false
-}
-
-func (m *model) ollamaUsesHostedEndpoint() (bool, error) {
-	cfg, err := config.Load()
-	if err != nil {
-		return false, err
-	}
-	return config.OllamaUsesCloudBaseURL(cfg), nil
-}
-
 func (m *model) fetchAuthStatus() (rpc.AuthStatusResponse, error) {
 	if m.options.Backend == nil {
 		return rpc.AuthStatusResponse{}, errors.New("backend unavailable")
@@ -515,6 +400,17 @@ func (m *model) writeAuthStatus() {
 		m.transcript.WriteLine(
 			fmt.Sprintf("%s: %s (%s)", status.Provider, state, status.Source),
 		)
+	}
+	for _, status := range statuses.OAuthProviders {
+		state := "logged out"
+		if status.LoggedIn {
+			state = "logged in"
+		}
+		line := fmt.Sprintf("%s: %s", status.Provider, state)
+		if status.AccountID != nil && *status.AccountID != "" {
+			line = fmt.Sprintf("%s (%s)", line, *status.AccountID)
+		}
+		m.transcript.WriteLine(line)
 	}
 	if !statuses.LocalSecretStore.Available {
 		m.transcript.WriteLine("interactive auth unavailable")

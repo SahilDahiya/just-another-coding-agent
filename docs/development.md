@@ -73,56 +73,42 @@ canonical Python headless backend.
 ## Environment
 
 - Copy `.env.example` to `.env` if you need local provider credentials.
-- For interactive local use, provider secrets now belong in the OS keychain by
-  default, not in `~/.jaca/config.json`.
-- On Linux/WSL, interactive `/auth` also requires a supported OS keychain
-  backend such as Secret Service via `gnome-keyring`.
-- If interactive keychain storage is unavailable, JACA stores provider secrets
-  in `~/.jaca/secrets.json` instead. That path is less secure than the OS
-  keychain.
+- For interactive local use, API keys belong in `~/.jaca/auth.json`, not in
+  `~/.jaca/config.json`.
 - Environment variables remain the canonical override for headless,
   evaluation, and CI flows.
 - Current foundation expects:
   - `OPENAI_API_KEY`
-  - `OPENROUTER_API_KEY`
   - `ANTHROPIC_API_KEY`
-  - `GOOGLE_API_KEY`
 - Common optional runtime env vars:
   - `OPENAI_BASE_URL`
-  - `OLLAMA_BASE_URL`
-  - `OLLAMA_API_KEY`
   - `JACA_TRACE_MODE=local` to enable local JSONL trace export under `~/.jaca/traces/`
   - `JACA_TRACE_MODE=logfire` to export traces to Logfire
   - `LOGFIRE_TOKEN` if you want to override the active `~/.logfire/default.toml` project token explicitly in `logfire` mode
 
 The shipped provider surface currently includes:
 
-- `ollama`
 - `openai`
-- `openrouter`
 - `anthropic`
-- `google`
+
+OAuth lanes are also available for:
+
+- `openai-codex`
+- `github-copilot`
 
 Inside the TUI:
 
-- `/auth <provider>` stores the provider secret in the local OS keychain by default, or in `~/.jaca/secrets.json` when no supported keychain backend exists
-- `/auth google` stores the hosted Gemini `GOOGLE_API_KEY` through that same local-secret path
+- `/auth <provider>` shows the `auth.json` entry to add for that provider
+- `/login openai-codex` starts ChatGPT subscription login
+- `/login github-copilot` starts GitHub Copilot login
 - `/auth status` reports backend-owned provider readiness per provider,
   including whether the current effective path requires a secret and where any
   discovered secret came from
-- `/auth clear <provider>` removes the stored local secret from both keychain and file storage
+- `/auth clear <provider>` removes the stored local secret from `~/.jaca/auth.json`
 
 `~/.jaca/config.json` stores only non-secret preferences such as
-`default_provider`, `default_model`, `trace_mode`, and provider base URLs.
-The second-best local secret file is `~/.jaca/secrets.json`.
-
-Ollama mode is endpoint-driven:
-
-- local Ollama clears `OLLAMA_BASE_URL` and does not require `OLLAMA_API_KEY`
-- hosted Ollama uses `OLLAMA_BASE_URL=https://ollama.com/v1` and requires
-  `OLLAMA_API_KEY`
-- the shipped Ollama model catalog is the hosted catalog only; arbitrary local
-  Ollama models are selected with `/model ollama:<local-model>`
+`default_provider`, `default_model`, and `trace_mode`.
+The local auth file is `~/.jaca/auth.json`.
 
 Tracing defaults to `local` (JSONL files under `~/.jaca/traces/`). Set `JACA_TRACE_MODE=off` to disable.
 

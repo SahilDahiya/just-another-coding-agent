@@ -29,14 +29,14 @@ func TestBuildStatusTextIncludesTruncatedSessionAndThinking(t *testing.T) {
 	workspaceRoot := filepath.Join("workspace", "repo")
 	got := buildStatusText(viewModel{
 		Phase:         PhaseStreaming,
-		Model:         "ollama:test",
+		Model:         "openai-responses:gpt-5.4",
 		WorkspaceRoot: workspaceRoot,
 		Thinking:      "high",
 		SessionID:     "1234567890abcdef",
 		MotionTick:    1,
 	})
 
-	want := "streaming.. | ollama:test | " + displayPath(workspaceRoot) + " | thinking=high | session=12345678"
+	want := "streaming.. | openai-responses:gpt-5.4 | " + displayPath(workspaceRoot) + " | thinking=high | session=12345678"
 	if got != want {
 		t.Fatalf("buildStatusText() = %q, want %q", got, want)
 	}
@@ -63,11 +63,11 @@ func TestBuildPromptFooterTextShowsModelAndThinkingWhenStreaming(t *testing.T) {
 func TestBuildPromptFooterTextShowsModelAndWorkspaceWhenIdle(t *testing.T) {
 	got := buildPromptFooterText(viewModel{
 		Phase:         PhaseIdle,
-		Model:         "ollama:kimi-k2:1t-cloud",
+		Model:         "openai-responses:gpt-5-codex",
 		WorkspaceRoot: "/workspace",
 	})
 
-	if !strings.Contains(got, "ollama:kimi-k2:1t-cloud") {
+	if !strings.Contains(got, "openai-responses:gpt-5-codex") {
 		t.Fatalf("idle footer missing model: %q", got)
 	}
 	if !strings.Contains(got, "/workspace") {
@@ -240,6 +240,51 @@ func TestRenderTopRailShowsCompactingWave(t *testing.T) {
 	}
 }
 
+func TestRenderLoginOverlayUsesProviderSpecificCopyForCopilot(t *testing.T) {
+	rendered := stripANSI(renderLoginOverlay(viewModel{
+		Width: 80,
+		Height: 24,
+		Login: loginOverlayView{
+			Active:       true,
+			Provider:     "github-copilot",
+			AuthURL:      "https://github.com/login/device",
+			Instructions: "Enter code: ABCD-EFGH",
+			InputValue:   " ",
+		},
+	}))
+
+	if !strings.Contains(rendered, "GitHub Copilot Login") {
+		t.Fatalf("renderLoginOverlay() missing copilot title: %q", rendered)
+	}
+	if !strings.Contains(rendered, "Device-code approval completes in the browser.") {
+		t.Fatalf("renderLoginOverlay() missing copilot subtitle: %q", rendered)
+	}
+	if strings.Contains(rendered, "Browser callback auto-completes") {
+		t.Fatalf("renderLoginOverlay() should not show ChatGPT callback subtitle for copilot: %q", rendered)
+	}
+}
+
+func TestRenderLoginOverlayUsesProviderSpecificCopyForChatGPT(t *testing.T) {
+	rendered := stripANSI(renderLoginOverlay(viewModel{
+		Width: 80,
+		Height: 24,
+		Login: loginOverlayView{
+			Active:       true,
+			Provider:     "openai-codex",
+			AuthURL:      "https://auth.openai.com/oauth/authorize",
+			Instructions: "Paste only if it does not return automatically.",
+			InputValue:   " ",
+		},
+	}))
+
+	if !strings.Contains(rendered, "ChatGPT Login") {
+		t.Fatalf("renderLoginOverlay() missing ChatGPT title: %q", rendered)
+	}
+	if !strings.Contains(rendered, "Browser callback auto-completes") {
+		t.Fatalf("renderLoginOverlay() missing ChatGPT subtitle: %q", rendered)
+	}
+}
+
 func TestRenderPromptRuleStaysPlainWhenIdle(t *testing.T) {
 	rendered := stripANSI(renderPromptRule(12, defaultTheme.border))
 
@@ -259,7 +304,7 @@ func TestRenderPromptShowsSingleTopRailIndicator(t *testing.T) {
 		PromptFooter:  "",
 		Thinking:      "medium",
 		WorkspaceRoot: "/workspace",
-		Model:         "ollama:test",
+		Model:         "openai-responses:gpt-5.4-chatgpt",
 	}))
 
 	if count := strings.Count(rendered, "00:08"); count != 1 {
@@ -304,7 +349,7 @@ func TestBuildPromptFooterTextShowsCompactUsageWhenIdle(t *testing.T) {
 
 	got := buildPromptFooterText(viewModel{
 		Phase:         PhaseIdle,
-		Model:         "ollama:kimi-k2:1t-cloud",
+		Model:         "openai-responses:gpt-5.4-chatgpt",
 		WorkspaceRoot: "/workspace",
 		Usage: usageSnapshot{
 			TotalTokens:   &total,
@@ -312,7 +357,7 @@ func TestBuildPromptFooterTextShowsCompactUsageWhenIdle(t *testing.T) {
 		},
 	})
 
-	for _, want := range []string{"ollama:kimi-k2:1t-cloud", "/workspace", "59% left"} {
+	for _, want := range []string{"openai-responses:gpt-5.4-chatgpt", "/workspace", "59% left"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("buildPromptFooterText() missing %q in %q", want, got)
 		}
@@ -333,7 +378,7 @@ func TestRenderStatusUsesTrueColorPaletteWhenAvailable(t *testing.T) {
 
 	rendered := renderStatus(viewModel{
 		Phase:         PhaseStreaming,
-		Model:         "ollama:test",
+		Model:         "openai-responses:gpt-5.4-chatgpt",
 		WorkspaceRoot: "/workspace",
 	})
 
@@ -351,7 +396,7 @@ func TestRenderStatusUsesAnsiPaletteWithoutTrueColorEscapes(t *testing.T) {
 
 	rendered := renderStatus(viewModel{
 		Phase:         PhaseStreaming,
-		Model:         "ollama:test",
+		Model:         "openai-responses:gpt-5.4-chatgpt",
 		WorkspaceRoot: "/workspace",
 	})
 
@@ -372,7 +417,7 @@ func TestRenderStatusDropsColorInAsciiProfile(t *testing.T) {
 
 	rendered := renderStatus(viewModel{
 		Phase:         PhaseStreaming,
-		Model:         "ollama:test",
+		Model:         "openai-responses:gpt-5.4-chatgpt",
 		WorkspaceRoot: "/workspace",
 	})
 
@@ -381,31 +426,29 @@ func TestRenderStatusDropsColorInAsciiProfile(t *testing.T) {
 	}
 }
 
-func TestRenderViewShowsCenteredSecureSetupPanel(t *testing.T) {
+func TestRenderViewShowsCenteredAuthFilePanel(t *testing.T) {
 	rendered := stripANSI(renderView(viewModel{
 		Width:  80,
 		Height: 24,
 		Auth: authOverlayView{
 			Active:      true,
-			Title:       "Secure Setup",
+			Title:       "Auth File",
 			Provider:    "google",
 			SecretLabel: "Google API key",
 			InputValue:  "********",
 			HelpLines: []string{
-				"Enter your Google API key",
-				"Stored in the OS keychain",
-				"Not added to transcript or prompt history",
-				"Enter saves. Esc cancels.",
+				`Use API key? add "GOOGLE_API_KEY" to /tmp/jaca-auth.json.`,
+				"OAuth also works via /login when available.",
+				"Retry your prompt after saving.",
 			},
 		},
 	}))
 
 	for _, want := range []string{
-		"Secure Setup",
-		"Google API key",
-		"********",
-		"Stored in the OS keychain",
-		"Enter saves. Esc cancels.",
+		"Auth File",
+		`Use API key? add "GOOGLE_API_KEY"`,
+		"/tmp/jaca-auth.json",
+		"Retry your prompt after saving.",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("renderView() missing %q in %q", want, rendered)
@@ -413,29 +456,28 @@ func TestRenderViewShowsCenteredSecureSetupPanel(t *testing.T) {
 	}
 }
 
-func TestRenderViewShowsLocalSecretFilePanel(t *testing.T) {
+func TestRenderViewShowsAuthFilePath(t *testing.T) {
 	rendered := stripANSI(renderView(viewModel{
 		Width:  80,
 		Height: 24,
 		Auth: authOverlayView{
 			Active:      true,
-			Title:       "Local Secret File",
+			Title:       "Auth File",
 			Provider:    "openai",
 			SecretLabel: "OpenAI API key",
 			InputValue:  "********",
 			HelpLines: []string{
-				"Enter your OpenAI API key",
-				"OS keychain unavailable; using local secret file instead",
-				"Stored in /tmp/jaca-secrets.json",
-				"Enter saves. Esc cancels.",
+				`Use API key? add "OPENAI_API_KEY" to /tmp/jaca-auth.json.`,
+				"OAuth also works via /login when available.",
+				"Retry your prompt after saving.",
 			},
 		},
 	}))
 
 	for _, want := range []string{
-		"Local Secret File",
-		"Stored in /tmp/jaca-secrets.json",
-		"Enter saves. Esc cancels.",
+		"Auth File",
+		"/tmp/jaca-auth.json",
+		"Retry your prompt after saving.",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("renderView() missing %q in %q", want, rendered)

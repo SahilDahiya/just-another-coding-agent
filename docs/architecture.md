@@ -14,9 +14,9 @@ that catalog, but it must not hardcode or reinterpret shipped model semantics
 locally.
 Provider auth semantics follow the same rule: Python owns auth meaning,
 provider-specific readiness rules, secret-store resolution order, and
-effective endpoint auth requirements. Go may
-render `/auth` UX, but it must not become a second owner of secret storage or
-provider-auth policy.
+effective endpoint auth requirements. Go may render `/auth` and `/login` UX,
+but it must not become a second owner of secret storage or provider-auth
+policy.
 
 The same risk exists when a non-Python execution helper is introduced for
 performance. The current read-only worker is a separate Go helper for
@@ -58,8 +58,8 @@ The canonical prompt must also enforce side-effect truthfulness and verification
 The canonical runtime should expose `thinking` as an explicit run setting and pass it through PydanticAI model settings rather than encoding reasoning level in prompt text.
 The canonical runtime should resolve model strings through one local model seam before agent construction so provider-native retries, instrumentation, and OpenAI-specific settings stay centralized instead of leaking through the runtime.
 Provider secret resolution should stay centralized too: environment variables
-override the canonical local OS-keychain store, while `~/.jaca/config.json`
-persists only non-secret preferences.
+override the canonical local auth file at `~/.jaca/auth.json`, while
+`~/.jaca/config.json` persists only non-secret preferences.
 The canonical agent also keeps `output_type=str` and deliberately sets a very
 high PydanticAI output-validation retry budget. That is not a second generic
 run retry policy; it is an explicit choice to avoid a framework output ceiling

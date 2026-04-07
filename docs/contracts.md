@@ -47,12 +47,12 @@ Rules:
 - The shipped OpenAI GPT-5 family uses `openai-responses:*` model ids in the
   backend-owned catalog rather than `openai:*`, because the canonical GPT-5
   tool path in this repo is the Responses API.
-- For `ollama`, the shipped model catalog is the hosted catalog only. Local
-  Ollama models are user-supplied `/model ollama:<local-model>` selections and
-  are not enumerated in the backend-owned picker surface.
-- The shipped provider surface currently includes `ollama`, `openai`,
-  `openrouter`, `anthropic`, and `google`, and new picker-visible providers must
-  be added in the backend-owned catalog before the TUI can render them.
+- The shipped provider surface currently includes only `openai` and
+  `anthropic`. Subscription-backed OAuth model lanes such as
+  `openai-responses:gpt-5-codex`,
+  `openai-responses:gpt-5.4-chatgpt`, and
+  `openai-responses:gpt-5-mini-copilot` remain backend-owned model ids under
+  the `openai` provider catalog.
 - Auth status and local secret-store shapes are backend-owned contract types in
   `contracts/auth.py`; runtime auth code and RPC models both import those
   shared contract models rather than defining or mirroring them locally.
@@ -60,8 +60,7 @@ Rules:
   provider path, endpoint configuration, and local secret-store state rather
   than inferred from forgiving provider construction.
 - Local provider-secret resolution is backend-owned and uses this precedence:
-  environment, then OS keychain, then explicit local secret file, then hard
-  failure.
+  environment, then the explicit local auth file, then hard failure.
 - `~/.jaca/config.json` is not a secret store. It may persist only non-secret
   preferences such as provider selection, model selection, trace mode, and
   base URLs.
@@ -585,7 +584,7 @@ Initial executable RPC slice:
   - fields: `id`, `command`, `payload`
   - initial commands:
     - `auth.status` with payload `{}`
-    - `auth.set` with payload `{"provider": <provider-name>, "secret": <string>, "storage": "keychain" | "file"}`
+    - `auth.set` with payload `{"provider": <provider-name>, "secret": <string>, "storage": "file"}`
     - `auth.clear` with payload `{"provider": <provider-name>}`
     - `session.create` with payload `{}`
     - `session.name` with payload `{"session_id": <opaque-lowercase-hex-string>, "name": <string>}`
@@ -597,9 +596,9 @@ Initial executable RPC slice:
 - `rpc_response`
   - fields: `type`, `id`, `response`
   - initial response payloads:
-    - `{"providers": [{"provider": <provider-name>, "configured": <bool>, "secret_configured": <bool>, "requires_secret": <bool>, "source": "env" | "keychain" | "file" | "none", "env_key": <provider-env-var>, "reason": "ok" | "missing_secret" | "local_endpoint_no_secret_required"}, ...], "local_secret_store": {"available": <bool>, "message": <optional-string>, "file_store_path": <abs-path>}}`
-    - `{"status": {"provider": <provider-name>, "configured": <bool>, "secret_configured": <bool>, "requires_secret": <bool>, "source": "env" | "keychain" | "file" | "none", "env_key": <provider-env-var>, "reason": "ok" | "missing_secret" | "local_endpoint_no_secret_required"}}` for `auth.set`
-    - `{"status": {"provider": <provider-name>, "configured": <bool>, "secret_configured": <bool>, "requires_secret": <bool>, "source": "env" | "keychain" | "file" | "none", "env_key": <provider-env-var>, "reason": "ok" | "missing_secret" | "local_endpoint_no_secret_required"}}` for `auth.clear`
+    - `{"providers": [{"provider": <provider-name>, "configured": <bool>, "secret_configured": <bool>, "requires_secret": <bool>, "source": "env" | "file" | "none", "env_key": <provider-env-var>, "reason": "ok" | "missing_secret" | "local_endpoint_no_secret_required"}, ...], "local_secret_store": {"available": <bool>, "message": <optional-string>, "file_store_path": <abs-path>}}`
+    - `{"status": {"provider": <provider-name>, "configured": <bool>, "secret_configured": <bool>, "requires_secret": <bool>, "source": "env" | "file" | "none", "env_key": <provider-env-var>, "reason": "ok" | "missing_secret" | "local_endpoint_no_secret_required"}}` for `auth.set`
+    - `{"status": {"provider": <provider-name>, "configured": <bool>, "secret_configured": <bool>, "requires_secret": <bool>, "source": "env" | "file" | "none", "env_key": <provider-env-var>, "reason": "ok" | "missing_secret" | "local_endpoint_no_secret_required"}}` for `auth.clear`
     - `{"session_id": <opaque-lowercase-hex-string>}`
     - `{"session_id": <opaque-lowercase-hex-string>, "name": <backend-normalized-session-name>}` for `session.name`
     - `{"session_id": <opaque-lowercase-hex-string>, "entries": [{"kind": "user" | "assistant" | "error", "text": <string>}], "truncated": <bool>}` for `session.preview`
@@ -617,21 +616,18 @@ Ordering rules for the RPC slice:
 
 - A valid `auth.status` request yields exactly one `rpc_response` with one
   backend-authored status object per shipped provider plus one backend-authored
-  `local_secret_store` object describing whether interactive local secret
-  storage is available on this machine and where the explicit local secret file
-  would live
+  `local_secret_store` object describing where the backend-owned auth file
+  lives
 - `configured` means the provider is ready to run for its current effective
   path, not merely that some secret exists
-- `secret_configured` means a secret was found through environment, keychain,
-  or explicit local file storage
+- `secret_configured` means a secret was found through environment or the
+  explicit local auth file
 - `requires_secret` is derived from the effective provider path and endpoint
   configuration
 - A valid `auth.set` request yields exactly one `rpc_response` and stores the
-  secret in the requested backend-owned local secret store without echoing the
-  secret back
+  secret in the backend-owned local auth file without echoing the secret back
 - A valid `auth.clear` request yields exactly one `rpc_response` and removes
-  the stored local secret for that provider from both keychain and explicit
-  local file storage
+  the stored local secret for that provider from the explicit local auth file
 - A valid `session.create` request yields exactly one `rpc_response` containing a server-generated opaque `session_id`
 - A valid `session.name` request must reference an existing `session_id`, append one backend-normalized `session_info` entry when the requested name changes, enforce workspace-local name uniqueness, and yield exactly one `rpc_response` containing that normalized session name
 - A valid `session.preview` request must reference an existing `session_id` and yields exactly one `rpc_response` containing a bounded recent-history preview derived from durable session runs; it is a presentation helper and does not change resume authority

@@ -85,6 +85,7 @@ type viewModel struct {
 	UpdatePrompt   updatePromptState
 	Onboarding     onboardingOverlayView
 	Auth           authOverlayView
+	Login          loginOverlayView
 }
 
 type onboardingOverlayView struct {
@@ -104,9 +105,20 @@ type authOverlayView struct {
 	HelpLines   []string
 }
 
+type loginOverlayView struct {
+	Active       bool
+	Provider     string
+	AuthURL      string
+	Instructions string
+	InputValue   string
+}
+
 func renderView(vm viewModel) string {
 	if vm.Onboarding.Active {
 		return renderOnboardingOverlay(vm)
+	}
+	if vm.Login.Active {
+		return renderLoginOverlay(vm)
 	}
 	if vm.Auth.Active {
 		return renderAuthOverlay(vm)
@@ -230,6 +242,85 @@ func renderAuthOverlay(vm viewModel) string {
 			lipgloss.JoinVertical(lipgloss.Left, helpLines...),
 		))
 
+	width := vm.Width
+	if width <= 0 {
+		width = panelWidth + 8
+	}
+	height := vm.Height
+	if height <= 0 {
+		height = max(16, lipgloss.Height(panel)+6)
+	}
+	return lipgloss.Place(
+		width,
+		height,
+		lipgloss.Center,
+		lipgloss.Center,
+		panel,
+		lipgloss.WithWhitespaceChars(" "),
+		lipgloss.WithWhitespaceForeground(defaultTheme.background),
+	)
+}
+
+func renderLoginOverlay(vm viewModel) string {
+	panelWidth := 68
+	if vm.Width > 0 {
+		panelWidth = min(76, max(52, vm.Width-8))
+	}
+	titleText := "ChatGPT Login"
+	subtitleText := "Browser callback auto-completes. Paste only if it does not return."
+	if vm.Login.Provider == "github-copilot" {
+		titleText = "GitHub Copilot Login"
+		subtitleText = "Device-code approval completes in the browser."
+	}
+	title := lipgloss.NewStyle().
+		Foreground(defaultTheme.accentSoft).
+		Bold(true).
+		Render(titleText)
+	subtitle := lipgloss.NewStyle().
+		Foreground(defaultTheme.textSoft).
+		Render(subtitleText)
+	url := vm.Login.AuthURL
+	if strings.TrimSpace(url) == "" {
+		url = "starting login..."
+	}
+	urlBox := lipgloss.NewStyle().
+		Width(max(32, panelWidth-8)).
+		Padding(0, 1).
+		Border(lipgloss.NormalBorder()).
+		BorderForeground(defaultTheme.border).
+		Foreground(defaultTheme.textSoft).
+		Render(url)
+	inputValue := vm.Login.InputValue
+	if strings.TrimSpace(inputValue) == "" {
+		inputValue = " "
+	}
+	inputBox := lipgloss.NewStyle().
+		Width(max(32, panelWidth-8)).
+		Padding(0, 1).
+		Border(lipgloss.NormalBorder()).
+		BorderForeground(defaultTheme.accent).
+		Foreground(defaultTheme.text).
+		Render(inputValue)
+	lines := []string{
+		lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render(vm.Login.Instructions),
+		lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render("Enter completes manually. Esc cancels."),
+	}
+	panel := lipgloss.NewStyle().
+		Width(panelWidth).
+		Padding(1, 2).
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(defaultTheme.border).
+		Render(lipgloss.JoinVertical(
+			lipgloss.Left,
+			title,
+			subtitle,
+			"",
+			urlBox,
+			"",
+			inputBox,
+			"",
+			lipgloss.JoinVertical(lipgloss.Left, lines...),
+		))
 	width := vm.Width
 	if width <= 0 {
 		width = panelWidth + 8

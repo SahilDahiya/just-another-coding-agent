@@ -10,6 +10,7 @@ read_when: start here, onboarding, or you need to find the right doc quickly
 - Product scope and non-goals: [goal.md](goal.md)
 - TUI product constraints and north star: [tui.md](tui.md)
 - TUI architecture refactor plan: [tui-architecture-plan.md](tui-architecture-plan.md)
+- ChatGPT subscription OAuth feasibility spike: [chatgpt-subscription-oauth-spike.md](chatgpt-subscription-oauth-spike.md)
 - Target architecture: [architecture.md](architecture.md)
 - Canonical public contract: [contracts.md](contracts.md)
 - PydanticAI grounding sources: [grounding.md](grounding.md)
@@ -30,6 +31,7 @@ read_when: start here, onboarding, or you need to find the right doc quickly
 - [goal.md](goal.md) - product target, scope, and non-goals
 - [tui.md](tui.md) - TUI product bar, hard constraints, and anti-bloat rules
 - [tui-architecture-plan.md](tui-architecture-plan.md) - TUI refactor direction, domain slices, controller shape, and rollout plan
+- [chatgpt-subscription-oauth-spike.md](chatgpt-subscription-oauth-spike.md) - narrow feasibility plan for one ChatGPT subscription OAuth path
 - [architecture.md](architecture.md) - package layout and architectural boundaries
 - [contracts.md](contracts.md) - canonical coding-agent contract
 - [grounding.md](grounding.md) - official PydanticAI grounding sources

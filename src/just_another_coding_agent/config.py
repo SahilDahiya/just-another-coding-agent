@@ -10,7 +10,7 @@ from just_another_coding_agent.contracts.model_catalog import default_model_for_
 
 CONFIG_DIR = Path.home() / ".jaca"
 CONFIG_PATH = CONFIG_DIR / "config.json"
-DEFAULT_MODEL = default_model_for_provider("ollama")
+DEFAULT_MODEL = default_model_for_provider("openai")
 
 
 def load_config() -> dict[str, str]:
@@ -25,7 +25,6 @@ def load_config() -> dict[str, str]:
 def apply_config_to_env(config: dict[str, str]) -> None:
     env_keys = {
         "OPENAI_BASE_URL",
-        "OLLAMA_BASE_URL",
     }
     for key in env_keys:
         if key in config and key not in os.environ:

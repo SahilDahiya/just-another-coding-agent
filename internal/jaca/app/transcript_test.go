@@ -19,18 +19,17 @@ func stripANSI(text string) string {
 	return ansiRe.ReplaceAllString(text, "")
 }
 
-func TestWriteStartupBannerIncludesOllamaHintsInPlainText(t *testing.T) {
-	t.Setenv("OLLAMA_BASE_URL", "")
+func TestWriteStartupBannerIncludesModelInPlainText(t *testing.T) {
 	workspaceRoot := filepath.Join("workspace", "repo")
 
 	transcript := NewTranscript()
-	transcript.WriteStartupBanner("0.1.0", "ollama:test", workspaceRoot, "medium")
+	transcript.WriteStartupBanner("0.1.0", "openai-responses:gpt-5.4", workspaceRoot, "medium")
 
 	plain := transcript.blocks[0].Plain()
 	if !strings.Contains(plain, ">_ jaca (v0.1.0)") {
 		t.Fatalf("plain banner missing title: %q", plain)
 	}
-	if !strings.Contains(plain, "model:     ollama:test") {
+	if !strings.Contains(plain, "model:     openai-responses:gpt-5.4") {
 		t.Fatalf("plain banner missing model: %q", plain)
 	}
 	if !strings.Contains(plain, "directory: "+displayPath(workspaceRoot)) {

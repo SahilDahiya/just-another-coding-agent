@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
-ProviderName = Literal["openai", "openrouter", "anthropic", "ollama", "google"]
+ProviderName = Literal["openai", "anthropic"]
 
 
 class _ModelCatalogBase(BaseModel):
@@ -19,35 +19,11 @@ class ShippedModel(_ModelCatalogBase):
 
 
 CANONICAL_PROVIDER_ORDER: tuple[ProviderName, ...] = (
-    "ollama",
     "openai",
-    "openrouter",
     "anthropic",
-    "google",
 )
 
 SHIPPED_MODELS: tuple[ShippedModel, ...] = (
-    ShippedModel(
-        provider="ollama",
-        model_id="ollama:kimi-k2:1t-cloud",
-        description="Current default Kimi K2",
-        default_for_provider=True,
-    ),
-    ShippedModel(
-        provider="ollama",
-        model_id="ollama:glm-5:cloud",
-        description="GLM-5 cloud path",
-    ),
-    ShippedModel(
-        provider="ollama",
-        model_id="ollama:qwen3.5:397b-cloud",
-        description="Qwen 3.5 397B cloud",
-    ),
-    ShippedModel(
-        provider="ollama",
-        model_id="ollama:qwen3-coder-next",
-        description="Qwen3 Coder Next",
-    ),
     ShippedModel(
         provider="openai",
         model_id="openai-responses:gpt-5.4",
@@ -65,6 +41,156 @@ SHIPPED_MODELS: tuple[ShippedModel, ...] = (
         description="Codex-optimized GPT-5.3 Responses path",
     ),
     ShippedModel(
+        provider="openai",
+        model_id="openai-responses:gpt-5-codex",
+        description="Experimental ChatGPT subscription Codex path",
+    ),
+    ShippedModel(
+        provider="openai",
+        model_id="openai-responses:gpt-5-chatgpt",
+        description="Experimental ChatGPT subscription GPT-5 path",
+    ),
+    ShippedModel(
+        provider="openai",
+        model_id="openai-responses:gpt-5-mini-chatgpt",
+        description="Experimental ChatGPT subscription GPT-5 mini path",
+    ),
+    ShippedModel(
+        provider="openai",
+        model_id="openai-responses:gpt-5.1-chatgpt",
+        description="Experimental ChatGPT subscription GPT-5.1 path",
+    ),
+    ShippedModel(
+        provider="openai",
+        model_id="openai-responses:gpt-5.1-codex-chatgpt",
+        description="Experimental ChatGPT subscription GPT-5.1 Codex path",
+    ),
+    ShippedModel(
+        provider="openai",
+        model_id="openai-responses:gpt-5.1-codex-mini-chatgpt",
+        description="Experimental ChatGPT subscription GPT-5.1 Codex Mini path",
+    ),
+    ShippedModel(
+        provider="openai",
+        model_id="openai-responses:gpt-5.1-codex-max-chatgpt",
+        description="Experimental ChatGPT subscription GPT-5.1 Codex Max path",
+    ),
+    ShippedModel(
+        provider="openai",
+        model_id="openai-responses:gpt-5.2-chatgpt",
+        description="Experimental ChatGPT subscription GPT-5.2 path",
+    ),
+    ShippedModel(
+        provider="openai",
+        model_id="openai-responses:gpt-5.2-codex-chatgpt",
+        description="Experimental ChatGPT subscription GPT-5.2 Codex path",
+    ),
+    ShippedModel(
+        provider="openai",
+        model_id="openai-responses:gpt-5.3-codex-chatgpt",
+        description="Experimental ChatGPT subscription GPT-5.3 Codex path",
+    ),
+    ShippedModel(
+        provider="openai",
+        model_id="openai-responses:gpt-5.4-chatgpt",
+        description="Experimental ChatGPT subscription GPT-5.4 path",
+    ),
+    ShippedModel(
+        provider="openai",
+        model_id="openai-responses:gpt-5.4-mini-chatgpt",
+        description="Experimental ChatGPT subscription GPT-5.4 mini path",
+    ),
+    ShippedModel(
+        provider="openai",
+        model_id="openai-responses:gpt-5-copilot",
+        description="Experimental GitHub Copilot GPT-5 path",
+    ),
+    ShippedModel(
+        provider="openai",
+        model_id="openai-responses:gpt-5-mini-copilot",
+        description="Experimental GitHub Copilot GPT-5 mini path",
+    ),
+    ShippedModel(
+        provider="openai",
+        model_id="openai-responses:gpt-5.1-copilot",
+        description="Experimental GitHub Copilot GPT-5.1 path",
+    ),
+    ShippedModel(
+        provider="openai",
+        model_id="openai-responses:gpt-5.1-codex-copilot",
+        description="Experimental GitHub Copilot GPT-5.1 Codex path",
+    ),
+    ShippedModel(
+        provider="openai",
+        model_id="openai-responses:gpt-5.1-codex-mini-copilot",
+        description="Experimental GitHub Copilot GPT-5.1 Codex Mini path",
+    ),
+    ShippedModel(
+        provider="openai",
+        model_id="openai-responses:gpt-5.1-codex-max-copilot",
+        description="Experimental GitHub Copilot GPT-5.1 Codex Max path",
+    ),
+    ShippedModel(
+        provider="openai",
+        model_id="openai-responses:gpt-5.2-copilot",
+        description="Experimental GitHub Copilot GPT-5.2 path",
+    ),
+    ShippedModel(
+        provider="openai",
+        model_id="openai-responses:gpt-5.2-codex-copilot",
+        description="Experimental GitHub Copilot GPT-5.2 Codex path",
+    ),
+    ShippedModel(
+        provider="openai",
+        model_id="openai-responses:gpt-5.3-codex-copilot",
+        description="Experimental GitHub Copilot GPT-5.3 Codex path",
+    ),
+    ShippedModel(
+        provider="openai",
+        model_id="openai-responses:gpt-5.4-copilot",
+        description="Experimental GitHub Copilot GPT-5.4 path",
+    ),
+    ShippedModel(
+        provider="openai",
+        model_id="openai-responses:gpt-5.4-mini-copilot",
+        description="Experimental GitHub Copilot GPT-5.4 mini path",
+    ),
+    ShippedModel(
+        provider="openai",
+        model_id="openai-chat:gpt-4.1-copilot",
+        description="Experimental GitHub Copilot GPT-4.1 path",
+    ),
+    ShippedModel(
+        provider="openai",
+        model_id="openai-chat:gpt-4o-copilot",
+        description="Experimental GitHub Copilot GPT-4o path",
+    ),
+    ShippedModel(
+        provider="openai",
+        model_id="openai-chat:gemini-2.5-pro-copilot",
+        description="Experimental GitHub Copilot Gemini 2.5 Pro path",
+    ),
+    ShippedModel(
+        provider="openai",
+        model_id="openai-chat:gemini-3-flash-preview-copilot",
+        description="Experimental GitHub Copilot Gemini 3 Flash path",
+    ),
+    ShippedModel(
+        provider="openai",
+        model_id="openai-chat:gemini-3-pro-preview-copilot",
+        description="Experimental GitHub Copilot Gemini 3 Pro path",
+    ),
+    ShippedModel(
+        provider="openai",
+        model_id="openai-chat:gemini-3.1-pro-preview-copilot",
+        description="Experimental GitHub Copilot Gemini 3.1 Pro path",
+    ),
+    ShippedModel(
+        provider="openai",
+        model_id="openai-chat:grok-code-fast-1-copilot",
+        description="Experimental GitHub Copilot Grok Code Fast 1 path",
+    ),
+    ShippedModel(
         provider="anthropic",
         model_id="anthropic:claude-sonnet-4-5",
         description="Balanced Claude Sonnet",
@@ -76,31 +202,34 @@ SHIPPED_MODELS: tuple[ShippedModel, ...] = (
         description="Stronger Claude Opus",
     ),
     ShippedModel(
-        provider="openrouter",
-        model_id="openrouter:anthropic/claude-sonnet-4-5",
-        description="OpenRouter Claude Sonnet",
-        default_for_provider=True,
+        provider="anthropic",
+        model_id="anthropic:claude-haiku-4.5-copilot",
+        description="Experimental GitHub Copilot Claude Haiku 4.5 path",
     ),
     ShippedModel(
-        provider="openrouter",
-        model_id="openrouter:x-ai/grok-code-fast-1",
-        description="OpenRouter Grok Code Fast 1",
+        provider="anthropic",
+        model_id="anthropic:claude-opus-4.5-copilot",
+        description="Experimental GitHub Copilot Claude Opus 4.5 path",
     ),
     ShippedModel(
-        provider="google",
-        model_id="google:gemini-2.5-flash",
-        description="Fast Gemini 2.5 Flash",
-        default_for_provider=True,
+        provider="anthropic",
+        model_id="anthropic:claude-opus-4.6-copilot",
+        description="Experimental GitHub Copilot Claude Opus 4.6 path",
     ),
     ShippedModel(
-        provider="google",
-        model_id="google:gemini-2.5-flash-lite",
-        description="Cheaper Gemini 2.5 Flash-Lite",
+        provider="anthropic",
+        model_id="anthropic:claude-sonnet-4-copilot",
+        description="Experimental GitHub Copilot Claude Sonnet 4 path",
     ),
     ShippedModel(
-        provider="google",
-        model_id="google:gemini-2.5-pro",
-        description="Stronger Gemini 2.5 Pro",
+        provider="anthropic",
+        model_id="anthropic:claude-sonnet-4.5-copilot",
+        description="Experimental GitHub Copilot Claude Sonnet 4.5 path",
+    ),
+    ShippedModel(
+        provider="anthropic",
+        model_id="anthropic:claude-sonnet-4.6-copilot",
+        description="Experimental GitHub Copilot Claude Sonnet 4.6 path",
     ),
 )
 

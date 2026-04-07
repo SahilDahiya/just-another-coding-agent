@@ -36,6 +36,25 @@ type AuthClearPayload struct {
 	Provider string `json:"provider"`
 }
 
+type AuthLoginOpenAICodexStartPayload struct{}
+
+type AuthLoginOpenAICodexCompletePayload struct {
+	FlowID         string `json:"flow_id"`
+	CallbackOrCode string `json:"callback_or_code"`
+}
+
+type AuthLoginOpenAICodexPollPayload struct {
+	FlowID string `json:"flow_id"`
+}
+
+type AuthLoginGitHubCopilotStartPayload struct {
+	EnterpriseDomain *string `json:"enterprise_domain,omitempty"`
+}
+
+type AuthLoginGitHubCopilotPollPayload struct {
+	FlowID string `json:"flow_id"`
+}
+
 type SessionCompactPayload struct {
 	SessionID string `json:"session_id"`
 }
@@ -132,9 +151,17 @@ type LocalSecretStoreStatus struct {
 	FileStorePath string  `json:"file_store_path"`
 }
 
+type OAuthProviderStatus struct {
+	Provider  string  `json:"provider"`
+	LoggedIn  bool    `json:"logged_in"`
+	AccountID *string `json:"account_id"`
+	ExpiresAt *int64  `json:"expires_at"`
+}
+
 type AuthStatusResponse struct {
 	Providers        []AuthProviderStatus   `json:"providers"`
 	LocalSecretStore LocalSecretStoreStatus `json:"local_secret_store"`
+	OAuthProviders   []OAuthProviderStatus  `json:"oauth_providers"`
 }
 
 type AuthSetResponse struct {
@@ -143,6 +170,33 @@ type AuthSetResponse struct {
 
 type AuthClearResponse struct {
 	Status AuthProviderStatus `json:"status"`
+}
+
+type AuthLoginOpenAICodexStartResponse struct {
+	FlowID       string `json:"flow_id"`
+	AuthURL      string `json:"auth_url"`
+	Instructions string `json:"instructions"`
+}
+
+type AuthLoginOpenAICodexCompleteResponse struct {
+	Status OAuthProviderStatus `json:"status"`
+}
+
+type AuthLoginOpenAICodexPollResponse struct {
+	Done   bool                 `json:"done"`
+	Status *OAuthProviderStatus `json:"status"`
+}
+
+type AuthLoginGitHubCopilotStartResponse struct {
+	FlowID       string `json:"flow_id"`
+	AuthURL      string `json:"auth_url"`
+	Instructions string `json:"instructions"`
+	UserCode     string `json:"user_code"`
+}
+
+type AuthLoginGitHubCopilotPollResponse struct {
+	Done   bool                 `json:"done"`
+	Status *OAuthProviderStatus `json:"status"`
 }
 
 type RunEnqueueResponse struct {

@@ -68,7 +68,7 @@ Example flow:
 {"id": "req-0", "command": "auth.status", "payload": {}}
 ```
 ```json
-{"type": "rpc_response", "id": "req-0", "response": {"providers": [{"provider": "openai", "configured": false, "secret_configured": false, "requires_secret": true, "source": "none", "env_key": "OPENAI_API_KEY", "reason": "missing_secret"}], "local_secret_store": {"available": true, "message": null, "file_store_path": "/home/user/.jaca/secrets.json"}}}
+{"type": "rpc_response", "id": "req-0", "response": {"providers": [{"provider": "openai", "configured": false, "secret_configured": false, "requires_secret": true, "source": "none", "env_key": "OPENAI_API_KEY", "reason": "missing_secret"}], "local_secret_store": {"available": true, "message": null, "file_store_path": "/home/user/.jaca/auth.json"}}}
 ```
 ```json
 {"id": "req-1", "command": "session.create", "payload": {}}
@@ -109,7 +109,7 @@ Three response types:
   session lifecycle events such as automatic compaction
 - `rpc_error` -- protocol-level problems only (bad JSON, unknown command, unknown session, invalid session state)
 
-Clients never see filesystem paths or workspace identifiers. Session identity is an opaque hex string. Provider auth is backend-owned too: provider secrets resolve from environment first, then OS keychain, then the local secret file when keychain storage is unavailable. Provider readiness is computed from that secret state plus the effective provider path and endpoint configuration. The config file is not a secret store, and `auth.status` tells clients both whether interactive local secret storage is available and whether each provider is currently ready to run.
+Clients never see filesystem paths or workspace identifiers. Session identity is an opaque hex string. Provider auth is backend-owned too: provider secrets resolve from environment first, then the local auth file at `~/.jaca/auth.json`. Provider readiness is computed from that secret state plus the effective provider path and endpoint configuration. The config file is not a secret store, and `auth.status` tells clients where the backend-owned auth file lives and whether each provider is currently ready to run.
 
 ### Session
 

@@ -1,6 +1,7 @@
 import asyncio
 import json
 from collections.abc import AsyncIterator
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 from pydantic_ai.messages import (
@@ -12,13 +13,26 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 
-from just_another_coding_agent.auth import AuthStoreError
+from just_another_coding_agent.auth import (
+    AuthStoreError,
+    GitHubCopilotLoginFlow,
+    OpenAICodexLoginFlow,
+)
 from just_another_coding_agent.contracts.auth import ProviderAuthStatus
+from just_another_coding_agent.oauth_openai_codex import start_openai_codex_login
 from just_another_coding_agent.rpc.session_store import (
     create_session,
     session_path_for_id,
 )
-from just_another_coding_agent.rpc.stdio import _FollowUpState, handle_rpc_json_line
+from just_another_coding_agent.rpc.stdio import (
+    _GITHUB_COPILOT_LOGIN_FLOWS,
+    _GITHUB_COPILOT_LOGIN_STARTED_AT,
+    _OPENAI_CODEX_LOGIN_FLOWS,
+    _OPENAI_CODEX_LOGIN_STARTED_AT,
+    _FollowUpState,
+    _prune_stale_login_flows,
+    handle_rpc_json_line,
+)
 from just_another_coding_agent.session import load_session
 
 
@@ -220,6 +234,17 @@ async def test_follow_up_state_interrupt_promotes_pending_steer_to_front() -> No
         await run_task
     assert await state.take_next_follow_up_batch("a" * 32) == ["steer prompt"]
     assert await state.take_next_follow_up_batch("a" * 32) == ["later prompt"]
+
+
+def test_openai_codex_login_redirect_host_matches_callback_listener() -> None:
+    _flow, start = start_openai_codex_login()
+
+    parsed = urlparse(start.auth_url)
+    redirect_uri = parse_qs(parsed.query)["redirect_uri"][0]
+    redirect = urlparse(redirect_uri)
+
+    assert redirect.hostname == "localhost"
+    assert redirect.port == 1455
 
 
 async def test_follow_up_state_interrupt_preserves_fifo_within_promoted_and_later(
@@ -547,28 +572,6 @@ async def test_handle_rpc_json_line_returns_backend_owned_model_catalog(
             "response": {
                 "providers": [
                     {
-                        "provider": "ollama",
-                        "default_model_id": "ollama:kimi-k2:1t-cloud",
-                        "models": [
-                            {
-                                "model_id": "ollama:kimi-k2:1t-cloud",
-                                "description": "Current default Kimi K2",
-                            },
-                            {
-                                "model_id": "ollama:glm-5:cloud",
-                                "description": "GLM-5 cloud path",
-                            },
-                            {
-                                "model_id": "ollama:qwen3.5:397b-cloud",
-                                "description": "Qwen 3.5 397B cloud",
-                            },
-                            {
-                                "model_id": "ollama:qwen3-coder-next",
-                                "description": "Qwen3 Coder Next",
-                            },
-                        ],
-                    },
-                    {
                         "provider": "openai",
                         "default_model_id": "openai-responses:gpt-5.4",
                         "models": [
@@ -584,19 +587,17 @@ async def test_handle_rpc_json_line_returns_backend_owned_model_catalog(
                                 "model_id": "openai-responses:gpt-5.3-codex",
                                 "description": "Codex-optimized GPT-5.3 Responses path",
                             },
-                        ],
-                    },
-                    {
-                        "provider": "openrouter",
-                        "default_model_id": "openrouter:anthropic/claude-sonnet-4-5",
-                        "models": [
                             {
-                                "model_id": "openrouter:anthropic/claude-sonnet-4-5",
-                                "description": "OpenRouter Claude Sonnet",
+                                "model_id": "openai-responses:gpt-5-codex",
+                                "description": (
+                                    "Experimental ChatGPT subscription Codex path"
+                                ),
                             },
                             {
-                                "model_id": "openrouter:x-ai/grok-code-fast-1",
-                                "description": "OpenRouter Grok Code Fast 1",
+                                "model_id": "openai-responses:gpt-5-mini-copilot",
+                                "description": (
+                                    "Experimental GitHub Copilot GPT-5 mini path"
+                                ),
                             },
                         ],
                     },
@@ -611,24 +612,6 @@ async def test_handle_rpc_json_line_returns_backend_owned_model_catalog(
                             {
                                 "model_id": "anthropic:claude-opus-4-1",
                                 "description": "Stronger Claude Opus",
-                            },
-                        ],
-                    },
-                    {
-                        "provider": "google",
-                        "default_model_id": "google:gemini-2.5-flash",
-                        "models": [
-                            {
-                                "model_id": "google:gemini-2.5-flash",
-                                "description": "Fast Gemini 2.5 Flash",
-                            },
-                            {
-                                "model_id": "google:gemini-2.5-flash-lite",
-                                "description": "Cheaper Gemini 2.5 Flash-Lite",
-                            },
-                            {
-                                "model_id": "google:gemini-2.5-pro",
-                                "description": "Stronger Gemini 2.5 Pro",
                             },
                         ],
                     },
@@ -649,20 +632,11 @@ async def test_handle_rpc_json_line_returns_auth_status(
         "just_another_coding_agent.rpc.stdio.list_provider_auth_statuses",
         lambda: [
             ProviderAuthStatus(
-                provider="ollama",
-                configured=True,
-                secret_configured=False,
-                requires_secret=False,
-                source="none",
-                env_key="OLLAMA_API_KEY",
-                reason="local_endpoint_no_secret_required",
-            ),
-            ProviderAuthStatus(
                 provider="openai",
                 configured=True,
                 secret_configured=True,
                 requires_secret=True,
-                source="keychain",
+                source="file",
                 env_key="OPENAI_API_KEY",
                 reason="ok",
             ),
@@ -675,24 +649,6 @@ async def test_handle_rpc_json_line_returns_auth_status(
                 env_key="ANTHROPIC_API_KEY",
                 reason="missing_secret",
             ),
-            ProviderAuthStatus(
-                provider="openrouter",
-                configured=False,
-                secret_configured=False,
-                requires_secret=True,
-                source="none",
-                env_key="OPENROUTER_API_KEY",
-                reason="missing_secret",
-            ),
-            ProviderAuthStatus(
-                provider="google",
-                configured=False,
-                secret_configured=False,
-                requires_secret=True,
-                source="none",
-                env_key="GOOGLE_API_KEY",
-                reason="missing_secret",
-            ),
         ],
     )
     monkeypatch.setattr(
@@ -700,8 +656,25 @@ async def test_handle_rpc_json_line_returns_auth_status(
         lambda: {
             "available": True,
             "message": None,
-            "file_store_path": "/tmp/jaca-secrets.json",
+            "file_store_path": "/tmp/jaca-auth.json",
         },
+    )
+    monkeypatch.setattr(
+        "just_another_coding_agent.rpc.stdio.get_oauth_provider_statuses",
+        lambda: [
+            {
+                "provider": "openai-codex",
+                "logged_in": True,
+                "account_id": "acct-123",
+                "expires_at": 1760000000000,
+            },
+            {
+                "provider": "github-copilot",
+                "logged_in": False,
+                "account_id": None,
+                "expires_at": None,
+            },
+        ],
     )
 
     messages = await _rpc_messages(
@@ -722,20 +695,11 @@ async def test_handle_rpc_json_line_returns_auth_status(
             "response": {
                 "providers": [
                     {
-                        "provider": "ollama",
-                        "configured": True,
-                        "secret_configured": False,
-                        "requires_secret": False,
-                        "source": "none",
-                        "env_key": "OLLAMA_API_KEY",
-                        "reason": "local_endpoint_no_secret_required",
-                    },
-                    {
                         "provider": "openai",
                         "configured": True,
                         "secret_configured": True,
                         "requires_secret": True,
-                        "source": "keychain",
+                        "source": "file",
                         "env_key": "OPENAI_API_KEY",
                         "reason": "ok",
                     },
@@ -748,33 +712,301 @@ async def test_handle_rpc_json_line_returns_auth_status(
                         "env_key": "ANTHROPIC_API_KEY",
                         "reason": "missing_secret",
                     },
-                    {
-                        "provider": "openrouter",
-                        "configured": False,
-                        "secret_configured": False,
-                        "requires_secret": True,
-                        "source": "none",
-                        "env_key": "OPENROUTER_API_KEY",
-                        "reason": "missing_secret",
-                    },
-                    {
-                        "provider": "google",
-                        "configured": False,
-                        "secret_configured": False,
-                        "requires_secret": True,
-                        "source": "none",
-                        "env_key": "GOOGLE_API_KEY",
-                        "reason": "missing_secret",
-                    },
                 ],
                 "local_secret_store": {
                     "available": True,
                     "message": None,
-                    "file_store_path": "/tmp/jaca-secrets.json",
+                    "file_store_path": "/tmp/jaca-auth.json",
                 },
+                "oauth_providers": [
+                    {
+                        "provider": "openai-codex",
+                        "logged_in": True,
+                        "account_id": "acct-123",
+                        "expires_at": 1760000000000,
+                    },
+                    {
+                        "provider": "github-copilot",
+                        "logged_in": False,
+                        "account_id": None,
+                        "expires_at": None,
+                    }
+                ],
             },
         }
     ]
+
+
+async def test_handle_rpc_json_line_starts_openai_codex_login(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    _OPENAI_CODEX_LOGIN_FLOWS.clear()
+    monkeypatch.setattr(
+        "just_another_coding_agent.rpc.stdio.start_openai_codex_oauth_login",
+        lambda: (
+            OpenAICodexLoginFlow(flow_id="flow-1", verifier="v", state="s"),
+            "flow-1",
+            "https://auth.example.test/login",
+            "Paste the redirect URL or authorization code.",
+        ),
+    )
+
+    messages = await _rpc_messages(
+        request_payload={
+            "id": "req-login-start",
+            "command": "auth.login_openai_codex.start",
+            "payload": {},
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    assert messages == [
+        {
+            "type": "rpc_response",
+            "id": "req-login-start",
+            "response": {
+                "flow_id": "flow-1",
+                "auth_url": "https://auth.example.test/login",
+                "instructions": "Paste the redirect URL or authorization code.",
+            },
+        }
+    ]
+    assert "flow-1" in _OPENAI_CODEX_LOGIN_FLOWS
+
+
+async def test_handle_rpc_json_line_starts_github_copilot_login(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    _GITHUB_COPILOT_LOGIN_FLOWS.clear()
+    monkeypatch.setattr(
+        "just_another_coding_agent.rpc.stdio.start_github_copilot_oauth_login",
+        lambda enterprise_domain=None: (
+            GitHubCopilotLoginFlow(
+                flow_id="flow-gh-1",
+                domain="github.com",
+                device_code="device-code",
+                interval_seconds=5,
+                expires_in_seconds=900,
+                verification_uri="https://github.com/login/device",
+                user_code="ABCD-EFGH",
+            ),
+            "flow-gh-1",
+            "https://github.com/login/device",
+            "Enter code: ABCD-EFGH",
+        ),
+    )
+
+    messages = await _rpc_messages(
+        request_payload={
+            "id": "req-gh-login-start",
+            "command": "auth.login_github_copilot.start",
+            "payload": {},
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    assert messages == [
+        {
+            "type": "rpc_response",
+            "id": "req-gh-login-start",
+            "response": {
+                "flow_id": "flow-gh-1",
+                "auth_url": "https://github.com/login/device",
+                "instructions": "Enter code: ABCD-EFGH",
+                "user_code": "ABCD-EFGH",
+            },
+        }
+    ]
+    assert "flow-gh-1" in _GITHUB_COPILOT_LOGIN_FLOWS
+
+
+async def test_handle_rpc_json_line_preserves_login_flow_after_failed_completion(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    _OPENAI_CODEX_LOGIN_FLOWS.clear()
+    flow = OpenAICodexLoginFlow(flow_id="flow-2", verifier="v", state="s")
+    _OPENAI_CODEX_LOGIN_FLOWS["flow-2"] = flow
+    attempt_counter = {"count": 0}
+
+    async def _complete(_flow, callback_or_code: str):
+        attempt_counter["count"] += 1
+        if callback_or_code == "bad-code":
+            raise RuntimeError("invalid callback")
+        return {
+            "provider": "openai-codex",
+            "logged_in": True,
+            "account_id": "acct-123",
+            "expires_at": 1760000000000,
+        }
+
+    monkeypatch.setattr(
+        "just_another_coding_agent.rpc.stdio.complete_openai_codex_oauth_login",
+        _complete,
+    )
+
+    bad_messages = await _rpc_messages(
+        request_payload={
+            "id": "req-login-bad",
+            "command": "auth.login_openai_codex.complete",
+            "payload": {
+                "flow_id": "flow-2",
+                "callback_or_code": "bad-code",
+            },
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    assert bad_messages == [
+        {
+            "type": "rpc_error",
+            "id": "req-login-bad",
+            "error_type": "InternalError",
+            "message": "invalid callback",
+        }
+    ]
+    assert "flow-2" in _OPENAI_CODEX_LOGIN_FLOWS
+
+    good_messages = await _rpc_messages(
+        request_payload={
+            "id": "req-login-good",
+            "command": "auth.login_openai_codex.complete",
+            "payload": {
+                "flow_id": "flow-2",
+                "callback_or_code": "good-code",
+            },
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    assert good_messages == [
+        {
+            "type": "rpc_response",
+            "id": "req-login-good",
+            "response": {
+                "status": {
+                    "provider": "openai-codex",
+                    "logged_in": True,
+                    "account_id": "acct-123",
+                    "expires_at": 1760000000000,
+                }
+            },
+        }
+    ]
+    assert "flow-2" not in _OPENAI_CODEX_LOGIN_FLOWS
+    assert attempt_counter["count"] == 2
+
+
+async def test_handle_rpc_json_line_polls_github_copilot_login(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    _GITHUB_COPILOT_LOGIN_FLOWS.clear()
+    flow = GitHubCopilotLoginFlow(
+        flow_id="flow-gh-2",
+        domain="github.com",
+        device_code="device-code",
+        interval_seconds=5,
+        expires_in_seconds=900,
+        verification_uri="https://github.com/login/device",
+        user_code="ABCD-EFGH",
+    )
+    _GITHUB_COPILOT_LOGIN_FLOWS["flow-gh-2"] = flow
+
+    async def _wait(_flow):
+        return {
+            "provider": "github-copilot",
+            "logged_in": True,
+            "account_id": None,
+            "expires_at": 1760000000000,
+        }
+
+    monkeypatch.setattr(
+        "just_another_coding_agent.rpc.stdio.wait_for_github_copilot_oauth_login",
+        _wait,
+    )
+
+    start_messages = await _rpc_messages(
+        request_payload={
+            "id": "req-gh-login-start-real",
+            "command": "auth.login_github_copilot.start",
+            "payload": {},
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+    flow_id = str(start_messages[0]["response"]["flow_id"])
+
+    poll_messages = await _rpc_messages(
+        request_payload={
+            "id": "req-gh-login-poll",
+            "command": "auth.login_github_copilot.poll",
+            "payload": {"flow_id": flow_id},
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    assert poll_messages[0]["type"] == "rpc_response"
+    assert poll_messages[0]["response"]["done"] in {False, True}
+
+
+def test_prune_stale_login_flows_removes_expired_openai_codex_entries() -> None:
+    _OPENAI_CODEX_LOGIN_FLOWS.clear()
+    _OPENAI_CODEX_LOGIN_STARTED_AT.clear()
+    flow = OpenAICodexLoginFlow(flow_id="stale-flow", verifier="v", state="s")
+    _OPENAI_CODEX_LOGIN_FLOWS["stale-flow"] = flow
+    _OPENAI_CODEX_LOGIN_STARTED_AT["stale-flow"] = 0.0
+
+    _prune_stale_login_flows(now=10_000.0)
+
+    assert "stale-flow" not in _OPENAI_CODEX_LOGIN_FLOWS
+    assert "stale-flow" not in _OPENAI_CODEX_LOGIN_STARTED_AT
+
+
+def test_prune_stale_login_flows_removes_expired_github_copilot_entries() -> None:
+    _GITHUB_COPILOT_LOGIN_FLOWS.clear()
+    _GITHUB_COPILOT_LOGIN_STARTED_AT.clear()
+    flow = GitHubCopilotLoginFlow(
+        flow_id="stale-gh-flow",
+        domain="github.com",
+        device_code="device-code",
+        interval_seconds=5,
+        expires_in_seconds=900,
+        verification_uri="https://github.com/login/device",
+        user_code="ABCD-EFGH",
+    )
+    _GITHUB_COPILOT_LOGIN_FLOWS["stale-gh-flow"] = flow
+    _GITHUB_COPILOT_LOGIN_STARTED_AT["stale-gh-flow"] = 0.0
+
+    _prune_stale_login_flows(now=10_000.0)
+
+    assert "stale-gh-flow" not in _GITHUB_COPILOT_LOGIN_FLOWS
+    assert "stale-gh-flow" not in _GITHUB_COPILOT_LOGIN_STARTED_AT
 
 
 async def test_handle_rpc_json_line_sets_provider_secret(
@@ -796,8 +1028,8 @@ async def test_handle_rpc_json_line_sets_provider_secret(
                 configured=True,
                 secret_configured=True,
                 requires_secret=True,
-                source="keychain",
-                env_key="GOOGLE_API_KEY",
+                source="file",
+                env_key="OPENAI_API_KEY",
                 reason="ok",
             )
         ),
@@ -808,9 +1040,9 @@ async def test_handle_rpc_json_line_sets_provider_secret(
             "id": "req-auth-set",
             "command": "auth.set",
             "payload": {
-                "provider": "google",
+                "provider": "openai",
                 "secret": "test-token",
-                "storage": "keychain",
+                "storage": "file",
             },
         },
         model=FunctionModel(stream_function=text_only_stream),
@@ -819,9 +1051,9 @@ async def test_handle_rpc_json_line_sets_provider_secret(
     )
 
     assert captured == {
-        "provider": "google",
+        "provider": "openai",
         "secret": "test-token",
-        "storage": "keychain",
+        "storage": "file",
     }
     assert messages == [
         {
@@ -829,12 +1061,12 @@ async def test_handle_rpc_json_line_sets_provider_secret(
             "id": "req-auth-set",
             "response": {
                 "status": {
-                    "provider": "google",
+                    "provider": "openai",
                     "configured": True,
                     "secret_configured": True,
                     "requires_secret": True,
-                    "source": "keychain",
-                    "env_key": "GOOGLE_API_KEY",
+                    "source": "file",
+                    "env_key": "OPENAI_API_KEY",
                     "reason": "ok",
                 }
             },
@@ -911,7 +1143,7 @@ async def test_handle_rpc_json_line_rejects_blank_provider_secret_as_invalid_req
             "id": "req-auth-set-blank",
             "command": "auth.set",
             "payload": {
-                "provider": "google",
+                "provider": "openai",
                 "secret": "   ",
             },
         },
@@ -939,7 +1171,7 @@ async def test_handle_rpc_json_line_returns_internal_error_for_auth_status_failu
     sessions_root = tmp_path / "sessions"
     monkeypatch.setattr(
         "just_another_coding_agent.rpc.stdio.list_provider_auth_statuses",
-        lambda: (_ for _ in ()).throw(AuthStoreError("keychain backend unavailable")),
+        lambda: (_ for _ in ()).throw(AuthStoreError("auth store unavailable")),
     )
 
     messages = await _rpc_messages(
@@ -958,7 +1190,7 @@ async def test_handle_rpc_json_line_returns_internal_error_for_auth_status_failu
             "type": "rpc_error",
             "id": "req-auth-status-fail",
             "error_type": "InternalError",
-            "message": "keychain backend unavailable",
+            "message": "auth store unavailable",
         }
     ]
 
@@ -973,7 +1205,7 @@ async def test_handle_rpc_json_line_returns_internal_error_for_auth_clear_store_
     monkeypatch.setattr(
         "just_another_coding_agent.rpc.stdio.clear_provider_secret",
         lambda _provider: (_ for _ in ()).throw(
-            AuthStoreError("keychain backend unavailable")
+            AuthStoreError("auth store unavailable")
         ),
     )
 
@@ -995,7 +1227,7 @@ async def test_handle_rpc_json_line_returns_internal_error_for_auth_clear_store_
             "type": "rpc_error",
             "id": "req-auth-clear-fail",
             "error_type": "InternalError",
-            "message": "keychain backend unavailable",
+            "message": "auth store unavailable",
         }
     ]
 
@@ -1014,7 +1246,7 @@ async def test_handle_rpc_json_line_returns_provider_not_ready_for_run_start(
     monkeypatch.setenv("ANTHROPIC_API_KEY", "")
     monkeypatch.setattr(
         "just_another_coding_agent.secret_store.SECRET_FILE_PATH",
-        tmp_path / "secrets.json",
+        tmp_path / "auth.json",
     )
 
     messages = await _rpc_messages(

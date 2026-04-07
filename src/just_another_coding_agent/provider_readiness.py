@@ -8,14 +8,18 @@ from just_another_coding_agent.contracts.auth import (
     AuthSource,
     ProviderAuthStatus,
 )
-from just_another_coding_agent.contracts.model_catalog import (
-    ProviderName,
-    shipped_models_for_provider,
+from just_another_coding_agent.contracts.model_catalog import ProviderName
+from just_another_coding_agent.oauth_store import (
+    get_github_copilot_credentials,
+    get_openai_codex_credentials,
 )
 
-DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434/v1"
-
-LOCALHOST_NAMES = frozenset({"localhost", "127.0.0.1", "::1"})
+_OPENAI_CODEX_OAUTH_ENV_KEYS = (
+    "OPENAI_CODEX_OAUTH_ACCESS_TOKEN",
+    "OPENAI_CODEX_OAUTH_REFRESH_TOKEN",
+    "OPENAI_CODEX_OAUTH_EXPIRES_AT",
+    "OPENAI_CODEX_OAUTH_ACCOUNT_ID",
+)
 
 
 @dataclass(frozen=True)
@@ -62,6 +66,28 @@ def compute_model_readiness(model_id: str) -> ProviderAuthStatus:
     provider = _provider_for_model(model_id)
     if provider is None:
         raise ValueError(f"unsupported model id: {model_id}")
+    if _is_openai_codex_model(model_id):
+        credentials_ready = _has_openai_codex_credentials()
+        return ProviderAuthStatus(
+            provider=provider,
+            configured=credentials_ready,
+            secret_configured=False,
+            requires_secret=False,
+            source="none",
+            env_key=_provider_env_key(provider),
+            reason="ok" if credentials_ready else "missing_secret",
+        )
+    if _is_github_copilot_model(model_id):
+        credentials = get_github_copilot_credentials()
+        return ProviderAuthStatus(
+            provider=provider,
+            configured=credentials is not None,
+            secret_configured=False,
+            requires_secret=False,
+            source="none",
+            env_key=_provider_env_key(provider),
+            reason="ok" if credentials is not None else "missing_secret",
+        )
     return compute_provider_readiness(provider, model_id=model_id)
 
 
@@ -71,12 +97,6 @@ def get_provider_secret_state(provider: ProviderName) -> ProviderSecretState:
     if env_value:
         return ProviderSecretState(configured=True, source="env")
 
-    keychain_value = secret_store.get_keychain_secret(
-        provider, allow_missing_keychain=True
-    )
-    if keychain_value:
-        return ProviderSecretState(configured=True, source="keychain")
-
     file_store_value = secret_store.get_file_store_secret(provider)
     if file_store_value:
         return ProviderSecretState(configured=True, source="file")
@@ -85,34 +105,8 @@ def get_provider_secret_state(provider: ProviderName) -> ProviderSecretState:
 
 
 def _provider_requires_secret(provider: ProviderName, *, model_id: str | None) -> bool:
-    if provider in {"anthropic", "google", "openrouter"}:
-        return True
-    if provider == "openai":
-        return not _base_url_is_local(os.environ.get("OPENAI_BASE_URL"))
-    if provider == "ollama":
-        if model_id is not None:
-            return _ollama_model_requires_secret(model_id)
-        return not _base_url_is_local(
-            os.environ.get("OLLAMA_BASE_URL") or DEFAULT_OLLAMA_BASE_URL
-        )
-    return True
-
-
-def _ollama_model_requires_secret(model_id: str) -> bool:
-    if not model_id.startswith("ollama:"):
-        raise ValueError(f"ollama model_id must start with 'ollama:': {model_id}")
-    hosted_ids = {model.model_id for model in shipped_models_for_provider("ollama")}
-    return model_id in hosted_ids
-
-
-def _base_url_is_local(base_url: str | None) -> bool:
-    if base_url is None:
-        return False
-    from urllib.parse import urlparse
-
-    parsed = urlparse(base_url)
-    hostname = (parsed.hostname or "").strip().lower()
-    return hostname in LOCALHOST_NAMES
+    del model_id
+    return provider in {"openai", "anthropic"}
 
 
 def _provider_env_key(provider: ProviderName) -> str:
@@ -122,15 +116,25 @@ def _provider_env_key(provider: ProviderName) -> str:
 def _provider_for_model(model_id: str) -> ProviderName | None:
     if model_id.startswith(("openai:", "openai-chat:", "openai-responses:")):
         return "openai"
-    if model_id.startswith("openrouter:"):
-        return "openrouter"
     if model_id.startswith("anthropic:"):
         return "anthropic"
-    if model_id.startswith("google:"):
-        return "google"
-    if model_id.startswith("ollama:"):
-        return "ollama"
     return None
+
+
+def _is_github_copilot_model(model_id: str) -> bool:
+    return _provider_for_model(model_id) is not None and model_id.endswith("-copilot")
+
+
+def _is_openai_codex_model(model_id: str) -> bool:
+    return model_id == "openai-responses:gpt-5-codex" or (
+        model_id.startswith("openai-responses:") and model_id.endswith("-chatgpt")
+    )
+
+
+def _has_openai_codex_credentials() -> bool:
+    if get_openai_codex_credentials() is not None:
+        return True
+    return all(os.environ.get(key, "").strip() for key in _OPENAI_CODEX_OAUTH_ENV_KEYS)
 
 
 __all__ = [
