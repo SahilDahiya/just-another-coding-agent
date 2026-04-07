@@ -19,6 +19,11 @@ from just_another_coding_agent.auth import (
     OpenAICodexLoginFlow,
 )
 from just_another_coding_agent.contracts.auth import ProviderAuthStatus
+from just_another_coding_agent.contracts.model_catalog import (
+    CANONICAL_PROVIDER_ORDER,
+    default_model_for_provider,
+    shipped_models_for_provider,
+)
 from just_another_coding_agent.oauth_openai_codex import start_openai_codex_login
 from just_another_coding_agent.rpc.session_store import (
     create_session,
@@ -572,49 +577,17 @@ async def test_handle_rpc_json_line_returns_backend_owned_model_catalog(
             "response": {
                 "providers": [
                     {
-                        "provider": "openai",
-                        "default_model_id": "openai-responses:gpt-5.4",
+                        "provider": provider,
+                        "default_model_id": default_model_for_provider(provider),
                         "models": [
                             {
-                                "model_id": "openai-responses:gpt-5.4",
-                                "description": "Default GPT-5.4 Responses path",
-                            },
-                            {
-                                "model_id": "openai-responses:gpt-5.4-mini",
-                                "description": "Faster GPT-5.4 mini Responses path",
-                            },
-                            {
-                                "model_id": "openai-responses:gpt-5.3-codex",
-                                "description": "Codex-optimized GPT-5.3 Responses path",
-                            },
-                            {
-                                "model_id": "openai-responses:gpt-5-codex",
-                                "description": (
-                                    "Experimental ChatGPT subscription Codex path"
-                                ),
-                            },
-                            {
-                                "model_id": "openai-responses:gpt-5-mini-copilot",
-                                "description": (
-                                    "Experimental GitHub Copilot GPT-5 mini path"
-                                ),
-                            },
+                                "model_id": model.model_id,
+                                "description": model.description,
+                            }
+                            for model in shipped_models_for_provider(provider)
                         ],
-                    },
-                    {
-                        "provider": "anthropic",
-                        "default_model_id": "anthropic:claude-sonnet-4-5",
-                        "models": [
-                            {
-                                "model_id": "anthropic:claude-sonnet-4-5",
-                                "description": "Balanced Claude Sonnet",
-                            },
-                            {
-                                "model_id": "anthropic:claude-opus-4-1",
-                                "description": "Stronger Claude Opus",
-                            },
-                        ],
-                    },
+                    }
+                    for provider in CANONICAL_PROVIDER_ORDER
                 ]
             },
         }

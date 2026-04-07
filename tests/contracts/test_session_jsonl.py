@@ -86,7 +86,14 @@ async def test_append_and_load_session_with_runtime_events(tmp_path) -> None:
         return a + b
 
     with capture_run_messages() as messages:
-        events = [event async for event in stream_run_events(agent=agent, prompt="go")]
+        events = [
+            event
+            async for event in stream_run_events(
+                agent=agent,
+                prompt="go",
+                available_tool_names=("add",),
+            )
+        ]
 
     append_run_to_session(
         path=path,

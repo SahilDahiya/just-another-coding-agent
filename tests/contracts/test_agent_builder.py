@@ -8,7 +8,6 @@ from pydantic_ai.models.openai import OpenAIResponsesModel
 from just_another_coding_agent.runtime import (
     CANONICAL_AGENT_INSTRUCTIONS,
     CANONICAL_AGENT_OUTPUT_RETRIES,
-    CANONICAL_AGENT_TOOL_CORRECTION_RETRIES,
     build_canonical_agent,
     build_canonical_instructions,
     build_canonical_model_settings,
@@ -200,4 +199,5 @@ def test_build_canonical_agent_documents_plain_text_output_retry_policy(
 
     assert agent.output_type is str
     assert agent._max_result_retries == CANONICAL_AGENT_OUTPUT_RETRIES
-    assert agent._max_tool_retries == CANONICAL_AGENT_TOOL_CORRECTION_RETRIES
+    # Malformed tool correction is runtime-owned, not framework-owned.
+    assert agent._max_tool_retries == 0
