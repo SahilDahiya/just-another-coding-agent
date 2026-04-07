@@ -13,13 +13,7 @@ from just_another_coding_agent.tools._activity import (
     shorten_path,
     truncate_activity_label,
 )
-from just_another_coding_agent.tools._workspace import resolve_workspace_path
 from just_another_coding_agent.tools.deps import WorkspaceDeps
-from just_another_coding_agent.tools.errors import (
-    ToolEncodingError,
-    ToolOperationalError,
-    reraise_path_error,
-)
 from just_another_coding_agent.tools.read_only_worker.protocol import (
     ReadCallResult,
     ReadWorkerRequest,
@@ -29,7 +23,6 @@ from just_another_coding_agent.tools.read_only_worker.runtime import (
 )
 from just_another_coding_agent.tools.truncation import (
     append_tool_note,
-    truncate_head_line_window,
 )
 
 READ_MAX_LINES = 2000
@@ -94,78 +87,6 @@ def _render_read_call_result(result: ReadCallResult) -> str:
 
     return result.window_text
 
-
-def execute_read(
-    *,
-    workspace_root: Path | str,
-    path: str,
-    offset: int | None = None,
-    limit: int | None = None,
-) -> str:
-    try:
-        resolved_path = resolve_workspace_path(
-            workspace_root=workspace_root,
-            tool_path=path,
-        )
-        lines = resolved_path.read_text(encoding="utf-8").splitlines(keepends=True)
-    except UnicodeError as error:
-        raise ToolEncodingError(f"{path} is not valid UTF-8 text") from error
-    except OSError as error:
-        reraise_path_error(error)
-
-    if not lines:
-        if offset not in (None, 1):
-            raise ToolOperationalError(
-                f"Offset {offset} is beyond end of file (0 lines total)"
-            )
-        return ""
-
-    start_line = offset or 1
-    start_index = start_line - 1
-    if start_index >= len(lines):
-        raise ToolOperationalError(
-            f"Offset {start_line} is beyond end of file ({len(lines)} lines total)"
-        )
-
-    selected_lines = lines[start_index:]
-    if limit is not None:
-        selected_lines = selected_lines[:limit]
-
-    window = truncate_head_line_window(
-        selected_lines,
-        max_lines=READ_MAX_LINES,
-        max_bytes=READ_MAX_BYTES,
-    )
-    if window.first_line_exceeds_limit:
-        return (
-            f"[Line {start_line} exceeds {READ_MAX_BYTES} byte limit. "
-            "Use shell to read a narrower slice.]"
-        )
-
-    if window.truncated:
-        end_line = start_index + window.line_count
-        return append_tool_note(
-            window.text,
-            (
-                f"[Showing lines {start_line}-{end_line} of {len(lines)}. "
-                f"Use offset={end_line + 1} to continue.]"
-            ),
-        )
-
-    if limit is not None and start_index + len(selected_lines) < len(lines):
-        next_offset = start_index + len(selected_lines) + 1
-        remaining_lines = len(lines) - (start_index + len(selected_lines))
-        return append_tool_note(
-            window.text,
-            (
-                f"[{remaining_lines} more lines in file. "
-                f"Use offset={next_offset} to continue.]"
-            ),
-        )
-
-    return window.text
-
-
 async def read(
     ctx: RunContext[WorkspaceDeps],
     path: Annotated[str, Field(min_length=1)],
@@ -216,5 +137,4 @@ READ_TOOL = Tool(
     sequential=False,
 )
 
-
-__all__ = ["READ_TOOL", "execute_read", "read"]
+__all__ = ["READ_TOOL", "read"]

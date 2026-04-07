@@ -550,6 +550,14 @@ func executeFind(ctx context.Context, req findRequest) (findResult, errorRespons
 		}
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
+			if exitErr.ExitCode() == 1 {
+				return findResult{
+					baseMessage:  baseMessage{RequestID: req.RequestID},
+					Type:         "find_result",
+					Matches:      []string{},
+					TotalMatches: 0,
+				}, errorResponse{}, true
+			}
 			return findResult{}, errorResponse{
 				baseMessage: baseMessage{RequestID: req.RequestID},
 				Type:        "error",

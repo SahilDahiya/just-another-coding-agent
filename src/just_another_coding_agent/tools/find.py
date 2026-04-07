@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import shutil
-import subprocess
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Annotated
 from uuid import uuid4
 
@@ -15,12 +13,7 @@ from just_another_coding_agent.tools._activity import (
     shorten_path,
     truncate_activity_label,
 )
-from just_another_coding_agent.tools._workspace import resolve_workspace_path
 from just_another_coding_agent.tools.deps import WorkspaceDeps
-from just_another_coding_agent.tools.errors import (
-    ToolCommandError,
-    reraise_path_error,
-)
 from just_another_coding_agent.tools.read_only_worker.protocol import (
     FindCallResult,
     FindWorkerRequest,
@@ -30,7 +23,6 @@ from just_another_coding_agent.tools.read_only_worker.runtime import (
 )
 from just_another_coding_agent.tools.truncation import (
     append_tool_note,
-    collect_bounded_items,
 )
 
 FIND_DEFAULT_LIMIT = 1000
@@ -82,94 +74,6 @@ def _render_find_call_result(result: FindCallResult) -> str:
     if notices:
         output = append_tool_note(output, f"[{' '.join(notices)}]")
     return output
-
-
-def _matches_pattern(path_text: str, pattern: str) -> bool:
-    path = PurePosixPath(path_text)
-    if path.match(pattern):
-        return True
-    if pattern.startswith("**/"):
-        return path.match(pattern.removeprefix("**/"))
-    return False
-
-
-def _normalize_rg_path(path_text: str) -> str:
-    return path_text.removeprefix("./")
-
-
-def execute_find(
-    *,
-    workspace_root: Path | str,
-    pattern: str,
-    path: str | None = None,
-    limit: int = FIND_DEFAULT_LIMIT,
-) -> str:
-    rg_path = shutil.which("rg")
-    if rg_path is None:
-        raise ToolCommandError("ripgrep (rg) is not installed")
-
-    try:
-        search_path = resolve_workspace_path(
-            workspace_root=workspace_root,
-            tool_path=path or ".",
-        )
-        if not search_path.exists():
-            raise FileNotFoundError(search_path)
-        if not search_path.is_dir():
-            raise NotADirectoryError(search_path)
-    except OSError as error:
-        reraise_path_error(error)
-
-    completed = subprocess.run(
-        [rg_path, "--files", "--hidden", "."],
-        check=False,
-        cwd=search_path,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        encoding="utf-8",
-    )
-    if completed.returncode != 0:
-        raise ToolCommandError(
-            completed.stderr.strip()
-            or f"ripgrep file listing failed with exit code {completed.returncode}"
-        )
-
-    all_paths = [
-        _normalize_rg_path(line.strip())
-        for line in completed.stdout.splitlines()
-        if line.strip()
-    ]
-    matches = sorted(
-        [path_text for path_text in all_paths if _matches_pattern(path_text, pattern)],
-        key=str.lower,
-    )
-    if not matches:
-        return "No files found matching pattern."
-
-    bounded = collect_bounded_items(
-        matches,
-        item_limit=limit,
-        max_bytes=FIND_MAX_BYTES,
-    )
-
-    result = "\n".join(bounded.items)
-    notices: list[str] = []
-    if bounded.limit_hit:
-        notices.append(
-            "Showing first "
-            f"{limit} results. Use limit={limit * 2} "
-            "for more or refine the pattern."
-        )
-    if bounded.byte_limit_hit:
-        notices.append(
-            f"Find output exceeded {FIND_MAX_BYTES} bytes. Refine the pattern or path."
-        )
-    if notices:
-        result = append_tool_note(result, f"[{' '.join(notices)}]")
-
-    return result
-
 
 async def find(
     ctx: RunContext[WorkspaceDeps],
@@ -226,7 +130,6 @@ FIND_TOOL = Tool(
 __all__ = [
     "FIND_DEFAULT_LIMIT",
     "FIND_MAX_BYTES",
-    "execute_find",
     "find",
     "FIND_TOOL",
 ]

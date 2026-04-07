@@ -13,9 +13,7 @@ from just_another_coding_agent.tools._activity import (
     shorten_path,
     truncate_activity_label,
 )
-from just_another_coding_agent.tools._workspace import resolve_workspace_path
 from just_another_coding_agent.tools.deps import WorkspaceDeps
-from just_another_coding_agent.tools.errors import reraise_path_error
 from just_another_coding_agent.tools.read_only_worker.protocol import (
     LsCallResult,
     LsWorkerRequest,
@@ -25,7 +23,6 @@ from just_another_coding_agent.tools.read_only_worker.runtime import (
 )
 from just_another_coding_agent.tools.truncation import (
     append_tool_note,
-    collect_bounded_items,
 )
 
 LS_MAX_BYTES = 50 * 1024
@@ -79,59 +76,6 @@ def _render_ls_call_result(result: LsCallResult) -> str:
         output = append_tool_note(output, f"[{' '.join(notices)}]")
     return output
 
-
-def _format_entry(entry: Path) -> str:
-    return f"{entry.name}/" if entry.is_dir() else entry.name
-
-
-def execute_ls(
-    *,
-    workspace_root: Path | str,
-    path: str | None = None,
-    limit: int = LS_DEFAULT_LIMIT,
-) -> str:
-    try:
-        directory = resolve_workspace_path(
-            workspace_root=workspace_root,
-            tool_path=path or ".",
-        )
-
-        if not directory.exists():
-            raise FileNotFoundError(directory)
-        if not directory.is_dir():
-            raise NotADirectoryError(directory)
-
-        entries = sorted(directory.iterdir(), key=lambda entry: entry.name.lower())
-    except OSError as error:
-        reraise_path_error(error)
-
-    if not entries:
-        return "(empty directory)"
-
-    formatted_entries = [_format_entry(entry) for entry in entries]
-    bounded = collect_bounded_items(
-        formatted_entries,
-        item_limit=limit,
-        max_bytes=LS_MAX_BYTES,
-    )
-
-    result = "\n".join(bounded.items)
-    notices: list[str] = []
-    if bounded.limit_hit:
-        notices.append(
-            f"Showing first {limit} entries. Use limit={limit * 2} for more."
-        )
-    if bounded.byte_limit_hit:
-        notices.append(
-            f"Listing exceeded {LS_MAX_BYTES} bytes. Narrow the path or use "
-            "a smaller limit."
-        )
-    if notices:
-        result = append_tool_note(result, f"[{' '.join(notices)}]")
-
-    return result
-
-
 async def ls(
     ctx: RunContext[WorkspaceDeps],
     path: Annotated[str | None, Field(min_length=1)] = None,
@@ -180,5 +124,4 @@ LS_TOOL = Tool(
     sequential=False,
 )
 
-
-__all__ = ["LS_DEFAULT_LIMIT", "LS_MAX_BYTES", "LS_TOOL", "execute_ls", "ls"]
+__all__ = ["LS_DEFAULT_LIMIT", "LS_MAX_BYTES", "LS_TOOL", "ls"]

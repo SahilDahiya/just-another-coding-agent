@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 
 from just_another_coding_agent.tools.errors import (
@@ -5,125 +7,133 @@ from just_another_coding_agent.tools.errors import (
     ToolOperationalError,
     ToolPathError,
 )
-from just_another_coding_agent.tools.read import execute_read
+from just_another_coding_agent.tools.read import read
+
+from tests.contracts.read_only_tool_test_support import (
+    go_worker_required,
+    worker_ctx,
+)
 
 
-def test_read_tool_reads_utf8_text_file(tmp_path) -> None:
-    workspace_root = tmp_path / "workspace"
-    workspace_root.mkdir()
-    path = workspace_root / "note.txt"
+@go_worker_required
+async def test_read_tool_reads_utf8_text_file(tmp_path) -> None:
+    ctx = worker_ctx(tmp_path)
+    path = ctx.deps.workspace_root / "note.txt"
     path.write_text("hello\nworld\n", encoding="utf-8")
 
-    result = execute_read(
-        workspace_root=workspace_root,
-        path="note.txt",
-    )
+    try:
+        result = await read(ctx, "note.txt")
+    finally:
+        await ctx.deps.read_only_worker.close()
 
-    assert result == "hello\nworld\n"
+    assert result.return_value == "hello\nworld\n"
 
 
-def test_read_tool_reads_requested_line_window(tmp_path) -> None:
-    workspace_root = tmp_path / "workspace"
-    workspace_root.mkdir()
-    path = workspace_root / "note.txt"
+@go_worker_required
+async def test_read_tool_reads_requested_line_window(tmp_path) -> None:
+    ctx = worker_ctx(tmp_path)
+    path = ctx.deps.workspace_root / "note.txt"
     path.write_text("line1\nline2\nline3\nline4\n", encoding="utf-8")
 
-    result = execute_read(
-        workspace_root=workspace_root,
-        path="note.txt",
-        offset=2,
-        limit=2,
+    try:
+        result = await read(ctx, "note.txt", offset=2, limit=2)
+    finally:
+        await ctx.deps.read_only_worker.close()
+
+    assert (
+        result.return_value
+        == "line2\nline3\n\n[1 more lines in file. Use offset=4 to continue.]"
     )
 
-    assert result == "line2\nline3\n\n[1 more lines in file. Use offset=4 to continue.]"
 
-
-def test_read_tool_truncates_large_file_and_returns_continuation_hint(tmp_path) -> None:
-    workspace_root = tmp_path / "workspace"
-    workspace_root.mkdir()
-    path = workspace_root / "large.txt"
+@go_worker_required
+async def test_read_tool_truncates_large_file_and_returns_continuation_hint(
+    tmp_path,
+) -> None:
+    ctx = worker_ctx(tmp_path)
+    path = ctx.deps.workspace_root / "large.txt"
     path.write_text(
         "".join(f"line {number}\n" for number in range(1, 2105)),
         encoding="utf-8",
     )
 
-    result = execute_read(
-        workspace_root=workspace_root,
-        path="large.txt",
-    )
+    try:
+        result = await read(ctx, "large.txt")
+    finally:
+        await ctx.deps.read_only_worker.close()
 
-    assert result.startswith("line 1\nline 2\n")
-    assert "\nline 2000\n" in result
-    assert "\nline 2001\n" not in result
-    assert result.endswith(
+    text = result.return_value
+    assert text.startswith("line 1\nline 2\n")
+    assert "\nline 2000\n" in text
+    assert "\nline 2001\n" not in text
+    assert text.endswith(
         "\n\n[Showing lines 1-2000 of 2104. Use offset=2001 to continue.]"
     )
 
 
-def test_read_tool_fails_for_missing_file(tmp_path) -> None:
-    workspace_root = tmp_path / "workspace"
-    workspace_root.mkdir()
+@go_worker_required
+async def test_read_tool_fails_for_missing_file(tmp_path) -> None:
+    ctx = worker_ctx(tmp_path)
 
-    with pytest.raises(ToolPathError):
-        execute_read(
-            workspace_root=workspace_root,
-            path="missing.txt",
-        )
-
-
-def test_read_tool_fails_for_directory(tmp_path) -> None:
-    workspace_root = tmp_path / "workspace"
-    workspace_root.mkdir()
-    (workspace_root / "nested").mkdir()
-
-    with pytest.raises(ToolPathError):
-        execute_read(
-            workspace_root=workspace_root,
-            path="nested",
-        )
+    try:
+        with pytest.raises(ToolPathError):
+            await read(ctx, "missing.txt")
+    finally:
+        await ctx.deps.read_only_worker.close()
 
 
-def test_read_tool_fails_for_invalid_utf8(tmp_path) -> None:
-    workspace_root = tmp_path / "workspace"
-    workspace_root.mkdir()
-    path = workspace_root / "binary.bin"
+@go_worker_required
+async def test_read_tool_fails_for_directory(tmp_path) -> None:
+    ctx = worker_ctx(tmp_path)
+    (ctx.deps.workspace_root / "nested").mkdir()
+
+    try:
+        with pytest.raises(ToolPathError):
+            await read(ctx, "nested")
+    finally:
+        await ctx.deps.read_only_worker.close()
+
+
+@go_worker_required
+async def test_read_tool_fails_for_invalid_utf8(tmp_path) -> None:
+    ctx = worker_ctx(tmp_path)
+    path = ctx.deps.workspace_root / "binary.bin"
     path.write_bytes(b"\xff\xfe\x00")
 
-    with pytest.raises(ToolEncodingError):
-        execute_read(
-            workspace_root=workspace_root,
-            path="binary.bin",
-        )
+    try:
+        with pytest.raises(ToolEncodingError):
+            await read(ctx, "binary.bin")
+    finally:
+        await ctx.deps.read_only_worker.close()
 
 
-def test_read_tool_fails_when_offset_is_beyond_end_of_file(tmp_path) -> None:
-    workspace_root = tmp_path / "workspace"
-    workspace_root.mkdir()
-    path = workspace_root / "note.txt"
+@go_worker_required
+async def test_read_tool_fails_when_offset_is_beyond_end_of_file(tmp_path) -> None:
+    ctx = worker_ctx(tmp_path)
+    path = ctx.deps.workspace_root / "note.txt"
     path.write_text("line1\nline2\n", encoding="utf-8")
 
-    with pytest.raises(
-        ToolOperationalError,
-        match="Offset 5 is beyond end of file \\(2 lines total\\)",
-    ):
-        execute_read(
-            workspace_root=workspace_root,
-            path="note.txt",
-            offset=5,
-        )
+    try:
+        with pytest.raises(
+            ToolOperationalError,
+            match="offset 5 is beyond end of file \\(2 lines total\\)",
+        ):
+            await read(ctx, "note.txt", offset=5)
+    finally:
+        await ctx.deps.read_only_worker.close()
 
 
-def test_read_tool_allows_relative_path_that_resolves_outside_workspace(
+@go_worker_required
+async def test_read_tool_allows_relative_path_that_resolves_outside_workspace(
     tmp_path,
 ) -> None:
-    workspace_root = tmp_path / "workspace"
-    workspace_root.mkdir()
+    ctx = worker_ctx(tmp_path)
     outside = tmp_path / "outside.txt"
     outside.write_text("secret", encoding="utf-8")
 
-    result = execute_read(
-        workspace_root=workspace_root,
-        path="../outside.txt",
-    )
+    try:
+        result = await read(ctx, "../outside.txt")
+    finally:
+        await ctx.deps.read_only_worker.close()
 
-    assert result == "secret"
+    assert result.return_value == "secret"

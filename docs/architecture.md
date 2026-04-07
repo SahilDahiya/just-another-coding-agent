@@ -20,9 +20,11 @@ policy.
 
 The same risk exists when a non-Python execution helper is introduced for
 performance. The current read-only worker is a separate Go helper for
-`read`, `ls`, `find`, and `grep`, but it does not change semantic ownership.
-Python still owns tool schemas, validation, result shaping, activity metadata,
-session meaning, RPC meaning, and recovery policy.
+`read`, `ls`, `find`, and `grep`, and those read-only tool semantics are now
+canonically implemented in that worker. This is a narrow backend-owned
+exception, not a general invitation to spread product semantics across
+languages. Python still owns tool registration, higher-level activity
+metadata, session meaning, RPC meaning, and recovery policy.
 
 For Go TUI refactors, optimize first for module boundaries, testability, and reduced semantic drift. Treat LOC reduction as a guardrail rather than a target, and sequence extractions before new interface layers so the same transcript subsystem is not refactored twice without learning anything.
 
@@ -45,8 +47,8 @@ PydanticAI-native carrier features such as `ToolReturn.metadata` may be used int
 re-entry, that validator should stay private to the tool or runtime seam rather
 than becoming a second public source of truth in `contracts/`.
 If a future helper in another language executes a narrow internal tool seam, it
-should receive already-validated internal requests from Python rather than
-becoming a second owner of public tool semantics.
+must have an explicitly documented ownership boundary. It should not create a
+second semantic source of truth for the same tool surface.
 
 The canonical agent assembly must take an explicit workspace root. Tool behavior uses that root as the default base for relative paths and shell cwd rather than relying on process cwd or other implicit global state.
 Persisted sessions must also bind to that explicit workspace root and store native PydanticAI message history so later runs can resume through `message_history` instead of reconstructing context from public events.

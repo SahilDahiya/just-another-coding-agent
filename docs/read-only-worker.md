@@ -13,7 +13,8 @@ read-only tools:
 - `grep`
 
 It exists to replace per-call Python subprocess execution with one persistent
-helper process while preserving the same Python-owned public contract.
+helper process and now serves as the canonical backend implementation for
+read-only tool semantics.
 
 This is not a public API and not a second backend runtime.
 
@@ -33,20 +34,20 @@ installation fails.
 Python remains the owner of:
 
 - tool schemas and validation
-- model-facing result shaping
 - activity semantics
 - session and RPC meaning
 - contract tests
 
-The worker only executes narrow internal requests and returns structured
-internal payloads.
+The worker canonically owns read-only tool behavior for:
 
-The worker must not:
+- error wording
+- truncation behavior
+- continuation hints
+- relative path rendering
+- match formatting
 
-- invent alternate tool semantics
-- invent different notices or result strings
-- own session or RPC behavior
-- become a silent fallback path
+The worker must not own session or RPC behavior or become a silent fallback
+path.
 
 ## Transport
 
@@ -87,8 +88,8 @@ Responses:
 
 ## Structured Results
 
-The worker returns structured internal payloads rather than final model-facing
-tool strings.
+The worker returns structured protocol payloads that encode the canonical
+read-only tool semantics.
 
 Examples:
 
@@ -99,8 +100,9 @@ Examples:
 - `grep_result` returns structured matches with `path`, `line_number`, `text`,
   and truncation flags
 
-Python is responsible for turning those payloads into the final tool-visible
-strings and notices.
+Python is responsible for exposing those canonical semantics through tool
+registration, activity metadata, and runtime/session/RPC surfaces without
+keeping a second semantic implementation locally.
 
 ## Error Codes
 

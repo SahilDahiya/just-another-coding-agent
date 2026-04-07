@@ -23,13 +23,11 @@ meaning instead of a narrow execution engine.
 
 ## Decision
 
-If a non-Python helper is introduced, it stays an internal execution engine
-only.
+If a non-Python helper is introduced, its ownership boundary must be explicit.
 
 Python remains the owner of:
 
 - public tool schemas and validation
-- result shaping and tool error result semantics
 - activity metadata semantics
 - run and session event meaning
 - session persistence and recovery policy
@@ -39,25 +37,26 @@ Helpers in other languages may:
 
 - execute already-validated internal requests
 - optimize a narrow internal execution path
-- return internal results for Python to normalize into the public contract
+- canonically own a narrow backend tool seam when that ownership is deliberate,
+  documented, and covered by tests on the shipped path
 
 Helpers in other languages must not:
 
-- become a second source of truth for tool semantics
-- invent alternate result strings or activity meaning
+- create two competing semantic implementations for the same tool surface
 - own session or RPC semantics
 - introduce long-lived dual behavior or fallback execution paths
 
-The intended first candidate scope, if implemented, is read-only tool
-execution such as `read`, `ls`, `find`, and `grep`. Mutating tools and shell
-semantics remain Python-owned unless a later decision explicitly changes that.
+The current explicit exception is the persistent Go read-only worker. It is the
+canonical backend implementation for `read`, `ls`, `find`, and `grep`.
+Mutating tools and shell semantics remain Python-owned unless a later decision
+explicitly changes that.
 
 ## Consequences
 
-- Contract tests should keep asserting Python-visible behavior, not helper
-  internals.
+- Contract tests should assert the shipped canonical path, not dead duplicate
+  helpers.
 - Any helper protocol should stay narrow and explicitly internal.
 - Packaging, observability, and lifecycle management are first-class design
   risks, not afterthoughts.
 - Performance work must be scoped carefully so execution optimization does not
-  turn into semantic ownership drift.
+  turn into split semantic ownership.
