@@ -131,6 +131,7 @@ jobs:
       - build-sdist
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       id-token: write
     environment:
       name: pypi
