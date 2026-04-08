@@ -1460,6 +1460,7 @@ func TestFirstRunEscapeThenTabOpensProviderSuggestions(t *testing.T) {
 func TestFirstRunChoosingOpenAIShowsAuthFileNote(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	authPath := filepath.Join(os.TempDir(), "jaca-auth.json")
 
 	backend := newStubBackend()
 	status, err := backend.AuthStatus(context.Background())
@@ -1484,7 +1485,7 @@ func TestFirstRunChoosingOpenAIShowsAuthFileNote(t *testing.T) {
 	rendered := stripANSI(m.transcript.Render())
 	for _, want := range []string{
 		`Use API key? add "OPENAI_API_KEY"`,
-		"/tmp/jaca-auth.json",
+		authPath,
 		"OAuth also works via /login when available.",
 	} {
 		if !strings.Contains(rendered, want) {
@@ -1811,6 +1812,7 @@ func TestAuthCommandShowsAuthFileInstructions(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("OPENAI_API_KEY", "")
+	authPath := filepath.Join(os.TempDir(), "jaca-auth.json")
 
 	m := newTestModel()
 	m.options.Backend = newStubBackend()
@@ -1821,7 +1823,7 @@ func TestAuthCommandShowsAuthFileInstructions(t *testing.T) {
 	rendered := stripANSI(m.transcript.Render())
 	for _, want := range []string{
 		`Use API key? add "OPENAI_API_KEY"`,
-		"/tmp/jaca-auth.json",
+		authPath,
 		"OAuth also works via /login when available.",
 		"Retry your prompt after saving.",
 	} {
