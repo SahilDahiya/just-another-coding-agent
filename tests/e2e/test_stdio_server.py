@@ -190,7 +190,7 @@ async def test_serve_rpc_stdio_handles_multiple_lines_in_one_process(
     assert messages[0] == {
         "type": "rpc_response",
         "id": "req-create",
-        "response": {"session_id": fixed_session_id},
+        "response": {"session_id": fixed_session_id, "project_docs": []},
     }
     assert [message["type"] for message in messages[1:7]] == ["rpc_event"] * 6
     assert [message["event"]["type"] for message in messages[1:7]] == [
