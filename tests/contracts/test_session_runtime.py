@@ -45,6 +45,9 @@ from just_another_coding_agent.runtime.compaction import (
 from just_another_coding_agent.runtime.compaction import (
     trigger as trigger_module,
 )
+from just_another_coding_agent.runtime.project_docs import (
+    PROJECT_DOC_MESSAGE_HEADER,
+)
 from just_another_coding_agent.runtime.turn_context import (
     RUNTIME_CONTEXT_MESSAGE_HEADER,
     RUNTIME_CONTEXT_UPDATE_MESSAGE_HEADER,
@@ -131,6 +134,14 @@ def _runtime_context_update_texts(messages: list[ModelMessage]) -> list[str]:
         text
         for text in _assistant_texts(messages)
         if text.startswith(RUNTIME_CONTEXT_UPDATE_MESSAGE_HEADER)
+    ]
+
+
+def _project_doc_texts(messages: list[ModelMessage]) -> list[str]:
+    return [
+        text
+        for text in _assistant_texts(messages)
+        if text.startswith(PROJECT_DOC_MESSAGE_HEADER)
     ]
 
 
@@ -1240,6 +1251,7 @@ async def test_stream_session_run_events_inherits_last_persisted_thinking_when_o
     assert captured["prompt"] == "second"
     assert captured["thinking"] == "high"
     assert captured["deps"] == WorkspaceDeps.from_workspace_root(workspace_root)
+    assert _project_doc_texts(captured["message_history"]) == []
     assert _runtime_context_texts(captured["message_history"]) == [
         _expected_runtime_context_message_content(
             model=FunctionModel(stream_function=text_only_stream),
@@ -1251,6 +1263,66 @@ async def test_stream_session_run_events_inherits_last_persisted_thinking_when_o
     loaded = load_session(path=session_path, workspace_root=workspace_root)
     assert [run.thinking for run in loaded.runs] == ["high", "high"]
     assert loaded.thinking == "high"
+
+
+async def test_stream_session_run_events_injects_workspace_project_docs(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    (workspace_root / "AGENTS.md").write_text(
+        "Read docs/README.md first.\n",
+        encoding="utf-8",
+    )
+    (workspace_root / "CLAUDE.md").write_text(
+        "Prefer repo-grounded answers.\n",
+        encoding="utf-8",
+    )
+    session_path = tmp_path / "session.jsonl"
+
+    captured: dict[str, object] = {}
+
+    async def fake_stream_run_events(
+        *,
+        agent,
+        prompt,
+        message_history=None,
+        instructions=None,
+        thinking=None,
+        deps=None,
+        message_history_sink=None,
+    ):
+        captured["message_history"] = message_history
+        yield RunStartedEvent(run_id="run-1")
+        yield RunSucceededEvent(run_id="run-1", output_text="done")
+
+    monkeypatch.setattr(
+        "just_another_coding_agent.runtime.session.stream_run_events",
+        fake_stream_run_events,
+    )
+
+    events = [
+        event
+        async for event in stream_session_run_events(
+            model=FunctionModel(stream_function=text_only_stream),
+            workspace_root=workspace_root,
+            session_path=session_path,
+            prompt="what is compaction?",
+        )
+    ]
+
+    assert [event.type for event in events] == ["run_started", "run_succeeded"]
+    assert _project_doc_texts(captured["message_history"]) == [
+        (
+            f"{PROJECT_DOC_MESSAGE_HEADER} from AGENTS.md:\n\n"
+            "<INSTRUCTIONS>\nRead docs/README.md first.\n\n</INSTRUCTIONS>"
+        ),
+        (
+            f"{PROJECT_DOC_MESSAGE_HEADER} from CLAUDE.md:\n\n"
+            "<INSTRUCTIONS>\nPrefer repo-grounded answers.\n\n</INSTRUCTIONS>"
+        ),
+    ]
 
 
 def test_should_not_auto_compact_tiny_history_only_because_five_runs_exist(

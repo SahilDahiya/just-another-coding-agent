@@ -225,7 +225,9 @@ recoverable model mistakes like invented tool names or malformed tool args get
 one or two visible correction turns inside the run instead of relying on an
 implicit framework default.
 
-The system prompt tells the model what tools it has, how to approach coding tasks, and that read/write/edit are workspace-scoped while shell is not sandboxed. The runtime also appends dynamic context at build time: the current date and the resolved workspace root.
+The system prompt tells the model what tools it has, how to approach coding tasks, and that read/write/edit are workspace-scoped while shell is not sandboxed. Around that static baseline, the runtime prepends bounded model-visible project-doc messages from workspace-root `AGENTS.md` and `CLAUDE.md` when present, then appends dynamic runtime context such as the current date and the resolved workspace root.
+
+Project-doc injection is not durable session memory. It is runtime-owned contextual history that is rebuilt from the current workspace for each run, stays separate from compaction state, and is also exposed to the TUI so startup can immediately show which instruction files were loaded for the run.
 That prompt layer also carries two behavioral rules that matter for benchmark and real coding tasks alike: do not claim a file was created or changed without tool evidence, and verify code changes or required file outputs before concluding.
 Thinking is not carried in the prompt. The runtime passes it through PydanticAI model settings as an explicit run input.
 Provider-native model behavior is centralized separately in `runtime/models.py`, which resolves model strings, applies OpenAI-compatible retry transport policy, and can wrap models with opt-in instrumentation via `JACA_TRACE_MODE=local|logfire`.

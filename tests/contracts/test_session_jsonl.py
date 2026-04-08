@@ -34,6 +34,7 @@ from just_another_coding_agent.session import build_session_preview
 from just_another_coding_agent.session.jsonl import (
     SessionFormatError,
     append_compaction_to_session,
+    append_project_docs_to_session,
     append_run_to_session,
     append_session_name_to_session,
     fork_session,
@@ -52,6 +53,44 @@ _SHELL_FAMILY = detect_default_shell_family()
 def _persisted_events(events):
     return [
         event for event in events if not isinstance(event, AssistantTextDeltaEvent)
+    ]
+
+
+def test_append_and_load_session_project_docs_entry(tmp_path) -> None:
+    path = tmp_path / "session.jsonl"
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    (workspace_root / "AGENTS.md").write_text("Read docs first.\n", encoding="utf-8")
+
+    initialize_session(path=path, workspace_root=workspace_root)
+    entry = append_project_docs_to_session(
+        path=path,
+        workspace_root=workspace_root,
+    )
+
+    assert entry is not None
+    assert [doc.short_path for doc in entry.documents] == ["AGENTS.md"]
+    loaded = load_session(path=path, workspace_root=workspace_root)
+    assert loaded.project_docs is not None
+    assert [doc.short_path for doc in loaded.project_docs.documents] == ["AGENTS.md"]
+
+
+def test_build_session_preview_includes_project_docs_note(tmp_path) -> None:
+    path = tmp_path / "session.jsonl"
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    (workspace_root / "AGENTS.md").write_text("Read docs first.\n", encoding="utf-8")
+
+    initialize_session(path=path, workspace_root=workspace_root)
+    append_project_docs_to_session(path=path, workspace_root=workspace_root)
+
+    preview = build_session_preview(path=path, workspace_root=workspace_root)
+
+    assert [entry.model_dump() for entry in preview.entries] == [
+        {
+            "kind": "instructions",
+            "text": "loaded project instructions: AGENTS.md",
+        }
     ]
 
 

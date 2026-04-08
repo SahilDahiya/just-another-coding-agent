@@ -71,6 +71,9 @@ from just_another_coding_agent.contracts.rpc import (
     SessionNameResponse,
     SessionPreviewRequest,
     SessionPreviewResponse,
+    WorkspaceProjectDoc,
+    WorkspaceProjectDocsRequest,
+    WorkspaceProjectDocsResponse,
 )
 from just_another_coding_agent.contracts.run_events import (
     RunEvent,
@@ -86,6 +89,9 @@ from just_another_coding_agent.rpc.session_store import (
 )
 from just_another_coding_agent.runtime.compaction import (
     summarize_and_append_compaction_to_session,
+)
+from just_another_coding_agent.runtime.project_docs import (
+    load_workspace_project_docs,
 )
 from just_another_coding_agent.runtime.session import stream_session_run_events
 from just_another_coding_agent.session import (
@@ -441,7 +447,17 @@ async def handle_rpc_json_line(
         )
         yield RpcResponseEnvelope(
             id=request.id,
-            response=SessionCreateResponse(session_id=session_id),
+            response=SessionCreateResponse(
+                session_id=session_id,
+                project_docs=[
+                    WorkspaceProjectDoc(
+                        path=str(doc.path),
+                        filename=doc.filename,
+                        truncated=doc.truncated,
+                    )
+                    for doc in load_workspace_project_docs(workspace_root)
+                ],
+            ),
         ).model_dump_json()
         return
 
@@ -815,6 +831,22 @@ async def handle_rpc_json_line(
                 session_id=preview.session_id,
                 entries=preview.entries,
                 truncated=preview.truncated,
+            ),
+        ).model_dump_json()
+        return
+
+    if isinstance(request, WorkspaceProjectDocsRequest):
+        yield RpcResponseEnvelope(
+            id=request.id,
+            response=WorkspaceProjectDocsResponse(
+                documents=[
+                    WorkspaceProjectDoc(
+                        path=str(doc.path),
+                        filename=doc.filename,
+                        truncated=doc.truncated,
+                    )
+                    for doc in load_workspace_project_docs(workspace_root)
+                ]
             ),
         ).model_dump_json()
         return

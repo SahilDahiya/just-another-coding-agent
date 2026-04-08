@@ -204,6 +204,7 @@ async def _create_session_id(*, workspace_root, sessions_root) -> str:
 
     assert messages[0]["type"] == "rpc_response"
     assert messages[0]["id"] == "req-create"
+    assert "project_docs" in messages[0]["response"]
     session_id = str(messages[0]["response"]["session_id"])
     assert len(session_id) == 32
     session_path = session_path_for_id(
@@ -1770,3 +1771,89 @@ async def test_handle_rpc_json_line_returns_invalid_request_error(
         }
     ]
     assert not sessions_root.exists()
+
+
+async def test_handle_rpc_json_line_lists_workspace_project_docs(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    (workspace_root / "AGENTS.md").write_text("Read docs first.\n", encoding="utf-8")
+    (workspace_root / "CLAUDE.md").write_text(
+        "Be repo-grounded.\n",
+        encoding="utf-8",
+    )
+
+    messages = await _rpc_messages(
+        request_payload={
+            "id": "req-project-docs",
+            "command": "workspace.project_docs",
+            "payload": {},
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    assert messages == [
+        {
+            "type": "rpc_response",
+            "id": "req-project-docs",
+            "response": {
+                "documents": [
+                    {
+                        "path": str(workspace_root / "AGENTS.md"),
+                        "filename": "AGENTS.md",
+                        "truncated": False,
+                    },
+                    {
+                        "path": str(workspace_root / "CLAUDE.md"),
+                        "filename": "CLAUDE.md",
+                        "truncated": False,
+                    },
+                ]
+            },
+        }
+    ]
+
+
+async def test_handle_rpc_json_line_session_preview_includes_project_docs_note(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    (workspace_root / "AGENTS.md").write_text("Read docs first.\n", encoding="utf-8")
+    session_id = create_session(
+        sessions_root=sessions_root,
+        workspace_root=workspace_root,
+    )
+
+    messages = await _rpc_messages(
+        request_payload={
+            "id": "req-session-preview",
+            "command": "session.preview",
+            "payload": {"session_id": session_id},
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    assert messages == [
+        {
+            "type": "rpc_response",
+            "id": "req-session-preview",
+            "response": {
+                "session_id": session_id,
+                "entries": [
+                    {
+                        "kind": "instructions",
+                        "text": "loaded project instructions: AGENTS.md",
+                    }
+                ],
+                "truncated": False,
+            },
+        }
+    ]

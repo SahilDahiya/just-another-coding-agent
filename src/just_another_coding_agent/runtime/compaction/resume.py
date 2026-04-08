@@ -10,6 +10,9 @@ from just_another_coding_agent.contracts.platform import ShellFamily
 from just_another_coding_agent.contracts.session import LoadedSession
 from just_another_coding_agent.contracts.thinking import ThinkingSetting
 from just_another_coding_agent.runtime.compaction.boundary import run_index_for_id
+from just_another_coding_agent.runtime.project_docs import (
+    build_project_doc_prefix_messages,
+)
 from just_another_coding_agent.runtime.turn_context import (
     TurnContextBaselineDecision,
     build_runtime_context_injection_plan,
@@ -54,6 +57,7 @@ def build_runtime_framed_resume_message_history(
         if loaded_session is not None
         else []
     )
+    _, project_doc_messages = build_project_doc_prefix_messages(workspace_root)
     injection_plan = build_runtime_context_injection_plan(
         baseline_decision=baseline_decision,
         model=model,
@@ -64,6 +68,7 @@ def build_runtime_framed_resume_message_history(
         thinking=thinking,
     )
     return [
+        *project_doc_messages,
         *injection_plan.before_history_messages,
         *resume_history,
         *injection_plan.after_history_messages,

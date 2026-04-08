@@ -22,6 +22,8 @@ type SessionPreviewPayload struct {
 	SessionID string `json:"session_id"`
 }
 
+type WorkspaceProjectDocsPayload struct{}
+
 type ModelCatalogPayload struct{}
 
 type AuthStatusPayload struct{}
@@ -101,7 +103,8 @@ type ErrorEnvelope struct {
 }
 
 type SessionCreateResponse struct {
-	SessionID string `json:"session_id"`
+	SessionID   string                `json:"session_id"`
+	ProjectDocs []WorkspaceProjectDoc `json:"project_docs"`
 }
 
 type SessionNameResponse struct {
@@ -118,6 +121,16 @@ type SessionPreviewResponse struct {
 	SessionID string                `json:"session_id"`
 	Entries   []SessionPreviewEntry `json:"entries"`
 	Truncated bool                  `json:"truncated"`
+}
+
+type WorkspaceProjectDoc struct {
+	Path      string `json:"path"`
+	Filename  string `json:"filename"`
+	Truncated bool   `json:"truncated"`
+}
+
+type WorkspaceProjectDocsResponse struct {
+	Documents []WorkspaceProjectDoc `json:"documents"`
 }
 
 type ModelCatalogModel struct {

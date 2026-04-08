@@ -56,6 +56,7 @@ Persisted sessions must also record the effective per-run thinking setting so la
 The canonical runtime is unbounded within a single run and does not impose backend-level request or tool-call ceilings.
 Do not use PydanticAI `UsageLimits` as a JACA design primitive. If a framework call requires `UsageLimits`, keep it explicitly unbounded and treat it as an internal adapter detail rather than product policy.
 The canonical prompt should inject the current date and resolved workspace root dynamically at agent-build time so the model can reason about time and paths without inferring hidden process state.
+The canonical runtime should also inject bounded model-visible project-doc messages from workspace-root `AGENTS.md` and `CLAUDE.md` when present. Those docs are runtime-owned contextual history, not static baseline prompt text and not durable session memory.
 The canonical prompt must also enforce side-effect truthfulness and verification discipline: the model must not claim to have created or modified files without tool evidence, and it should run the smallest relevant verification step before concluding after code changes or required file outputs.
 The canonical runtime should expose `thinking` as an explicit run setting and pass it through PydanticAI model settings rather than encoding reasoning level in prompt text.
 The canonical runtime should resolve model strings through one local model seam before agent construction so provider-native retries, instrumentation, and OpenAI-specific settings stay centralized instead of leaking through the runtime.

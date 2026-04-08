@@ -50,6 +50,7 @@ const (
 	modelCatalogTimeout  = 8 * time.Second
 	queueControlTimeout  = 30 * time.Second
 	authStatusRetryDelay = 750 * time.Millisecond
+	projectDocsTimeout   = 2 * time.Second
 )
 
 type startupTickMsg struct{}
@@ -58,8 +59,8 @@ type motionTickMsg struct{}
 type phaseResetMsg struct{}
 
 type sessionCreatedMsg struct {
-	SessionID string
-	Err       error
+	Response rpc.SessionCreateResponse
+	Err      error
 }
 
 type runEventMsg struct {
@@ -96,6 +97,11 @@ type authStatusLoadedMsg struct {
 type sessionPreviewLoadedMsg struct {
 	Preview rpc.SessionPreviewResponse
 	Err     error
+}
+
+type workspaceProjectDocsLoadedMsg struct {
+	Docs rpc.WorkspaceProjectDocsResponse
+	Err  error
 }
 
 type authStatusRetryMsg struct{}
@@ -326,10 +332,29 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.refreshViewport()
 			return m, nil
 		}
-		m.sessionID = msg.SessionID
+		m.sessionID = msg.Response.SessionID
 		m.sessionName = ""
 		m.forkedFromSessionID = ""
 		m.forkedFromSessionName = ""
+		if len(msg.Response.ProjectDocs) > 0 {
+			labels := make([]string, 0, len(msg.Response.ProjectDocs))
+			for _, doc := range msg.Response.ProjectDocs {
+				label := doc.Filename
+				if doc.Truncated {
+					label += " (truncated)"
+				}
+				labels = append(labels, label)
+			}
+			m.transcript.InsertNoteBeforeCurrentRun(
+				"instructions",
+				[]string{
+					fmt.Sprintf(
+						"loaded project instructions: %s",
+						strings.Join(labels, ", "),
+					),
+				},
+			)
+		}
 		return m, listenAsync(m.asyncCh)
 	case runEventMsg:
 		if msg.Err != nil {
@@ -580,6 +605,26 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.transcript.ApplySessionPreview(msg.Preview)
+		m.refreshViewport()
+		return m, nil
+	case workspaceProjectDocsLoadedMsg:
+		if msg.Err != nil {
+			return m, nil
+		}
+		if len(msg.Docs.Documents) == 0 {
+			return m, nil
+		}
+		labels := make([]string, 0, len(msg.Docs.Documents))
+		for _, doc := range msg.Docs.Documents {
+			label := displayPath(doc.Path)
+			if doc.Truncated {
+				label += " (truncated)"
+			}
+			labels = append(labels, label)
+		}
+		m.transcript.WriteNote("instructions", []string{
+			fmt.Sprintf("loaded project instructions: %s", strings.Join(labels, ", ")),
+		})
 		m.refreshViewport()
 		return m, nil
 	case authStatusRetryMsg:
@@ -1087,11 +1132,11 @@ func (m *model) runPrompt(
 	defer close(ch)
 	if sessionID == "" {
 		created, err := backend.CreateSession(ctx)
-		ch <- sessionCreatedMsg{SessionID: created, Err: err}
+		ch <- sessionCreatedMsg{Response: created, Err: err}
 		if err != nil {
 			return
 		}
-		sessionID = created
+		sessionID = created.SessionID
 	}
 	err := backend.StreamRun(ctx, sessionID, prompt, thinking, func(event rpc.RunEvent) error {
 		ch <- runEventMsg{Event: event}
@@ -1215,6 +1260,13 @@ func (m *model) requestSessionPreview() tea.Cmd {
 	return fetchSessionPreview(m.options.Backend, m.options.SessionID)
 }
 
+func (m *model) requestWorkspaceProjectDocs() tea.Cmd {
+	if m.options.Backend == nil || m.options.SessionID != "" {
+		return nil
+	}
+	return fetchWorkspaceProjectDocs(m.options.Backend)
+}
+
 func fetchModelCatalog(backend Backend) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), modelCatalogTimeout)
@@ -1239,6 +1291,15 @@ func fetchSessionPreview(backend Backend, sessionID string) tea.Cmd {
 		defer cancel()
 		preview, err := backend.SessionPreview(ctx, sessionID)
 		return sessionPreviewLoadedMsg{Preview: preview, Err: err}
+	}
+}
+
+func fetchWorkspaceProjectDocs(backend Backend) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), projectDocsTimeout)
+		defer cancel()
+		docs, err := backend.WorkspaceProjectDocs(ctx)
+		return workspaceProjectDocsLoadedMsg{Docs: docs, Err: err}
 	}
 }
 

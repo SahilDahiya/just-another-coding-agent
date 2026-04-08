@@ -9,6 +9,9 @@ from just_another_coding_agent.contracts.session import (
     SessionPreviewEntry,
 )
 from just_another_coding_agent.session.jsonl import load_session
+from just_another_coding_agent.runtime.project_docs import (
+    build_project_doc_notice_line,
+)
 
 SESSION_PREVIEW_MAX_RUNS = 10
 SESSION_PREVIEW_MAX_ENTRY_CHARS = 600
@@ -19,6 +22,18 @@ def build_session_preview(*, path, workspace_root) -> SessionPreview:
     selected_runs = loaded.runs[-SESSION_PREVIEW_MAX_RUNS:]
     entries: list[SessionPreviewEntry] = []
     truncated = len(loaded.runs) > len(selected_runs)
+
+    if loaded.project_docs is not None:
+        notice_line = build_project_doc_notice_line(
+            tuple(
+                (doc.short_path, doc.truncated)
+                for doc in loaded.project_docs.documents
+            )
+        )
+        if notice_line:
+            entries.append(
+                SessionPreviewEntry(kind="instructions", text=notice_line)
+            )
 
     for run in selected_runs:
         prompt_text, prompt_truncated = _truncate_preview_text(run.prompt)

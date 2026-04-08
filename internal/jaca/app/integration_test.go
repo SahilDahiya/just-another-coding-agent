@@ -67,7 +67,8 @@ func TestModelRunsAgainstRealRPCBackendProcess(t *testing.T) {
 	m.visibleZones = 3
 
 	m.textInput.SetValue("ship it")
-	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = runIntegrationCmd(updated.(*model), cmd)
 
 	for msg := range m.asyncCh {
 		m.Update(msg)
@@ -79,6 +80,9 @@ func TestModelRunsAgainstRealRPCBackendProcess(t *testing.T) {
 	rendered := stripANSI(m.transcript.Render())
 	if !strings.Contains(rendered, "ship it") {
 		t.Fatalf("transcript missing user prompt: %q", rendered)
+	}
+	if !strings.Contains(rendered, "loaded project instructions: AGENTS.md") {
+		t.Fatalf("transcript missing instructions note: %q", rendered)
 	}
 	if !strings.Contains(rendered, "read  README.md") || !strings.Contains(rendered, "12ms") {
 		t.Fatalf("transcript missing tool activity: %q", rendered)
@@ -98,9 +102,27 @@ func TestModelRunsAgainstRealRPCBackendProcess(t *testing.T) {
 	if m.sessionID != "sess-integration" {
 		t.Fatalf("sessionID = %q, want %q", m.sessionID, "sess-integration")
 	}
-	if m.phase != PhaseCompleted {
-		t.Fatalf("phase = %q, want %q", m.phase, PhaseCompleted)
+	if m.phase != PhaseCompleted && m.phase != PhaseIdle {
+		t.Fatalf("phase = %q, want %q or %q", m.phase, PhaseCompleted, PhaseIdle)
 	}
+}
+
+func runIntegrationCmd(m *model, cmd tea.Cmd) *model {
+	if cmd == nil {
+		return m
+	}
+	msg := cmd()
+	if msg == nil {
+		return m
+	}
+	if batch, ok := msg.(tea.BatchMsg); ok {
+		for _, child := range batch {
+			m = runIntegrationCmd(m, child)
+		}
+		return m
+	}
+	updated, next := m.Update(msg)
+	return runIntegrationCmd(updated.(*model), next)
 }
 
 func TestGoTUIRPCBackendHelperProcess(t *testing.T) {
@@ -168,6 +190,13 @@ func TestGoTUIRPCBackendHelperProcess(t *testing.T) {
 				"id":   request.ID,
 				"response": map[string]any{
 					"session_id": "sess-integration",
+					"project_docs": []map[string]any{
+						{
+							"path":      "/workspace/AGENTS.md",
+							"filename":  "AGENTS.md",
+							"truncated": false,
+						},
+					},
 				},
 			}); err != nil {
 				fmt.Fprintf(os.Stderr, "helper encode session.create response: %v\n", err)

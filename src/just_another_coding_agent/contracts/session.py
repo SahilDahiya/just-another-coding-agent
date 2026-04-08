@@ -46,6 +46,16 @@ class SessionForkEntry(_SessionEntryBase):
     forked_from_run_id: str | None = None
 
 
+class SessionProjectDocReference(_SessionEntryBase):
+    short_path: str
+    truncated: bool = False
+
+
+class SessionProjectDocsEntry(_SessionEntryBase):
+    type: Literal["session_project_docs"] = "session_project_docs"
+    documents: list[SessionProjectDocReference]
+
+
 class SessionMessagesEntry(_SessionEntryBase):
     type: Literal["session_messages"] = "session_messages"
     run_id: str
@@ -81,6 +91,7 @@ SessionEntry = Annotated[
     SessionHeaderEntry
     | SessionForkEntry
     | SessionInfoEntry
+    | SessionProjectDocsEntry
     | SessionRunEntry
     | SessionMessagesEntry
     | SessionEventEntry
@@ -102,6 +113,7 @@ class LoadedSession(_SessionEntryBase):
     header: SessionHeaderEntry
     fork: SessionForkEntry | None = None
     name: SessionName | None = None
+    project_docs: SessionProjectDocsEntry | None = None
     runs: list[SessionRunRecord]
     latest_turn_context: SessionTurnContextEntry | None = None
     has_persisted_turn_context_history: bool = False
@@ -135,7 +147,7 @@ class SessionMetadata(_SessionEntryBase):
 
 
 class SessionPreviewEntry(_SessionEntryBase):
-    kind: Literal["user", "assistant", "error"]
+    kind: Literal["instructions", "user", "assistant", "error"]
     text: str
 
 
@@ -159,6 +171,8 @@ __all__ = [
     "SessionName",
     "SessionPreview",
     "SessionPreviewEntry",
+    "SessionProjectDocReference",
+    "SessionProjectDocsEntry",
     "SessionRunEntry",
     "SessionRunRecord",
     "SessionTurnContextEntry",

@@ -31,7 +31,10 @@ def test_main_cli_uses_created_session_id_for_run_start(
                     {
                         "type": "rpc_response",
                         "id": "req-create",
-                        "response": {"session_id": created_session_id},
+                        "response": {
+                            "session_id": created_session_id,
+                            "project_docs": [],
+                        },
                     }
                 )
                 + "\n"
@@ -120,7 +123,10 @@ def test_main_cli_reuses_session_for_multiple_prompts(
                     {
                         "type": "rpc_response",
                         "id": "req-create",
-                        "response": {"session_id": created_session_id},
+                        "response": {
+                            "session_id": created_session_id,
+                            "project_docs": [],
+                        },
                     }
                 )
                 + "\n"

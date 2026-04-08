@@ -46,6 +46,8 @@ from just_another_coding_agent.contracts.session import (
     SessionMessagesEntry,
     SessionMetadata,
     SessionName,
+    SessionProjectDocReference,
+    SessionProjectDocsEntry,
     SessionRunEntry,
     SessionRunRecord,
     SessionTurnContextEntry,
@@ -53,6 +55,9 @@ from just_another_coding_agent.contracts.session import (
 from just_another_coding_agent.contracts.thinking import ThinkingSetting
 from just_another_coding_agent.session.replacement_history import (
     validate_compaction_replacement_messages,
+)
+from just_another_coding_agent.runtime.project_docs import (
+    load_workspace_project_docs,
 )
 from just_another_coding_agent.tools._workspace import normalize_workspace_root
 
@@ -192,6 +197,36 @@ def initialize_session(
             updated_at=timestamp,
         ),
     )
+
+
+def append_project_docs_to_session(
+    *,
+    path: Path,
+    workspace_root: Path | str,
+    shell_family: ShellFamily | None = None,
+) -> SessionProjectDocsEntry | None:
+    normalized_workspace_root = normalize_workspace_root(workspace_root)
+    load_session(
+        path=path,
+        workspace_root=normalized_workspace_root,
+        shell_family=shell_family,
+    )
+    loaded_docs = load_workspace_project_docs(normalized_workspace_root)
+    if not loaded_docs:
+        return None
+
+    entry = SessionProjectDocsEntry(
+        documents=[
+            SessionProjectDocReference(
+                short_path=doc.short_path,
+                truncated=doc.truncated,
+            )
+            for doc in loaded_docs
+        ]
+    )
+    _append_entry_to_path(path, entry)
+    _update_session_metadata(path=path, updated_at=_utc_now())
+    return entry
 
 
 def append_run_to_session(
@@ -416,6 +451,7 @@ def load_session(
     header: SessionHeaderEntry | None = None
     fork: SessionForkEntry | None = None
     name: SessionName | None = None
+    project_docs: SessionProjectDocsEntry | None = None
     runs: list[SessionRunRecord] = []
     latest_turn_context: SessionTurnContextEntry | None = None
     has_persisted_turn_context_history = False
@@ -479,6 +515,18 @@ def load_session(
                     "Session info entry must not appear inside an incomplete run"
                 )
             name = entry.name
+            continue
+
+        if isinstance(entry, SessionProjectDocsEntry):
+            if current_run is not None:
+                raise SessionFormatError(
+                    "Session project docs entry must not appear inside an incomplete run"
+                )
+            if project_docs is not None or runs or compactions:
+                raise SessionFormatError(
+                    "Session project docs entry must appear at most once before runs"
+                )
+            project_docs = entry
             continue
 
         if isinstance(entry, SessionMessagesEntry):
@@ -589,6 +637,7 @@ def load_session(
         header=header,
         fork=fork,
         name=name,
+        project_docs=project_docs,
         runs=runs,
         latest_turn_context=latest_turn_context,
         has_persisted_turn_context_history=has_persisted_turn_context_history,
@@ -819,6 +868,7 @@ def _write_entry(
         SessionHeaderEntry
         | SessionForkEntry
         | SessionInfoEntry
+        | SessionProjectDocsEntry
         | SessionRunEntry
         | SessionMessagesEntry
         | SessionEventEntry
@@ -836,6 +886,7 @@ def _append_entry_to_path(
         SessionHeaderEntry
         | SessionForkEntry
         | SessionInfoEntry
+        | SessionProjectDocsEntry
         | SessionRunEntry
         | SessionMessagesEntry
         | SessionEventEntry

@@ -12,6 +12,7 @@ from pydantic import TypeAdapter, ValidationError
 from just_another_coding_agent.contracts.rpc import SessionId
 from just_another_coding_agent.contracts.session import SessionMetadata, SessionName
 from just_another_coding_agent.session import (
+    append_project_docs_to_session,
     append_session_name_to_session,
     fork_session,
     initialize_session,
@@ -59,6 +60,10 @@ def create_session(
             continue
 
         initialize_session(path=session_path, workspace_root=workspace_root)
+        append_project_docs_to_session(
+            path=session_path,
+            workspace_root=workspace_root,
+        )
         return session_id
 
 

@@ -13,6 +13,7 @@ The contract preserves the backend-facing behavior of a pi-style coding agent wh
 Canonical prompt context for the maintained version:
 
 - static baseline instructions
+- dynamic model-visible project-doc messages from workspace-root `AGENTS.md` and `CLAUDE.md`, when present
 - dynamic current date
 - dynamic resolved workspace root
 
@@ -20,6 +21,8 @@ Rules:
 
 - the canonical agent prompt must be assembled through one builder path
 - dynamic prompt context must be explicit and reproducible
+- project-doc injection is runtime-owned contextual history, not baked into the static baseline prompt
+- project-doc injection is bounded and deterministic
 - the canonical agent prompt must explicitly forbid claiming file side effects without tool evidence
 - the canonical agent prompt must explicitly instruct the model to verify code changes or required file outputs before concluding
 
@@ -443,6 +446,7 @@ Initial canonical session contract:
 - append-only JSONL
 - explicit session header with authoritative workspace metadata
 - explicit run, native message-history, and event entries
+- optional backend-owned project-doc disclosure at session start
 - no automatic migration of old local session states
 
 Rules:
@@ -466,6 +470,12 @@ Initial executable session slice:
   - records direct parent lineage for a forked session
   - `forked_from_run_id` is optional and, when present, identifies the latest
     completed parent run visible at fork time
+- `session_project_docs`
+  - fields: `type`, `documents`
+  - `documents` is a list of backend-owned project-doc disclosures with:
+    - `short_path`
+    - `truncated`
+  - records which workspace project-doc files were loaded when the session was created
 - `session_run`
   - fields: `type`, `run_id`, `prompt`, `thinking`
   - `thinking` is optional and stores the effective thinking setting for that run
@@ -501,6 +511,7 @@ Ordering rules for the session slice:
 - The first line must be exactly one `session_header`
 - `session_fork` may appear at most once and, when present, must be the second
   line immediately after `session_header`
+- `session_project_docs` may appear at most once before the first run and never inside or after a completed run
 - `session_info` may appear only at completed-run boundaries, never in the middle of a run
 - `session_info.name` is unique within the current workspace-backed session shard
 - Each completed `session_run` is followed by one or more `session_event` lines for the same `run_id`, then exactly one trailing `session_messages` line for that run, and then optionally exactly one trailing `session_turn_context` line for that same run
@@ -601,7 +612,7 @@ Initial executable RPC slice:
     - `{"status": {"provider": <provider-name>, "configured": <bool>, "secret_configured": <bool>, "requires_secret": <bool>, "source": "env" | "file" | "none", "env_key": <provider-env-var>, "reason": "ok" | "missing_secret" | "local_endpoint_no_secret_required"}}` for `auth.clear`
     - `{"session_id": <opaque-lowercase-hex-string>}`
     - `{"session_id": <opaque-lowercase-hex-string>, "name": <backend-normalized-session-name>}` for `session.name`
-    - `{"session_id": <opaque-lowercase-hex-string>, "entries": [{"kind": "user" | "assistant" | "error", "text": <string>}], "truncated": <bool>}` for `session.preview`
+    - `{"session_id": <opaque-lowercase-hex-string>, "entries": [{"kind": "instructions" | "user" | "assistant" | "error", "text": <string>}], "truncated": <bool>}` for `session.preview`
     - `{"compaction_id": <opaque-lowercase-hex-string>, "compacted_through_run_id": <run_id>}`
     - `{"session_id": <opaque-lowercase-hex-string>}` for `run.start`
     - `{"session_id": <opaque-lowercase-hex-string>, "queued_count": <positive-int>}` for `run.enqueue`
@@ -629,8 +640,9 @@ Ordering rules for the RPC slice:
 - A valid `auth.clear` request yields exactly one `rpc_response` and removes
   the stored local secret for that provider from the explicit local auth file
 - A valid `session.create` request yields exactly one `rpc_response` containing a server-generated opaque `session_id`
+- `session.create` may also append one backend-owned `session_project_docs` entry when workspace project docs were loaded for that new session
 - A valid `session.name` request must reference an existing `session_id`, append one backend-normalized `session_info` entry when the requested name changes, enforce workspace-local name uniqueness, and yield exactly one `rpc_response` containing that normalized session name
-- A valid `session.preview` request must reference an existing `session_id` and yields exactly one `rpc_response` containing a bounded recent-history preview derived from durable session runs; it is a presentation helper and does not change resume authority
+- A valid `session.preview` request must reference an existing `session_id` and yields exactly one `rpc_response` containing a bounded recent-history preview derived from durable session runs plus any persisted `session_project_docs` disclosure; it is a presentation helper and does not change resume authority
 - A valid `session.compact` request must reference an existing `session_id` and yields exactly one `rpc_response` describing the newly appended compaction entry
 - If model-driven compaction summary generation fails, `session.compact` fails hard; it does not append a placeholder summary
 - A valid `run.start` request must reference an existing `session_id`, yields zero or more `rpc_event` lines whose embedded events satisfy the streamed run contract, and ends with exactly one final `rpc_response` after the active run and any drained follow-up runs complete

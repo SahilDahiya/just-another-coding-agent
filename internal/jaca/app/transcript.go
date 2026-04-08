@@ -246,19 +246,17 @@ func (t *Transcript) WriteNote(title string, lines []string) {
 	t.endToolGroup()
 	t.endLiveAssistant()
 	t.ensureBlockGap()
-	header := lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render("note") +
-		"  " + lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Bold(true).Render(title)
-	plain := "note  " + title + "\n"
-	rendered := header + "\n"
-	for _, line := range lines {
-		plain += line + "\n"
-		rendered += line + "\n"
+	t.appendBlock(newNoteCell(title, lines))
+}
+
+func (t *Transcript) InsertNoteBeforeCurrentRun(title string, lines []string) {
+	if t.currentRunStart < 0 {
+		t.WriteNote(title, lines)
+		return
 	}
-	if len(lines) > 0 {
-		rendered += "\n"
-		plain += "\n"
-	}
-	t.appendBlock(&rawCell{plain: plain, rendered: rendered})
+	index := t.currentRunStart
+	t.insertBlock(index, newNoteCell(title, lines))
+	t.adjustTrackedIndexesAfterInsertion(index)
 }
 
 func (t *Transcript) WriteUserTurn(prompt string) {
@@ -321,13 +319,13 @@ func (t *Transcript) ApplySessionPreview(preview rpc.SessionPreviewResponse) {
 		return
 	}
 
-	lines := []string{"showing recent session history"}
 	if preview.Truncated {
-		lines = append(lines, "older history omitted")
+		t.WriteNote("history", []string{"older history omitted"})
 	}
-	t.WriteNote("history", lines)
 	for _, entry := range preview.Entries {
 		switch entry.Kind {
+		case "instructions":
+			t.InsertNoteBeforeCurrentRun("instructions", []string{entry.Text})
 		case "user":
 			t.WriteUserTurn(entry.Text)
 		case "assistant":
@@ -543,6 +541,22 @@ func newOmissionCell(runCount int) *rawCell {
 		plain:    "note  history\n" + line + "\n\n",
 		rendered: header + "\n" + line + "\n\n",
 	}
+}
+
+func newNoteCell(title string, lines []string) *rawCell {
+	header := lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render("note") +
+		"  " + lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Bold(true).Render(title)
+	plain := "note  " + title + "\n"
+	rendered := header + "\n"
+	for _, line := range lines {
+		plain += line + "\n"
+		rendered += line + "\n"
+	}
+	if len(lines) > 0 {
+		rendered += "\n"
+		plain += "\n"
+	}
+	return &rawCell{plain: plain, rendered: rendered}
 }
 
 func (t *Transcript) rebuildLiveAssistantRendered() {

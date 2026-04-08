@@ -98,12 +98,12 @@ func (m *Manager) ensureStartedLocked() (*Client, error) {
 	return client, nil
 }
 
-func (m *Manager) CreateSession(ctx context.Context) (string, error) {
+func (m *Manager) CreateSession(ctx context.Context) (SessionCreateResponse, error) {
 	m.mu.Lock()
 	client, err := m.ensureStartedLocked()
 	m.mu.Unlock()
 	if err != nil {
-		return "", err
+		return SessionCreateResponse{}, err
 	}
 	return client.CreateSession(ctx)
 }
@@ -126,6 +126,16 @@ func (m *Manager) SessionPreview(ctx context.Context, sessionID string) (Session
 		return SessionPreviewResponse{}, err
 	}
 	return client.SessionPreview(ctx, sessionID)
+}
+
+func (m *Manager) WorkspaceProjectDocs(ctx context.Context) (WorkspaceProjectDocsResponse, error) {
+	m.mu.Lock()
+	client, err := m.ensureStartedLocked()
+	m.mu.Unlock()
+	if err != nil {
+		return WorkspaceProjectDocsResponse{}, err
+	}
+	return client.WorkspaceProjectDocs(ctx)
 }
 
 func (m *Manager) CompactSession(ctx context.Context, sessionID string) (SessionCompactResponse, error) {
@@ -512,11 +522,11 @@ func (c *Client) awaitEnvelope(
 	}
 }
 
-func (c *Client) CreateSession(ctx context.Context) (string, error) {
+func (c *Client) CreateSession(ctx context.Context) (SessionCreateResponse, error) {
 	requestID := c.nextRequestID()
 	waiter, cleanup, err := c.registerWaiter(requestID)
 	if err != nil {
-		return "", err
+		return SessionCreateResponse{}, err
 	}
 	defer cleanup()
 	c.writeMu.Lock()
@@ -526,24 +536,24 @@ func (c *Client) CreateSession(ctx context.Context) (string, error) {
 		Payload: SessionCreatePayload{},
 	}); err != nil {
 		c.writeMu.Unlock()
-		return "", err
+		return SessionCreateResponse{}, err
 	}
 	c.writeMu.Unlock()
 	line, err := c.awaitEnvelope(ctx, waiter)
 	if err != nil {
-		return "", err
+		return SessionCreateResponse{}, err
 	}
 	switch envelope := line.(type) {
 	case ResponseEnvelope:
 		var response SessionCreateResponse
 		if err := json.Unmarshal(envelope.Response, &response); err != nil {
-			return "", err
+			return SessionCreateResponse{}, err
 		}
-		return response.SessionID, nil
+		return response, nil
 	case ErrorEnvelope:
-		return "", fmt.Errorf("%s: %s", envelope.ErrorType, envelope.Message)
+		return SessionCreateResponse{}, fmt.Errorf("%s: %s", envelope.ErrorType, envelope.Message)
 	default:
-		return "", fmt.Errorf("unexpected envelope for session.create: %T", line)
+		return SessionCreateResponse{}, fmt.Errorf("unexpected envelope for session.create: %T", line)
 	}
 }
 
@@ -617,6 +627,41 @@ func (c *Client) SessionPreview(ctx context.Context, sessionID string) (SessionP
 		return SessionPreviewResponse{}, fmt.Errorf("%s: %s", envelope.ErrorType, envelope.Message)
 	default:
 		return SessionPreviewResponse{}, fmt.Errorf("unexpected envelope for session.preview: %T", line)
+	}
+}
+
+func (c *Client) WorkspaceProjectDocs(ctx context.Context) (WorkspaceProjectDocsResponse, error) {
+	requestID := c.nextRequestID()
+	waiter, cleanup, err := c.registerWaiter(requestID)
+	if err != nil {
+		return WorkspaceProjectDocsResponse{}, err
+	}
+	defer cleanup()
+	c.writeMu.Lock()
+	if err := c.writeRequest(Request{
+		ID:      requestID,
+		Command: "workspace.project_docs",
+		Payload: WorkspaceProjectDocsPayload{},
+	}); err != nil {
+		c.writeMu.Unlock()
+		return WorkspaceProjectDocsResponse{}, err
+	}
+	c.writeMu.Unlock()
+	line, err := c.awaitEnvelope(ctx, waiter)
+	if err != nil {
+		return WorkspaceProjectDocsResponse{}, err
+	}
+	switch envelope := line.(type) {
+	case ResponseEnvelope:
+		var response WorkspaceProjectDocsResponse
+		if err := json.Unmarshal(envelope.Response, &response); err != nil {
+			return WorkspaceProjectDocsResponse{}, err
+		}
+		return response, nil
+	case ErrorEnvelope:
+		return WorkspaceProjectDocsResponse{}, fmt.Errorf("%s: %s", envelope.ErrorType, envelope.Message)
+	default:
+		return WorkspaceProjectDocsResponse{}, fmt.Errorf("unexpected envelope for workspace.project_docs: %T", line)
 	}
 }
 

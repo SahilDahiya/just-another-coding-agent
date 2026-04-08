@@ -193,6 +193,16 @@ class RunInterruptRequest(_RpcModel):
     payload: RunInterruptPayload
 
 
+class WorkspaceProjectDocsPayload(_RpcModel):
+    pass
+
+
+class WorkspaceProjectDocsRequest(_RpcModel):
+    id: str
+    command: Literal["workspace.project_docs"]
+    payload: WorkspaceProjectDocsPayload
+
+
 RpcRequest = Annotated[
     SessionCreateRequest
     | SessionCompactRequest
@@ -209,13 +219,15 @@ RpcRequest = Annotated[
     | AuthLoginGitHubCopilotPollRequest
     | RunStartRequest
     | RunEnqueueRequest
-    | RunInterruptRequest,
+    | RunInterruptRequest
+    | WorkspaceProjectDocsRequest,
     Field(discriminator="command"),
 ]
 
 
 class SessionCreateResponse(_RpcModel):
     session_id: SessionId
+    project_docs: list["WorkspaceProjectDoc"] = Field(default_factory=list)
 
 
 class SessionCompactResponse(_RpcModel):
@@ -294,6 +306,16 @@ class RunInterruptResponse(_RpcModel):
     promoted_count: int
 
 
+class WorkspaceProjectDoc(_RpcModel):
+    path: str
+    filename: str
+    truncated: bool = False
+
+
+class WorkspaceProjectDocsResponse(_RpcModel):
+    documents: list[WorkspaceProjectDoc]
+
+
 class RpcResponseEnvelope(_RpcModel):
     type: Literal["rpc_response"] = "rpc_response"
     id: str
@@ -314,6 +336,7 @@ class RpcResponseEnvelope(_RpcModel):
         | RunStartResponse
         | RunEnqueueResponse
         | RunInterruptResponse
+        | WorkspaceProjectDocsResponse
     )
 
 
@@ -382,6 +405,10 @@ __all__ = [
     "SessionNamePayload",
     "SessionNameRequest",
     "SessionNameResponse",
+    "WorkspaceProjectDoc",
+    "WorkspaceProjectDocsPayload",
+    "WorkspaceProjectDocsRequest",
+    "WorkspaceProjectDocsResponse",
     "SessionCreatePayload",
     "SessionCreateRequest",
     "SessionCreateResponse",

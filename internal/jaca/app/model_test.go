@@ -21,27 +21,29 @@ func intPtr(v int) *int { return &v }
 func floatPtr(v float64) *float64 { return &v }
 
 type stubBackend struct {
-	model              string
-	modelCatalog       rpc.ModelCatalogResponse
-	modelCatalogErr    error
-	authStatuses       map[string]rpc.AuthProviderStatus
-	oauthStatuses      map[string]rpc.OAuthProviderStatus
-	oauthPollDone      bool
-	localSecretStore   rpc.LocalSecretStoreStatus
-	authStatusErr      error
-	setSecretErr       error
-	authStatusAfterSet map[string]rpc.AuthProviderStatus
-	clearSecretErr     error
-	setSessionNameErr  error
-	sessionPreview     rpc.SessionPreviewResponse
-	sessionPreviewErr  error
-	restarts           int
-	lastSetSecret      rpc.AuthSetPayload
-	lastCleared        string
-	lastNamedSession   string
-	lastSessionName    string
-	lastEnqueuedRun    rpc.RunEnqueuePayload
-	lastInterruptedRun rpc.RunInterruptPayload
+	model                   string
+	modelCatalog            rpc.ModelCatalogResponse
+	modelCatalogErr         error
+	authStatuses            map[string]rpc.AuthProviderStatus
+	oauthStatuses           map[string]rpc.OAuthProviderStatus
+	oauthPollDone           bool
+	localSecretStore        rpc.LocalSecretStoreStatus
+	authStatusErr           error
+	setSecretErr            error
+	authStatusAfterSet      map[string]rpc.AuthProviderStatus
+	clearSecretErr          error
+	setSessionNameErr       error
+	sessionPreview          rpc.SessionPreviewResponse
+	sessionPreviewErr       error
+	workspaceProjectDocs    rpc.WorkspaceProjectDocsResponse
+	workspaceProjectDocsErr error
+	restarts                int
+	lastSetSecret           rpc.AuthSetPayload
+	lastCleared             string
+	lastNamedSession        string
+	lastSessionName         string
+	lastEnqueuedRun         rpc.RunEnqueuePayload
+	lastInterruptedRun      rpc.RunInterruptPayload
 }
 
 func newStubBackend() *stubBackend {
@@ -88,8 +90,13 @@ func (b *stubBackend) InterruptRun(
 		PromotedCount: 1,
 	}, nil
 }
-func (b *stubBackend) CreateSession(_ context.Context) (string, error) {
-	return "session", nil
+func (b *stubBackend) CreateSession(_ context.Context) (rpc.SessionCreateResponse, error) {
+	return rpc.SessionCreateResponse{
+		SessionID: "session",
+		ProjectDocs: []rpc.WorkspaceProjectDoc{
+			{Filename: "AGENTS.md"},
+		},
+	}, nil
 }
 func (b *stubBackend) CompactSession(_ context.Context, _ string) (rpc.SessionCompactResponse, error) {
 	return rpc.SessionCompactResponse{}, nil
@@ -110,6 +117,12 @@ func (b *stubBackend) SessionPreview(_ context.Context, _ string) (rpc.SessionPr
 		return rpc.SessionPreviewResponse{}, b.sessionPreviewErr
 	}
 	return b.sessionPreview, nil
+}
+func (b *stubBackend) WorkspaceProjectDocs(_ context.Context) (rpc.WorkspaceProjectDocsResponse, error) {
+	if b.workspaceProjectDocsErr != nil {
+		return rpc.WorkspaceProjectDocsResponse{}, b.workspaceProjectDocsErr
+	}
+	return b.workspaceProjectDocs, nil
 }
 func (b *stubBackend) ModelCatalog(_ context.Context) (rpc.ModelCatalogResponse, error) {
 	return b.modelCatalog, b.modelCatalogErr
@@ -531,8 +544,9 @@ func testModelCatalog() *rpc.ModelCatalogResponse {
 }
 
 func sendKey(m *model, msg tea.KeyMsg) *model {
-	updated, _ := m.Update(msg)
-	return updated.(*model)
+	updated, cmd := m.Update(msg)
+	m = updated.(*model)
+	return runTestCmd(m, cmd)
 }
 
 func sendRunes(m *model, value string) *model {
@@ -540,6 +554,24 @@ func sendRunes(m *model, value string) *model {
 		m = sendKey(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 	}
 	return m
+}
+
+func runTestCmd(m *model, cmd tea.Cmd) *model {
+	if cmd == nil {
+		return m
+	}
+	msg := cmd()
+	if msg == nil {
+		return m
+	}
+	if batch, ok := msg.(tea.BatchMsg); ok {
+		for _, child := range batch {
+			m = runTestCmd(m, child)
+		}
+		return m
+	}
+	updated, next := m.Update(msg)
+	return runTestCmd(updated.(*model), next)
 }
 
 func TestModelBuffersAssistantDeltasUntilLiveFlush(t *testing.T) {
@@ -669,9 +701,6 @@ func TestResumedSessionPreviewHydratesRecentHistory(t *testing.T) {
 	})
 
 	rendered := stripANSI(updated.(*model).transcript.Render())
-	if !strings.Contains(rendered, "showing recent session history") {
-		t.Fatalf("resume preview note missing from transcript: %q", rendered)
-	}
 	if !strings.Contains(rendered, "older history omitted") {
 		t.Fatalf("resume preview truncation note missing from transcript: %q", rendered)
 	}
@@ -995,6 +1024,100 @@ func TestCompactionLifecycleEventsUpdatePhaseAndTranscript(t *testing.T) {
 		if strings.Contains(rendered, absent) {
 			t.Fatalf("transcript should not contain legacy compaction line %q in %q", absent, rendered)
 		}
+	}
+}
+
+func TestWorkspaceProjectDocsLoadedWritesStartupNote(t *testing.T) {
+	m := newTestModel()
+
+	updated, _ := m.Update(workspaceProjectDocsLoadedMsg{
+		Docs: rpc.WorkspaceProjectDocsResponse{
+			Documents: []rpc.WorkspaceProjectDoc{
+				{Path: "/workspace/AGENTS.md", Filename: "AGENTS.md"},
+				{Path: "/workspace/CLAUDE.md", Filename: "CLAUDE.md", Truncated: true},
+			},
+		},
+	})
+	m = updated.(*model)
+
+	rendered := stripANSI(m.transcript.Render())
+	for _, want := range []string{
+		"note  instructions",
+		"loaded project instructions: /workspace/AGENTS.md, /workspace/CLAUDE.md (truncated)",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("startup transcript missing %q in %q", want, rendered)
+		}
+	}
+}
+
+func TestSessionPreviewInstructionsEntryWritesNote(t *testing.T) {
+	m := newTestModel()
+
+	m.transcript.ApplySessionPreview(rpc.SessionPreviewResponse{
+		SessionID: "1234",
+		Entries: []rpc.SessionPreviewEntry{
+			{Kind: "instructions", Text: "loaded project instructions: AGENTS.md"},
+		},
+	})
+
+	rendered := stripANSI(m.transcript.Render())
+	for _, want := range []string{
+		"note  instructions",
+		"loaded project instructions: AGENTS.md",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("preview transcript missing %q in %q", want, rendered)
+		}
+	}
+}
+
+func TestSessionPreviewInstructionsEntryPinsBeforeCurrentRun(t *testing.T) {
+	m := newTestModel()
+	m.transcript.WriteUserTurn("hello")
+
+	m.transcript.ApplySessionPreview(rpc.SessionPreviewResponse{
+		SessionID: "1234",
+		Entries: []rpc.SessionPreviewEntry{
+			{Kind: "instructions", Text: "loaded project instructions: AGENTS.md"},
+		},
+	})
+
+	rendered := stripANSI(m.transcript.Render())
+	instructionsIndex := strings.Index(rendered, "loaded project instructions: AGENTS.md")
+	userIndex := strings.Index(rendered, "> hello")
+	if instructionsIndex == -1 || userIndex == -1 {
+		t.Fatalf("expected instructions note and user turn in %q", rendered)
+	}
+	if instructionsIndex > userIndex {
+		t.Fatalf("instructions note should appear before current run in %q", rendered)
+	}
+}
+
+func TestSessionCreatedMsgPinsInstructionsWithoutPreviewReplay(t *testing.T) {
+	m := newTestModel()
+	m.transcript.WriteUserTurn("hello")
+	m.transcript.completeAssistant("Hi! What would you like to work on?")
+
+	updated, _ := m.Update(sessionCreatedMsg{
+		Response: rpc.SessionCreateResponse{
+			SessionID: "1234",
+			ProjectDocs: []rpc.WorkspaceProjectDoc{
+				{Filename: "AGENTS.md"},
+			},
+		},
+	})
+	m = updated.(*model)
+
+	rendered := stripANSI(m.transcript.Render())
+	if strings.Count(rendered, "> hello") != 1 {
+		t.Fatalf("expected one user turn in %q", rendered)
+	}
+	if strings.Count(rendered, "Hi! What would you like to work on?") != 1 {
+		t.Fatalf("expected one assistant response in %q", rendered)
+	}
+	if !strings.Contains(rendered, "loaded project instructions: AGENTS.md") {
+		t.Fatalf("missing instructions note in %q", rendered)
 	}
 }
 
