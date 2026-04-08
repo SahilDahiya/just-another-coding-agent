@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Annotated
 from uuid import uuid4
@@ -24,7 +23,6 @@ from just_another_coding_agent.tools.read_only_worker.runtime import (
 )
 from just_another_coding_agent.tools.truncation import (
     append_tool_note,
-    collect_bounded_items,
 )
 
 GREP_MAX_MATCHES = 100

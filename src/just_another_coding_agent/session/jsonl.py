@@ -53,11 +53,11 @@ from just_another_coding_agent.contracts.session import (
     SessionTurnContextEntry,
 )
 from just_another_coding_agent.contracts.thinking import ThinkingSetting
-from just_another_coding_agent.session.replacement_history import (
-    validate_compaction_replacement_messages,
-)
 from just_another_coding_agent.runtime.project_docs import (
     load_workspace_project_docs,
+)
+from just_another_coding_agent.session.replacement_history import (
+    validate_compaction_replacement_messages,
 )
 from just_another_coding_agent.tools._workspace import normalize_workspace_root
 
@@ -520,7 +520,8 @@ def load_session(
         if isinstance(entry, SessionProjectDocsEntry):
             if current_run is not None:
                 raise SessionFormatError(
-                    "Session project docs entry must not appear inside an incomplete run"
+                    "Session project docs entry must not appear "
+                    "inside an incomplete run"
                 )
             if project_docs is not None or runs or compactions:
                 raise SessionFormatError(

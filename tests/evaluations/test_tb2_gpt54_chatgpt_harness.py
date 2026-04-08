@@ -36,7 +36,8 @@ def _copy_harness(tmp_path: Path) -> tuple[Path, Path]:
             "#!/usr/bin/env bash\n"
             "set -euo pipefail\n"
             'printf "MODEL=%s\\n" "${MODEL:-}" >> "$HARNESS_LOG"\n'
-            'printf "THINKING=%s\\n" "${JUST_ANOTHER_CODING_AGENT_THINKING:-}" >> "$HARNESS_LOG"\n'
+            'printf "THINKING=%s\\n" '
+            '"${JUST_ANOTHER_CODING_AGENT_THINKING:-}" >> "$HARNESS_LOG"\n'
             'printf "SUBMISSION_ID=%s\\n" "${SUBMISSION_ID:-}" >> "$HARNESS_LOG"\n'
             'printf "N_CONCURRENT=%s\\n" "${N_CONCURRENT:-}" >> "$HARNESS_LOG"\n'
             'printf "ARGS=%s\\n" "$*" >> "$HARNESS_LOG"\n'
@@ -76,7 +77,9 @@ def test_gpt54_chatgpt_harness_sets_submission_defaults(tmp_path: Path) -> None:
     env["HARNESS_LOG"] = str(log_path)
 
     result = subprocess.run(
-        _harness_command(harness_path, "run", "chatgpt-54", "--passes", "1", "tasks/b.txt"),
+        _harness_command(
+            harness_path, "run", "chatgpt-54", "--passes", "1", "tasks/b.txt"
+        ),
         text=True,
         capture_output=True,
         env=env,

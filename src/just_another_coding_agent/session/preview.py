@@ -8,10 +8,10 @@ from just_another_coding_agent.contracts.session import (
     SessionPreview,
     SessionPreviewEntry,
 )
-from just_another_coding_agent.session.jsonl import load_session
 from just_another_coding_agent.runtime.project_docs import (
     build_project_doc_notice_line,
 )
+from just_another_coding_agent.session.jsonl import load_session
 
 SESSION_PREVIEW_MAX_RUNS = 10
 SESSION_PREVIEW_MAX_ENTRY_CHARS = 600

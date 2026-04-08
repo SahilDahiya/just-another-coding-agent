@@ -4,7 +4,6 @@ import pytest
 
 from just_another_coding_agent.tools.errors import ToolPathError
 from just_another_coding_agent.tools.ls import ls
-
 from tests.contracts.read_only_tool_test_support import (
     go_worker_required,
     worker_ctx,

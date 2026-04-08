@@ -6,7 +6,6 @@ import pytest
 
 from just_another_coding_agent.tools.errors import ToolPathError
 from just_another_coding_agent.tools.grep import grep
-
 from tests.contracts.read_only_tool_test_support import (
     go_worker_required,
     worker_ctx,

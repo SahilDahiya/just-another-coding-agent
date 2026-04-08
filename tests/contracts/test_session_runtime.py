@@ -72,9 +72,9 @@ from just_another_coding_agent.session.replacement_history import (
     build_compaction_summary_message,
     extract_compaction_summary_text,
 )
+from just_another_coding_agent.tools.deps import WorkspaceDeps
 
 _SHELL_FAMILY = detect_default_shell_family()
-from just_another_coding_agent.tools.deps import WorkspaceDeps
 
 
 def _all_parts(messages: list[ModelMessage]):
