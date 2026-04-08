@@ -97,6 +97,9 @@ jobs:
       contents: write
 
     steps:
+      - name: Check out code
+        uses: actions/checkout@v5
+
       - name: Download release artifacts
         uses: actions/download-artifact@v5
         with:
@@ -133,6 +136,9 @@ jobs:
       name: pypi
 
     steps:
+      - name: Check out code
+        uses: actions/checkout@v5
+
       - name: Download release artifacts
         uses: actions/download-artifact@v5
         with:
