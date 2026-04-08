@@ -2003,7 +2003,7 @@ func TestSessionCommandShowsForkLineage(t *testing.T) {
 
 func TestNewForkedSessionShowsForkNote(t *testing.T) {
 	teaModel := New(Options{
-		AppVersion:            "0.1.4",
+		AppVersion:            "0.1.5",
 		Model:                 "openai-responses:gpt-5.4",
 		WorkspaceRoot:         "/workspace",
 		SessionsRoot:          "/sessions",

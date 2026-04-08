@@ -65,7 +65,7 @@ def test_verify_release_artifacts_rejects_multiple_versions() -> None:
             "artifact", encoding="utf-8"
         )
         (
-            dist_path / "just_another_coding_agent-0.1.4-py3-none-win_amd64.whl"
+            dist_path / "just_another_coding_agent-0.1.5-py3-none-win_amd64.whl"
         ).write_text("artifact", encoding="utf-8")
 
         with pytest.raises(RuntimeError, match="expected exactly one release version"):
