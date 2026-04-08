@@ -17,6 +17,7 @@ import (
 )
 
 const updateCheckURL = "https://pypi.org/pypi/just-another-coding-agent/json"
+const updateCheckTimeout = 5 * time.Second
 
 type updatePromptState struct {
 	Active         bool
@@ -43,7 +44,7 @@ func fetchUpdatePrompt(currentVersion string, command []string) tea.Cmd {
 		return nil
 	}
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+		ctx, cancel := context.WithTimeout(context.Background(), updateCheckTimeout)
 		defer cancel()
 
 		latestVersion, err := fetchLatestVersion(ctx)
