@@ -417,7 +417,7 @@ def test_run_exec_prompt_classifies_missing_first_rpc_event(tmp_path) -> None:
             }
         )
         + "\n",
-        delay_seconds=0.05,
+        delay_seconds=1.0,
     )
     captured: dict[str, object] = {}
 
