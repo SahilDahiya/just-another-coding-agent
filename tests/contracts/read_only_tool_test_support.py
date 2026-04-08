@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import shlex
 import shutil
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -20,10 +20,16 @@ def _repo_root() -> Path:
 
 def read_only_worker_command() -> list[str]:
     repo_root = _repo_root()
+    launcher = (
+        "import os, sys; "
+        "os.chdir(sys.argv[1]); "
+        "os.execvp('go', ['go', 'run', './cmd/jaca-read-only-worker'])"
+    )
     return [
-        "/bin/bash",
-        "-lc",
-        f"cd {shlex.quote(str(repo_root))} && go run ./cmd/jaca-read-only-worker",
+        sys.executable,
+        "-c",
+        launcher,
+        str(repo_root),
     ]
 
 
