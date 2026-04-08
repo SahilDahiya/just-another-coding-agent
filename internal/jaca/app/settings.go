@@ -117,6 +117,8 @@ func (m *model) handleModelCommand(arg string) (tea.Model, tea.Cmd) {
 	for _, line := range lines {
 		m.transcript.WriteLine(line)
 	}
+	m.options.Thinking = "medium"
+	m.transcript.WriteLine("thinking: medium (default)")
 	if restart && m.options.Backend != nil {
 		m.restartBackendWithCurrentEnv()
 		cmd = tea.Batch(cmd, m.requestModelCatalog())
