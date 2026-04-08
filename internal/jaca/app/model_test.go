@@ -1041,9 +1041,14 @@ func TestWorkspaceProjectDocsLoadedWritesStartupNote(t *testing.T) {
 	m = updated.(*model)
 
 	rendered := stripANSI(m.transcript.Render())
+	wantInstructions := fmt.Sprintf(
+		"loaded project instructions: %s, %s (truncated)",
+		displayPath("/workspace/AGENTS.md"),
+		displayPath("/workspace/CLAUDE.md"),
+	)
 	for _, want := range []string{
 		"note  instructions",
-		"loaded project instructions: /workspace/AGENTS.md, /workspace/CLAUDE.md (truncated)",
+		wantInstructions,
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("startup transcript missing %q in %q", want, rendered)
