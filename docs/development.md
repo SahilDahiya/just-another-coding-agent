@@ -11,6 +11,8 @@ see [../README.md](../README.md).
 - Go `1.23`
 - `uv` for environment management
 - `ruff` for linting
+- `vulture` for Python dead-code checks
+- `staticcheck` for Go static analysis
 - `pytest` for tests
 
 ## Commands
@@ -18,6 +20,9 @@ see [../README.md](../README.md).
 - Install repo dependencies: `uv sync --extra dev --extra test`
 - Install the Go TUI binary explicitly: `JACA_BUILD_TUI=1 uv sync --reinstall-package just-another-coding-agent --extra dev --extra test`
 - Lint: `uv run ruff check .`
+- Python dead-code check: `uv run vulture src evaluations --min-confidence 80`
+- Go static analysis: `go run honnef.co/go/tools/cmd/staticcheck@v0.6.0 ./...`
+- Full lint pass: `make lint`
 - Format: `uv run ruff format .`
 - Test: `uv run pytest`
 - Test Go packages: `go test ./...`
@@ -127,6 +132,8 @@ The initial CI contract is:
 - install project dependencies
 - verify shipped provider imports from the resolved environment
 - run `ruff check`
+- run `vulture src evaluations --min-confidence 80`
+- run `go run honnef.co/go/tools/cmd/staticcheck@v0.6.0 ./...`
 - run `pytest`
 - run Go tests for `cmd/jaca`, `cmd/jaca-read-only-worker`, and `internal/jaca/...`
 

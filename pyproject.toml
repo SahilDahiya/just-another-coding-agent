@@ -18,6 +18,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
   "ruff>=0.11.0",
+  "vulture>=2.16",
 ]
 test = [
   "pytest>=8.3.0",
@@ -48,3 +49,7 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]
+
+[tool.vulture]
+paths = ["src", "evaluations"]
+min_confidence = 80

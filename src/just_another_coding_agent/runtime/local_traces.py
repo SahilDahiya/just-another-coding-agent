@@ -40,7 +40,7 @@ class LocalJSONLSpanExporter:
     def shutdown(self) -> None:
         return None
 
-    def force_flush(self, timeout_millis: int = 30_000) -> bool:
+    def force_flush(self, _timeout_millis: int = 30_000) -> bool:
         return True
 
 

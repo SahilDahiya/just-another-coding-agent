@@ -41,7 +41,10 @@ jobs:
           "from pydantic_ai.models.anthropic import AnthropicModel; from pydantic_ai.models.google import GoogleModel; from pydantic_ai.models.openai import OpenAIChatModel, OpenAIResponsesModel; from pydantic_ai.models.openrouter import OpenRouterModel"
 
       - name: Lint
-        run: uv run ruff check .
+        run: |
+          uv run ruff check .
+          uv run vulture src evaluations --min-confidence 80
+          go run honnef.co/go/tools/cmd/staticcheck@v0.6.0 ./...
 
       - name: Run tests
         run: >-

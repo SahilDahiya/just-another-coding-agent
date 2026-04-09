@@ -50,7 +50,6 @@ const (
 	modelCatalogTimeout  = 8 * time.Second
 	queueControlTimeout  = 30 * time.Second
 	authStatusRetryDelay = 750 * time.Millisecond
-	projectDocsTimeout   = 2 * time.Second
 )
 
 type startupTickMsg struct{}
@@ -97,11 +96,6 @@ type authStatusLoadedMsg struct {
 type sessionPreviewLoadedMsg struct {
 	Preview rpc.SessionPreviewResponse
 	Err     error
-}
-
-type workspaceProjectDocsLoadedMsg struct {
-	Docs rpc.WorkspaceProjectDocsResponse
-	Err  error
 }
 
 type authStatusRetryMsg struct{}
@@ -609,26 +603,6 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.transcript.ApplySessionPreview(msg.Preview)
-		m.refreshViewport()
-		return m, nil
-	case workspaceProjectDocsLoadedMsg:
-		if msg.Err != nil {
-			return m, nil
-		}
-		if len(msg.Docs.Documents) == 0 {
-			return m, nil
-		}
-		labels := make([]string, 0, len(msg.Docs.Documents))
-		for _, doc := range msg.Docs.Documents {
-			label := displayPath(doc.Path)
-			if doc.Truncated {
-				label += " (truncated)"
-			}
-			labels = append(labels, label)
-		}
-		m.transcript.WriteNote("instructions", []string{
-			fmt.Sprintf("loaded project instructions: %s", strings.Join(labels, ", ")),
-		})
 		m.refreshViewport()
 		return m, nil
 	case authStatusRetryMsg:
@@ -1264,13 +1238,6 @@ func (m *model) requestSessionPreview() tea.Cmd {
 	return fetchSessionPreview(m.options.Backend, m.options.SessionID)
 }
 
-func (m *model) requestWorkspaceProjectDocs() tea.Cmd {
-	if m.options.Backend == nil || m.options.SessionID != "" {
-		return nil
-	}
-	return fetchWorkspaceProjectDocs(m.options.Backend)
-}
-
 func fetchModelCatalog(backend Backend) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), modelCatalogTimeout)
@@ -1295,15 +1262,6 @@ func fetchSessionPreview(backend Backend, sessionID string) tea.Cmd {
 		defer cancel()
 		preview, err := backend.SessionPreview(ctx, sessionID)
 		return sessionPreviewLoadedMsg{Preview: preview, Err: err}
-	}
-}
-
-func fetchWorkspaceProjectDocs(backend Backend) tea.Cmd {
-	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), projectDocsTimeout)
-		defer cancel()
-		docs, err := backend.WorkspaceProjectDocs(ctx)
-		return workspaceProjectDocsLoadedMsg{Docs: docs, Err: err}
 	}
 }
 

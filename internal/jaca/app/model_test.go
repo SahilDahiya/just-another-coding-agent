@@ -21,29 +21,27 @@ func intPtr(v int) *int { return &v }
 func floatPtr(v float64) *float64 { return &v }
 
 type stubBackend struct {
-	model                   string
-	modelCatalog            rpc.ModelCatalogResponse
-	modelCatalogErr         error
-	authStatuses            map[string]rpc.AuthProviderStatus
-	oauthStatuses           map[string]rpc.OAuthProviderStatus
-	oauthPollDone           bool
-	localSecretStore        rpc.LocalSecretStoreStatus
-	authStatusErr           error
-	setSecretErr            error
-	authStatusAfterSet      map[string]rpc.AuthProviderStatus
-	clearSecretErr          error
-	setSessionNameErr       error
-	sessionPreview          rpc.SessionPreviewResponse
-	sessionPreviewErr       error
-	workspaceProjectDocs    rpc.WorkspaceProjectDocsResponse
-	workspaceProjectDocsErr error
-	restarts                int
-	lastSetSecret           rpc.AuthSetPayload
-	lastCleared             string
-	lastNamedSession        string
-	lastSessionName         string
-	lastEnqueuedRun         rpc.RunEnqueuePayload
-	lastInterruptedRun      rpc.RunInterruptPayload
+	model              string
+	modelCatalog       rpc.ModelCatalogResponse
+	modelCatalogErr    error
+	authStatuses       map[string]rpc.AuthProviderStatus
+	oauthStatuses      map[string]rpc.OAuthProviderStatus
+	oauthPollDone      bool
+	localSecretStore   rpc.LocalSecretStoreStatus
+	authStatusErr      error
+	setSecretErr       error
+	authStatusAfterSet map[string]rpc.AuthProviderStatus
+	clearSecretErr     error
+	setSessionNameErr  error
+	sessionPreview     rpc.SessionPreviewResponse
+	sessionPreviewErr  error
+	restarts           int
+	lastSetSecret      rpc.AuthSetPayload
+	lastCleared        string
+	lastNamedSession   string
+	lastSessionName    string
+	lastEnqueuedRun    rpc.RunEnqueuePayload
+	lastInterruptedRun rpc.RunInterruptPayload
 }
 
 func newStubBackend() *stubBackend {
@@ -117,12 +115,6 @@ func (b *stubBackend) SessionPreview(_ context.Context, _ string) (rpc.SessionPr
 		return rpc.SessionPreviewResponse{}, b.sessionPreviewErr
 	}
 	return b.sessionPreview, nil
-}
-func (b *stubBackend) WorkspaceProjectDocs(_ context.Context) (rpc.WorkspaceProjectDocsResponse, error) {
-	if b.workspaceProjectDocsErr != nil {
-		return rpc.WorkspaceProjectDocsResponse{}, b.workspaceProjectDocsErr
-	}
-	return b.workspaceProjectDocs, nil
 }
 func (b *stubBackend) ModelCatalog(_ context.Context) (rpc.ModelCatalogResponse, error) {
 	return b.modelCatalog, b.modelCatalogErr
@@ -771,7 +763,6 @@ func TestMouseWheelScrollsViewport(t *testing.T) {
 	m.Update(tea.MouseMsg(tea.MouseEvent{
 		Action: tea.MouseActionPress,
 		Button: tea.MouseButtonWheelDown,
-		Type:   tea.MouseWheelDown,
 	}))
 
 	if m.viewport.YOffset == 0 {
@@ -1071,35 +1062,6 @@ func TestCompactionLifecycleEventsUpdatePhaseAndTranscript(t *testing.T) {
 	} {
 		if strings.Contains(rendered, absent) {
 			t.Fatalf("transcript should not contain legacy compaction line %q in %q", absent, rendered)
-		}
-	}
-}
-
-func TestWorkspaceProjectDocsLoadedWritesStartupNote(t *testing.T) {
-	m := newTestModel()
-
-	updated, _ := m.Update(workspaceProjectDocsLoadedMsg{
-		Docs: rpc.WorkspaceProjectDocsResponse{
-			Documents: []rpc.WorkspaceProjectDoc{
-				{Path: "/workspace/AGENTS.md", Filename: "AGENTS.md"},
-				{Path: "/workspace/CLAUDE.md", Filename: "CLAUDE.md", Truncated: true},
-			},
-		},
-	})
-	m = updated.(*model)
-
-	rendered := stripANSI(m.transcript.Render())
-	wantInstructions := fmt.Sprintf(
-		"loaded project instructions: %s, %s (truncated)",
-		displayPath("/workspace/AGENTS.md"),
-		displayPath("/workspace/CLAUDE.md"),
-	)
-	for _, want := range []string{
-		"note  instructions",
-		wantInstructions,
-	} {
-		if !strings.Contains(rendered, want) {
-			t.Fatalf("startup transcript missing %q in %q", want, rendered)
 		}
 	}
 }
@@ -1849,8 +1811,7 @@ func TestTraceCommandPersistsMode(t *testing.T) {
 	m := newTestModel()
 	m.options.Backend = newStubBackend()
 
-	m = sendRunes(m, "/trace local")
-	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+	_ = sendKey(sendRunes(m, "/trace local"), tea.KeyMsg{Type: tea.KeyEnter})
 
 	data, err := os.ReadFile(home + "/.jaca/config.json")
 	if err != nil {

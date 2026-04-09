@@ -73,7 +73,15 @@ runs it, then asks you to relaunch explicitly after a successful update.
 ```bash
 uv sync --extra dev --extra test
 uv run ruff check .
+uv run vulture src evaluations --min-confidence 80
+go run honnef.co/go/tools/cmd/staticcheck@v0.6.0 ./...
 uv run pytest
+```
+
+Or run the combined lint pass with:
+
+```bash
+make lint
 ```
 
 That default `uv sync --extra dev --extra test` path is for the Python backend,
