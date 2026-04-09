@@ -149,6 +149,9 @@ The core architectural risk is semantic drift between the Go shell and the Pytho
   Anthropic API key. Removed providers should not survive in slash help,
   onboarding copy, or picker suggestions.
 - The prompt zone should behave like a compact two-line shell composer: one input line, one low-salience footer line for state and recall hints.
+- The prompt footer may carry low-salience operational guidance such as a
+  copy hint, but that guidance should stay subdued and yield to width
+  constraints instead of crowding the main state readout.
 - Backend token and context-window usage should appear as restrained footer context after a completed run, not as a new panel or heavy stats surface.
 - Session lifecycle events such as `session_compaction_started` and `session_compaction_completed` may appear before `run_started`; the TUI should surface them in the transcript and switch to the compacting state only when the backend says compaction is happening, instead of silently dropping or reinterpreting them.
 - `esc` is the primary conversation-control key: it requests interrupt for an

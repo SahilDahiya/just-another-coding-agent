@@ -439,8 +439,11 @@ func renderPrompt(vm viewModel) string {
 			vm.PromptValue,
 		),
 		bottomRule,
-		lipgloss.NewStyle().Foreground(footerColor).Render(
+		renderPromptFooterLine(
+			ruleWidth,
 			buildPromptFooterText(vm),
+			buildPromptCopyHint(),
+			footerColor,
 		),
 		"",
 	)
@@ -454,6 +457,32 @@ func renderPrompt(vm viewModel) string {
 	}
 
 	return lipgloss.JoinVertical(lipgloss.Left, promptParts...)
+}
+
+func renderPromptFooterLine(
+	width int,
+	left string,
+	right string,
+	leftColor lipgloss.TerminalColor,
+) string {
+	leftStyle := lipgloss.NewStyle().Foreground(leftColor)
+	if strings.TrimSpace(right) == "" {
+		return leftStyle.Render(left)
+	}
+	if width <= 0 {
+		return leftStyle.Render(left)
+	}
+	leftWidth := lipgloss.Width(left)
+	rightWidth := lipgloss.Width(right)
+	if leftWidth+rightWidth+2 > width {
+		return leftStyle.Render(left)
+	}
+	gap := strings.Repeat(" ", width-leftWidth-rightWidth)
+	return leftStyle.Render(left) +
+		gap +
+		lipgloss.NewStyle().
+			Foreground(defaultTheme.textMuted).
+			Render(right)
 }
 
 func promptHeight(vm viewModel) int {
@@ -718,6 +747,10 @@ func buildPromptFooterText(vm viewModel) string {
 	default:
 		return buildIdleFooterText(vm)
 	}
+}
+
+func buildPromptCopyHint() string {
+	return "Shift+drag to copy"
 }
 
 func renderQueuedInputPreview(vm viewModel, width int) string {

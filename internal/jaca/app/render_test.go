@@ -89,6 +89,12 @@ func TestBuildPromptFooterTextPreservesOverride(t *testing.T) {
 	}
 }
 
+func TestBuildPromptCopyHint(t *testing.T) {
+	if got := buildPromptCopyHint(); got != "Shift+drag to copy" {
+		t.Fatalf("buildPromptCopyHint() = %q, want %q", got, "Shift+drag to copy")
+	}
+}
+
 func TestBuildTopRailIndicatorShowsFixedElapsed(t *testing.T) {
 	got := buildTopRailIndicator(viewModel{
 		Phase:      PhaseStreaming,
@@ -366,6 +372,32 @@ func TestBuildPromptFooterTextShowsCompactUsageWhenIdle(t *testing.T) {
 		if strings.Contains(got, unwanted) {
 			t.Fatalf("buildPromptFooterText() unexpectedly includes %q in %q", unwanted, got)
 		}
+	}
+}
+
+func TestRenderPromptShowsCopyHintInFooterWhenWideEnough(t *testing.T) {
+	rendered := stripANSI(renderPrompt(viewModel{
+		Phase:         PhaseIdle,
+		Width:         100,
+		Model:         "openai-responses:gpt-5.1-codex-mini-chatgpt",
+		WorkspaceRoot: "/workspace",
+	}))
+
+	if !strings.Contains(rendered, "Shift+drag to copy") {
+		t.Fatalf("renderPrompt() missing copy hint in %q", rendered)
+	}
+}
+
+func TestRenderPromptOmitsCopyHintWhenWidthIsTight(t *testing.T) {
+	rendered := stripANSI(renderPrompt(viewModel{
+		Phase:         PhaseIdle,
+		Width:         40,
+		Model:         "openai-responses:gpt-5.1-codex-mini-chatgpt",
+		WorkspaceRoot: "/workspace",
+	}))
+
+	if strings.Contains(rendered, "Shift+drag to copy") {
+		t.Fatalf("renderPrompt() unexpectedly included copy hint in %q", rendered)
 	}
 }
 
