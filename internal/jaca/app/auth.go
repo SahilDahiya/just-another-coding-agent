@@ -193,10 +193,6 @@ func authSetupLines(provider string, fileStorePath string) []string {
 	})
 }
 
-func authFileSetupLines(response rpc.AuthPrepareFileResponse) []string {
-	return authFileSetupNoteLines(response)
-}
-
 func authFileSetupNoteLines(response rpc.AuthPrepareFileResponse) []string {
 	lines := []string{
 		fmt.Sprintf("Add your %s to:", authSecretLabel(response.Provider)),

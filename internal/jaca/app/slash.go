@@ -275,20 +275,6 @@ func (m *model) traceSlashSuggestions() []slashSuggestion {
 	return traceSuggestions()
 }
 
-func (m *model) handleSlashCommand(command string) (tea.Model, tea.Cmd) {
-	spec, cmdName, arg, ok := parseSlashCommand(command)
-	if !ok {
-		return m, nil
-	}
-	if spec.Value == "" {
-		m.transcript.WriteNote("command", nil)
-		m.transcript.WriteError(fmt.Sprintf("unknown: %s", cmdName))
-		m.refreshViewport()
-		return m, nil
-	}
-	return spec.Execute(m, arg)
-}
-
 func parseSlashCommand(command string) (slashCommandSpec, string, string, bool) {
 	parts := strings.Fields(command)
 	if len(parts) == 0 {
