@@ -27,8 +27,6 @@ type Options struct {
 	ForkedFromSessionName string
 	Thinking              string
 	Backend               Backend
-	UpdateCommand         []string
-	SkippedUpdateVersion  string
 }
 
 type Phase string
@@ -165,12 +163,6 @@ type overlayState struct {
 	login                loginState
 	startupOnboardingSet bool
 	onboarding           onboardingState
-	updatePrompt         updatePromptState
-}
-
-type installState struct {
-	appVersion           string
-	skippedUpdateVersion string
 }
 
 type model struct {
@@ -181,7 +173,6 @@ type model struct {
 	layoutState
 	backendState
 	overlayState
-	installState
 	textInput  textinput.Model
 	viewport   viewport.Model
 	transcript *Transcript
@@ -237,10 +228,6 @@ func New(options Options) tea.Model {
 			startupOnboardingSet: startupOnboardingSet,
 			onboarding:           onboarding,
 		},
-		installState: installState{
-			appVersion:           options.AppVersion,
-			skippedUpdateVersion: options.SkippedUpdateVersion,
-		},
 		textInput:  input,
 		viewport:   newViewport(),
 		transcript: transcript,
@@ -271,9 +258,6 @@ func (m *model) Init() tea.Cmd {
 	}
 	if cmd := m.requestSessionPreview(); cmd != nil {
 		cmds = append(cmds, cmd)
-	}
-	if len(m.options.UpdateCommand) > 0 && m.options.AppVersion != "" {
-		cmds = append(cmds, fetchUpdatePrompt(m.options.AppVersion, m.options.UpdateCommand))
 	}
 	return tea.Batch(cmds...)
 }
@@ -558,33 +542,6 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case authStatusRetryMsg:
 		return m, m.requestAuthStatus()
-	case updateCheckMsg:
-		if msg.Err != nil || msg.LatestVersion == "" || msg.LatestVersion == m.skippedUpdateVersion {
-			return m, nil
-		}
-		m.updatePrompt = updatePromptState{
-			Active:         true,
-			CurrentVersion: m.appVersion,
-			LatestVersion:  msg.LatestVersion,
-			Command:        append([]string(nil), msg.Command...),
-		}
-		m.refreshViewport()
-		return m, nil
-	case updateRunMsg:
-		latestVersion := m.updatePrompt.LatestVersion
-		m.updatePrompt = updatePromptState{}
-		m.transcript.WriteNote("update", []string{fmt.Sprintf("ran: %s", strings.Join(msg.Command, " "))})
-		if msg.Err != nil {
-			m.transcript.WriteError(fmt.Sprintf("update failed: %v", msg.Err))
-		} else {
-			m.transcript.WriteLine(fmt.Sprintf("updated to %s", latestVersion))
-			m.transcript.WriteLine("restart jaca to use the new version")
-			if err := saveSkippedUpdateVersion(""); err == nil {
-				m.skippedUpdateVersion = ""
-			}
-		}
-		m.refreshViewport()
-		return m, nil
 	case tea.MouseMsg:
 		var cmd tea.Cmd
 		m.viewport, cmd = m.viewport.Update(msg)
@@ -669,7 +626,6 @@ func (m *model) currentViewModel() viewModel {
 		DetachedLive:        m.streaming && !m.viewport.AtBottom(),
 		VisibleZones:        m.visibleZones,
 		SlashMenu:           m.slashMenu,
-		UpdatePrompt:        m.updatePrompt,
 		Onboarding: onboardingOverlayView{
 			Active:      m.onboarding.Active,
 			Selected:    m.onboarding.Selected,
@@ -727,9 +683,6 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "up", "down":
 			return m, nil
 		}
-	}
-	if m.updatePrompt.Active {
-		return m.handleUpdatePromptKey(msg)
 	}
 	switch msg.String() {
 	case "ctrl+c":
@@ -822,60 +775,6 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	m.refreshViewport()
 	return m, cmd
-}
-
-func (m *model) handleUpdatePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if m.updatePrompt.Running {
-		return m, nil
-	}
-	switch msg.String() {
-	case "up":
-		if m.updatePrompt.Selected > 0 {
-			m.updatePrompt.Selected--
-			m.refreshViewport()
-		}
-		return m, nil
-	case "down", "tab":
-		if m.updatePrompt.Selected < len(m.updatePrompt.options())-1 {
-			m.updatePrompt.Selected++
-		} else {
-			m.updatePrompt.Selected = 0
-		}
-		m.refreshViewport()
-		return m, nil
-	case "esc":
-		m.updatePrompt.Active = false
-		m.refreshViewport()
-		return m, nil
-	case "enter":
-		return m.handleUpdatePromptSelection()
-	default:
-		return m, nil
-	}
-}
-
-func (m *model) handleUpdatePromptSelection() (tea.Model, tea.Cmd) {
-	switch m.updatePrompt.Selected {
-	case 0:
-		m.updatePrompt.Running = true
-		m.refreshViewport()
-		return m, runInstalledUpdate(m.updatePrompt.Command)
-	case 1:
-		m.updatePrompt.Active = false
-		m.refreshViewport()
-		return m, nil
-	case 2:
-		if err := saveSkippedUpdateVersion(m.updatePrompt.LatestVersion); err != nil {
-			m.transcript.WriteError(fmt.Sprintf("update preference: %v", err))
-		} else {
-			m.skippedUpdateVersion = m.updatePrompt.LatestVersion
-		}
-		m.updatePrompt.Active = false
-		m.refreshViewport()
-		return m, nil
-	default:
-		return m, nil
-	}
 }
 
 func (m *model) handleInterrupt() (tea.Model, tea.Cmd) {

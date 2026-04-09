@@ -18,8 +18,8 @@ from just_another_coding_agent.config import (
     resolve_default_model,
 )
 from just_another_coding_agent.go_tui import (
+    available_installed_update,
     default_backend_command,
-    explicit_update_command_json,
     package_version,
     resolve_go_tui_launch,
 )
@@ -86,6 +86,8 @@ def main(
             workspace_root=workspace_root,
             sessions_root=sessions_root,
             thinking=args.thinking,
+            input_stream=input_stream,
+            output_stream=output_stream,
         )
 
 
@@ -296,6 +298,8 @@ def _run_tui(
     workspace_root: Path,
     sessions_root: Path,
     thinking: str | None,
+    input_stream: TextIO | None = None,
+    output_stream: TextIO | None = None,
     session_id: str | None = None,
     session_name: str | None = None,
     forked_from_session_id: str | None = None,
@@ -303,6 +307,13 @@ def _run_tui(
 ) -> int:
     launch_command, launch_cwd = resolve_go_tui_launch()
     app_version = package_version()
+    if not _prompt_for_external_update_if_needed(
+        repo_root=launch_cwd,
+        current_version=app_version,
+        input_stream=input_stream,
+        output_stream=output_stream,
+    ):
+        return 0
     command = [
         *launch_command,
         "--backend-command-json",
@@ -316,9 +327,6 @@ def _run_tui(
         "--sessions-root",
         str(sessions_root),
     ]
-    update_command_json = explicit_update_command_json(repo_root=launch_cwd)
-    if update_command_json is not None:
-        command.extend(["--update-command-json", update_command_json])
     if thinking is not None:
         command.extend(["--thinking", thinking])
     if session_id is not None:
@@ -335,6 +343,53 @@ def _run_tui(
         cwd=None if launch_cwd is None else str(launch_cwd),
     )
     return completed.returncode
+
+
+def _prompt_for_external_update_if_needed(
+    *,
+    repo_root: Path | None,
+    current_version: str,
+    input_stream: TextIO | None,
+    output_stream: TextIO | None,
+) -> bool:
+    reader = sys.stdin if input_stream is None else input_stream
+    writer = sys.stdout if output_stream is None else output_stream
+    if not _stream_is_tty(reader) or not _stream_is_tty(writer):
+        return True
+
+    update = available_installed_update(
+        current_version=current_version,
+        repo_root=repo_root,
+    )
+    if update is None:
+        return True
+
+    writer.write(
+        "\n".join(
+            [
+                "Update available: "
+                f"{update.current_version} -> {update.latest_version}",
+                "To update, do it outside the running app with:",
+                f"  {' '.join(update.command)}",
+                "Press Enter to continue, or type 'q' to quit and update now: ",
+            ]
+        )
+    )
+    writer.flush()
+    response = reader.readline().strip().lower()
+    writer.write("\n")
+    writer.flush()
+    return response != "q"
+
+
+def _stream_is_tty(stream: TextIO) -> bool:
+    isatty = getattr(stream, "isatty", None)
+    if not callable(isatty):
+        return False
+    try:
+        return bool(isatty())
+    except Exception:
+        return False
 
 
 def _resolve_fork_context(

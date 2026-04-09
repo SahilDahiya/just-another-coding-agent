@@ -59,14 +59,10 @@ uv tool upgrade just-another-coding-agent
 ```
 
 JACA does not auto-upgrade or self-reinstall on startup.
-Installed `uv tool` builds may show an optional update prompt with:
-
-- `Update now`
-- `Skip`
-- `Skip until next release`
-
-When `Update now` is available, JACA shows the exact upgrade command before it
-runs it, then asks you to relaunch explicitly after a successful update.
+Installed `uv tool` builds may show a pre-launch notice before the TUI starts
+when a newer published version is available. That notice only prints the exact
+upgrade command and lets you either continue into the app or quit and update
+outside the running app.
 
 ## Repo Setup
 

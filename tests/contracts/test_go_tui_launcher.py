@@ -3,17 +3,29 @@ from __future__ import annotations
 import json
 import os
 from datetime import UTC, datetime
+from io import StringIO
 from types import SimpleNamespace
 
 import pytest
 
 import just_another_coding_agent.__main__ as entry
 from just_another_coding_agent.__main__ import main
-from just_another_coding_agent.go_tui import GO_TUI_BINARY
+from just_another_coding_agent.go_tui import GO_TUI_BINARY, AvailableUpdate
 
-UPDATE_COMMAND_JSON = json.dumps(
-    ["uv", "tool", "upgrade", "just-another-coding-agent"]
-)
+
+class _TTYBuffer(StringIO):
+    def isatty(self) -> bool:
+        return True
+
+
+class _NonTTYBuffer(StringIO):
+    def isatty(self) -> bool:
+        return False
+
+
+@pytest.fixture(autouse=True)
+def _disable_update_notice(monkeypatch) -> None:
+    monkeypatch.setattr(entry, "available_installed_update", lambda **_: None)
 
 
 def test_main_launches_go_tui_for_interactive_mode(
@@ -39,11 +51,6 @@ def test_main_launches_go_tui_for_interactive_mode(
         lambda: ["/tmp/fake-python", "-m", "just_another_coding_agent"],
     )
     monkeypatch.setattr(entry, "package_version", lambda: "0.1.5")
-    monkeypatch.setattr(
-        entry,
-        "explicit_update_command_json",
-        lambda repo_root=None: UPDATE_COMMAND_JSON,
-    )
 
     def fake_run(command, *, check, cwd=None):
         captured["command"] = command
@@ -83,8 +90,6 @@ def test_main_launches_go_tui_for_interactive_mode(
             str(workspace_root.resolve()),
             "--sessions-root",
             str(sessions_root.resolve()),
-            "--update-command-json",
-            UPDATE_COMMAND_JSON,
             "--thinking",
             "high",
         ],
@@ -116,11 +121,6 @@ def test_main_resume_launches_go_tui_with_resolved_session(
         lambda: ["/tmp/fake-python", "-m", "just_another_coding_agent"],
     )
     monkeypatch.setattr(entry, "package_version", lambda: "0.1.5")
-    monkeypatch.setattr(
-        entry,
-        "explicit_update_command_json",
-        lambda repo_root=None: UPDATE_COMMAND_JSON,
-    )
     monkeypatch.setattr(
         entry,
         "resolve_session_reference",
@@ -169,8 +169,6 @@ def test_main_resume_launches_go_tui_with_resolved_session(
             str(workspace_root.resolve()),
             "--sessions-root",
             str(sessions_root.resolve()),
-            "--update-command-json",
-            UPDATE_COMMAND_JSON,
             "--session-id",
             "0123456789abcdef0123456789abcdef",
             "--session-name",
@@ -204,11 +202,6 @@ def test_main_resume_launches_go_tui_with_parent_fork_context(
         lambda: ["/tmp/fake-python", "-m", "just_another_coding_agent"],
     )
     monkeypatch.setattr(entry, "package_version", lambda: "0.1.5")
-    monkeypatch.setattr(
-        entry,
-        "explicit_update_command_json",
-        lambda repo_root=None: UPDATE_COMMAND_JSON,
-    )
 
     def fake_resolve_session_reference(**kwargs):
         if kwargs["session_ref"] == "auth-store-cleanup-followup":
@@ -267,8 +260,6 @@ def test_main_resume_launches_go_tui_with_parent_fork_context(
             str(workspace_root.resolve()),
             "--sessions-root",
             str(sessions_root.resolve()),
-            "--update-command-json",
-            UPDATE_COMMAND_JSON,
             "--session-id",
             "fedcba9876543210fedcba9876543210",
             "--session-name",
@@ -306,11 +297,6 @@ def test_main_fork_launches_go_tui_with_new_session_and_parent_context(
         lambda: ["/tmp/fake-python", "-m", "just_another_coding_agent"],
     )
     monkeypatch.setattr(entry, "package_version", lambda: "0.1.5")
-    monkeypatch.setattr(
-        entry,
-        "explicit_update_command_json",
-        lambda repo_root=None: UPDATE_COMMAND_JSON,
-    )
     monkeypatch.setattr(
         entry,
         "resolve_session_reference",
@@ -368,8 +354,6 @@ def test_main_fork_launches_go_tui_with_new_session_and_parent_context(
             str(workspace_root.resolve()),
             "--sessions-root",
             str(sessions_root.resolve()),
-            "--update-command-json",
-            UPDATE_COMMAND_JSON,
             "--session-id",
             "fedcba9876543210fedcba9876543210",
             "--session-name",
@@ -407,11 +391,6 @@ def test_main_resume_without_reference_prompts_for_recent_session_selection(
         lambda: ["/tmp/fake-python", "-m", "just_another_coding_agent"],
     )
     monkeypatch.setattr(entry, "package_version", lambda: "0.1.5")
-    monkeypatch.setattr(
-        entry,
-        "explicit_update_command_json",
-        lambda repo_root=None: UPDATE_COMMAND_JSON,
-    )
     monkeypatch.setattr(
         entry,
         "list_workspace_sessions",
@@ -490,11 +469,6 @@ def test_main_uses_saved_default_model_and_trace_mode(
         lambda: ["/tmp/fake-python", "-m", "just_another_coding_agent"],
     )
     monkeypatch.setattr(entry, "package_version", lambda: "0.1.5")
-    monkeypatch.setattr(
-        entry,
-        "explicit_update_command_json",
-        lambda repo_root=None: UPDATE_COMMAND_JSON,
-    )
 
     def fake_run(command, *, check, cwd=None):
         captured["command"] = command
@@ -529,8 +503,6 @@ def test_main_uses_saved_default_model_and_trace_mode(
             str(workspace_root.resolve()),
             "--sessions-root",
             str(sessions_root.resolve()),
-            "--update-command-json",
-            UPDATE_COMMAND_JSON,
         ],
         "trace_mode": "local",
     }
@@ -568,11 +540,6 @@ def test_main_restores_config_applied_environment_after_return(
         lambda: ["/tmp/fake-python", "-m", "just_another_coding_agent"],
     )
     monkeypatch.setattr(entry, "package_version", lambda: "0.1.5")
-    monkeypatch.setattr(
-        entry,
-        "explicit_update_command_json",
-        lambda repo_root=None: UPDATE_COMMAND_JSON,
-    )
 
     def fake_run(command, *, check, cwd=None):
         captured["command"] = command
@@ -672,11 +639,6 @@ def test_main_launches_repo_local_go_tui_when_installed_binary_is_missing(
         lambda: ["/tmp/fake-python", "-m", "just_another_coding_agent"],
     )
     monkeypatch.setattr(entry, "package_version", lambda: "0.1.5")
-    monkeypatch.setattr(
-        entry,
-        "explicit_update_command_json",
-        lambda repo_root=None: None,
-    )
 
     def fake_run(command, *, check, cwd=None):
         captured["command"] = command
@@ -720,3 +682,192 @@ def test_main_launches_repo_local_go_tui_when_installed_binary_is_missing(
         "check": False,
         "cwd": str(repo_root),
     }
+
+
+def test_run_tui_prompts_for_external_update_before_launch(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    go_binary = tmp_path / ("jaca-go.exe" if os.name == "nt" else "jaca-go")
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        entry,
+        "resolve_go_tui_launch",
+        lambda: ([str(go_binary)], None),
+    )
+    monkeypatch.setattr(entry, "package_version", lambda: "0.1.5")
+    monkeypatch.setattr(
+        entry,
+        "available_installed_update",
+        lambda **_: AvailableUpdate(
+            current_version="0.1.5",
+            latest_version="0.1.6",
+            command=("uv", "tool", "upgrade", "just-another-coding-agent"),
+        ),
+    )
+    monkeypatch.setattr(
+        entry,
+        "default_backend_command",
+        lambda: ["/tmp/fake-python", "-m", "just_another_coding_agent"],
+    )
+
+    def fake_run(command, *, check, cwd=None):
+        captured["command"] = command
+        captured["check"] = check
+        captured["cwd"] = cwd
+        return SimpleNamespace(returncode=19)
+
+    monkeypatch.setattr(
+        "just_another_coding_agent.__main__.subprocess.run",
+        fake_run,
+    )
+
+    input_stream = _TTYBuffer("\n")
+    output_stream = _TTYBuffer()
+
+    exit_code = entry._run_tui(
+        model="openai:test-model",
+        workspace_root=workspace_root.resolve(),
+        sessions_root=sessions_root.resolve(),
+        thinking=None,
+        input_stream=input_stream,
+        output_stream=output_stream,
+    )
+
+    assert exit_code == 19
+    assert "Update available: 0.1.5 -> 0.1.6" in output_stream.getvalue()
+    assert "uv tool upgrade just-another-coding-agent" in output_stream.getvalue()
+    assert captured["command"] == [
+        str(go_binary),
+        "--backend-command-json",
+        json.dumps(["/tmp/fake-python", "-m", "just_another_coding_agent"]),
+        "--app-version",
+        "0.1.5",
+        "--model",
+        "openai:test-model",
+        "--workspace-root",
+        str(workspace_root.resolve()),
+        "--sessions-root",
+        str(sessions_root.resolve()),
+    ]
+
+
+def test_run_tui_can_quit_before_launch_for_external_update(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    go_binary = tmp_path / ("jaca-go.exe" if os.name == "nt" else "jaca-go")
+
+    monkeypatch.setattr(
+        entry,
+        "resolve_go_tui_launch",
+        lambda: ([str(go_binary)], None),
+    )
+    monkeypatch.setattr(entry, "package_version", lambda: "0.1.5")
+    monkeypatch.setattr(
+        entry,
+        "available_installed_update",
+        lambda **_: AvailableUpdate(
+            current_version="0.1.5",
+            latest_version="0.1.6",
+            command=("uv", "tool", "upgrade", "just-another-coding-agent"),
+        ),
+    )
+
+    def fail_run(*args, **kwargs):
+        raise AssertionError("subprocess.run should not be called when user quits")
+
+    monkeypatch.setattr(
+        "just_another_coding_agent.__main__.subprocess.run",
+        fail_run,
+    )
+
+    input_stream = _TTYBuffer("q\n")
+    output_stream = _TTYBuffer()
+
+    exit_code = entry._run_tui(
+        model="openai:test-model",
+        workspace_root=workspace_root.resolve(),
+        sessions_root=sessions_root.resolve(),
+        thinking=None,
+        input_stream=input_stream,
+        output_stream=output_stream,
+    )
+
+    assert exit_code == 0
+    assert (
+        "Press Enter to continue, or type 'q' to quit and update now:"
+        in output_stream.getvalue()
+    )
+
+
+def test_run_tui_skips_update_check_for_non_tty_streams(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    go_binary = tmp_path / ("jaca-go.exe" if os.name == "nt" else "jaca-go")
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        entry,
+        "resolve_go_tui_launch",
+        lambda: ([str(go_binary)], None),
+    )
+    monkeypatch.setattr(entry, "package_version", lambda: "0.1.5")
+    monkeypatch.setattr(
+        entry,
+        "available_installed_update",
+        lambda **_: (_ for _ in ()).throw(
+            AssertionError("available_installed_update should not run for non-TTY")
+        ),
+    )
+    monkeypatch.setattr(
+        entry,
+        "default_backend_command",
+        lambda: ["/tmp/fake-python", "-m", "just_another_coding_agent"],
+    )
+
+    def fake_run(command, *, check, cwd=None):
+        captured["command"] = command
+        captured["check"] = check
+        captured["cwd"] = cwd
+        return SimpleNamespace(returncode=7)
+
+    monkeypatch.setattr(
+        "just_another_coding_agent.__main__.subprocess.run",
+        fake_run,
+    )
+
+    exit_code = entry._run_tui(
+        model="openai:test-model",
+        workspace_root=workspace_root.resolve(),
+        sessions_root=sessions_root.resolve(),
+        thinking=None,
+        input_stream=_NonTTYBuffer(),
+        output_stream=_NonTTYBuffer(),
+    )
+
+    assert exit_code == 7
+    assert captured["command"] == [
+        str(go_binary),
+        "--backend-command-json",
+        json.dumps(["/tmp/fake-python", "-m", "just_another_coding_agent"]),
+        "--app-version",
+        "0.1.5",
+        "--model",
+        "openai:test-model",
+        "--workspace-root",
+        str(workspace_root.resolve()),
+        "--sessions-root",
+        str(sessions_root.resolve()),
+    ]

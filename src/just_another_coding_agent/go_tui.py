@@ -6,12 +6,23 @@ import os
 import shutil
 import sys
 import sysconfig
+import urllib.request
 from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
 
 GO_TUI_BINARY = "jaca-go.exe" if os.name == "nt" else "jaca-go"
 GO_TUI_BUILD_ENV = "JACA_BUILD_TUI"
 PACKAGE_NAME = "just-another-coding-agent"
+UPDATE_CHECK_URL = "https://pypi.org/pypi/just-another-coding-agent/json"
+UPDATE_CHECK_TIMEOUT = 5.0
+
+
+@dataclass(frozen=True)
+class AvailableUpdate:
+    current_version: str
+    latest_version: str
+    command: tuple[str, ...]
 
 
 def default_backend_command(python_executable: str | None = None) -> list[str]:
@@ -49,11 +60,72 @@ def explicit_update_command(*, repo_root: Path | None = None) -> list[str] | Non
     return ["uv", "tool", "upgrade", PACKAGE_NAME]
 
 
-def explicit_update_command_json(*, repo_root: Path | None = None) -> str | None:
+def available_installed_update(
+    *,
+    current_version: str,
+    repo_root: Path | None = None,
+) -> AvailableUpdate | None:
     command = explicit_update_command(repo_root=repo_root)
-    if command is None:
+    if not current_version or command is None:
         return None
-    return json.dumps(command)
+
+    latest_version = fetch_latest_release_version()
+    if latest_version is None:
+        return None
+
+    newer, ok = is_newer_release_version(current_version, latest_version)
+    if not ok or not newer:
+        return None
+
+    return AvailableUpdate(
+        current_version=current_version,
+        latest_version=latest_version,
+        command=tuple(command),
+    )
+
+
+def fetch_latest_release_version() -> str | None:
+    request = urllib.request.Request(UPDATE_CHECK_URL, method="GET")
+    try:
+        with urllib.request.urlopen(request, timeout=UPDATE_CHECK_TIMEOUT) as response:
+            if response.status != 200:
+                return None
+            payload = json.loads(response.read().decode("utf-8"))
+    except Exception:
+        return None
+
+    version = payload.get("info", {}).get("version", "")
+    if not isinstance(version, str):
+        return None
+    return version.strip() or None
+
+
+def is_newer_release_version(current: str, latest: str) -> tuple[bool, bool]:
+    current_parts = parse_release_version(current)
+    if current_parts is None:
+        return False, False
+    latest_parts = parse_release_version(latest)
+    if latest_parts is None:
+        return False, False
+    if latest_parts > current_parts:
+        return True, True
+    return False, True
+
+
+def parse_release_version(raw: str) -> tuple[int, int, int] | None:
+    clean = raw.strip().removeprefix("v")
+    if not clean or "-" in clean or "+" in clean:
+        return None
+    chunks = clean.split(".")
+    if len(chunks) != 3:
+        return None
+    try:
+        major, minor, patch = (int(chunk) for chunk in chunks)
+    except ValueError:
+        return None
+    if major < 0 or minor < 0 or patch < 0:
+        return None
+    return major, minor, patch
 
 
 def _package_installer() -> str:

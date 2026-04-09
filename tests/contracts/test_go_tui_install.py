@@ -1,14 +1,8 @@
 from __future__ import annotations
 
-import json
-
 import pytest
 
 import just_another_coding_agent.go_tui as go_tui
-
-UPDATE_COMMAND_JSON = json.dumps(
-    ["uv", "tool", "upgrade", "just-another-coding-agent"]
-)
 
 
 def test_go_tui_build_is_opt_in() -> None:
@@ -38,7 +32,6 @@ def test_explicit_update_command_detects_uv_tool_install(monkeypatch, tmp_path) 
         "upgrade",
         "just-another-coding-agent",
     ]
-    assert go_tui.explicit_update_command_json() == UPDATE_COMMAND_JSON
 
 
 def test_explicit_update_command_is_disabled_in_repo_checkout(
@@ -61,6 +54,45 @@ def test_explicit_update_command_is_disabled_outside_uv_tool_layout(
     monkeypatch.setattr(go_tui, "_package_installer", lambda: "uv")
 
     assert go_tui.explicit_update_command() is None
+
+
+def test_available_installed_update_returns_notice_for_newer_release(
+    monkeypatch, tmp_path
+) -> None:
+    scripts_dir = tmp_path / ".local" / "share" / "uv" / "tools" / "pkg" / "bin"
+    scripts_dir.mkdir(parents=True)
+    monkeypatch.setattr(go_tui.sysconfig, "get_path", lambda key: str(scripts_dir))
+    monkeypatch.setattr(go_tui, "_package_installer", lambda: "uv")
+    monkeypatch.setattr(go_tui, "fetch_latest_release_version", lambda: "0.1.6")
+
+    assert go_tui.available_installed_update(
+        current_version="0.1.5"
+    ) == go_tui.AvailableUpdate(
+        current_version="0.1.5",
+        latest_version="0.1.6",
+        command=("uv", "tool", "upgrade", "just-another-coding-agent"),
+    )
+
+
+def test_available_installed_update_is_disabled_in_repo_checkout(
+    monkeypatch, tmp_path
+) -> None:
+    scripts_dir = tmp_path / ".local" / "share" / "uv" / "tools" / "pkg" / "bin"
+    scripts_dir.mkdir(parents=True)
+    monkeypatch.setattr(go_tui.sysconfig, "get_path", lambda key: str(scripts_dir))
+    monkeypatch.setattr(go_tui, "_package_installer", lambda: "uv")
+    monkeypatch.setattr(go_tui, "fetch_latest_release_version", lambda: "0.1.6")
+
+    assert go_tui.available_installed_update(
+        current_version="0.1.5",
+        repo_root=tmp_path / "repo",
+    ) is None
+
+
+def test_is_newer_release_version_handles_equal_and_invalid_versions() -> None:
+    assert go_tui.is_newer_release_version("0.1.0", "0.1.1") == (True, True)
+    assert go_tui.is_newer_release_version("0.1.1", "0.1.1") == (False, True)
+    assert go_tui.is_newer_release_version("dev", "0.1.1") == (False, False)
 
 
 def test_resolve_go_tui_binary_reports_explicit_recovery_step(

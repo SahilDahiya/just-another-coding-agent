@@ -82,7 +82,6 @@ type viewModel struct {
 	DetachedLive        bool
 	VisibleZones        int
 	SlashMenu           slashMenuState
-	UpdatePrompt        updatePromptState
 	Onboarding          onboardingOverlayView
 	Auth                authOverlayView
 	Login               loginOverlayView
@@ -422,9 +421,6 @@ func renderPrompt(vm viewModel) string {
 	if topRail != "" {
 		promptParts = append(promptParts, topRail)
 	}
-	if vm.UpdatePrompt.Active {
-		promptParts = append(promptParts, renderUpdatePrompt(vm.UpdatePrompt))
-	}
 	if queuePreview := renderQueuedInputPreview(vm, ruleWidth); queuePreview != "" {
 		promptParts = append(promptParts, queuePreview)
 	}
@@ -530,32 +526,6 @@ func renderTopRail(vm viewModel) string {
 	return lipgloss.NewStyle().
 		Foreground(defaultTheme.accentSoft).
 		Render(indicator)
-}
-
-func renderUpdatePrompt(state updatePromptState) string {
-	header := lipgloss.NewStyle().
-		Foreground(defaultTheme.textSoft).
-		Bold(true).
-		Render(fmt.Sprintf("update available  %s -> %s", state.CurrentVersion, state.LatestVersion))
-	command := lipgloss.NewStyle().
-		Foreground(defaultTheme.textMuted).
-		Render("runs: " + state.commandText())
-
-	lines := []string{header, command}
-	if state.Running {
-		lines = append(lines, lipgloss.NewStyle().Foreground(defaultTheme.accentSoft).Render("updating..."))
-	} else {
-		for index, option := range state.options() {
-			prefix := " "
-			style := lipgloss.NewStyle().Foreground(defaultTheme.textMuted)
-			if index == state.Selected {
-				prefix = ">"
-				style = lipgloss.NewStyle().Foreground(defaultTheme.accentSoft)
-			}
-			lines = append(lines, lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render(prefix)+" "+style.Render(option))
-		}
-	}
-	return lipgloss.JoinVertical(lipgloss.Left, lines...)
 }
 
 func renderPromptRule(width int, rowBorder lipgloss.TerminalColor) string {
