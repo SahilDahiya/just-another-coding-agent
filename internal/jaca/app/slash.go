@@ -42,7 +42,7 @@ type slashCommandSpec struct {
 }
 
 var slashCommands = []slashCommandSpec{
-	{Value: "/login", Description: "Set up ChatGPT or GitHub Copilot", AcceptsArgs: true, ArgSuggestions: (*model).loginSlashSuggestions, Execute: (*model).executeLoginSlash},
+	{Value: "/login", Description: "Set up ChatGPT subscription login", AcceptsArgs: true, ArgSuggestions: (*model).loginSlashSuggestions, Execute: (*model).executeLoginSlash},
 	{Value: "/auth", Description: "Advanced: show auth.json entry for API-key auth", AcceptsArgs: true, ArgSuggestions: (*model).authSlashSuggestions, Execute: (*model).executeAuthSlash},
 	{Value: "/model", Description: "Switch active model", AcceptsArgs: true, ArgSuggestions: (*model).modelSlashSuggestions, Execute: (*model).executeModelSlash},
 	{Value: "/trace", Description: "Set tracing mode", AcceptsArgs: true, ArgSuggestions: (*model).traceSlashSuggestions, Execute: (*model).executeTraceSlash},
@@ -466,12 +466,6 @@ func modelAccessLabel(
 ) string {
 	if isOpenAICodexOAuthModel(modelID) {
 		if oauthLoggedIn(authStatus, "openai-codex") {
-			return "oauth"
-		}
-		return "oauth login required"
-	}
-	if isGitHubCopilotOAuthModel(modelID) {
-		if oauthLoggedIn(authStatus, "github-copilot") {
 			return "oauth"
 		}
 		return "oauth login required"

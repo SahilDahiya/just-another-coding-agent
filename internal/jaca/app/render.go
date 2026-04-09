@@ -268,10 +268,6 @@ func renderLoginOverlay(vm viewModel) string {
 	}
 	titleText := "ChatGPT Login"
 	subtitleText := "Browser callback auto-completes. Paste only if it does not return."
-	if vm.Login.Provider == "github-copilot" {
-		titleText = "GitHub Copilot Login"
-		subtitleText = "Device-code approval completes in the browser."
-	}
 	title := lipgloss.NewStyle().
 		Foreground(defaultTheme.accentSoft).
 		Bold(true).

@@ -40,16 +40,6 @@ type waitOpenAICodexLoginMsg struct {
 	Err      error
 }
 
-type startGitHubCopilotLoginMsg struct {
-	Response rpc.AuthLoginGitHubCopilotStartResponse
-	Err      error
-}
-
-type waitGitHubCopilotLoginMsg struct {
-	Response rpc.AuthLoginGitHubCopilotWaitResponse
-	Err      error
-}
-
 func (m *model) startOpenAICodexLoginFlow(pendingModel string, pendingPrompt string) (tea.Model, tea.Cmd) {
 	if m.options.Backend == nil {
 		m.transcript.WriteError("backend unavailable")
@@ -70,29 +60,6 @@ func (m *model) startOpenAICodexLoginFlow(pendingModel string, pendingPrompt str
 	return m, startOpenAICodexLogin(m.options.Backend)
 }
 
-func (m *model) startGitHubCopilotLoginFlow(
-	pendingModel string,
-	pendingPrompt string,
-) (tea.Model, tea.Cmd) {
-	if m.options.Backend == nil {
-		m.transcript.WriteError("backend unavailable")
-		m.refreshViewport()
-		return m, nil
-	}
-	m.login = loginState{
-		Provider:      "github-copilot",
-		PendingModel:  pendingModel,
-		PendingPrompt: pendingPrompt,
-	}
-	m.textInput.EchoMode = textinput.EchoNormal
-	m.textInput.SetValue("")
-	m.textInput.CursorEnd()
-	m.clearSlashMenu()
-	m.promptFooterNotice = ""
-	m.refreshViewport()
-	return m, startGitHubCopilotLogin(m.options.Backend, "")
-}
-
 func (m *model) endLoginFlow() {
 	m.login = loginState{}
 	m.textInput.EchoMode = textinput.EchoNormal
@@ -111,14 +78,6 @@ func (m *model) handleLoginEnter() (tea.Model, tea.Cmd) {
 		m.refreshViewport()
 		return m, nil
 	}
-	if m.login.Provider != "openai-codex" {
-		m.transcript.WriteNote("login", []string{
-			"GitHub Copilot device-code login completes in the browser.",
-			"Wait for approval or restart with /login github-copilot.",
-		})
-		m.refreshViewport()
-		return m, nil
-	}
 	m.textInput.SetValue("")
 	m.refreshViewport()
 	return m, completeOpenAICodexLogin(m.options.Backend, m.login.FlowID, value)
@@ -131,16 +90,12 @@ func (m *model) handleLoginCommand(arg string) (tea.Model, tea.Cmd) {
 		m.transcript.WriteNote("login", []string{
 			"Choose a login lane:",
 			"  /login openai-codex       ChatGPT subscription",
-			"  /login github-copilot     GitHub Copilot subscription",
 		})
 		m.refreshViewport()
 		return m, nil
 	}
 	if lowered == "openai-codex" {
 		return m.startOpenAICodexLoginFlow("", "")
-	}
-	if lowered == "github-copilot" {
-		return m.startGitHubCopilotLoginFlow("", "")
 	}
 	if strings.HasPrefix(lowered, "openai-codex ") {
 		callbackOrCode := strings.TrimSpace(value[len("openai-codex "):])
@@ -165,7 +120,7 @@ func (m *model) handleLoginCommand(arg string) (tea.Model, tea.Cmd) {
 	}
 	m.transcript.WriteNote("login", nil)
 	m.transcript.WriteError(
-		"usage: /login openai-codex [redirect-url-or-code] | /login github-copilot",
+		"usage: /login openai-codex [redirect-url-or-code]",
 	)
 	m.refreshViewport()
 	return m, nil
@@ -174,7 +129,6 @@ func (m *model) handleLoginCommand(arg string) (tea.Model, tea.Cmd) {
 func openAICodexLoginSuggestions() []slashSuggestion {
 	return []slashSuggestion{
 		{Value: "openai-codex", Description: "ChatGPT subscription"},
-		{Value: "github-copilot", Description: "GitHub Copilot subscription"},
 	}
 }
 
@@ -202,24 +156,6 @@ func waitOpenAICodexLogin(backend Backend, flowID string) tea.Cmd {
 		defer cancel()
 		response, err := backend.WaitOpenAICodexLogin(ctx, flowID)
 		return waitOpenAICodexLoginMsg{Response: response, Err: err}
-	}
-}
-
-func startGitHubCopilotLogin(backend Backend, enterpriseDomain string) tea.Cmd {
-	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), authStatusTimeout)
-		defer cancel()
-		response, err := backend.StartGitHubCopilotLogin(ctx, enterpriseDomain)
-		return startGitHubCopilotLoginMsg{Response: response, Err: err}
-	}
-}
-
-func waitGitHubCopilotLogin(backend Backend, flowID string) tea.Cmd {
-	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), authLoginWaitTimeout)
-		defer cancel()
-		response, err := backend.WaitGitHubCopilotLogin(ctx, flowID)
-		return waitGitHubCopilotLoginMsg{Response: response, Err: err}
 	}
 }
 

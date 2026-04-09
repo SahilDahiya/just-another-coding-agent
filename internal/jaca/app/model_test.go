@@ -29,7 +29,6 @@ type stubBackend struct {
 	oauthWaitDone      bool
 	oauthWaitDoneFn    func() bool
 	waitOpenAICodexFn  func(context.Context, string) (rpc.AuthLoginOpenAICodexWaitResponse, error)
-	waitGitHubFn       func(context.Context, string) (rpc.AuthLoginGitHubCopilotWaitResponse, error)
 	localSecretStore   rpc.LocalSecretStoreStatus
 	authStatusErr      error
 	authStatusCalls    int
@@ -55,10 +54,6 @@ func newStubBackend() *stubBackend {
 		oauthStatuses: map[string]rpc.OAuthProviderStatus{
 			"openai-codex": {
 				Provider: "openai-codex",
-				LoggedIn: false,
-			},
-			"github-copilot": {
-				Provider: "github-copilot",
 				LoggedIn: false,
 			},
 		},
@@ -142,7 +137,6 @@ func (b *stubBackend) AuthStatus(_ context.Context) (rpc.AuthStatusResponse, err
 		LocalSecretStore: b.localSecretStore,
 		OAuthProviders: []rpc.OAuthProviderStatus{
 			b.oauthStatuses["openai-codex"],
-			b.oauthStatuses["github-copilot"],
 		},
 	}, nil
 }
@@ -205,48 +199,6 @@ func (b *stubBackend) WaitOpenAICodexLogin(
 		select {
 		case <-ctx.Done():
 			return rpc.AuthLoginOpenAICodexWaitResponse{}, ctx.Err()
-		case <-time.After(10 * time.Millisecond):
-		}
-	}
-}
-
-func (b *stubBackend) StartGitHubCopilotLogin(_ context.Context, _ string) (rpc.AuthLoginGitHubCopilotStartResponse, error) {
-	return rpc.AuthLoginGitHubCopilotStartResponse{
-		FlowID:       "gh-flow-1",
-		AuthURL:      "https://github.com/login/device",
-		Instructions: "Enter code: ABCD-EFGH",
-		UserCode:     "ABCD-EFGH",
-	}, nil
-}
-
-func (b *stubBackend) WaitGitHubCopilotLogin(
-	ctx context.Context,
-	flowID string,
-) (rpc.AuthLoginGitHubCopilotWaitResponse, error) {
-	if b.waitGitHubFn != nil {
-		return b.waitGitHubFn(ctx, flowID)
-	}
-	if flowID == "" {
-		return rpc.AuthLoginGitHubCopilotWaitResponse{}, fmt.Errorf("missing flow id")
-	}
-	for {
-		done := b.oauthWaitDone
-		if b.oauthWaitDoneFn != nil {
-			done = b.oauthWaitDoneFn()
-		}
-		if done {
-			expiresAt := time.Now().Add(time.Hour).UnixMilli()
-			status := rpc.OAuthProviderStatus{
-				Provider:  "github-copilot",
-				LoggedIn:  true,
-				ExpiresAt: &expiresAt,
-			}
-			b.oauthStatuses["github-copilot"] = status
-			return rpc.AuthLoginGitHubCopilotWaitResponse{Status: status}, nil
-		}
-		select {
-		case <-ctx.Done():
-			return rpc.AuthLoginGitHubCopilotWaitResponse{}, ctx.Err()
 		case <-time.After(10 * time.Millisecond):
 		}
 	}
@@ -654,24 +606,6 @@ func testModelCatalog() *rpc.ModelCatalogResponse {
 					{ModelID: "openai-responses:gpt-5.3-codex-chatgpt", Description: "Experimental ChatGPT subscription GPT-5.3 Codex path"},
 					{ModelID: "openai-responses:gpt-5.4-chatgpt", Description: "Experimental ChatGPT subscription GPT-5.4 path"},
 					{ModelID: "openai-responses:gpt-5.4-mini-chatgpt", Description: "Experimental ChatGPT subscription GPT-5.4 mini path"},
-					{ModelID: "openai-responses:gpt-5-copilot", Description: "Experimental GitHub Copilot GPT-5 path"},
-					{ModelID: "openai-responses:gpt-5-mini-copilot", Description: "Experimental GitHub Copilot GPT-5 mini path"},
-					{ModelID: "openai-responses:gpt-5.1-copilot", Description: "Experimental GitHub Copilot GPT-5.1 path"},
-					{ModelID: "openai-responses:gpt-5.1-codex-copilot", Description: "Experimental GitHub Copilot GPT-5.1 Codex path"},
-					{ModelID: "openai-responses:gpt-5.1-codex-mini-copilot", Description: "Experimental GitHub Copilot GPT-5.1 Codex Mini path"},
-					{ModelID: "openai-responses:gpt-5.1-codex-max-copilot", Description: "Experimental GitHub Copilot GPT-5.1 Codex Max path"},
-					{ModelID: "openai-responses:gpt-5.2-copilot", Description: "Experimental GitHub Copilot GPT-5.2 path"},
-					{ModelID: "openai-responses:gpt-5.2-codex-copilot", Description: "Experimental GitHub Copilot GPT-5.2 Codex path"},
-					{ModelID: "openai-responses:gpt-5.3-codex-copilot", Description: "Experimental GitHub Copilot GPT-5.3 Codex path"},
-					{ModelID: "openai-responses:gpt-5.4-copilot", Description: "Experimental GitHub Copilot GPT-5.4 path"},
-					{ModelID: "openai-responses:gpt-5.4-mini-copilot", Description: "Experimental GitHub Copilot GPT-5.4 mini path"},
-					{ModelID: "openai-chat:gpt-4.1-copilot", Description: "Experimental GitHub Copilot GPT-4.1 path"},
-					{ModelID: "openai-chat:gpt-4o-copilot", Description: "Experimental GitHub Copilot GPT-4o path"},
-					{ModelID: "openai-chat:gemini-2.5-pro-copilot", Description: "Experimental GitHub Copilot Gemini 2.5 Pro path"},
-					{ModelID: "openai-chat:gemini-3-flash-preview-copilot", Description: "Experimental GitHub Copilot Gemini 3 Flash path"},
-					{ModelID: "openai-chat:gemini-3-pro-preview-copilot", Description: "Experimental GitHub Copilot Gemini 3 Pro path"},
-					{ModelID: "openai-chat:gemini-3.1-pro-preview-copilot", Description: "Experimental GitHub Copilot Gemini 3.1 Pro path"},
-					{ModelID: "openai-chat:grok-code-fast-1-copilot", Description: "Experimental GitHub Copilot Grok Code Fast 1 path"},
 				},
 			},
 			{
@@ -680,12 +614,6 @@ func testModelCatalog() *rpc.ModelCatalogResponse {
 				Models: []rpc.ModelCatalogModel{
 					{ModelID: "anthropic:claude-sonnet-4-5", Description: "Balanced Claude Sonnet"},
 					{ModelID: "anthropic:claude-opus-4-1", Description: "Stronger Claude Opus"},
-					{ModelID: "anthropic:claude-haiku-4.5-copilot", Description: "Experimental GitHub Copilot Claude Haiku 4.5 path"},
-					{ModelID: "anthropic:claude-opus-4.5-copilot", Description: "Experimental GitHub Copilot Claude Opus 4.5 path"},
-					{ModelID: "anthropic:claude-opus-4.6-copilot", Description: "Experimental GitHub Copilot Claude Opus 4.6 path"},
-					{ModelID: "anthropic:claude-sonnet-4-copilot", Description: "Experimental GitHub Copilot Claude Sonnet 4 path"},
-					{ModelID: "anthropic:claude-sonnet-4.5-copilot", Description: "Experimental GitHub Copilot Claude Sonnet 4.5 path"},
-					{ModelID: "anthropic:claude-sonnet-4.6-copilot", Description: "Experimental GitHub Copilot Claude Sonnet 4.6 path"},
 				},
 			},
 		},
@@ -1276,7 +1204,7 @@ func TestTabOnLoginSuggestionCommitsCommandAndShowsLoginOptions(t *testing.T) {
 	}
 
 	rendered := stripANSI(m.View())
-	for _, want := range []string{"openai-codex", "github-copilot"} {
+	for _, want := range []string{"openai-codex"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("view missing login suggestion %q in %q", want, rendered)
 		}
@@ -1425,9 +1353,8 @@ func TestStartupAuthStatusShowsFirstRunOnboarding(t *testing.T) {
 	for _, want := range []string{
 		"Connect JACA",
 		"1. ChatGPT subscription",
-		"2. GitHub Copilot subscription",
-		"3. OpenAI API key",
-		"4. Anthropic API key",
+		"2. OpenAI API key",
+		"3. Anthropic API key",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("startup onboarding missing %q in %q", want, rendered)
@@ -1461,7 +1388,7 @@ func TestNewWithFreshHomeStartsChooserImmediately(t *testing.T) {
 		t.Fatalf("onboarding state = %#v, want active provider chooser", m.onboarding)
 	}
 	rendered := stripANSI(m.View())
-	for _, want := range []string{"Connect JACA", "1. ChatGPT subscription", "4. Anthropic API key"} {
+	for _, want := range []string{"Connect JACA", "1. ChatGPT subscription", "3. Anthropic API key"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("initial chooser missing %q in %q", want, rendered)
 		}
@@ -1482,9 +1409,8 @@ func TestFirstRunChooserDoesNotDependOnAuthStatus(t *testing.T) {
 	for _, want := range []string{
 		"Connect JACA",
 		"1. ChatGPT subscription",
-		"2. GitHub Copilot subscription",
-		"3. OpenAI API key",
-		"4. Anthropic API key",
+		"2. OpenAI API key",
+		"3. Anthropic API key",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("first-run chooser missing %q in %q", want, rendered)
@@ -1534,48 +1460,6 @@ func TestMaybeStartOnboardingStartsOpenAICodexLoginCommandForOAuthModel(t *testi
 	}
 }
 
-func TestMaybeStartOnboardingStartsGitHubCopilotLoginCommandForOAuthModel(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	if err := os.MkdirAll(filepath.Join(home, ".jaca"), 0o755); err != nil {
-		t.Fatalf("MkdirAll() returned error: %v", err)
-	}
-	if err := os.WriteFile(
-		filepath.Join(home, ".jaca", "config.json"),
-		[]byte(`{"default_provider":"openai","default_model":"openai-responses:gpt-5.4-copilot"}`),
-		0o644,
-	); err != nil {
-		t.Fatalf("WriteFile() returned error: %v", err)
-	}
-
-	backend := newStubBackend()
-	status, err := backend.AuthStatus(context.Background())
-	if err != nil {
-		t.Fatalf("AuthStatus() returned error: %v", err)
-	}
-
-	m := newTestModel()
-	m.options.Backend = backend
-	m.authStatus = &status
-
-	cmd := m.maybeStartOnboarding()
-	if cmd == nil {
-		t.Fatal("maybeStartOnboarding() should return login start command")
-	}
-	if m.login.Active {
-		t.Fatal("Copilot onboarding login should stay on transcript path before RPC response")
-	}
-
-	updated, next := m.Update(cmd())
-	m = updated.(*model)
-	if next == nil {
-		t.Fatal("expected follow-up polling command after starting Copilot login")
-	}
-	if got := m.login.Provider; got != "github-copilot" {
-		t.Fatalf("login.Provider = %q, want github-copilot", got)
-	}
-}
-
 func TestFirstRunEscapeThenTabOpensProviderSuggestions(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -1599,7 +1483,7 @@ func TestFirstRunEscapeThenTabOpensProviderSuggestions(t *testing.T) {
 		t.Fatalf("textInput.Value() = %q, want %q", got, "/login ")
 	}
 	rendered := stripANSI(m.View())
-	for _, want := range []string{"openai-codex", "github-copilot"} {
+	for _, want := range []string{"openai-codex"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("login suggestion %q missing in %q", want, rendered)
 		}
@@ -1622,7 +1506,7 @@ func TestFirstRunChoosingOpenAIShowsAuthFileNote(t *testing.T) {
 
 	updated, _ := m.Update(authStatusLoadedMsg{Status: status})
 	m = updated.(*model)
-	m = sendKey(m, tea.KeyMsg{Runes: []rune("3"), Type: tea.KeyRunes})
+	m = sendKey(m, tea.KeyMsg{Runes: []rune("2"), Type: tea.KeyRunes})
 	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
 
 	if m.onboarding.Active {
@@ -1664,7 +1548,7 @@ func TestFirstRunChoosingConfiguredAnthropicSkipsAuth(t *testing.T) {
 
 	updated, _ := m.Update(authStatusLoadedMsg{Status: status})
 	m = updated.(*model)
-	m = sendKey(m, tea.KeyMsg{Runes: []rune("4"), Type: tea.KeyRunes})
+	m = sendKey(m, tea.KeyMsg{Runes: []rune("3"), Type: tea.KeyRunes})
 	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
 
 	if m.auth.Active {
@@ -1886,73 +1770,6 @@ func TestOAuthModelSelectionStartsLoginInsteadOfOpenAISecretFlow(t *testing.T) {
 	}
 	if !m.login.Waiting {
 		t.Fatal("expected background login wait state")
-	}
-}
-
-func TestLoginSlashStartsBackgroundGitHubCopilotLogin(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-
-	m := newTestModel()
-	m.options.Backend = newStubBackend()
-
-	m = sendRunes(m, "/login github-copilot")
-	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	m = updated.(*model)
-	if cmd == nil {
-		t.Fatal("expected login start command")
-	}
-	if m.login.Active {
-		t.Fatal("expected no transitional login overlay before RPC response")
-	}
-	updated, _ = m.Update(cmd())
-	m = updated.(*model)
-
-	if m.login.Active {
-		t.Fatal("expected login overlay to stay closed for device-code flow")
-	}
-	if got := m.login.Provider; got != "github-copilot" {
-		t.Fatalf("login.Provider = %q, want github-copilot", got)
-	}
-	if got := m.login.FlowID; got != "gh-flow-1" {
-		t.Fatalf("login.FlowID = %q, want gh-flow-1", got)
-	}
-	if !m.login.Waiting {
-		t.Fatal("expected background login wait state")
-	}
-	rendered := stripANSI(m.View())
-	if !strings.Contains(rendered, "Open login link (github.com)") {
-		t.Fatalf("view missing shortened device login link note: %q", rendered)
-	}
-	if !strings.Contains(rendered, "ABCD-EFGH") {
-		t.Fatalf("view missing device code note: %q", rendered)
-	}
-}
-
-func TestHandleLoginEnterUsesProviderSpecificCompletion(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-
-	m := newTestModel()
-	m.options.Backend = newStubBackend()
-	m.login = loginState{
-		Active:   true,
-		Provider: "github-copilot",
-		FlowID:   "gh-flow-1",
-	}
-	m.textInput.SetValue("manual-code")
-
-	updated, cmd := m.handleLoginEnter()
-	m = updated.(*model)
-	if cmd != nil {
-		t.Fatalf("handleLoginEnter() returned unexpected command for Copilot: %#v", cmd)
-	}
-	rendered := stripANSI(m.transcript.Render())
-	if !strings.Contains(rendered, "GitHub Copilot device-code login completes in the browser") {
-		t.Fatalf("transcript missing Copilot completion guidance: %q", rendered)
-	}
-	if m.textInput.Value() != "manual-code" {
-		t.Fatalf("textInput.Value() = %q, want unchanged for Copilot", m.textInput.Value())
 	}
 }
 
@@ -2188,37 +2005,6 @@ func TestNonLoginSlashBlockedWhileOAuthLoginPendingForModel(t *testing.T) {
 	}
 	if got := m.currentPromptFooter(); got != "login in progress; only /login is available until completion or Esc" {
 		t.Fatalf("currentPromptFooter() = %q", got)
-	}
-}
-
-func TestCopilotOAuthModelSelectionStartsLoginInsteadOfOpenAISecretFlow(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("OPENAI_API_KEY", "")
-
-	m := newTestModel()
-	m.options.Backend = newStubBackend()
-
-	m = sendRunes(m, "/model openai-responses:gpt-5-mini-copilot")
-	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	m = updated.(*model)
-	if cmd == nil {
-		t.Fatal("expected login start command")
-	}
-	updated, _ = m.Update(cmd())
-	m = updated.(*model)
-
-	if m.auth.Active {
-		t.Fatal("copilot oauth-backed model selection should not start provider secret auth")
-	}
-	if got := m.login.PendingModel; got != "openai-responses:gpt-5-mini-copilot" {
-		t.Fatalf("login.PendingModel = %q", got)
-	}
-	if got := m.login.Provider; got != "github-copilot" {
-		t.Fatalf("login.Provider = %q", got)
-	}
-	if !m.login.Waiting {
-		t.Fatal("expected background login wait state")
 	}
 }
 

@@ -15,7 +15,7 @@ This is a feasibility spike, not a product rollout.
 ## Non-Goals
 
 - No generic multi-provider OAuth framework in the first slice.
-- No Anthropic or GitHub Copilot support in the first slice.
+- No Anthropic support in the first slice.
 - No migration of existing local secret storage.
 - No broad auth/settings UI redesign.
 - No promise that the final product surface will keep the same command names.

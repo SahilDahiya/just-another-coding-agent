@@ -206,7 +206,7 @@ func (t *Transcript) WriteStartupBanner(appVersion string, model string, workspa
 func (t *Transcript) WriteHelp() {
 	t.WriteNote("commands", []string{
 		"  /help              show this help",
-		"  /login <service>   set up ChatGPT or GitHub Copilot",
+		"  /login <service>   set up ChatGPT subscription login",
 		"  /model <name>      switch model",
 		"  /trace <mode>      set tracing mode",
 		"  /thinking <level>  set thinking level",
@@ -226,9 +226,7 @@ func (t *Transcript) WriteHelp() {
 		"",
 		"connect",
 		"  /login openai-codex                  connect ChatGPT subscription",
-		"  /login github-copilot                connect GitHub Copilot subscription",
 		"  /model openai-responses:<model>-chatgpt use ChatGPT subscription models",
-		"  /model openai-responses:<model>-copilot use GitHub Copilot models",
 		"",
 		"advanced",
 		"  /auth openai                         show OpenAI auth.json entry",

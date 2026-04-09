@@ -13,7 +13,6 @@ from pydantic import TypeAdapter, ValidationError
 
 from just_another_coding_agent.auth import (
     AuthStoreError,
-    GitHubCopilotLoginFlow,
     OpenAICodexLoginFlow,
     ProviderSecretValidationError,
     clear_provider_secret,
@@ -22,9 +21,7 @@ from just_another_coding_agent.auth import (
     get_oauth_provider_statuses,
     list_provider_auth_statuses,
     set_provider_secret,
-    start_github_copilot_oauth_login,
     start_openai_codex_oauth_login,
-    wait_for_github_copilot_oauth_login,
     wait_for_openai_codex_oauth_login,
 )
 from just_another_coding_agent.contracts.model_catalog import (
@@ -35,10 +32,6 @@ from just_another_coding_agent.contracts.model_catalog import (
 from just_another_coding_agent.contracts.rpc import (
     AuthClearRequest,
     AuthClearResponse,
-    AuthLoginGitHubCopilotStartRequest,
-    AuthLoginGitHubCopilotStartResponse,
-    AuthLoginGitHubCopilotWaitRequest,
-    AuthLoginGitHubCopilotWaitResponse,
     AuthLoginOpenAICodexCompleteRequest,
     AuthLoginOpenAICodexCompleteResponse,
     AuthLoginOpenAICodexStartRequest,
@@ -107,10 +100,6 @@ _OPENAI_CODEX_LOGIN_FLOWS: dict[str, OpenAICodexLoginFlow] = {}
 _OPENAI_CODEX_LOGIN_TASKS: dict[str, asyncio.Task] = {}
 _OPENAI_CODEX_LOGIN_RESULTS: dict[str, asyncio.Future] = {}
 _OPENAI_CODEX_LOGIN_STARTED_AT: dict[str, float] = {}
-_GITHUB_COPILOT_LOGIN_FLOWS: dict[str, GitHubCopilotLoginFlow] = {}
-_GITHUB_COPILOT_LOGIN_TASKS: dict[str, asyncio.Task] = {}
-_GITHUB_COPILOT_LOGIN_RESULTS: dict[str, asyncio.Future] = {}
-_GITHUB_COPILOT_LOGIN_STARTED_AT: dict[str, float] = {}
 
 
 @dataclass
@@ -670,88 +659,6 @@ async def handle_rpc_json_line(
         ).model_dump_json()
         return
 
-    if isinstance(request, AuthLoginGitHubCopilotStartRequest):
-        try:
-            flow, flow_id, auth_url, instructions = (
-                start_github_copilot_oauth_login(
-                    enterprise_domain=request.payload.enterprise_domain,
-                )
-            )
-        except AuthStoreError as error:
-            yield RpcErrorEnvelope(
-                id=request.id,
-                error_type="InternalError",
-                message=str(error),
-            ).model_dump_json()
-            return
-        _reset_login_flow_group(
-            flows=_GITHUB_COPILOT_LOGIN_FLOWS,
-            tasks=_GITHUB_COPILOT_LOGIN_TASKS,
-            results=_GITHUB_COPILOT_LOGIN_RESULTS,
-            started_at=_GITHUB_COPILOT_LOGIN_STARTED_AT,
-        )
-        result = asyncio.get_running_loop().create_future()
-        _GITHUB_COPILOT_LOGIN_FLOWS[flow_id] = flow
-        _GITHUB_COPILOT_LOGIN_TASKS[flow_id] = asyncio.create_task(
-            _drive_login_result(
-                result=result,
-                wait_for_status=wait_for_github_copilot_oauth_login(flow),
-            )
-        )
-        _GITHUB_COPILOT_LOGIN_RESULTS[flow_id] = result
-        _GITHUB_COPILOT_LOGIN_STARTED_AT[flow_id] = time.monotonic()
-        yield RpcResponseEnvelope(
-            id=request.id,
-            response=AuthLoginGitHubCopilotStartResponse(
-                flow_id=flow_id,
-                auth_url=auth_url,
-                instructions=instructions,
-                user_code=flow.user_code,
-            ),
-        ).model_dump_json()
-        return
-
-    if isinstance(request, AuthLoginGitHubCopilotWaitRequest):
-        result = _GITHUB_COPILOT_LOGIN_RESULTS.get(request.payload.flow_id)
-        if result is None:
-            status = _find_oauth_provider_status("github-copilot")
-            if status is not None and status.logged_in:
-                yield RpcResponseEnvelope(
-                    id=request.id,
-                    response=AuthLoginGitHubCopilotWaitResponse(
-                        status=status,
-                    ),
-                ).model_dump_json()
-                return
-            yield RpcErrorEnvelope(
-                id=request.id,
-                error_type="InvalidRequest",
-                message="unknown GitHub Copilot login flow",
-            ).model_dump_json()
-            return
-        try:
-            status = await result
-        except Exception as error:
-            _GITHUB_COPILOT_LOGIN_TASKS.pop(request.payload.flow_id, None)
-            _GITHUB_COPILOT_LOGIN_FLOWS.pop(request.payload.flow_id, None)
-            _GITHUB_COPILOT_LOGIN_RESULTS.pop(request.payload.flow_id, None)
-            _GITHUB_COPILOT_LOGIN_STARTED_AT.pop(request.payload.flow_id, None)
-            yield RpcErrorEnvelope(
-                id=request.id,
-                error_type="InternalError",
-                message=str(error),
-            ).model_dump_json()
-            return
-        _GITHUB_COPILOT_LOGIN_TASKS.pop(request.payload.flow_id, None)
-        _GITHUB_COPILOT_LOGIN_FLOWS.pop(request.payload.flow_id, None)
-        _GITHUB_COPILOT_LOGIN_RESULTS.pop(request.payload.flow_id, None)
-        _GITHUB_COPILOT_LOGIN_STARTED_AT.pop(request.payload.flow_id, None)
-        yield RpcResponseEnvelope(
-            id=request.id,
-            response=AuthLoginGitHubCopilotWaitResponse(status=status),
-        ).model_dump_json()
-        return
-
     if isinstance(request, RunEnqueueRequest):
         if request.payload.prompt.strip() == "":
             yield RpcErrorEnvelope(
@@ -1123,14 +1030,6 @@ def _prune_stale_login_flows(now: float | None = None) -> None:
         started_at=_OPENAI_CODEX_LOGIN_STARTED_AT,
         now=current,
         error_message="OpenAI Codex login flow expired",
-    )
-    _prune_login_flow_group(
-        flows=_GITHUB_COPILOT_LOGIN_FLOWS,
-        tasks=_GITHUB_COPILOT_LOGIN_TASKS,
-        results=_GITHUB_COPILOT_LOGIN_RESULTS,
-        started_at=_GITHUB_COPILOT_LOGIN_STARTED_AT,
-        now=current,
-        error_message="GitHub Copilot login flow expired",
     )
 
 

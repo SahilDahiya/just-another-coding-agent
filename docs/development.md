@@ -99,13 +99,11 @@ The shipped provider surface currently includes:
 OAuth lanes are also available for:
 
 - `openai-codex`
-- `github-copilot`
 
 Inside the TUI:
 
 - `/auth <provider>` shows the `auth.json` entry to add for that provider
 - `/login openai-codex` starts ChatGPT subscription login
-- `/login github-copilot` starts GitHub Copilot login
 - `/auth status` reports backend-owned provider readiness per provider,
   including whether the current effective path requires a secret and where any
   discovered secret came from

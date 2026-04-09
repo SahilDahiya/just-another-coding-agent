@@ -134,26 +134,6 @@ class AuthLoginOpenAICodexWaitRequest(_RpcModel):
     payload: AuthLoginOpenAICodexWaitPayload
 
 
-class AuthLoginGitHubCopilotStartPayload(_RpcModel):
-    enterprise_domain: str | None = None
-
-
-class AuthLoginGitHubCopilotStartRequest(_RpcModel):
-    id: str
-    command: Literal["auth.login_github_copilot.start"]
-    payload: AuthLoginGitHubCopilotStartPayload
-
-
-class AuthLoginGitHubCopilotWaitPayload(_RpcModel):
-    flow_id: str
-
-
-class AuthLoginGitHubCopilotWaitRequest(_RpcModel):
-    id: str
-    command: Literal["auth.login_github_copilot.wait"]
-    payload: AuthLoginGitHubCopilotWaitPayload
-
-
 class RunStartPayload(_RpcModel):
     session_id: SessionId
     prompt: str
@@ -215,8 +195,6 @@ RpcRequest = Annotated[
     | AuthLoginOpenAICodexStartRequest
     | AuthLoginOpenAICodexCompleteRequest
     | AuthLoginOpenAICodexWaitRequest
-    | AuthLoginGitHubCopilotStartRequest
-    | AuthLoginGitHubCopilotWaitRequest
     | RunStartRequest
     | RunEnqueueRequest
     | RunInterruptRequest
@@ -283,17 +261,6 @@ class AuthLoginOpenAICodexWaitResponse(_RpcModel):
     status: OAuthProviderStatus
 
 
-class AuthLoginGitHubCopilotStartResponse(_RpcModel):
-    flow_id: str
-    auth_url: str
-    instructions: str
-    user_code: str
-
-
-class AuthLoginGitHubCopilotWaitResponse(_RpcModel):
-    status: OAuthProviderStatus
-
-
 class RunEnqueueResponse(_RpcModel):
     session_id: SessionId
     queued_count: int
@@ -329,8 +296,6 @@ class RpcResponseEnvelope(_RpcModel):
         | AuthLoginOpenAICodexStartResponse
         | AuthLoginOpenAICodexCompleteResponse
         | AuthLoginOpenAICodexWaitResponse
-        | AuthLoginGitHubCopilotStartResponse
-        | AuthLoginGitHubCopilotWaitResponse
         | RunStartResponse
         | RunEnqueueResponse
         | RunInterruptResponse
@@ -364,12 +329,6 @@ __all__ = [
     "AuthLoginOpenAICodexStartPayload",
     "AuthLoginOpenAICodexStartRequest",
     "AuthLoginOpenAICodexStartResponse",
-    "AuthLoginGitHubCopilotWaitPayload",
-    "AuthLoginGitHubCopilotWaitRequest",
-    "AuthLoginGitHubCopilotWaitResponse",
-    "AuthLoginGitHubCopilotStartPayload",
-    "AuthLoginGitHubCopilotStartRequest",
-    "AuthLoginGitHubCopilotStartResponse",
     "AuthProviderStatus",
     "AuthSetPayload",
     "AuthSetRequest",

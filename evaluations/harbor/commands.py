@@ -69,9 +69,7 @@ def harbor_auth_file_uploads(model: str) -> list[tuple[Path, str]]:
     uploads: list[tuple[Path, str]] = []
     if AUTH_FILE_PATH.exists():
         uploads.append((AUTH_FILE_PATH, "/root/.jaca/auth.json"))
-    if (_is_openai_codex_model(model) or _is_github_copilot_model(model)) and (
-        OAUTH_FILE_PATH.exists()
-    ):
+    if _is_openai_codex_model(model) and OAUTH_FILE_PATH.exists():
         uploads.append((OAUTH_FILE_PATH, "/root/.jaca/oauth.json"))
     return uploads
 
@@ -184,13 +182,6 @@ def _is_openai_codex_model(model: str) -> bool:
         return False
     model_name = model.split(":", 1)[1]
     return model_name == "gpt-5-codex" or model_name.endswith("-chatgpt")
-
-
-def _is_github_copilot_model(model: str) -> bool:
-    return (
-        model.startswith(("openai-responses:", "openai-chat:", "anthropic:"))
-        and model.endswith("-copilot")
-    )
 
 
 def _inject_openai_codex_oauth_credentials(*, selected: dict[str, str]) -> None:

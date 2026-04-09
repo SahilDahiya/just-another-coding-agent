@@ -154,10 +154,10 @@ The core architectural risk is semantic drift between the Go shell and the Pytho
 - OAuth login completion notes must come from the backend-owned login wait
   contract itself. The Go shell must not poll for completion or rely on later
   commands such as `/model` or prompt submission to reconcile login success.
-- First-run setup should prioritize the four supported access lanes:
-  ChatGPT subscription, GitHub Copilot subscription, OpenAI API key, and
-  Anthropic API key. Removed providers should not survive in slash help,
-  onboarding copy, or picker suggestions.
+- First-run setup should prioritize the three supported access lanes:
+  ChatGPT subscription, OpenAI API key, and Anthropic API key. Removed
+  providers should not survive in slash help, onboarding copy, or picker
+  suggestions.
 - The prompt zone should behave like a compact two-line shell composer: one input line, one low-salience footer line for state and recall hints.
 - The prompt footer may carry low-salience operational guidance such as a
   copy hint, but that guidance should stay subdued and yield to width

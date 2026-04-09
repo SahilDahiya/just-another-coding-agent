@@ -45,14 +45,6 @@ func (m *model) maybeStartOnboarding() tea.Cmd {
 		}
 		return nil
 	}
-	if isGitHubCopilotOAuthModel(selectedModel) {
-		if !oauthProviderLoggedIn(*statuses, "github-copilot") {
-			m.startupOnboardingSet = true
-			_, cmd := m.startGitHubCopilotLoginFlow("", "")
-			return cmd
-		}
-		return nil
-	}
 
 	selectedProvider := m.currentProvider()
 	if !providerConfigured(*statuses, selectedProvider) {
@@ -81,18 +73,17 @@ func (m *model) shouldShowFirstRunPromptAssist() bool {
 func firstRunOptionLines() []string {
 	return []string{
 		"1. ChatGPT subscription",
-		"2. GitHub Copilot subscription",
-		"3. OpenAI API key",
-		"4. Anthropic API key",
+		"2. OpenAI API key",
+		"3. Anthropic API key",
 	}
 }
 
 func onboardingSelectionForProvider(provider string) int {
 	switch provider {
 	case "openai":
-		return 2
+		return 1
 	case "anthropic":
-		return 3
+		return 2
 	default:
 		return 0
 	}
@@ -109,7 +100,7 @@ func (m *model) onboardingOptionLines() []string {
 func (m *model) onboardingHelpLines() []string {
 	return []string{
 		"Choose how JACA should access a model.",
-		"ChatGPT and Copilot log you in and pick a recommended model.",
+		"ChatGPT login picks a recommended model.",
 		"Enter selects. Esc closes this panel.",
 	}
 }
@@ -150,7 +141,7 @@ func (m *model) handleOnboardingKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.refreshViewport()
 		}
 		return m, nil
-	case "1", "2", "3", "4":
+	case "1", "2", "3":
 		m.onboarding.Selected = int(msg.Runes[0] - '1')
 		if m.onboarding.Selected >= len(m.onboardingOptionLines()) {
 			m.onboarding.Selected = len(m.onboardingOptionLines()) - 1
@@ -171,10 +162,8 @@ func (m *model) completeOnboardingSelection() (tea.Model, tea.Cmd) {
 	case 0:
 		return m.startOpenAICodexLoginFlow("", "")
 	case 1:
-		return m.startGitHubCopilotLoginFlow("", "")
-	case 2:
 		return m.completeAuthenticatedOnboardingProviderSelection("openai")
-	case 3:
+	case 2:
 		return m.completeAuthenticatedOnboardingProviderSelection("anthropic")
 	}
 	m.refreshViewport()

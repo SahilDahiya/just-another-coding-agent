@@ -101,96 +101,6 @@ SHIPPED_MODELS: tuple[ShippedModel, ...] = (
         description="Experimental ChatGPT subscription GPT-5.4 mini path",
     ),
     ShippedModel(
-        provider="openai",
-        model_id="openai-responses:gpt-5-copilot",
-        description="Experimental GitHub Copilot GPT-5 path",
-    ),
-    ShippedModel(
-        provider="openai",
-        model_id="openai-responses:gpt-5-mini-copilot",
-        description="Experimental GitHub Copilot GPT-5 mini path",
-    ),
-    ShippedModel(
-        provider="openai",
-        model_id="openai-responses:gpt-5.1-copilot",
-        description="Experimental GitHub Copilot GPT-5.1 path",
-    ),
-    ShippedModel(
-        provider="openai",
-        model_id="openai-responses:gpt-5.1-codex-copilot",
-        description="Experimental GitHub Copilot GPT-5.1 Codex path",
-    ),
-    ShippedModel(
-        provider="openai",
-        model_id="openai-responses:gpt-5.1-codex-mini-copilot",
-        description="Experimental GitHub Copilot GPT-5.1 Codex Mini path",
-    ),
-    ShippedModel(
-        provider="openai",
-        model_id="openai-responses:gpt-5.1-codex-max-copilot",
-        description="Experimental GitHub Copilot GPT-5.1 Codex Max path",
-    ),
-    ShippedModel(
-        provider="openai",
-        model_id="openai-responses:gpt-5.2-copilot",
-        description="Experimental GitHub Copilot GPT-5.2 path",
-    ),
-    ShippedModel(
-        provider="openai",
-        model_id="openai-responses:gpt-5.2-codex-copilot",
-        description="Experimental GitHub Copilot GPT-5.2 Codex path",
-    ),
-    ShippedModel(
-        provider="openai",
-        model_id="openai-responses:gpt-5.3-codex-copilot",
-        description="Experimental GitHub Copilot GPT-5.3 Codex path",
-    ),
-    ShippedModel(
-        provider="openai",
-        model_id="openai-responses:gpt-5.4-copilot",
-        description="Experimental GitHub Copilot GPT-5.4 path",
-    ),
-    ShippedModel(
-        provider="openai",
-        model_id="openai-responses:gpt-5.4-mini-copilot",
-        description="Experimental GitHub Copilot GPT-5.4 mini path",
-    ),
-    ShippedModel(
-        provider="openai",
-        model_id="openai-chat:gpt-4.1-copilot",
-        description="Experimental GitHub Copilot GPT-4.1 path",
-    ),
-    ShippedModel(
-        provider="openai",
-        model_id="openai-chat:gpt-4o-copilot",
-        description="Experimental GitHub Copilot GPT-4o path",
-    ),
-    ShippedModel(
-        provider="openai",
-        model_id="openai-chat:gemini-2.5-pro-copilot",
-        description="Experimental GitHub Copilot Gemini 2.5 Pro path",
-    ),
-    ShippedModel(
-        provider="openai",
-        model_id="openai-chat:gemini-3-flash-preview-copilot",
-        description="Experimental GitHub Copilot Gemini 3 Flash path",
-    ),
-    ShippedModel(
-        provider="openai",
-        model_id="openai-chat:gemini-3-pro-preview-copilot",
-        description="Experimental GitHub Copilot Gemini 3 Pro path",
-    ),
-    ShippedModel(
-        provider="openai",
-        model_id="openai-chat:gemini-3.1-pro-preview-copilot",
-        description="Experimental GitHub Copilot Gemini 3.1 Pro path",
-    ),
-    ShippedModel(
-        provider="openai",
-        model_id="openai-chat:grok-code-fast-1-copilot",
-        description="Experimental GitHub Copilot Grok Code Fast 1 path",
-    ),
-    ShippedModel(
         provider="anthropic",
         model_id="anthropic:claude-sonnet-4-5",
         description="Balanced Claude Sonnet",
@@ -200,36 +110,6 @@ SHIPPED_MODELS: tuple[ShippedModel, ...] = (
         provider="anthropic",
         model_id="anthropic:claude-opus-4-1",
         description="Stronger Claude Opus",
-    ),
-    ShippedModel(
-        provider="anthropic",
-        model_id="anthropic:claude-haiku-4.5-copilot",
-        description="Experimental GitHub Copilot Claude Haiku 4.5 path",
-    ),
-    ShippedModel(
-        provider="anthropic",
-        model_id="anthropic:claude-opus-4.5-copilot",
-        description="Experimental GitHub Copilot Claude Opus 4.5 path",
-    ),
-    ShippedModel(
-        provider="anthropic",
-        model_id="anthropic:claude-opus-4.6-copilot",
-        description="Experimental GitHub Copilot Claude Opus 4.6 path",
-    ),
-    ShippedModel(
-        provider="anthropic",
-        model_id="anthropic:claude-sonnet-4-copilot",
-        description="Experimental GitHub Copilot Claude Sonnet 4 path",
-    ),
-    ShippedModel(
-        provider="anthropic",
-        model_id="anthropic:claude-sonnet-4.5-copilot",
-        description="Experimental GitHub Copilot Claude Sonnet 4.5 path",
-    ),
-    ShippedModel(
-        provider="anthropic",
-        model_id="anthropic:claude-sonnet-4.6-copilot",
-        description="Experimental GitHub Copilot Claude Sonnet 4.6 path",
     ),
 )
 

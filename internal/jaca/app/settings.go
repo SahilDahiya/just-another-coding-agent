@@ -48,11 +48,6 @@ func isOpenAICodexOAuthModel(model string) bool {
 		(strings.HasPrefix(value, "openai-responses:") && strings.HasSuffix(value, "-chatgpt"))
 }
 
-func isGitHubCopilotOAuthModel(model string) bool {
-	value := strings.ToLower(strings.TrimSpace(model))
-	return providerForModel(value) != "" && strings.HasSuffix(value, "-copilot")
-}
-
 func modelMatchesProvider(model string, provider string) bool {
 	return providerForModel(model) == provider
 }
@@ -82,16 +77,6 @@ func (m *model) handleModelCommand(arg string) (tea.Model, tea.Cmd) {
 		}
 		if !loggedIn {
 			return m.startOpenAICodexLoginFlow(value, "")
-		}
-	} else if isGitHubCopilotOAuthModel(value) {
-		loggedIn, err := m.githubCopilotLoggedIn()
-		if err != nil {
-			m.transcript.WriteError(err.Error())
-			m.refreshViewport()
-			return m, cmd
-		}
-		if !loggedIn {
-			return m.startGitHubCopilotLoginFlow(value, "")
 		}
 	} else {
 		hasCreds, err := m.providerHasCredentials(provider)
@@ -274,19 +259,6 @@ func (m *model) openAICodexLoggedIn() (bool, error) {
 	return false, nil
 }
 
-func (m *model) githubCopilotLoggedIn() (bool, error) {
-	statuses, err := m.availableAuthStatus()
-	if err != nil {
-		return false, err
-	}
-	for _, status := range statuses.OAuthProviders {
-		if status.Provider == "github-copilot" {
-			return status.LoggedIn, nil
-		}
-	}
-	return false, nil
-}
-
 func (m *model) providerHasCredentialsFresh(provider string) (bool, error) {
 	statuses, err := m.fetchAuthStatus()
 	if err != nil {
@@ -309,20 +281,6 @@ func (m *model) openAICodexLoggedInFresh() (bool, error) {
 	m.authStatus = &statuses
 	for _, status := range statuses.OAuthProviders {
 		if status.Provider == "openai-codex" {
-			return status.LoggedIn, nil
-		}
-	}
-	return false, nil
-}
-
-func (m *model) githubCopilotLoggedInFresh() (bool, error) {
-	statuses, err := m.fetchAuthStatus()
-	if err != nil {
-		return false, err
-	}
-	m.authStatus = &statuses
-	for _, status := range statuses.OAuthProviders {
-		if status.Provider == "github-copilot" {
 			return status.LoggedIn, nil
 		}
 	}

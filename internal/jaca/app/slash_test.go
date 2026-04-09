@@ -55,7 +55,6 @@ func TestModelSuggestionsIncludeConfiguredAPIKeyAndOAuthModels(t *testing.T) {
 		},
 		OAuthProviders: []rpc.OAuthProviderStatus{
 			{Provider: "openai-codex", LoggedIn: true},
-			{Provider: "github-copilot", LoggedIn: true},
 		},
 	}
 	rows := modelSuggestions(*testModelCatalog(), status)
@@ -76,32 +75,8 @@ func TestModelSuggestionsIncludeConfiguredAPIKeyAndOAuthModels(t *testing.T) {
 		"openai-responses:gpt-5.3-codex-chatgpt":      "[oauth]",
 		"openai-responses:gpt-5.4-chatgpt":            "[oauth]",
 		"openai-responses:gpt-5.4-mini-chatgpt":       "[oauth]",
-		"openai-responses:gpt-5-copilot":              "[oauth]",
-		"openai-responses:gpt-5-mini-copilot":         "[oauth]",
-		"openai-responses:gpt-5.1-copilot":            "[oauth]",
-		"openai-responses:gpt-5.1-codex-copilot":      "[oauth]",
-		"openai-responses:gpt-5.1-codex-mini-copilot": "[oauth]",
-		"openai-responses:gpt-5.1-codex-max-copilot":  "[oauth]",
-		"openai-responses:gpt-5.2-copilot":            "[oauth]",
-		"openai-responses:gpt-5.2-codex-copilot":      "[oauth]",
-		"openai-responses:gpt-5.3-codex-copilot":      "[oauth]",
-		"openai-responses:gpt-5.4-copilot":            "[oauth]",
-		"openai-responses:gpt-5.4-mini-copilot":       "[oauth]",
-		"openai-chat:gpt-4.1-copilot":                 "[oauth]",
-		"openai-chat:gpt-4o-copilot":                  "[oauth]",
-		"openai-chat:gemini-2.5-pro-copilot":          "[oauth]",
-		"openai-chat:gemini-3-flash-preview-copilot":  "[oauth]",
-		"openai-chat:gemini-3-pro-preview-copilot":    "[oauth]",
-		"openai-chat:gemini-3.1-pro-preview-copilot":  "[oauth]",
-		"openai-chat:grok-code-fast-1-copilot":        "[oauth]",
 		"anthropic:claude-sonnet-4-5":                 "[api-key]",
 		"anthropic:claude-opus-4-1":                   "[api-key]",
-		"anthropic:claude-haiku-4.5-copilot":          "[oauth]",
-		"anthropic:claude-opus-4.5-copilot":           "[oauth]",
-		"anthropic:claude-opus-4.6-copilot":           "[oauth]",
-		"anthropic:claude-sonnet-4-copilot":           "[oauth]",
-		"anthropic:claude-sonnet-4.5-copilot":         "[oauth]",
-		"anthropic:claude-sonnet-4.6-copilot":         "[oauth]",
 	}
 
 	for _, row := range rows {
@@ -127,7 +102,6 @@ func TestModelSuggestionsHideUnavailableModels(t *testing.T) {
 		},
 		OAuthProviders: []rpc.OAuthProviderStatus{
 			{Provider: "openai-codex", LoggedIn: false},
-			{Provider: "github-copilot", LoggedIn: false},
 		},
 	}
 	rows := modelSuggestions(*testModelCatalog(), status)

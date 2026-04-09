@@ -10,7 +10,6 @@ from just_another_coding_agent.contracts.auth import (
 )
 from just_another_coding_agent.contracts.model_catalog import ProviderName
 from just_another_coding_agent.oauth_store import (
-    get_github_copilot_credentials,
     get_openai_codex_credentials,
 )
 
@@ -77,17 +76,6 @@ def compute_model_readiness(model_id: str) -> ProviderAuthStatus:
             env_key=_provider_env_key(provider),
             reason="ok" if credentials_ready else "missing_secret",
         )
-    if _is_github_copilot_model(model_id):
-        credentials = get_github_copilot_credentials()
-        return ProviderAuthStatus(
-            provider=provider,
-            configured=credentials is not None,
-            secret_configured=False,
-            requires_secret=False,
-            source="none",
-            env_key=_provider_env_key(provider),
-            reason="ok" if credentials is not None else "missing_secret",
-        )
     return compute_provider_readiness(provider, model_id=model_id)
 
 
@@ -119,11 +107,6 @@ def _provider_for_model(model_id: str) -> ProviderName | None:
     if model_id.startswith("anthropic:"):
         return "anthropic"
     return None
-
-
-def _is_github_copilot_model(model_id: str) -> bool:
-    return _provider_for_model(model_id) is not None and model_id.endswith("-copilot")
-
 
 def _is_openai_codex_model(model_id: str) -> bool:
     return model_id == "openai-responses:gpt-5-codex" or (

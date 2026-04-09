@@ -205,32 +205,6 @@ func (m *Manager) WaitOpenAICodexLogin(
 	return client.WaitOpenAICodexLogin(ctx, flowID)
 }
 
-func (m *Manager) StartGitHubCopilotLogin(
-	ctx context.Context,
-	enterpriseDomain string,
-) (AuthLoginGitHubCopilotStartResponse, error) {
-	m.mu.Lock()
-	client, err := m.ensureStartedLocked()
-	m.mu.Unlock()
-	if err != nil {
-		return AuthLoginGitHubCopilotStartResponse{}, err
-	}
-	return client.StartGitHubCopilotLogin(ctx, enterpriseDomain)
-}
-
-func (m *Manager) WaitGitHubCopilotLogin(
-	ctx context.Context,
-	flowID string,
-) (AuthLoginGitHubCopilotWaitResponse, error) {
-	m.mu.Lock()
-	client, err := m.ensureStartedLocked()
-	m.mu.Unlock()
-	if err != nil {
-		return AuthLoginGitHubCopilotWaitResponse{}, err
-	}
-	return client.WaitGitHubCopilotLogin(ctx, flowID)
-}
-
 func (m *Manager) SetProviderSecret(
 	ctx context.Context,
 	provider string,
@@ -882,86 +856,6 @@ func (c *Client) WaitOpenAICodexLogin(
 		return AuthLoginOpenAICodexWaitResponse{}, fmt.Errorf("%s: %s", envelope.ErrorType, envelope.Message)
 	default:
 		return AuthLoginOpenAICodexWaitResponse{}, fmt.Errorf("unexpected envelope for auth.login_openai_codex.wait: %T", line)
-	}
-}
-
-func (c *Client) StartGitHubCopilotLogin(
-	ctx context.Context,
-	enterpriseDomain string,
-) (AuthLoginGitHubCopilotStartResponse, error) {
-	requestID := c.nextRequestID()
-	waiter, cleanup, err := c.registerWaiter(requestID)
-	if err != nil {
-		return AuthLoginGitHubCopilotStartResponse{}, err
-	}
-	defer cleanup()
-	payload := AuthLoginGitHubCopilotStartPayload{}
-	if strings.TrimSpace(enterpriseDomain) != "" {
-		payload.EnterpriseDomain = &enterpriseDomain
-	}
-	c.writeMu.Lock()
-	if err := c.writeRequest(Request{
-		ID:      requestID,
-		Command: "auth.login_github_copilot.start",
-		Payload: payload,
-	}); err != nil {
-		c.writeMu.Unlock()
-		return AuthLoginGitHubCopilotStartResponse{}, err
-	}
-	c.writeMu.Unlock()
-	line, err := c.awaitEnvelope(ctx, waiter)
-	if err != nil {
-		return AuthLoginGitHubCopilotStartResponse{}, err
-	}
-	switch envelope := line.(type) {
-	case ResponseEnvelope:
-		var response AuthLoginGitHubCopilotStartResponse
-		if err := json.Unmarshal(envelope.Response, &response); err != nil {
-			return AuthLoginGitHubCopilotStartResponse{}, err
-		}
-		return response, nil
-	case ErrorEnvelope:
-		return AuthLoginGitHubCopilotStartResponse{}, fmt.Errorf("%s: %s", envelope.ErrorType, envelope.Message)
-	default:
-		return AuthLoginGitHubCopilotStartResponse{}, fmt.Errorf("unexpected envelope for auth.login_github_copilot.start: %T", line)
-	}
-}
-
-func (c *Client) WaitGitHubCopilotLogin(
-	ctx context.Context,
-	flowID string,
-) (AuthLoginGitHubCopilotWaitResponse, error) {
-	requestID := c.nextRequestID()
-	waiter, cleanup, err := c.registerWaiter(requestID)
-	if err != nil {
-		return AuthLoginGitHubCopilotWaitResponse{}, err
-	}
-	defer cleanup()
-	c.writeMu.Lock()
-	if err := c.writeRequest(Request{
-		ID:      requestID,
-		Command: "auth.login_github_copilot.wait",
-		Payload: AuthLoginGitHubCopilotWaitPayload{FlowID: flowID},
-	}); err != nil {
-		c.writeMu.Unlock()
-		return AuthLoginGitHubCopilotWaitResponse{}, err
-	}
-	c.writeMu.Unlock()
-	line, err := c.awaitEnvelope(ctx, waiter)
-	if err != nil {
-		return AuthLoginGitHubCopilotWaitResponse{}, err
-	}
-	switch envelope := line.(type) {
-	case ResponseEnvelope:
-		var response AuthLoginGitHubCopilotWaitResponse
-		if err := json.Unmarshal(envelope.Response, &response); err != nil {
-			return AuthLoginGitHubCopilotWaitResponse{}, err
-		}
-		return response, nil
-	case ErrorEnvelope:
-		return AuthLoginGitHubCopilotWaitResponse{}, fmt.Errorf("%s: %s", envelope.ErrorType, envelope.Message)
-	default:
-		return AuthLoginGitHubCopilotWaitResponse{}, fmt.Errorf("unexpected envelope for auth.login_github_copilot.wait: %T", line)
 	}
 }
 

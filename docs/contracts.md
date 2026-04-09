@@ -54,7 +54,7 @@ Rules:
   `anthropic`. Subscription-backed OAuth model lanes such as
   `openai-responses:gpt-5-codex`,
   `openai-responses:gpt-5.4-chatgpt`, and
-  `openai-responses:gpt-5-mini-copilot` remain backend-owned model ids under
+  `openai-responses:gpt-5.4-mini-chatgpt` remain backend-owned model ids under
   the `openai` provider catalog.
 - Auth status and local secret-store shapes are backend-owned contract types in
   `contracts/auth.py`; runtime auth code and RPC models both import those
@@ -78,10 +78,6 @@ OAuth login RPC contract:
 - `auth.login_openai_codex.wait` is the canonical completion path. It blocks
   until the browser callback or manual completion resolves, then returns the
   final provider status.
-- `auth.login_github_copilot.start` returns the device-code URL, user code, and
-  flow id.
-- `auth.login_github_copilot.wait` blocks until device-code approval resolves,
-  then returns the final provider status.
 - Manual OpenAI completion and background browser-callback completion must
   resolve the same canonical login result; the shell must not race two
   different notions of success.

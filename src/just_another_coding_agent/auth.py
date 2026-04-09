@@ -12,16 +12,6 @@ from just_another_coding_agent.contracts.auth import (
     ProviderAuthStatus,
 )
 from just_another_coding_agent.contracts.model_catalog import ProviderName
-from just_another_coding_agent.oauth_github_copilot import (
-    GitHubCopilotLoginFlow as _GitHubCopilotLoginFlow,
-)
-from just_another_coding_agent.oauth_github_copilot import (
-    GitHubCopilotOAuthError,
-    refresh_github_copilot_credentials,
-    refresh_github_copilot_credentials_sync,
-    start_github_copilot_login,
-    wait_for_github_copilot_login,
-)
 from just_another_coding_agent.oauth_openai_codex import (
     OpenAICodexLoginFlow as _OpenAICodexLoginFlow,
 )
@@ -34,11 +24,8 @@ from just_another_coding_agent.oauth_openai_codex import (
 )
 from just_another_coding_agent.oauth_store import (
     OpenAICodexCredentials,
-    clear_github_copilot_credentials,
     clear_openai_codex_credentials,
-    get_github_copilot_credentials,
     get_openai_codex_credentials,
-    set_github_copilot_credentials,
     set_openai_codex_credentials,
 )
 from just_another_coding_agent.provider_readiness import (
@@ -63,17 +50,6 @@ class OpenAICodexLoginFlow:
     flow_id: str
     verifier: str
     state: str
-
-
-@dataclass(frozen=True)
-class GitHubCopilotLoginFlow:
-    flow_id: str
-    domain: str
-    device_code: str
-    interval_seconds: int
-    expires_in_seconds: int
-    verification_uri: str
-    user_code: str
 
 
 def resolve_provider_secret(
@@ -119,20 +95,6 @@ def get_oauth_provider_statuses() -> list[OAuthProviderStatus]:
                 logged_in=True,
                 account_id=openai_codex.account_id,
                 expires_at=openai_codex.expires,
-            )
-        )
-
-    github_copilot = get_github_copilot_credentials()
-    if github_copilot is None:
-        statuses.append(
-            OAuthProviderStatus(provider="github-copilot", logged_in=False)
-        )
-    else:
-        statuses.append(
-            OAuthProviderStatus(
-                provider="github-copilot",
-                logged_in=True,
-                expires_at=github_copilot.expires,
             )
         )
 
@@ -214,84 +176,6 @@ def resolve_openai_codex_oauth_credentials_sync():
         set_openai_codex_credentials(refreshed)
     return refreshed
 
-
-def start_github_copilot_oauth_login(
-    *, enterprise_domain: str | None = None
-) -> tuple[GitHubCopilotLoginFlow, str, str, str]:
-    flow, start = start_github_copilot_login(
-        enterprise_domain=enterprise_domain,
-    )
-    return (
-        GitHubCopilotLoginFlow(
-            flow_id=flow.flow_id,
-            domain=flow.domain,
-            device_code=flow.device_code,
-            interval_seconds=flow.interval_seconds,
-            expires_in_seconds=flow.expires_in_seconds,
-            verification_uri=flow.verification_uri,
-            user_code=flow.user_code,
-        ),
-        start.flow_id,
-        start.auth_url,
-        start.instructions,
-    )
-
-
-async def wait_for_github_copilot_oauth_login(
-    flow: GitHubCopilotLoginFlow,
-) -> OAuthProviderStatus:
-    credentials = await wait_for_github_copilot_login(
-        _GitHubCopilotLoginFlow(
-            flow_id=flow.flow_id,
-            domain=flow.domain,
-            device_code=flow.device_code,
-            interval_seconds=flow.interval_seconds,
-            expires_in_seconds=flow.expires_in_seconds,
-            verification_uri=flow.verification_uri,
-            user_code=flow.user_code,
-        )
-    )
-    set_github_copilot_credentials(credentials)
-    return OAuthProviderStatus(
-        provider="github-copilot",
-        logged_in=True,
-        expires_at=credentials.expires,
-    )
-
-
-def clear_github_copilot_oauth_login() -> OAuthProviderStatus:
-    clear_github_copilot_credentials()
-    return OAuthProviderStatus(provider="github-copilot", logged_in=False)
-
-
-async def resolve_github_copilot_oauth_credentials():
-    credentials = get_github_copilot_credentials()
-    if credentials is None:
-        return None
-    if credentials.expires > int(time.time() * 1000):
-        return credentials
-    refreshed = await refresh_github_copilot_credentials(
-        credentials.refresh,
-        enterprise_domain=credentials.enterprise_domain,
-    )
-    set_github_copilot_credentials(refreshed)
-    return refreshed
-
-
-def resolve_github_copilot_oauth_credentials_sync():
-    credentials = get_github_copilot_credentials()
-    if credentials is None:
-        return None
-    if credentials.expires > int(time.time() * 1000):
-        return credentials
-    refreshed = refresh_github_copilot_credentials_sync(
-        credentials.refresh,
-        enterprise_domain=credentials.enterprise_domain,
-    )
-    set_github_copilot_credentials(refreshed)
-    return refreshed
-
-
 def set_provider_secret(
     provider: ProviderName,
     secret: str,
@@ -360,30 +244,23 @@ __all__ = [
     "AuthStorageKind",
     "LocalSecretStoreStatus",
     "OAuthProviderStatus",
-    "GitHubCopilotLoginFlow",
-    "GitHubCopilotOAuthError",
     "OpenAICodexLoginFlow",
     "PROVIDER_SECRET_ENV_KEYS",
     "AUTH_FILE_PATH",
     "ProviderAuthStatus",
     "ProviderName",
     "ProviderSecretValidationError",
-    "clear_github_copilot_oauth_login",
     "clear_provider_secret",
     "clear_openai_codex_oauth_login",
     "complete_openai_codex_oauth_login",
     "get_provider_auth_status",
     "get_local_secret_store_status",
     "get_oauth_provider_statuses",
-    "resolve_github_copilot_oauth_credentials",
-    "resolve_github_copilot_oauth_credentials_sync",
     "list_provider_auth_statuses",
     "resolve_openai_codex_oauth_credentials",
     "resolve_openai_codex_oauth_credentials_sync",
     "resolve_provider_secret",
     "set_provider_secret",
-    "start_github_copilot_oauth_login",
     "start_openai_codex_oauth_login",
-    "wait_for_github_copilot_oauth_login",
     "wait_for_openai_codex_oauth_login",
 ]

@@ -49,14 +49,6 @@ type AuthLoginOpenAICodexWaitPayload struct {
 	FlowID string `json:"flow_id"`
 }
 
-type AuthLoginGitHubCopilotStartPayload struct {
-	EnterpriseDomain *string `json:"enterprise_domain,omitempty"`
-}
-
-type AuthLoginGitHubCopilotWaitPayload struct {
-	FlowID string `json:"flow_id"`
-}
-
 type SessionCompactPayload struct {
 	SessionID string `json:"session_id"`
 }
@@ -196,17 +188,6 @@ type AuthLoginOpenAICodexCompleteResponse struct {
 }
 
 type AuthLoginOpenAICodexWaitResponse struct {
-	Status OAuthProviderStatus `json:"status"`
-}
-
-type AuthLoginGitHubCopilotStartResponse struct {
-	FlowID       string `json:"flow_id"`
-	AuthURL      string `json:"auth_url"`
-	Instructions string `json:"instructions"`
-	UserCode     string `json:"user_code"`
-}
-
-type AuthLoginGitHubCopilotWaitResponse struct {
 	Status OAuthProviderStatus `json:"status"`
 }
 

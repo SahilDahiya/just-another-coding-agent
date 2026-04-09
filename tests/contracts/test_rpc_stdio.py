@@ -16,7 +16,6 @@ from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 
 from just_another_coding_agent.auth import (
     AuthStoreError,
-    GitHubCopilotLoginFlow,
     OpenAICodexLoginFlow,
 )
 from just_another_coding_agent.contracts.auth import (
@@ -34,10 +33,6 @@ from just_another_coding_agent.rpc.session_store import (
     session_path_for_id,
 )
 from just_another_coding_agent.rpc.stdio import (
-    _GITHUB_COPILOT_LOGIN_FLOWS,
-    _GITHUB_COPILOT_LOGIN_RESULTS,
-    _GITHUB_COPILOT_LOGIN_STARTED_AT,
-    _GITHUB_COPILOT_LOGIN_TASKS,
     _OPENAI_CODEX_LOGIN_FLOWS,
     _OPENAI_CODEX_LOGIN_RESULTS,
     _OPENAI_CODEX_LOGIN_STARTED_AT,
@@ -695,12 +690,6 @@ async def test_handle_rpc_json_line_returns_auth_status(
                 "account_id": "acct-123",
                 "expires_at": 1760000000000,
             },
-            {
-                "provider": "github-copilot",
-                "logged_in": False,
-                "account_id": None,
-                "expires_at": None,
-            },
         ],
     )
 
@@ -751,12 +740,6 @@ async def test_handle_rpc_json_line_returns_auth_status(
                         "logged_in": True,
                         "account_id": "acct-123",
                         "expires_at": 1760000000000,
-                    },
-                    {
-                        "provider": "github-copilot",
-                        "logged_in": False,
-                        "account_id": None,
-                        "expires_at": None,
                     }
                 ],
             },
@@ -892,164 +875,6 @@ async def test_handle_rpc_json_line_replaces_existing_openai_codex_login_flow(
     _OPENAI_CODEX_LOGIN_TASKS.clear()
     _OPENAI_CODEX_LOGIN_RESULTS.clear()
     _OPENAI_CODEX_LOGIN_STARTED_AT.clear()
-
-
-async def test_handle_rpc_json_line_starts_github_copilot_login(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    workspace_root = tmp_path / "workspace"
-    workspace_root.mkdir()
-    sessions_root = tmp_path / "sessions"
-    _GITHUB_COPILOT_LOGIN_FLOWS.clear()
-    monkeypatch.setattr(
-        "just_another_coding_agent.rpc.stdio.start_github_copilot_oauth_login",
-        lambda enterprise_domain=None: (
-            GitHubCopilotLoginFlow(
-                flow_id="flow-gh-1",
-                domain="github.com",
-                device_code="device-code",
-                interval_seconds=5,
-                expires_in_seconds=900,
-                verification_uri="https://github.com/login/device",
-                user_code="ABCD-EFGH",
-            ),
-            "flow-gh-1",
-            "https://github.com/login/device",
-            "Enter code: ABCD-EFGH",
-        ),
-    )
-
-    messages = await _rpc_messages(
-        request_payload={
-            "id": "req-gh-login-start",
-            "command": "auth.login_github_copilot.start",
-            "payload": {},
-        },
-        model=FunctionModel(stream_function=text_only_stream),
-        workspace_root=workspace_root,
-        sessions_root=sessions_root,
-    )
-
-    assert messages == [
-        {
-            "type": "rpc_response",
-            "id": "req-gh-login-start",
-            "response": {
-                "flow_id": "flow-gh-1",
-                "auth_url": "https://github.com/login/device",
-                "instructions": "Enter code: ABCD-EFGH",
-                "user_code": "ABCD-EFGH",
-            },
-        }
-    ]
-    assert "flow-gh-1" in _GITHUB_COPILOT_LOGIN_FLOWS
-
-
-async def test_handle_rpc_json_line_replaces_existing_github_copilot_login_flow(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    workspace_root = tmp_path / "workspace"
-    workspace_root.mkdir()
-    sessions_root = tmp_path / "sessions"
-    sessions_root.mkdir()
-    _GITHUB_COPILOT_LOGIN_FLOWS.clear()
-    _GITHUB_COPILOT_LOGIN_TASKS.clear()
-    _GITHUB_COPILOT_LOGIN_RESULTS.clear()
-    _GITHUB_COPILOT_LOGIN_STARTED_AT.clear()
-
-    issued_flows = iter(
-        [
-            (
-                GitHubCopilotLoginFlow(
-                    flow_id="flow-gh-1",
-                    domain="github.com",
-                    device_code="device-code-1",
-                    interval_seconds=5,
-                    expires_in_seconds=900,
-                    verification_uri="https://github.com/login/device",
-                    user_code="ABCD-EFGH",
-                ),
-                "flow-gh-1",
-                "https://github.com/login/device",
-                "Enter code: ABCD-EFGH",
-            ),
-            (
-                GitHubCopilotLoginFlow(
-                    flow_id="flow-gh-2",
-                    domain="github.com",
-                    device_code="device-code-2",
-                    interval_seconds=5,
-                    expires_in_seconds=900,
-                    verification_uri="https://github.com/login/device",
-                    user_code="IJKL-MNOP",
-                ),
-                "flow-gh-2",
-                "https://github.com/login/device",
-                "Enter code: IJKL-MNOP",
-            ),
-        ]
-    )
-    cancelled: list[str] = []
-
-    async def _wait(flow: GitHubCopilotLoginFlow):
-        try:
-            await asyncio.Event().wait()
-        except asyncio.CancelledError:
-            cancelled.append(flow.flow_id)
-            raise
-
-    monkeypatch.setattr(
-        "just_another_coding_agent.rpc.stdio.start_github_copilot_oauth_login",
-        lambda enterprise_domain=None: next(issued_flows),
-    )
-    monkeypatch.setattr(
-        "just_another_coding_agent.rpc.stdio.wait_for_github_copilot_oauth_login",
-        _wait,
-    )
-
-    await _rpc_messages(
-        request_payload={
-            "id": "req-gh-login-start-1",
-            "command": "auth.login_github_copilot.start",
-            "payload": {},
-        },
-        model=FunctionModel(stream_function=text_only_stream),
-        workspace_root=workspace_root,
-        sessions_root=sessions_root,
-    )
-    first_task = _GITHUB_COPILOT_LOGIN_TASKS["flow-gh-1"]
-    await asyncio.sleep(0)
-
-    await _rpc_messages(
-        request_payload={
-            "id": "req-gh-login-start-2",
-            "command": "auth.login_github_copilot.start",
-            "payload": {},
-        },
-        model=FunctionModel(stream_function=text_only_stream),
-        workspace_root=workspace_root,
-        sessions_root=sessions_root,
-    )
-    await asyncio.gather(first_task, return_exceptions=True)
-
-    assert first_task.cancelled()
-    assert cancelled == ["flow-gh-1"]
-    assert list(_GITHUB_COPILOT_LOGIN_FLOWS) == ["flow-gh-2"]
-    assert list(_GITHUB_COPILOT_LOGIN_TASKS) == ["flow-gh-2"]
-    assert list(_GITHUB_COPILOT_LOGIN_RESULTS) == ["flow-gh-2"]
-    assert list(_GITHUB_COPILOT_LOGIN_STARTED_AT) == ["flow-gh-2"]
-
-    _GITHUB_COPILOT_LOGIN_TASKS["flow-gh-2"].cancel()
-    await asyncio.gather(
-        *_GITHUB_COPILOT_LOGIN_TASKS.values(),
-        return_exceptions=True,
-    )
-    _GITHUB_COPILOT_LOGIN_FLOWS.clear()
-    _GITHUB_COPILOT_LOGIN_TASKS.clear()
-    _GITHUB_COPILOT_LOGIN_RESULTS.clear()
-    _GITHUB_COPILOT_LOGIN_STARTED_AT.clear()
 
 
 async def test_handle_rpc_json_line_preserves_login_flow_after_failed_completion(
@@ -1319,80 +1144,6 @@ async def test_handle_rpc_json_line_wait_openai_codex_resolves_after_manual_comp
     ]
 
 
-async def test_handle_rpc_json_line_waits_for_github_copilot_login(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    workspace_root = tmp_path / "workspace"
-    workspace_root.mkdir()
-    sessions_root = tmp_path / "sessions"
-    _GITHUB_COPILOT_LOGIN_FLOWS.clear()
-    _GITHUB_COPILOT_LOGIN_TASKS.clear()
-    _GITHUB_COPILOT_LOGIN_RESULTS.clear()
-    _GITHUB_COPILOT_LOGIN_STARTED_AT.clear()
-    gate = asyncio.Event()
-
-    async def _wait(_flow):
-        await gate.wait()
-        return OAuthProviderStatus(
-            provider="github-copilot",
-            logged_in=True,
-            account_id=None,
-            expires_at=1760000000000,
-        )
-
-    monkeypatch.setattr(
-        "just_another_coding_agent.rpc.stdio.wait_for_github_copilot_oauth_login",
-        _wait,
-    )
-
-    start_messages = await _rpc_messages(
-        request_payload={
-            "id": "req-gh-login-start-real",
-            "command": "auth.login_github_copilot.start",
-            "payload": {},
-        },
-        model=FunctionModel(stream_function=text_only_stream),
-        workspace_root=workspace_root,
-        sessions_root=sessions_root,
-    )
-    flow_id = str(start_messages[0]["response"]["flow_id"])
-
-    wait_task = asyncio.create_task(
-        _rpc_messages(
-            request_payload={
-                "id": "req-gh-login-wait",
-                "command": "auth.login_github_copilot.wait",
-                "payload": {"flow_id": flow_id},
-            },
-            model=FunctionModel(stream_function=text_only_stream),
-            workspace_root=workspace_root,
-            sessions_root=sessions_root,
-        )
-    )
-
-    await asyncio.sleep(0)
-    assert not wait_task.done()
-
-    gate.set()
-    wait_messages = await wait_task
-
-    assert wait_messages == [
-        {
-            "type": "rpc_response",
-            "id": "req-gh-login-wait",
-            "response": {
-                "status": {
-                    "provider": "github-copilot",
-                    "logged_in": True,
-                    "account_id": None,
-                    "expires_at": 1760000000000,
-                }
-            },
-        }
-    ]
-
-
 async def test_handle_rpc_json_line_openai_wait_unknown_flow_returns_logged_in_status(
     tmp_path,
     monkeypatch,
@@ -1445,58 +1196,6 @@ async def test_handle_rpc_json_line_openai_wait_unknown_flow_returns_logged_in_s
     ]
 
 
-async def test_handle_rpc_json_line_github_wait_unknown_flow_returns_logged_in_status(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    workspace_root = tmp_path / "workspace"
-    workspace_root.mkdir()
-    sessions_root = tmp_path / "sessions"
-    sessions_root.mkdir()
-    _GITHUB_COPILOT_LOGIN_FLOWS.clear()
-    _GITHUB_COPILOT_LOGIN_TASKS.clear()
-    _GITHUB_COPILOT_LOGIN_RESULTS.clear()
-    _GITHUB_COPILOT_LOGIN_STARTED_AT.clear()
-
-    monkeypatch.setattr(
-        "just_another_coding_agent.rpc.stdio.get_oauth_provider_statuses",
-        lambda: [
-            OAuthProviderStatus(
-                provider="github-copilot",
-                logged_in=True,
-                account_id=None,
-                expires_at=1760000000000,
-            )
-        ],
-    )
-
-    messages = await _rpc_messages(
-        request_payload={
-            "id": "req-gh-login-wait",
-            "command": "auth.login_github_copilot.wait",
-            "payload": {"flow_id": "missing-flow"},
-        },
-        model=FunctionModel(stream_function=text_only_stream),
-        workspace_root=workspace_root,
-        sessions_root=sessions_root,
-    )
-
-    assert messages == [
-        {
-            "type": "rpc_response",
-            "id": "req-gh-login-wait",
-            "response": {
-                "status": {
-                    "provider": "github-copilot",
-                    "logged_in": True,
-                    "account_id": None,
-                    "expires_at": 1760000000000,
-                },
-            },
-        }
-    ]
-
-
 def test_prune_stale_login_flows_removes_expired_openai_codex_entries() -> None:
     _OPENAI_CODEX_LOGIN_FLOWS.clear()
     _OPENAI_CODEX_LOGIN_TASKS.clear()
@@ -1509,28 +1208,6 @@ def test_prune_stale_login_flows_removes_expired_openai_codex_entries() -> None:
 
     assert "stale-flow" not in _OPENAI_CODEX_LOGIN_FLOWS
     assert "stale-flow" not in _OPENAI_CODEX_LOGIN_STARTED_AT
-
-
-def test_prune_stale_login_flows_removes_expired_github_copilot_entries() -> None:
-    _GITHUB_COPILOT_LOGIN_FLOWS.clear()
-    _GITHUB_COPILOT_LOGIN_TASKS.clear()
-    _GITHUB_COPILOT_LOGIN_STARTED_AT.clear()
-    flow = GitHubCopilotLoginFlow(
-        flow_id="stale-gh-flow",
-        domain="github.com",
-        device_code="device-code",
-        interval_seconds=5,
-        expires_in_seconds=900,
-        verification_uri="https://github.com/login/device",
-        user_code="ABCD-EFGH",
-    )
-    _GITHUB_COPILOT_LOGIN_FLOWS["stale-gh-flow"] = flow
-    _GITHUB_COPILOT_LOGIN_STARTED_AT["stale-gh-flow"] = 0.0
-
-    _prune_stale_login_flows(now=10_000.0)
-
-    assert "stale-gh-flow" not in _GITHUB_COPILOT_LOGIN_FLOWS
-    assert "stale-gh-flow" not in _GITHUB_COPILOT_LOGIN_STARTED_AT
 
 
 @pytest.mark.asyncio
@@ -1555,38 +1232,6 @@ async def test_prune_stale_login_flows_keeps_completed_openai_task_until_waited(
     assert "done-flow" in _OPENAI_CODEX_LOGIN_TASKS
     assert "done-flow" not in _OPENAI_CODEX_LOGIN_RESULTS
     assert "done-flow" in _OPENAI_CODEX_LOGIN_STARTED_AT
-
-
-@pytest.mark.asyncio
-async def test_prune_stale_login_flows_keeps_completed_github_task_until_waited(
-) -> None:
-    _GITHUB_COPILOT_LOGIN_FLOWS.clear()
-    _GITHUB_COPILOT_LOGIN_TASKS.clear()
-    _GITHUB_COPILOT_LOGIN_RESULTS.clear()
-    _GITHUB_COPILOT_LOGIN_STARTED_AT.clear()
-
-    flow = GitHubCopilotLoginFlow(
-        flow_id="done-gh-flow",
-        domain="github.com",
-        device_code="device-code",
-        interval_seconds=5,
-        expires_in_seconds=900,
-        verification_uri="https://github.com/login/device",
-        user_code="ABCD-EFGH",
-    )
-    task = asyncio.create_task(asyncio.sleep(0, result="done"))
-    await task
-
-    _GITHUB_COPILOT_LOGIN_FLOWS["done-gh-flow"] = flow
-    _GITHUB_COPILOT_LOGIN_TASKS["done-gh-flow"] = task
-    _GITHUB_COPILOT_LOGIN_STARTED_AT["done-gh-flow"] = 9_999.0
-
-    _prune_stale_login_flows(now=10_000.0)
-
-    assert "done-gh-flow" in _GITHUB_COPILOT_LOGIN_FLOWS
-    assert "done-gh-flow" in _GITHUB_COPILOT_LOGIN_TASKS
-    assert "done-gh-flow" not in _GITHUB_COPILOT_LOGIN_RESULTS
-    assert "done-gh-flow" in _GITHUB_COPILOT_LOGIN_STARTED_AT
 
 
 async def test_handle_rpc_json_line_sets_provider_secret(

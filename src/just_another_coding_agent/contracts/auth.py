@@ -8,7 +8,7 @@ from .model_catalog import ProviderName
 
 AuthSource = Literal["env", "file", "none"]
 AuthStorageKind = Literal["file"]
-OAuthProviderName = Literal["openai-codex", "github-copilot"]
+OAuthProviderName = Literal["openai-codex"]
 ProviderReadinessReason = Literal[
     "ok",
     "missing_secret",

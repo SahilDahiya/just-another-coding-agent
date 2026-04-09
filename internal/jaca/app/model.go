@@ -518,36 +518,6 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refreshViewport()
 		m.viewport.GotoBottom()
 		return m, waitOpenAICodexLogin(m.options.Backend, m.login.FlowID)
-	case startGitHubCopilotLoginMsg:
-		if msg.Err != nil {
-			m.endLoginFlow()
-			m.transcript.WriteError(msg.Err.Error())
-			m.refreshViewport()
-			return m, nil
-		}
-		m.login.FlowID = msg.Response.FlowID
-		m.login.AuthURL = msg.Response.AuthURL
-		m.login.Instructions = msg.Response.Instructions
-		m.login.Active = false
-		m.login.Waiting = true
-		m.transcript.WriteRenderedNote("login", []string{
-			"Open this URL in your browser:",
-			msg.Response.AuthURL,
-			fmt.Sprintf("Enter code: %s", msg.Response.UserCode),
-			"Waiting for GitHub Copilot device-code approval",
-		}, []string{
-			"Open this URL in your browser:",
-			renderHyperlink(msg.Response.AuthURL, loginLinkLabel(msg.Response.AuthURL)),
-			fmt.Sprintf("Enter code: %s", msg.Response.UserCode),
-			"Waiting for GitHub Copilot device-code approval",
-		})
-		if err := bestEffortOpenBrowser(msg.Response.AuthURL); err != nil {
-			m.transcript.WriteLine("browser did not open automatically")
-			m.transcript.WriteLine(err.Error())
-		}
-		m.refreshViewport()
-		m.viewport.GotoBottom()
-		return m, waitGitHubCopilotLogin(m.options.Backend, m.login.FlowID)
 	case completeOpenAICodexLoginMsg:
 		if msg.Err != nil {
 			m.transcript.WriteError(msg.Err.Error())
@@ -573,16 +543,6 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			lines = append(lines, fmt.Sprintf("account: %s", *msg.Response.Status.AccountID))
 		}
 		return m.finishLoginSuccess(lines)
-	case waitGitHubCopilotLoginMsg:
-		if !m.login.Waiting || m.login.FlowID == "" {
-			return m, nil
-		}
-		if msg.Err != nil {
-			m.transcript.WriteError(msg.Err.Error())
-			m.refreshViewport()
-			return m, nil
-		}
-		return m.finishLoginSuccess([]string{"GitHub Copilot login complete"})
 	case sessionPreviewLoadedMsg:
 		m.sessionPreviewLoading = false
 		m.sessionPreviewLoaded = true
@@ -749,7 +709,7 @@ func (m *model) currentPromptFooter() string {
 		return "login in progress; wait for completion or press Esc to cancel"
 	}
 	if m.shouldShowFirstRunPromptAssist() {
-		return "first-time setup: tab to connect ChatGPT, Copilot, OpenAI, or Anthropic"
+		return "first-time setup: tab to connect ChatGPT, OpenAI, or Anthropic"
 	}
 	return ""
 }
@@ -1025,16 +985,6 @@ func (m *model) handleEnter() (tea.Model, tea.Cmd) {
 		}
 		if !loggedIn {
 			return m.startOpenAICodexLoginFlow(m.options.Model, prompt)
-		}
-	} else if isGitHubCopilotOAuthModel(m.options.Model) {
-		loggedIn, err := m.githubCopilotLoggedInFresh()
-		if err != nil {
-			m.transcript.WriteError(err.Error())
-			m.refreshViewport()
-			return m, nil
-		}
-		if !loggedIn {
-			return m.startGitHubCopilotLoginFlow(m.options.Model, prompt)
 		}
 	} else {
 		hasCreds, err := m.providerHasCredentialsFresh(provider)

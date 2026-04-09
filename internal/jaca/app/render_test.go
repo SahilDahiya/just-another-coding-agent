@@ -282,30 +282,6 @@ func TestRenderTopRailShowsLoginWave(t *testing.T) {
 	}
 }
 
-func TestRenderLoginOverlayUsesProviderSpecificCopyForCopilot(t *testing.T) {
-	rendered := stripANSI(renderLoginOverlay(viewModel{
-		Width:  80,
-		Height: 24,
-		Login: loginOverlayView{
-			Active:       true,
-			Provider:     "github-copilot",
-			AuthURL:      "https://github.com/login/device",
-			Instructions: "Enter code: ABCD-EFGH",
-			InputValue:   " ",
-		},
-	}))
-
-	if !strings.Contains(rendered, "GitHub Copilot Login") {
-		t.Fatalf("renderLoginOverlay() missing copilot title: %q", rendered)
-	}
-	if !strings.Contains(rendered, "Device-code approval completes in the browser.") {
-		t.Fatalf("renderLoginOverlay() missing copilot subtitle: %q", rendered)
-	}
-	if strings.Contains(rendered, "Browser callback auto-completes") {
-		t.Fatalf("renderLoginOverlay() should not show ChatGPT callback subtitle for copilot: %q", rendered)
-	}
-}
-
 func TestRenderLoginOverlayUsesProviderSpecificCopyForChatGPT(t *testing.T) {
 	rendered := stripANSI(renderLoginOverlay(viewModel{
 		Width:  80,

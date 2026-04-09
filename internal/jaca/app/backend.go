@@ -22,8 +22,6 @@ type Backend interface {
 	StartOpenAICodexLogin(ctx context.Context) (rpc.AuthLoginOpenAICodexStartResponse, error)
 	CompleteOpenAICodexLogin(ctx context.Context, flowID string, callbackOrCode string) (rpc.AuthLoginOpenAICodexCompleteResponse, error)
 	WaitOpenAICodexLogin(ctx context.Context, flowID string) (rpc.AuthLoginOpenAICodexWaitResponse, error)
-	StartGitHubCopilotLogin(ctx context.Context, enterpriseDomain string) (rpc.AuthLoginGitHubCopilotStartResponse, error)
-	WaitGitHubCopilotLogin(ctx context.Context, flowID string) (rpc.AuthLoginGitHubCopilotWaitResponse, error)
 	SetProviderSecret(ctx context.Context, provider string, secret string, storage string) (rpc.AuthSetResponse, error)
 	ClearProviderSecret(ctx context.Context, provider string) (rpc.AuthClearResponse, error)
 	EnqueueRun(ctx context.Context, sessionID string, prompt string, mode string) (rpc.RunEnqueueResponse, error)

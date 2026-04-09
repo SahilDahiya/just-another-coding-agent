@@ -154,39 +154,6 @@ def test_compute_model_readiness_uses_env_oauth_for_openai_chatgpt_variant(
     assert status.reason == "ok"
 
 
-def test_compute_model_readiness_uses_oauth_for_github_copilot(
-    monkeypatch,
-) -> None:
-    monkeypatch.setattr(
-        "just_another_coding_agent.provider_readiness.get_github_copilot_credentials",
-        lambda: object(),
-    )
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-
-    status = compute_model_readiness("openai-responses:gpt-5.4-copilot")
-
-    assert status.provider == "openai"
-    assert status.configured is True
-    assert status.requires_secret is False
-    assert status.reason == "ok"
-
-
-def test_compute_model_readiness_uses_oauth_for_github_copilot_anthropic_model(
-    monkeypatch,
-) -> None:
-    monkeypatch.setattr(
-        "just_another_coding_agent.provider_readiness.get_github_copilot_credentials",
-        lambda: object(),
-    )
-
-    status = compute_model_readiness("anthropic:claude-opus-4.6-copilot")
-
-    assert status.provider == "anthropic"
-    assert status.configured is True
-    assert status.requires_secret is False
-    assert status.reason == "ok"
-
-
 @pytest.mark.asyncio
 async def test_resolve_canonical_model_builds_openai_codex_inside_running_loop(
     monkeypatch,
@@ -250,28 +217,6 @@ def test_build_session_turn_context_entry_preserves_chatgpt_model_identity(
     assert entry.model == "openai-responses:gpt-5.4-chatgpt"
 
 
-def test_build_session_turn_context_entry_preserves_copilot_model_identity(
-    monkeypatch,
-    tmp_path,
-) -> None:
-    monkeypatch.setattr(
-        "just_another_coding_agent.runtime.models.resolve_github_copilot_oauth_credentials_sync",
-        lambda: SimpleNamespace(access="oauth-access", enterprise_domain=None),
-    )
-    monkeypatch.setattr(
-        "just_another_coding_agent.runtime.models.get_github_copilot_base_url",
-        lambda _token, _domain: "https://api.individual.githubcopilot.com",
-    )
-
-    entry = build_session_turn_context_entry(
-        run_id="run-1",
-        model=resolve_canonical_model("openai-responses:gpt-5.4-copilot"),
-        workspace_root=tmp_path,
-    )
-
-    assert entry.model == "openai-responses:gpt-5.4-copilot"
-
-
 def test_resolve_canonical_model_refreshes_expired_openai_codex_credentials(
     monkeypatch,
 ) -> None:
@@ -321,147 +266,16 @@ def test_build_canonical_model_settings_sets_openai_store_false_for_chatgpt_vari
     assert settings["parallel_tool_calls"] is True
 
 
-def test_resolve_canonical_model_builds_github_copilot_provider(
+def test_resolve_canonical_model_rejects_removed_suffix_variant(
     monkeypatch,
 ) -> None:
-    monkeypatch.setattr(
-        "just_another_coding_agent.runtime.models.resolve_github_copilot_oauth_credentials_sync",
-        lambda: SimpleNamespace(
-            access="copilot-access",
-            enterprise_domain=None,
-        ),
-    )
-    monkeypatch.setattr(
-        "just_another_coding_agent.runtime.models.get_github_copilot_base_url",
-        lambda token, enterprise_domain=None: "https://api.individual.githubcopilot.com",
-    )
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
 
-    model = resolve_canonical_model("openai-responses:gpt-5.4-copilot")
-
-    unwrapped = unwrap_instrumented_model(model)
-    assert isinstance(unwrapped, OpenAIResponsesModel)
-    assert model.model_name == "gpt-5.4"
-    assert model.system == "openai"
-    assert str(model._provider.base_url) == "https://api.individual.githubcopilot.com"
-    assert (
-        model._provider.client.default_headers["Copilot-Integration-Id"]
-        == "vscode-chat"
-    )
-    assert model._provider.client.default_headers["X-Initiator"] == "user"
-
-
-def test_resolve_canonical_model_refreshes_expired_github_copilot_credentials(
-    monkeypatch,
-) -> None:
-    monkeypatch.setattr(
-        "just_another_coding_agent.runtime.models.resolve_github_copilot_oauth_credentials_sync",
-        lambda: SimpleNamespace(
-            access="copilot-access",
-            enterprise_domain=None,
-        ),
-    )
-    monkeypatch.setattr(
-        "just_another_coding_agent.runtime.models.get_github_copilot_base_url",
-        lambda token, enterprise_domain=None: "https://api.individual.githubcopilot.com",
-    )
-
-    model = resolve_canonical_model("openai-responses:gpt-5.4-copilot")
-
-    unwrapped = unwrap_instrumented_model(model)
-    assert isinstance(unwrapped, OpenAIResponsesModel)
-    assert model._provider.client.api_key == "copilot-access"
-
-
-def test_resolve_canonical_model_builds_github_copilot_chat_variant(
-    monkeypatch,
-) -> None:
-    monkeypatch.setattr(
-        "just_another_coding_agent.runtime.models.resolve_github_copilot_oauth_credentials_sync",
-        lambda: SimpleNamespace(
-            access="copilot-access",
-            enterprise_domain=None,
-        ),
-    )
-    monkeypatch.setattr(
-        "just_another_coding_agent.runtime.models.get_github_copilot_base_url",
-        lambda token, enterprise_domain=None: "https://api.individual.githubcopilot.com",
-    )
-
-    model = resolve_canonical_model("openai-chat:gpt-4.1-copilot")
-
-    unwrapped = unwrap_instrumented_model(model)
-    assert isinstance(unwrapped, OpenAIChatModel)
-    assert model.model_name == "gpt-4.1"
-    assert model.system == "openai"
-
-
-def test_resolve_canonical_model_builds_github_copilot_anthropic_variant(
-    monkeypatch,
-) -> None:
-    monkeypatch.setattr(
-        "just_another_coding_agent.runtime.models.resolve_github_copilot_oauth_credentials_sync",
-        lambda: SimpleNamespace(
-            access="copilot-access",
-            enterprise_domain=None,
-        ),
-    )
-    monkeypatch.setattr(
-        "just_another_coding_agent.runtime.models.get_github_copilot_base_url",
-        lambda token, enterprise_domain=None: "https://api.individual.githubcopilot.com",
-    )
-
-    model = resolve_canonical_model("anthropic:claude-sonnet-4.5-copilot")
-
-    unwrapped = unwrap_instrumented_model(model)
-    assert isinstance(unwrapped, AnthropicModel)
-    assert model.model_name == "claude-sonnet-4.5"
-
-
-def test_build_canonical_model_settings_sets_openai_store_false_for_github_copilot(
-    monkeypatch,
-) -> None:
-    monkeypatch.setattr(
-        "just_another_coding_agent.runtime.models.resolve_github_copilot_oauth_credentials_sync",
-        lambda: SimpleNamespace(
-            access="copilot-access",
-            enterprise_domain=None,
-        ),
-    )
-    monkeypatch.setattr(
-        "just_another_coding_agent.runtime.models.get_github_copilot_base_url",
-        lambda token, enterprise_domain=None: "https://api.individual.githubcopilot.com",
-    )
-
-    settings = build_canonical_model_settings(
-        model="openai-responses:gpt-5.4-copilot"
-    )
-
-    assert settings is not None
-    assert settings["openai_store"] is False
-    assert settings["parallel_tool_calls"] is True
-
-
-def test_resolve_canonical_model_builds_github_copilot_codex_variant(
-    monkeypatch,
-) -> None:
-    monkeypatch.setattr(
-        "just_another_coding_agent.runtime.models.resolve_github_copilot_oauth_credentials_sync",
-        lambda: SimpleNamespace(
-            access="copilot-access",
-            enterprise_domain=None,
-        ),
-    )
-    monkeypatch.setattr(
-        "just_another_coding_agent.runtime.models.get_github_copilot_base_url",
-        lambda token, enterprise_domain=None: "https://api.individual.githubcopilot.com",
-    )
-
-    model = resolve_canonical_model("openai-responses:gpt-5.1-codex-copilot")
-
-    unwrapped = unwrap_instrumented_model(model)
-    assert isinstance(unwrapped, OpenAIResponsesModel)
-    assert model.model_name == "gpt-5.1-codex"
-    assert model.system == "openai"
+    with pytest.raises(
+        ValueError,
+        match=r"unsupported model id: gpt-5\.4-copilot",
+    ):
+        resolve_canonical_model("openai-responses:gpt-5.4-copilot")
 
 
 def test_build_canonical_model_settings_merge_model_defaults() -> None:
@@ -583,31 +397,6 @@ def test_get_model_context_window_tokens_for_supported_models(monkeypatch) -> No
         get_model_context_window_tokens("openai-responses:gpt-5.1-codex-chatgpt")
         == 400_000
     )
-    assert (
-        get_model_context_window_tokens("openai-responses:gpt-5-mini-copilot")
-        == 264_000
-    )
-    assert (
-        get_model_context_window_tokens("openai-responses:gpt-5.4-copilot")
-        == 400_000
-    )
-    assert (
-        get_model_context_window_tokens("openai-responses:gpt-5.1-codex-copilot")
-        == 400_000
-    )
-    assert get_model_context_window_tokens("openai-chat:gpt-4.1-copilot") == 128_000
-    assert (
-        get_model_context_window_tokens("openai-chat:gemini-3-pro-preview-copilot")
-        == 128_000
-    )
-    assert (
-        get_model_context_window_tokens("anthropic:claude-sonnet-4.5-copilot")
-        == 144_000
-    )
-    assert (
-        get_model_context_window_tokens("anthropic:claude-opus-4.6-copilot")
-        == 1_000_000
-    )
     assert get_model_context_window_tokens("openai:gpt-5.4") == 1_050_000
     assert get_model_context_window_tokens("openai:gpt-5.4-mini") == 400_000
     assert get_model_context_window_tokens("openai:gpt-4o") == 128_000
@@ -632,22 +421,13 @@ def test_get_model_context_window_tokens_preserves_chatgpt_context_window_for_re
 
     assert get_model_context_window_tokens(model) == 400_000
 
-
-def test_get_model_context_window_tokens_preserves_copilot_context_window_for_resolved_model(  # noqa: E501
-    monkeypatch,
+def test_get_model_context_window_tokens_returns_none_for_removed_suffix_models(
 ) -> None:
-    monkeypatch.setattr(
-        "just_another_coding_agent.runtime.models.resolve_github_copilot_oauth_credentials_sync",
-        lambda: SimpleNamespace(access="oauth-access", enterprise_domain=None),
+    assert get_model_context_window_tokens("openai-responses:gpt-5.4-copilot") is None
+    assert (
+        get_model_context_window_tokens("anthropic:claude-sonnet-4.5-copilot")
+        is None
     )
-    monkeypatch.setattr(
-        "just_another_coding_agent.runtime.models.get_github_copilot_base_url",
-        lambda _token, _domain: "https://api.individual.githubcopilot.com",
-    )
-
-    model = resolve_canonical_model("openai-responses:gpt-5.4-copilot")
-
-    assert get_model_context_window_tokens(model) == 400_000
 
 def test_all_backend_owned_shipped_models_have_context_windows() -> None:
     missing = sorted(
