@@ -171,13 +171,17 @@ class ReadOnlyWorkerClient:
             except TimeoutError:
                 self._process.kill()
                 await self._process.wait()
-            self._process = None
 
         if self._reader_task is not None:
-            self._reader_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._reader_task
+            try:
+                await asyncio.wait_for(asyncio.shield(self._reader_task), timeout=2)
+            except TimeoutError:
+                self._reader_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await self._reader_task
             self._reader_task = None
+
+        self._process = None
 
     async def _fail_pending(self, error: Exception) -> None:
         self._fatal_error = error

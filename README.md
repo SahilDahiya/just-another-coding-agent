@@ -130,7 +130,7 @@ The TUI keeps non-secret provider, model, and trace preferences in
 `~/.jaca/config.json`.
 Provider secrets are backend-owned and stored in the local OS keychain by
 default. When keychain storage is unavailable, JACA stores them in
-`~/.jaca/secrets.json` instead and explains why in the auth panel.
+`~/.jaca/auth.json` instead and explains why in the auth panel.
 Environment variables remain the explicit override for headless, CI, and
 evaluation flows.
 On Linux/WSL, interactive `/auth` requires a supported OS keychain backend

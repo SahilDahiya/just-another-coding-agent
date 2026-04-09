@@ -376,8 +376,10 @@ async def test_headless_auth_status_responds_without_waiting_for_second_line(
         assert message["id"] == "req-auth"
         assert "providers" in message["response"]
     finally:
+        process.stdin.close()
+        await process.stdin.wait_closed()
         process.terminate()
-        await asyncio.wait_for(process.wait(), timeout=5)
+        await asyncio.wait_for(process.communicate(), timeout=5)
 
 
 async def test_serve_rpc_stdio_drains_queued_follow_up_after_run(
