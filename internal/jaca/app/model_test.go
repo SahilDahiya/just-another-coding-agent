@@ -1470,8 +1470,8 @@ func TestMaybeStartOnboardingStartsOpenAICodexLoginCommandForOAuthModel(t *testi
 	if cmd == nil {
 		t.Fatal("maybeStartOnboarding() should return login start command")
 	}
-	if !m.login.Active {
-		t.Fatal("ChatGPT onboarding login should activate overlay before RPC response")
+	if m.login.Active {
+		t.Fatal("ChatGPT onboarding login should stay on transcript path before RPC response")
 	}
 
 	updated, next := m.Update(cmd())
@@ -1512,8 +1512,8 @@ func TestMaybeStartOnboardingStartsGitHubCopilotLoginCommandForOAuthModel(t *tes
 	if cmd == nil {
 		t.Fatal("maybeStartOnboarding() should return login start command")
 	}
-	if !m.login.Active {
-		t.Fatal("Copilot onboarding login should activate overlay before RPC response")
+	if m.login.Active {
+		t.Fatal("Copilot onboarding login should stay on transcript path before RPC response")
 	}
 
 	updated, next := m.Update(cmd())
@@ -1803,8 +1803,8 @@ func TestLoginSlashStartsBackgroundGitHubCopilotLogin(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("expected login start command")
 	}
-	if !m.login.Active {
-		t.Fatal("expected copilot login overlay to activate before RPC response")
+	if m.login.Active {
+		t.Fatal("expected no transitional login overlay before RPC response")
 	}
 	updated, _ = m.Update(cmd())
 	m = updated.(*model)

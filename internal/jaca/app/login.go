@@ -58,7 +58,6 @@ func (m *model) startOpenAICodexLoginFlow(pendingModel string, pendingPrompt str
 		return m, nil
 	}
 	m.login = loginState{
-		Active:        true,
 		Provider:      "openai-codex",
 		PendingModel:  pendingModel,
 		PendingPrompt: pendingPrompt,
@@ -82,7 +81,6 @@ func (m *model) startGitHubCopilotLoginFlow(
 		return m, nil
 	}
 	m.login = loginState{
-		Active:        true,
 		Provider:      "github-copilot",
 		PendingModel:  pendingModel,
 		PendingPrompt: pendingPrompt,
