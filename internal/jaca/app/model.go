@@ -499,9 +499,14 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.login.Instructions = msg.Response.Instructions
 		m.login.Active = false
 		m.login.Waiting = true
-		m.transcript.WriteNote("login", []string{
+		m.transcript.WriteRenderedNote("login", []string{
 			"Open this URL in your browser:",
 			msg.Response.AuthURL,
+			"Waiting for browser callback on http://localhost:1455/auth/callback",
+			"If auto-return fails, finish with /login openai-codex <redirect-url-or-code>",
+		}, []string{
+			"Open this URL in your browser:",
+			renderHyperlink(msg.Response.AuthURL, loginLinkLabel(msg.Response.AuthURL)),
 			"Waiting for browser callback on http://localhost:1455/auth/callback",
 			"If auto-return fails, finish with /login openai-codex <redirect-url-or-code>",
 		})
@@ -523,9 +528,14 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.login.Instructions = msg.Response.Instructions
 		m.login.Active = false
 		m.login.Waiting = true
-		m.transcript.WriteNote("login", []string{
+		m.transcript.WriteRenderedNote("login", []string{
 			"Open this URL in your browser:",
 			msg.Response.AuthURL,
+			fmt.Sprintf("Enter code: %s", msg.Response.UserCode),
+			"Waiting for GitHub Copilot device-code approval",
+		}, []string{
+			"Open this URL in your browser:",
+			renderHyperlink(msg.Response.AuthURL, loginLinkLabel(msg.Response.AuthURL)),
 			fmt.Sprintf("Enter code: %s", msg.Response.UserCode),
 			"Waiting for GitHub Copilot device-code approval",
 		})

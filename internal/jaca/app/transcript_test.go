@@ -14,9 +14,11 @@ import (
 )
 
 var ansiRe = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+var osc8Re = regexp.MustCompile(`\x1b]8;;[^\x1b]*\x1b\\`)
 
 func stripANSI(text string) string {
-	return ansiRe.ReplaceAllString(text, "")
+	text = ansiRe.ReplaceAllString(text, "")
+	return osc8Re.ReplaceAllString(text, "")
 }
 
 func TestWriteStartupBannerIncludesModelInPlainText(t *testing.T) {
@@ -987,6 +989,19 @@ func TestWrapLinesPreservesANSI(t *testing.T) {
 	for i, line := range strings.Split(got, "\n") {
 		if visibleLen(line) > 25 {
 			t.Fatalf("line %d exceeds width 25: %q (visible=%d)", i, line, visibleLen(line))
+		}
+	}
+}
+
+func TestWrapLinesPreservesHyperlinks(t *testing.T) {
+	input := renderHyperlink("https://auth.example.test/login", "Open login link (auth.example.test)") + " for browser login completion"
+	got := wrapLines(input, 28)
+	if !strings.Contains(got, "\x1b]8;;https://auth.example.test/login\x1b\\") {
+		t.Fatalf("wrapLines stripped OSC 8 hyperlink: %q", got)
+	}
+	for i, line := range strings.Split(got, "\n") {
+		if visibleLen(line) > 28 {
+			t.Fatalf("line %d exceeds width 28: %q (visible=%d)", i, line, visibleLen(line))
 		}
 	}
 }

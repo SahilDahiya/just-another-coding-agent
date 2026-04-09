@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -247,6 +248,13 @@ func (t *Transcript) WriteNote(title string, lines []string) {
 	t.endLiveAssistant()
 	t.ensureBlockGap()
 	t.appendBlock(newNoteCell(title, lines))
+}
+
+func (t *Transcript) WriteRenderedNote(title string, plainLines []string, renderedLines []string) {
+	t.endToolGroup()
+	t.endLiveAssistant()
+	t.ensureBlockGap()
+	t.appendBlock(newRenderedNoteCell(title, plainLines, renderedLines))
 }
 
 func (t *Transcript) InsertNoteBeforeCurrentRun(title string, lines []string) {
@@ -544,19 +552,43 @@ func newOmissionCell(runCount int) *rawCell {
 }
 
 func newNoteCell(title string, lines []string) *rawCell {
+	return newRenderedNoteCell(title, lines, lines)
+}
+
+func newRenderedNoteCell(title string, plainLines []string, renderedLines []string) *rawCell {
 	header := lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render("note") +
 		"  " + lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Bold(true).Render(title)
 	plain := "note  " + title + "\n"
 	rendered := header + "\n"
-	for _, line := range lines {
+	for _, line := range plainLines {
 		plain += line + "\n"
+	}
+	for _, line := range renderedLines {
 		rendered += line + "\n"
 	}
-	if len(lines) > 0 {
+	if len(renderedLines) > 0 || len(plainLines) > 0 {
 		rendered += "\n"
 		plain += "\n"
 	}
 	return &rawCell{plain: plain, rendered: rendered}
+}
+
+func renderHyperlink(urlText string, label string) string {
+	if strings.TrimSpace(urlText) == "" || strings.TrimSpace(label) == "" {
+		return label
+	}
+	return "\x1b]8;;" + urlText + "\x1b\\" + label + "\x1b]8;;\x1b\\"
+}
+
+func loginLinkLabel(urlText string) string {
+	if strings.TrimSpace(urlText) == "" {
+		return "Open login link"
+	}
+	parsed, err := url.Parse(urlText)
+	if err != nil || strings.TrimSpace(parsed.Host) == "" {
+		return "Open login link"
+	}
+	return fmt.Sprintf("Open login link (%s)", parsed.Host)
 }
 
 func (t *Transcript) rebuildLiveAssistantRendered() {

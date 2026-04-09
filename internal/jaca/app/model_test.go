@@ -1754,8 +1754,8 @@ func TestLoginSlashStartsBackgroundOpenAICodexLogin(t *testing.T) {
 		t.Fatal("expected login flow to keep waiting for callback")
 	}
 	rendered := stripANSI(m.View())
-	if !strings.Contains(rendered, "https://auth.example.test/login") {
-		t.Fatalf("view missing login URL note: %q", rendered)
+	if !strings.Contains(rendered, "Open login link (auth.example.test)") {
+		t.Fatalf("view missing shortened login link note: %q", rendered)
 	}
 }
 
@@ -1822,8 +1822,8 @@ func TestLoginSlashStartsBackgroundGitHubCopilotLogin(t *testing.T) {
 		t.Fatal("expected background login wait state")
 	}
 	rendered := stripANSI(m.View())
-	if !strings.Contains(rendered, "https://github.com/login/device") {
-		t.Fatalf("view missing device login URL note: %q", rendered)
+	if !strings.Contains(rendered, "Open login link (github.com)") {
+		t.Fatalf("view missing shortened device login link note: %q", rendered)
 	}
 	if !strings.Contains(rendered, "ABCD-EFGH") {
 		t.Fatalf("view missing device code note: %q", rendered)

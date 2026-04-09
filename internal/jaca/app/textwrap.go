@@ -7,9 +7,15 @@ import (
 
 // ansiEscapeRe matches ANSI escape sequences so they can be skipped when measuring visible line width.
 var ansiEscapeRe = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+var osc8EscapeRe = regexp.MustCompile(`\x1b]8;;[^\x1b]*\x1b\\`)
+
+func stripNonPrintingEscapes(text string) string {
+	text = ansiEscapeRe.ReplaceAllString(text, "")
+	return osc8EscapeRe.ReplaceAllString(text, "")
+}
 
 func visibleLen(text string) int {
-	return len([]rune(ansiEscapeRe.ReplaceAllString(text, "")))
+	return len([]rune(stripNonPrintingEscapes(text)))
 }
 
 func wrapLines(text string, width int) string {
@@ -33,7 +39,7 @@ func wrapLines(text string, width int) string {
 }
 
 func leadingSpaces(line string) string {
-	stripped := ansiEscapeRe.ReplaceAllString(line, "")
+	stripped := stripNonPrintingEscapes(line)
 	trimmed := strings.TrimLeft(stripped, " ")
 	n := len(stripped) - len(trimmed)
 	if n == 0 {
@@ -52,7 +58,10 @@ func wrapSingleLine(out *strings.Builder, line string, width int) {
 	indentWidth := len([]rune(indent))
 	var tokens []visibleToken
 	cursor := 0
-	for _, loc := range ansiEscapeRe.FindAllStringIndex(line, -1) {
+	escapeLocs := append([][]int{}, ansiEscapeRe.FindAllStringIndex(line, -1)...)
+	escapeLocs = append(escapeLocs, osc8EscapeRe.FindAllStringIndex(line, -1)...)
+	escapeLocs = sortEscapeLocs(escapeLocs)
+	for _, loc := range escapeLocs {
 		if loc[0] > cursor {
 			tokens = append(tokens, splitVisibleTokens(line[cursor:loc[0]])...)
 		}
@@ -89,6 +98,20 @@ func wrapSingleLine(out *strings.Builder, line string, width int) {
 		out.WriteString(tok.text)
 		col += tok.visible
 	}
+}
+
+func sortEscapeLocs(locs [][]int) [][]int {
+	if len(locs) < 2 {
+		return locs
+	}
+	for i := 0; i < len(locs)-1; i++ {
+		for j := i + 1; j < len(locs); j++ {
+			if locs[j][0] < locs[i][0] {
+				locs[i], locs[j] = locs[j], locs[i]
+			}
+		}
+	}
+	return locs
 }
 
 func splitVisibleTokens(text string) []visibleToken {
