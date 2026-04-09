@@ -152,6 +152,7 @@ def test_harbor_agent_setup_matches_current_environment_exec_api(
 
     _install_fake_harbor_modules()
     module = importlib.import_module("evaluations.harbor.agent")
+    commands_module = importlib.import_module("evaluations.harbor.commands")
     prebuilt_worker = tmp_path / "jaca-read-only-worker"
     prebuilt_worker.write_text("fake worker", encoding="utf-8")
     monkeypatch.setattr(
@@ -159,6 +160,8 @@ def test_harbor_agent_setup_matches_current_environment_exec_api(
         "_build_harbor_read_only_worker",
         lambda _repo_root: prebuilt_worker,
     )
+    monkeypatch.setattr(commands_module, "AUTH_FILE_PATH", tmp_path / "auth.json")
+    monkeypatch.setattr(commands_module, "OAUTH_FILE_PATH", tmp_path / "oauth.json")
 
     class FakeEnvironment:
         def __init__(self) -> None:

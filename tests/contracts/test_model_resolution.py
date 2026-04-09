@@ -347,7 +347,7 @@ def test_resolve_canonical_model_rejects_missing_hosted_openai_secret(
     tmp_path,
 ) -> None:
     monkeypatch.setattr(
-        "just_another_coding_agent.secret_store.SECRET_FILE_PATH",
+        "just_another_coding_agent.secret_store.AUTH_FILE_PATH",
         tmp_path / "auth.json",
     )
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
