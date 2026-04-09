@@ -250,7 +250,12 @@ async def test_terminate_process_kills_child_when_killpg_is_not_permitted(
     def _raise_permission_error(_pid: int, _signal: int) -> None:
         raise PermissionError(1, "Operation not permitted")
 
-    monkeypatch.setattr(shell_module.os, "killpg", _raise_permission_error)
+    monkeypatch.setattr(
+        shell_module.os,
+        "killpg",
+        _raise_permission_error,
+        raising=False,
+    )
 
     await shell_module._terminate_process(_FakeProcess(), shell_family="posix")
 
