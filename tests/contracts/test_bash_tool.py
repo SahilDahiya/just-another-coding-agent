@@ -230,6 +230,11 @@ async def test_shell_tool_fails_for_invalid_utf8_output(monkeypatch, tmp_path) -
 async def test_terminate_process_kills_child_when_killpg_is_not_permitted(
     monkeypatch,
 ) -> None:
+    if not hasattr(shell_module.os, "killpg") or not hasattr(
+        shell_module.signal, "SIGKILL"
+    ):
+        pytest.skip("killpg path is only exercised on POSIX hosts with SIGKILL")
+
     wait_called = False
     kill_called = False
 
