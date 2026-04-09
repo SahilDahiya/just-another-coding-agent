@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import time
 from dataclasses import dataclass
@@ -52,6 +53,16 @@ class OpenAICodexLoginFlow:
     state: str
 
 
+@dataclass(frozen=True)
+class ProviderSecretFileSetup:
+    provider: ProviderName
+    env_key: str
+    file_path: str
+    created: bool
+    file_snippet: str
+    entry_snippet: str
+
+
 def resolve_provider_secret(
     provider: ProviderName,
 ) -> str | None:
@@ -80,14 +91,30 @@ def get_local_secret_store_status() -> LocalSecretStoreStatus:
     )
 
 
+def prepare_provider_secret_file(provider: ProviderName) -> ProviderSecretFileSetup:
+    env_key = _provider_env_key(provider)
+    created = False
+    if not secret_store.AUTH_FILE_PATH.exists():
+        secret_store.save_file_store({})
+        created = True
+    else:
+        secret_store.load_file_store()
+    return ProviderSecretFileSetup(
+        provider=provider,
+        env_key=env_key,
+        file_path=str(secret_store.AUTH_FILE_PATH),
+        created=created,
+        file_snippet=json.dumps({env_key: "..."}, indent=2, sort_keys=True),
+        entry_snippet=f'"{env_key}": "..."',
+    )
+
+
 def get_oauth_provider_statuses() -> list[OAuthProviderStatus]:
     statuses: list[OAuthProviderStatus] = []
 
     openai_codex = get_openai_codex_credentials()
     if openai_codex is None:
-        statuses.append(
-            OAuthProviderStatus(provider="openai-codex", logged_in=False)
-        )
+        statuses.append(OAuthProviderStatus(provider="openai-codex", logged_in=False))
     else:
         statuses.append(
             OAuthProviderStatus(
@@ -176,6 +203,7 @@ def resolve_openai_codex_oauth_credentials_sync():
         set_openai_codex_credentials(refreshed)
     return refreshed
 
+
 def set_provider_secret(
     provider: ProviderName,
     secret: str,
@@ -257,6 +285,7 @@ __all__ = [
     "get_local_secret_store_status",
     "get_oauth_provider_statuses",
     "list_provider_auth_statuses",
+    "prepare_provider_secret_file",
     "resolve_openai_codex_oauth_credentials",
     "resolve_openai_codex_oauth_credentials_sync",
     "resolve_provider_secret",

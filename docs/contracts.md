@@ -67,6 +67,9 @@ Rules:
 - `~/.jaca/config.json` is not a secret store. It may persist only non-secret
   preferences such as provider selection, model selection, trace mode, and
   base URLs.
+- API-key file setup is backend-owned too. `auth.prepare_file` must ensure the
+  canonical local auth file exists as valid JSON, then return the raw file
+  path plus exact file and entry snippets for the selected supported provider.
 
 OAuth login RPC contract:
 
@@ -81,6 +84,16 @@ OAuth login RPC contract:
 - Manual OpenAI completion and background browser-callback completion must
   resolve the same canonical login result; the shell must not race two
   different notions of success.
+
+API-key setup RPC contract:
+
+- `auth.prepare_file` is the canonical first-run and `/auth <provider>` path
+  for API-key setup.
+- It returns the selected provider, env key, raw local auth-file path, whether
+  the file was created during the call, a complete file snippet for an empty
+  file, and a single-entry snippet for an existing JSON object.
+- The Go TUI must render that backend-owned path and snippet verbatim instead
+  of inventing file URLs or provider-specific setup text locally.
 
 `thinking` contract:
 

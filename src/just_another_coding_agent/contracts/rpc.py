@@ -81,6 +81,16 @@ class AuthStatusRequest(_RpcModel):
     payload: AuthStatusPayload
 
 
+class AuthPrepareFilePayload(_RpcModel):
+    provider: ProviderName
+
+
+class AuthPrepareFileRequest(_RpcModel):
+    id: str
+    command: Literal["auth.prepare_file"]
+    payload: AuthPrepareFilePayload
+
+
 class AuthSetPayload(_RpcModel):
     provider: ProviderName
     secret: str
@@ -190,6 +200,7 @@ RpcRequest = Annotated[
     | SessionPreviewRequest
     | ModelCatalogRequest
     | AuthStatusRequest
+    | AuthPrepareFileRequest
     | AuthSetRequest
     | AuthClearRequest
     | AuthLoginOpenAICodexStartRequest
@@ -237,6 +248,15 @@ class AuthStatusResponse(_RpcModel):
     providers: list[AuthProviderStatus]
     local_secret_store: RpcLocalSecretStoreStatus
     oauth_providers: list[OAuthProviderStatus]
+
+
+class AuthPrepareFileResponse(_RpcModel):
+    provider: ProviderName
+    env_key: str
+    file_path: str
+    created: bool
+    file_snippet: str
+    entry_snippet: str
 
 
 class AuthSetResponse(_RpcModel):
@@ -291,6 +311,7 @@ class RpcResponseEnvelope(_RpcModel):
         | SessionPreviewResponse
         | ModelCatalogResponse
         | AuthStatusResponse
+        | AuthPrepareFileResponse
         | AuthSetResponse
         | AuthClearResponse
         | AuthLoginOpenAICodexStartResponse
@@ -329,6 +350,9 @@ __all__ = [
     "AuthLoginOpenAICodexStartPayload",
     "AuthLoginOpenAICodexStartRequest",
     "AuthLoginOpenAICodexStartResponse",
+    "AuthPrepareFilePayload",
+    "AuthPrepareFileRequest",
+    "AuthPrepareFileResponse",
     "AuthProviderStatus",
     "AuthSetPayload",
     "AuthSetRequest",

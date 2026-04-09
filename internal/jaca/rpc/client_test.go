@@ -288,51 +288,60 @@ func TestClientAuthStatusWhileOpenAICodexWaitIsActive(t *testing.T) {
 ready = pathlib.Path(os.environ['JACA_RPC_HELPER_READY'])
 ready.write_text('ready')
 wait_id = None
+pending_auth_request = None
 for line in sys.stdin:
     request = json.loads(line)
     if request["command"] == "auth.login_openai_codex.wait":
         wait_id = request["id"]
+        if pending_auth_request is None:
+            continue
+        request = pending_auth_request
     elif request["command"] == "auth.status":
-        sys.stdout.write(json.dumps({
-            "type": "rpc_response",
-            "id": request["id"],
-            "response": {
-                "providers": [{
-                    "provider": "openai",
-                    "configured": True,
-                    "secret_configured": True,
-                    "requires_secret": True,
-                    "source": "env",
-                    "env_key": "OPENAI_API_KEY",
-                    "reason": "ok",
-                }],
-                "local_secret_store": {
-                    "available": True,
-                    "message": None,
-                    "file_store_path": "",
-                },
-                "oauth_providers": [{
-                    "provider": "openai-codex",
-                    "logged_in": True,
-                    "account_id": "acct-123",
-                    "expires_at": 1760000000000,
-                }],
+        if wait_id is None:
+            pending_auth_request = request
+            continue
+    else:
+        continue
+    sys.stdout.write(json.dumps({
+        "type": "rpc_response",
+        "id": request["id"],
+        "response": {
+            "providers": [{
+                "provider": "openai",
+                "configured": True,
+                "secret_configured": True,
+                "requires_secret": True,
+                "source": "env",
+                "env_key": "OPENAI_API_KEY",
+                "reason": "ok",
+            }],
+            "local_secret_store": {
+                "available": True,
+                "message": None,
+                "file_store_path": "",
             },
-        }) + "\n")
-        sys.stdout.write(json.dumps({
-            "type": "rpc_response",
-            "id": wait_id,
-            "response": {
-                "status": {
-                    "provider": "openai-codex",
-                    "logged_in": True,
-                    "account_id": "acct-123",
-                    "expires_at": 1760000000000,
-                }
-            },
-        }) + "\n")
-        sys.stdout.flush()
-        break`,
+            "oauth_providers": [{
+                "provider": "openai-codex",
+                "logged_in": True,
+                "account_id": "acct-123",
+                "expires_at": 1760000000000,
+            }],
+        },
+    }) + "\n")
+    sys.stdout.write(json.dumps({
+        "type": "rpc_response",
+        "id": wait_id,
+        "response": {
+            "status": {
+                "provider": "openai-codex",
+                "logged_in": True,
+                "account_id": "acct-123",
+                "expires_at": 1760000000000,
+            }
+        },
+    }) + "\n")
+    sys.stdout.flush()
+    break`,
 	)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)

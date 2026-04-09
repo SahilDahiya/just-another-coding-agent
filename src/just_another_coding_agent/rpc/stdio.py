@@ -20,6 +20,7 @@ from just_another_coding_agent.auth import (
     get_local_secret_store_status,
     get_oauth_provider_statuses,
     list_provider_auth_statuses,
+    prepare_provider_secret_file,
     set_provider_secret,
     start_openai_codex_oauth_login,
     wait_for_openai_codex_oauth_login,
@@ -38,6 +39,8 @@ from just_another_coding_agent.contracts.rpc import (
     AuthLoginOpenAICodexStartResponse,
     AuthLoginOpenAICodexWaitRequest,
     AuthLoginOpenAICodexWaitResponse,
+    AuthPrepareFileRequest,
+    AuthPrepareFileResponse,
     AuthSetRequest,
     AuthSetResponse,
     AuthStatusRequest,
@@ -131,9 +134,7 @@ class _FollowUpState:
         *,
         run_task: asyncio.Task[None],
         emit_queue_state: Callable[[SessionQueueStateEvent], Awaitable[None]],
-        emit_submitted_prompt_batch: Callable[
-            [str, list[str]], Awaitable[None]
-        ]
+        emit_submitted_prompt_batch: Callable[[str, list[str]], Awaitable[None]]
         | None = None,
     ) -> None:
         async with self._lock:
@@ -180,9 +181,7 @@ class _FollowUpState:
         event: SessionQueueStateEvent | None = None
         async with self._lock:
             if session_id not in self._active_sessions:
-                raise RuntimeError(
-                    "Queueing requires an active run for this session."
-                )
+                raise RuntimeError("Queueing requires an active run for this session.")
             previous_event = self._build_queue_state_event_locked(session_id)
             if mode == "next":
                 queue = self._steer_queues[session_id]
@@ -198,11 +197,7 @@ class _FollowUpState:
                 )
                 emitter = self._queue_event_emitters.get(session_id)
                 event = self._build_queue_state_event_locked(session_id)
-        if (
-            emitter is not None
-            and event is not None
-            and previous_event != event
-        ):
+        if emitter is not None and event is not None and previous_event != event:
             await emitter(event)
         return queued_count
 
@@ -220,11 +215,7 @@ class _FollowUpState:
             self._active_steer_targets[session_id] = attach
             emitter = self._queue_event_emitters.get(session_id)
             event = self._build_queue_state_event_locked(session_id)
-        if (
-            emitter is not None
-            and event is not None
-            and previous_event != event
-        ):
+        if emitter is not None and event is not None and previous_event != event:
             await emitter(event)
 
     async def submit_active_steer_boundary(self, session_id: str) -> None:
@@ -247,11 +238,7 @@ class _FollowUpState:
             emitter = self._queue_event_emitters.get(session_id)
             event = self._build_queue_state_event_locked(session_id)
             submitted_emitter = self._submitted_prompt_emitters.get(session_id)
-        if (
-            emitter is not None
-            and event is not None
-            and previous_event != event
-        ):
+        if emitter is not None and event is not None and previous_event != event:
             await emitter(event)
         if submitted_emitter is not None and submitted_prompts:
             await submitted_emitter("next", submitted_prompts)
@@ -264,11 +251,7 @@ class _FollowUpState:
             self._active_steer_targets.pop(session_id, None)
             emitter = self._queue_event_emitters.get(session_id)
             event = self._build_queue_state_event_locked(session_id)
-        if (
-            emitter is not None
-            and event is not None
-            and previous_event != event
-        ):
+        if emitter is not None and event is not None and previous_event != event:
             await emitter(event)
 
     async def downgrade_pending_steers_to_follow_ups(self, session_id: str) -> None:
@@ -282,11 +265,7 @@ class _FollowUpState:
             self._prepend_follow_ups_locked(session_id, prompts)
             emitter = self._queue_event_emitters.get(session_id)
             event = self._build_queue_state_event_locked(session_id)
-        if (
-            emitter is not None
-            and event is not None
-            and previous_event != event
-        ):
+        if emitter is not None and event is not None and previous_event != event:
             await emitter(event)
 
     async def take_next_follow_up_batch(self, session_id: str) -> list[str] | None:
@@ -303,11 +282,7 @@ class _FollowUpState:
             emitter = self._queue_event_emitters.get(session_id)
             event = self._build_queue_state_event_locked(session_id)
             prompts = list(batch.prompts)
-        if (
-            emitter is not None
-            and event is not None
-            and previous_event != event
-        ):
+        if emitter is not None and event is not None and previous_event != event:
             await emitter(event)
         return prompts
 
@@ -321,15 +296,11 @@ class _FollowUpState:
         event: SessionQueueStateEvent | None = None
         async with self._lock:
             if session_id not in self._active_sessions:
-                raise RuntimeError(
-                    "Interrupt requires an active run for this session."
-                )
+                raise RuntimeError("Interrupt requires an active run for this session.")
             previous_event = self._build_queue_state_event_locked(session_id)
             run_task = self._active_run_tasks.get(session_id)
             if run_task is None:
-                raise RuntimeError(
-                    "Interrupt requires an active run for this session."
-                )
+                raise RuntimeError("Interrupt requires an active run for this session.")
             promoted_count = 0
             if promote_queued_steer:
                 prompts = self._drain_pending_steers_locked(session_id)
@@ -339,11 +310,7 @@ class _FollowUpState:
             emitter = self._queue_event_emitters.get(session_id)
             event = self._build_queue_state_event_locked(session_id)
             run_task.cancel()
-        if (
-            emitter is not None
-            and event is not None
-            and previous_event != event
-        ):
+        if emitter is not None and event is not None and previous_event != event:
             await emitter(event)
         return promoted_count
 
@@ -362,9 +329,7 @@ class _FollowUpState:
         prompts: list[str],
     ) -> None:
         follow_ups = self._follow_up_queues[session_id]
-        follow_ups.appendleft(
-            _QueuedPromptBatch(kind="next", prompts=list(prompts))
-        )
+        follow_ups.appendleft(_QueuedPromptBatch(kind="next", prompts=list(prompts)))
 
     def _append_follow_up_locked(
         self,
@@ -500,6 +465,30 @@ async def handle_rpc_json_line(
                 providers=providers,
                 local_secret_store=get_local_secret_store_status(),
                 oauth_providers=get_oauth_provider_statuses(),
+            ),
+        ).model_dump_json()
+        return
+
+    if isinstance(request, AuthPrepareFileRequest):
+        try:
+            prepared = prepare_provider_secret_file(request.payload.provider)
+        except AuthStoreError as error:
+            yield RpcErrorEnvelope(
+                id=request.id,
+                error_type="InternalError",
+                message=str(error),
+            ).model_dump_json()
+            return
+
+        yield RpcResponseEnvelope(
+            id=request.id,
+            response=AuthPrepareFileResponse(
+                provider=prepared.provider,
+                env_key=prepared.env_key,
+                file_path=prepared.file_path,
+                created=prepared.created,
+                file_snippet=prepared.file_snippet,
+                entry_snippet=prepared.entry_snippet,
             ),
         ).model_dump_json()
         return
@@ -879,9 +868,7 @@ async def handle_rpc_json_line(
         )
 
     async def submit_boundary() -> None:
-        await _FOLLOW_UP_STATE.submit_active_steer_boundary(
-            request.payload.session_id
-        )
+        await _FOLLOW_UP_STATE.submit_active_steer_boundary(request.payload.session_id)
 
     await _FOLLOW_UP_STATE.activate(
         request.payload.session_id,

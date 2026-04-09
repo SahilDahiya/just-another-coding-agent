@@ -481,18 +481,23 @@ func TestRenderViewShowsCenteredAuthFilePanel(t *testing.T) {
 			SecretLabel: "Anthropic API key",
 			InputValue:  "********",
 			HelpLines: []string{
-				`Use API key? add "ANTHROPIC_API_KEY" to /tmp/jaca-auth.json.`,
-				"OAuth also works via /login when available.",
-				"Retry your prompt after saving.",
+				"Add your Anthropic API key to:",
+				"/tmp/jaca-auth.json",
+				"",
+				"Add this entry inside the JSON object:",
+				`"ANTHROPIC_API_KEY": "..."`,
+				"",
+				"Save the file, then retry your prompt.",
 			},
 		},
 	}))
 
 	for _, want := range []string{
 		"Auth File",
-		`Use API key? add "ANTHROPIC_API_KEY"`,
+		"Add your Anthropic API key to:",
 		"/tmp/jaca-auth.json",
-		"Retry your prompt after saving.",
+		`"ANTHROPIC_API_KEY": "..."`,
+		"Save the file, then retry your prompt.",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("renderView() missing %q in %q", want, rendered)
@@ -511,9 +516,15 @@ func TestRenderViewShowsAuthFilePath(t *testing.T) {
 			SecretLabel: "OpenAI API key",
 			InputValue:  "********",
 			HelpLines: []string{
-				`Use API key? add "OPENAI_API_KEY" to /tmp/jaca-auth.json.`,
-				"OAuth also works via /login when available.",
-				"Retry your prompt after saving.",
+				"Add your OpenAI API key to:",
+				"/tmp/jaca-auth.json",
+				"",
+				"Paste this into the empty file:",
+				"{",
+				`  "OPENAI_API_KEY": "..."`,
+				"}",
+				"",
+				"Save the file, then retry your prompt.",
 			},
 		},
 	}))
@@ -521,7 +532,8 @@ func TestRenderViewShowsAuthFilePath(t *testing.T) {
 	for _, want := range []string{
 		"Auth File",
 		"/tmp/jaca-auth.json",
-		"Retry your prompt after saving.",
+		`"OPENAI_API_KEY": "..."`,
+		"Save the file, then retry your prompt.",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("renderView() missing %q in %q", want, rendered)

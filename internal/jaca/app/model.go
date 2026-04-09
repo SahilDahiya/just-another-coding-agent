@@ -802,9 +802,7 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "enter":
 		if m.slashMenuVisible() {
-			m.commitSlashSuggestion()
-			m.refreshViewport()
-			return m, nil
+			return m.submitSelectedSlashSuggestion(m.streaming)
 		}
 		if m.streaming {
 			if isSlashInput(m.textInput.Value()) {

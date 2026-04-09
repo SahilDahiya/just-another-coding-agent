@@ -302,25 +302,21 @@ func (m *model) startCredentialSetup(
 	returnToOnboardingKind string,
 	pendingPrompt string,
 ) error {
-	statuses, err := m.availableAuthStatus()
+	if m.options.Backend == nil {
+		return errors.New("backend unavailable")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), authStatusTimeout)
+	defer cancel()
+	prepared, err := m.options.Backend.PrepareAuthFile(ctx, provider)
 	if err != nil {
 		return err
 	}
-	for _, status := range statuses.Providers {
-		if status.Provider != provider {
-			continue
-		}
-		m.transcript.WriteNote(
-			"auth",
-			authFileSetupLines(provider, statuses.LocalSecretStore.FileStorePath),
-		)
-		m.auth.PendingProvider = pendingProvider
-		m.auth.PendingModel = pendingModel
-		m.auth.PendingPrompt = pendingPrompt
-		m.auth.ReturnToOnboardingKind = returnToOnboardingKind
-		return nil
-	}
-	return fmt.Errorf("unknown provider: %s", provider)
+	m.transcript.WriteNote("auth", authFileSetupNoteLines(prepared))
+	m.auth.PendingProvider = pendingProvider
+	m.auth.PendingModel = pendingModel
+	m.auth.PendingPrompt = pendingPrompt
+	m.auth.ReturnToOnboardingKind = returnToOnboardingKind
+	return nil
 }
 func (m *model) fetchAuthStatus() (rpc.AuthStatusResponse, error) {
 	if m.options.Backend == nil {

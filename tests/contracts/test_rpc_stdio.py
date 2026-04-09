@@ -261,8 +261,9 @@ def test_openai_codex_login_redirect_host_matches_callback_listener() -> None:
     assert redirect.port == 1455
 
 
-async def test_follow_up_state_interrupt_preserves_fifo_within_promoted_and_later(
-) -> None:
+async def test_follow_up_state_interrupt_preserves_fifo_within_promoted_and_later() -> (
+    None
+):
     state = _FollowUpState()
     run_task = asyncio.create_task(asyncio.Event().wait())
     session_id = "b" * 32
@@ -296,8 +297,9 @@ async def test_follow_up_state_interrupt_preserves_fifo_within_promoted_and_late
     ]
 
 
-async def test_follow_up_state_downgrades_pending_next_ahead_of_existing_later(
-) -> None:
+async def test_follow_up_state_downgrades_pending_next_ahead_of_existing_later() -> (
+    None
+):
     state = _FollowUpState()
     session_id = "c" * 32
     run_task = asyncio.create_task(asyncio.Event().wait())
@@ -328,8 +330,9 @@ async def test_follow_up_state_downgrades_pending_next_ahead_of_existing_later(
         await run_task
 
 
-async def test_follow_up_state_interrupt_without_promotion_preserves_later_only(
-) -> None:
+async def test_follow_up_state_interrupt_without_promotion_preserves_later_only() -> (
+    None
+):
     state = _FollowUpState()
     session_id = "d" * 32
     run_task = asyncio.create_task(asyncio.Event().wait())
@@ -355,8 +358,7 @@ async def test_follow_up_state_interrupt_without_promotion_preserves_later_only(
     assert await state.take_next_follow_up_batch(session_id) is None
 
 
-async def test_follow_up_state_submit_active_boundary_emits_submitted_next(
-) -> None:
+async def test_follow_up_state_submit_active_boundary_emits_submitted_next() -> None:
     state = _FollowUpState()
     session_id = "e" * 32
     run_task = asyncio.create_task(asyncio.Event().wait())
@@ -1211,8 +1213,9 @@ def test_prune_stale_login_flows_removes_expired_openai_codex_entries() -> None:
 
 
 @pytest.mark.asyncio
-async def test_prune_stale_login_flows_keeps_completed_openai_task_until_waited(
-) -> None:
+async def test_prune_stale_login_flows_keeps_completed_openai_task_until_waited() -> (
+    None
+):
     _OPENAI_CODEX_LOGIN_FLOWS.clear()
     _OPENAI_CODEX_LOGIN_TASKS.clear()
     _OPENAI_CODEX_LOGIN_RESULTS.clear()
@@ -1294,6 +1297,58 @@ async def test_handle_rpc_json_line_sets_provider_secret(
                     "env_key": "OPENAI_API_KEY",
                     "reason": "ok",
                 }
+            },
+        }
+    ]
+
+
+async def test_handle_rpc_json_line_prepares_auth_file(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    monkeypatch.setattr(
+        "just_another_coding_agent.rpc.stdio.prepare_provider_secret_file",
+        lambda provider: type(
+            "PreparedAuthFile",
+            (),
+            {
+                "provider": provider,
+                "env_key": "OPENAI_API_KEY",
+                "file_path": "/tmp/auth.json",
+                "created": True,
+                "file_snippet": '{\n  "OPENAI_API_KEY": "..."\n}',
+                "entry_snippet": '"OPENAI_API_KEY": "..."',
+            },
+        )(),
+    )
+
+    messages = await _rpc_messages(
+        request_payload={
+            "id": "req-auth-prepare",
+            "command": "auth.prepare_file",
+            "payload": {
+                "provider": "openai",
+            },
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    assert messages == [
+        {
+            "type": "rpc_response",
+            "id": "req-auth-prepare",
+            "response": {
+                "provider": "openai",
+                "env_key": "OPENAI_API_KEY",
+                "file_path": "/tmp/auth.json",
+                "created": True,
+                "file_snippet": '{\n  "OPENAI_API_KEY": "..."\n}',
+                "entry_snippet": '"OPENAI_API_KEY": "..."',
             },
         }
     ]

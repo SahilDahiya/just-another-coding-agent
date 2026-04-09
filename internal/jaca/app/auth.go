@@ -7,6 +7,8 @@ import (
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+
+	"jaca/internal/jaca/rpc"
 )
 
 type authState struct {
@@ -181,18 +183,50 @@ func authOverlayTitle(storage string) string {
 }
 
 func authSetupLines(provider string, fileStorePath string) []string {
-	return authFileSetupLines(provider, fileStorePath)
+	return authFileSetupNoteLines(rpc.AuthPrepareFileResponse{
+		Provider:     provider,
+		EnvKey:       authEnvKey(provider),
+		FilePath:     authFilePath(fileStorePath),
+		Created:      false,
+		FileSnippet:  authFileSnippet(authEnvKey(provider)),
+		EntrySnippet: authFileEntrySnippet(authEnvKey(provider)),
+	})
 }
 
-func authFileSetupLines(provider string, fileStorePath string) []string {
+func authFileSetupLines(response rpc.AuthPrepareFileResponse) []string {
+	return authFileSetupNoteLines(response)
+}
+
+func authFileSetupNoteLines(response rpc.AuthPrepareFileResponse) []string {
+	lines := []string{
+		fmt.Sprintf("Add your %s to:", authSecretLabel(response.Provider)),
+		response.FilePath,
+		"",
+	}
+	if response.Created {
+		lines = append(lines, "Paste this into the empty file:")
+		lines = append(lines, strings.Split(response.FileSnippet, "\n")...)
+	} else {
+		lines = append(lines, "Add this entry inside the JSON object:")
+		lines = append(lines, response.EntrySnippet)
+	}
+	lines = append(lines, "", "Save the file, then retry your prompt.")
+	return lines
+}
+
+func authFilePath(fileStorePath string) string {
 	if strings.TrimSpace(fileStorePath) == "" {
-		fileStorePath = "~/.jaca/auth.json"
+		return "~/.jaca/auth.json"
 	}
-	return []string{
-		fmt.Sprintf("Use API key? add %q to %s.", authEnvKey(provider), fileStorePath),
-		"OAuth also works via /login when available.",
-		"Retry your prompt after saving.",
-	}
+	return fileStorePath
+}
+
+func authFileSnippet(envKey string) string {
+	return fmt.Sprintf("{\n  %q: %q\n}", envKey, "...")
+}
+
+func authFileEntrySnippet(envKey string) string {
+	return fmt.Sprintf("%q: %q", envKey, "...")
 }
 
 func authProviderLabel(provider string) string {

@@ -99,8 +99,8 @@ func (m *model) onboardingOptionLines() []string {
 
 func (m *model) onboardingHelpLines() []string {
 	return []string{
-		"Choose how JACA should access a model.",
-		"ChatGPT login picks a recommended model.",
+		"Choose one of the supported access paths.",
+		"API-key setup prepares ~/.jaca/auth.json for you.",
 		"Enter selects. Esc closes this panel.",
 	}
 }

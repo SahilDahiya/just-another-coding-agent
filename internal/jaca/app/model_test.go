@@ -29,6 +29,7 @@ type stubBackend struct {
 	oauthWaitDone      bool
 	oauthWaitDoneFn    func() bool
 	waitOpenAICodexFn  func(context.Context, string) (rpc.AuthLoginOpenAICodexWaitResponse, error)
+	prepareAuthFileFn  func(context.Context, string) (rpc.AuthPrepareFileResponse, error)
 	localSecretStore   rpc.LocalSecretStoreStatus
 	authStatusErr      error
 	authStatusCalls    int
@@ -117,6 +118,22 @@ func (b *stubBackend) SessionPreview(_ context.Context, _ string) (rpc.SessionPr
 }
 func (b *stubBackend) ModelCatalog(_ context.Context) (rpc.ModelCatalogResponse, error) {
 	return b.modelCatalog, b.modelCatalogErr
+}
+func (b *stubBackend) PrepareAuthFile(
+	ctx context.Context,
+	provider string,
+) (rpc.AuthPrepareFileResponse, error) {
+	if b.prepareAuthFileFn != nil {
+		return b.prepareAuthFileFn(ctx, provider)
+	}
+	return rpc.AuthPrepareFileResponse{
+		Provider:     provider,
+		EnvKey:       authEnvKey(provider),
+		FilePath:     b.localSecretStore.FileStorePath,
+		Created:      true,
+		FileSnippet:  authFileSnippet(authEnvKey(provider)),
+		EntrySnippet: authFileEntrySnippet(authEnvKey(provider)),
+	}, nil
 }
 func (b *stubBackend) AuthStatus(_ context.Context) (rpc.AuthStatusResponse, error) {
 	b.authStatusCalls++
@@ -1225,6 +1242,55 @@ func TestSelectingTraceSuggestionCommitsOnlyToPrompt(t *testing.T) {
 	}
 }
 
+func TestEnterOnModelArgumentSuggestionExecutesSelection(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("OPENAI_API_KEY", "test-key")
+
+	backend := newStubBackend()
+	status, err := backend.AuthStatus(context.Background())
+	if err != nil {
+		t.Fatalf("AuthStatus() returned error: %v", err)
+	}
+	m := newTestModel()
+	m.options.Backend = backend
+
+	m = sendRunes(m, "/model ")
+	updated, _ := m.Update(authStatusLoadedMsg{
+		Status: status,
+	})
+	m = updated.(*model)
+	if !m.slashMenuVisible() {
+		t.Fatal("expected /model suggestions to be visible")
+	}
+
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	if got := m.options.Model; got != "openai-responses:gpt-5.4" {
+		t.Fatalf("options.Model = %q, want %q", got, "openai-responses:gpt-5.4")
+	}
+	rendered := stripANSI(m.transcript.Render())
+	if !strings.Contains(rendered, "model set to openai-responses:gpt-5.4") {
+		t.Fatalf("transcript missing executed model change: %q", rendered)
+	}
+}
+
+func TestEnterOnHelpSuggestionExecutesCommand(t *testing.T) {
+	m := newTestModel()
+
+	m = sendRunes(m, "/he")
+	if !m.slashMenuVisible() {
+		t.Fatal("expected command suggestions to be visible")
+	}
+
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	rendered := stripANSI(m.transcript.Render())
+	if !strings.Contains(rendered, "note  commands") {
+		t.Fatalf("help command did not execute from slash suggestion: %q", rendered)
+	}
+}
+
 func TestAuthSlashSuggestionsIncludeSupportedProviders(t *testing.T) {
 	m := newTestModel()
 
@@ -1517,9 +1583,10 @@ func TestFirstRunChoosingOpenAIShowsAuthFileNote(t *testing.T) {
 	}
 	rendered := stripANSI(m.transcript.Render())
 	for _, want := range []string{
-		`Use API key? add "OPENAI_API_KEY"`,
+		"Add your OpenAI API key to:",
 		authPath,
-		"OAuth also works via /login when available.",
+		"Paste this into the empty file:",
+		`"OPENAI_API_KEY": "..."`,
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("transcript missing %q in %q", want, rendered)
@@ -1602,7 +1669,7 @@ func TestStartupAuthStatusWritesAuthFileNoteForPersistedProviderWithoutCredentia
 		t.Fatalf("startup auth should not open auth overlay: %#v", m.auth)
 	}
 	rendered := stripANSI(m.transcript.Render())
-	if !strings.Contains(rendered, `Use API key? add "OPENAI_API_KEY"`) {
+	if !strings.Contains(rendered, "Add your OpenAI API key to:") {
 		t.Fatalf("startup transcript missing auth-file note: %q", rendered)
 	}
 }
@@ -2040,10 +2107,11 @@ func TestAuthCommandShowsAuthFileInstructions(t *testing.T) {
 
 	rendered := stripANSI(m.transcript.Render())
 	for _, want := range []string{
-		`Use API key? add "OPENAI_API_KEY"`,
+		"Add your OpenAI API key to:",
 		authPath,
-		"OAuth also works via /login when available.",
-		"Retry your prompt after saving.",
+		"Paste this into the empty file:",
+		`"OPENAI_API_KEY": "..."`,
+		"Save the file, then retry your prompt.",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("auth instructions missing %q in %q", want, rendered)
@@ -2071,8 +2139,11 @@ func TestAuthAnthropicShowsAuthFileInstructions(t *testing.T) {
 	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
 
 	rendered := stripANSI(m.transcript.Render())
-	if !strings.Contains(rendered, `Use API key? add "ANTHROPIC_API_KEY"`) {
+	if !strings.Contains(rendered, "Add your Anthropic API key to:") {
 		t.Fatalf("transcript missing anthropic auth note: %q", rendered)
+	}
+	if !strings.Contains(rendered, filepath.Join(home, ".jaca", "auth.json")) {
+		t.Fatalf("transcript missing auth file path: %q", rendered)
 	}
 }
 
@@ -2111,7 +2182,7 @@ func TestModelWithoutCredentialsShowsAuthFileNote(t *testing.T) {
 	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
 
 	rendered := stripANSI(m.transcript.Render())
-	if !strings.Contains(rendered, `Use API key? add "OPENAI_API_KEY"`) {
+	if !strings.Contains(rendered, "Add your OpenAI API key to:") {
 		t.Fatalf("transcript missing auth note after model selection: %q", rendered)
 	}
 	if got := m.promptHistory; len(got) != 1 || got[0] != "/model openai-responses:gpt-5.4-mini" {
@@ -2266,7 +2337,7 @@ func TestProviderSelectionDoesNotHandleAPIKeysInTUI(t *testing.T) {
 	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
 
 	transcript := stripANSI(m.transcript.Render())
-	if !strings.Contains(transcript, `Use API key? add "OPENAI_API_KEY"`) {
+	if !strings.Contains(transcript, "Add your OpenAI API key to:") {
 		t.Fatalf("transcript missing auth-file note: %q", transcript)
 	}
 	if backend.lastSetSecret.Provider != "" || backend.lastSetSecret.Secret != "" {

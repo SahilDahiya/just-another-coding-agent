@@ -43,7 +43,7 @@ type slashCommandSpec struct {
 
 var slashCommands = []slashCommandSpec{
 	{Value: "/login", Description: "Set up ChatGPT subscription login", AcceptsArgs: true, ArgSuggestions: (*model).loginSlashSuggestions, Execute: (*model).executeLoginSlash},
-	{Value: "/auth", Description: "Advanced: show auth.json entry for API-key auth", AcceptsArgs: true, ArgSuggestions: (*model).authSlashSuggestions, Execute: (*model).executeAuthSlash},
+	{Value: "/auth", Description: "Advanced: prepare auth.json for API-key setup", AcceptsArgs: true, ArgSuggestions: (*model).authSlashSuggestions, Execute: (*model).executeAuthSlash},
 	{Value: "/model", Description: "Switch active model", AcceptsArgs: true, ArgSuggestions: (*model).modelSlashSuggestions, Execute: (*model).executeModelSlash},
 	{Value: "/trace", Description: "Set tracing mode", AcceptsArgs: true, ArgSuggestions: (*model).traceSlashSuggestions, Execute: (*model).executeTraceSlash},
 	{Value: "/thinking", Description: "Set thinking effort", AcceptsArgs: true, Execute: (*model).executeThinkingSlash},
@@ -136,6 +136,27 @@ func (m *model) commitSlashSuggestion() {
 	}
 }
 
+func (m *model) submitSelectedSlashSuggestion(whileStreaming bool) (tea.Model, tea.Cmd) {
+	if !m.slashMenuVisible() {
+		return m, nil
+	}
+	active := m.slashMenu.Rows[m.slashMenu.Selected]
+	switch m.slashMenu.Mode {
+	case slashMenuCommands:
+		if active.AcceptsArgs {
+			m.commitSlashSuggestion()
+			m.refreshViewport()
+			return m, nil
+		}
+		return m.submitSlashCommand(active.Value, whileStreaming)
+	case slashMenuArguments:
+		m.commitSlashSuggestion()
+		return m.submitSlashCommand(strings.TrimSpace(m.textInput.Value()), whileStreaming)
+	default:
+		return m, nil
+	}
+}
+
 func (m *model) currentProvider() string {
 	cfg, err := config.Load()
 	if err != nil {
@@ -216,8 +237,8 @@ func slashCommandSuggestions() []slashSuggestion {
 
 func authSuggestions() []slashSuggestion {
 	return []slashSuggestion{
-		{Value: "openai", Description: "Show auth.json entry for OpenAI"},
-		{Value: "anthropic", Description: "Show auth.json entry for Anthropic"},
+		{Value: "openai", Description: "Prepare auth.json setup for OpenAI"},
+		{Value: "anthropic", Description: "Prepare auth.json setup for Anthropic"},
 	}
 }
 

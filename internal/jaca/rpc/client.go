@@ -108,6 +108,16 @@ func (m *Manager) CreateSession(ctx context.Context) (SessionCreateResponse, err
 	return client.CreateSession(ctx)
 }
 
+func (m *Manager) PrepareAuthFile(ctx context.Context, provider string) (AuthPrepareFileResponse, error) {
+	m.mu.Lock()
+	client, err := m.ensureStartedLocked()
+	m.mu.Unlock()
+	if err != nil {
+		return AuthPrepareFileResponse{}, err
+	}
+	return client.PrepareAuthFile(ctx, provider)
+}
+
 func (m *Manager) SetSessionName(ctx context.Context, sessionID string, name string) (SessionNameResponse, error) {
 	m.mu.Lock()
 	client, err := m.ensureStartedLocked()
@@ -856,6 +866,44 @@ func (c *Client) WaitOpenAICodexLogin(
 		return AuthLoginOpenAICodexWaitResponse{}, fmt.Errorf("%s: %s", envelope.ErrorType, envelope.Message)
 	default:
 		return AuthLoginOpenAICodexWaitResponse{}, fmt.Errorf("unexpected envelope for auth.login_openai_codex.wait: %T", line)
+	}
+}
+
+func (c *Client) PrepareAuthFile(
+	ctx context.Context,
+	provider string,
+) (AuthPrepareFileResponse, error) {
+	requestID := c.nextRequestID()
+	waiter, cleanup, err := c.registerWaiter(requestID)
+	if err != nil {
+		return AuthPrepareFileResponse{}, err
+	}
+	defer cleanup()
+	c.writeMu.Lock()
+	if err := c.writeRequest(Request{
+		ID:      requestID,
+		Command: "auth.prepare_file",
+		Payload: AuthPrepareFilePayload{Provider: provider},
+	}); err != nil {
+		c.writeMu.Unlock()
+		return AuthPrepareFileResponse{}, err
+	}
+	c.writeMu.Unlock()
+	line, err := c.awaitEnvelope(ctx, waiter)
+	if err != nil {
+		return AuthPrepareFileResponse{}, err
+	}
+	switch envelope := line.(type) {
+	case ResponseEnvelope:
+		var response AuthPrepareFileResponse
+		if err := json.Unmarshal(envelope.Response, &response); err != nil {
+			return AuthPrepareFileResponse{}, err
+		}
+		return response, nil
+	case ErrorEnvelope:
+		return AuthPrepareFileResponse{}, fmt.Errorf("%s: %s", envelope.ErrorType, envelope.Message)
+	default:
+		return AuthPrepareFileResponse{}, fmt.Errorf("unexpected envelope for auth.prepare_file: %T", line)
 	}
 }
 

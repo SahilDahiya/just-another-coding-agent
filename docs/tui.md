@@ -145,12 +145,12 @@ The core architectural risk is semantic drift between the Go shell and the Pytho
   provider-specific labeling, a centered secure setup panel, a masked input
   field, and clear copy that the secret is not written into transcript or
   prompt history.
-- GitHub token setup should also be explicit in-product: ask for a
-  fine-grained personal access token and call out the required account
-  permission `Models -> Read-only` instead of making the user infer that from
-  docs.
-- The TUI must not collect API keys directly. Hosted-provider setup should
-  point to the backend-owned auth file and keep OAuth under `/login`.
+- The TUI must not collect API keys directly. Hosted-provider setup should use
+  the backend-owned auth-file contract: ensure `~/.jaca/auth.json` exists,
+  show the raw absolute file path on its own line, and show the exact JSON
+  snippet the user should paste for the selected provider. Do not rely on
+  `file://` links or other terminal-specific open-file tricks as the primary
+  path.
 - OAuth login completion notes must come from the backend-owned login wait
   contract itself. The Go shell must not poll for completion or rely on later
   commands such as `/model` or prompt submission to reconcile login success.

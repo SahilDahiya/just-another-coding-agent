@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -8,6 +9,7 @@ from just_another_coding_agent.auth import (
     clear_provider_secret,
     get_local_secret_store_status,
     get_provider_auth_status,
+    prepare_provider_secret_file,
     resolve_openai_codex_oauth_credentials,
     resolve_provider_secret,
     set_provider_secret,
@@ -108,6 +110,47 @@ def test_set_provider_secret_only_accepts_file_storage(monkeypatch, tmp_path) ->
 
     with pytest.raises(ValueError, match="unknown auth storage"):
         set_provider_secret("openai", "test-key", storage="keychain")  # type: ignore[arg-type]
+
+
+def test_prepare_provider_secret_file_creates_empty_auth_store(
+    monkeypatch, tmp_path
+) -> None:
+    auth_path = tmp_path / "auth.json"
+    monkeypatch.setattr(
+        "just_another_coding_agent.secret_store.AUTH_FILE_PATH",
+        auth_path,
+    )
+
+    prepared = prepare_provider_secret_file("openai")
+
+    assert prepared.provider == "openai"
+    assert prepared.env_key == "OPENAI_API_KEY"
+    assert prepared.file_path == str(auth_path)
+    assert prepared.created is True
+    assert prepared.file_snippet == '{\n  "OPENAI_API_KEY": "..."\n}'
+    assert prepared.entry_snippet == '"OPENAI_API_KEY": "..."'
+    assert json.loads(auth_path.read_text()) == {}
+
+
+def test_prepare_provider_secret_file_keeps_existing_auth_store(
+    monkeypatch, tmp_path
+) -> None:
+    auth_path = tmp_path / "auth.json"
+    auth_path.write_text('{"ANTHROPIC_API_KEY":"existing"}')
+    monkeypatch.setattr(
+        "just_another_coding_agent.secret_store.AUTH_FILE_PATH",
+        auth_path,
+    )
+
+    prepared = prepare_provider_secret_file("anthropic")
+
+    assert prepared.provider == "anthropic"
+    assert prepared.env_key == "ANTHROPIC_API_KEY"
+    assert prepared.file_path == str(auth_path)
+    assert prepared.created is False
+    assert prepared.file_snippet == '{\n  "ANTHROPIC_API_KEY": "..."\n}'
+    assert prepared.entry_snippet == '"ANTHROPIC_API_KEY": "..."'
+    assert auth_path.read_text() == '{"ANTHROPIC_API_KEY":"existing"}'
 
 
 def test_get_provider_auth_status_requires_openai_secret_even_with_local_base_url(

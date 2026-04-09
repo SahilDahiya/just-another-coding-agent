@@ -28,6 +28,10 @@ type ModelCatalogPayload struct{}
 
 type AuthStatusPayload struct{}
 
+type AuthPrepareFilePayload struct {
+	Provider string `json:"provider"`
+}
+
 type AuthSetPayload struct {
 	Provider string `json:"provider"`
 	Secret   string `json:"secret"`
@@ -167,6 +171,15 @@ type AuthStatusResponse struct {
 	Providers        []AuthProviderStatus   `json:"providers"`
 	LocalSecretStore LocalSecretStoreStatus `json:"local_secret_store"`
 	OAuthProviders   []OAuthProviderStatus  `json:"oauth_providers"`
+}
+
+type AuthPrepareFileResponse struct {
+	Provider     string `json:"provider"`
+	EnvKey       string `json:"env_key"`
+	FilePath     string `json:"file_path"`
+	Created      bool   `json:"created"`
+	FileSnippet  string `json:"file_snippet"`
+	EntrySnippet string `json:"entry_snippet"`
 }
 
 type AuthSetResponse struct {
