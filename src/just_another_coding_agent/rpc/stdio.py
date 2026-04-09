@@ -1103,9 +1103,6 @@ def _prune_login_flow_group(
     for flow_id, started in started_at.items():
         task = tasks.get(flow_id)
         expired = (now - started) > _LOGIN_FLOW_TTL_SECONDS
-        if task is not None and task.done():
-            stale_flow_ids.append(flow_id)
-            continue
         if expired:
             if task is not None:
                 task.cancel()

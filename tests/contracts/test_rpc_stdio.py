@@ -30,8 +30,10 @@ from just_another_coding_agent.rpc.session_store import (
     session_path_for_id,
 )
 from just_another_coding_agent.rpc.stdio import (
+    _GITHUB_COPILOT_LOGIN_TASKS,
     _GITHUB_COPILOT_LOGIN_FLOWS,
     _GITHUB_COPILOT_LOGIN_STARTED_AT,
+    _OPENAI_CODEX_LOGIN_TASKS,
     _OPENAI_CODEX_LOGIN_FLOWS,
     _OPENAI_CODEX_LOGIN_STARTED_AT,
     _FollowUpState,
@@ -996,6 +998,7 @@ async def test_handle_rpc_json_line_polls_github_copilot_login(
 
 def test_prune_stale_login_flows_removes_expired_openai_codex_entries() -> None:
     _OPENAI_CODEX_LOGIN_FLOWS.clear()
+    _OPENAI_CODEX_LOGIN_TASKS.clear()
     _OPENAI_CODEX_LOGIN_STARTED_AT.clear()
     flow = OpenAICodexLoginFlow(flow_id="stale-flow", verifier="v", state="s")
     _OPENAI_CODEX_LOGIN_FLOWS["stale-flow"] = flow
@@ -1009,6 +1012,7 @@ def test_prune_stale_login_flows_removes_expired_openai_codex_entries() -> None:
 
 def test_prune_stale_login_flows_removes_expired_github_copilot_entries() -> None:
     _GITHUB_COPILOT_LOGIN_FLOWS.clear()
+    _GITHUB_COPILOT_LOGIN_TASKS.clear()
     _GITHUB_COPILOT_LOGIN_STARTED_AT.clear()
     flow = GitHubCopilotLoginFlow(
         flow_id="stale-gh-flow",
@@ -1026,6 +1030,56 @@ def test_prune_stale_login_flows_removes_expired_github_copilot_entries() -> Non
 
     assert "stale-gh-flow" not in _GITHUB_COPILOT_LOGIN_FLOWS
     assert "stale-gh-flow" not in _GITHUB_COPILOT_LOGIN_STARTED_AT
+
+
+@pytest.mark.asyncio
+async def test_prune_stale_login_flows_keeps_completed_openai_task_until_polled() -> None:
+    _OPENAI_CODEX_LOGIN_FLOWS.clear()
+    _OPENAI_CODEX_LOGIN_TASKS.clear()
+    _OPENAI_CODEX_LOGIN_STARTED_AT.clear()
+
+    flow = OpenAICodexLoginFlow(flow_id="done-flow", verifier="v", state="s")
+    task = asyncio.create_task(asyncio.sleep(0, result="done"))
+    await task
+
+    _OPENAI_CODEX_LOGIN_FLOWS["done-flow"] = flow
+    _OPENAI_CODEX_LOGIN_TASKS["done-flow"] = task
+    _OPENAI_CODEX_LOGIN_STARTED_AT["done-flow"] = 9_999.0
+
+    _prune_stale_login_flows(now=10_000.0)
+
+    assert "done-flow" in _OPENAI_CODEX_LOGIN_FLOWS
+    assert "done-flow" in _OPENAI_CODEX_LOGIN_TASKS
+    assert "done-flow" in _OPENAI_CODEX_LOGIN_STARTED_AT
+
+
+@pytest.mark.asyncio
+async def test_prune_stale_login_flows_keeps_completed_github_task_until_polled() -> None:
+    _GITHUB_COPILOT_LOGIN_FLOWS.clear()
+    _GITHUB_COPILOT_LOGIN_TASKS.clear()
+    _GITHUB_COPILOT_LOGIN_STARTED_AT.clear()
+
+    flow = GitHubCopilotLoginFlow(
+        flow_id="done-gh-flow",
+        domain="github.com",
+        device_code="device-code",
+        interval_seconds=5,
+        expires_in_seconds=900,
+        verification_uri="https://github.com/login/device",
+        user_code="ABCD-EFGH",
+    )
+    task = asyncio.create_task(asyncio.sleep(0, result="done"))
+    await task
+
+    _GITHUB_COPILOT_LOGIN_FLOWS["done-gh-flow"] = flow
+    _GITHUB_COPILOT_LOGIN_TASKS["done-gh-flow"] = task
+    _GITHUB_COPILOT_LOGIN_STARTED_AT["done-gh-flow"] = 9_999.0
+
+    _prune_stale_login_flows(now=10_000.0)
+
+    assert "done-gh-flow" in _GITHUB_COPILOT_LOGIN_FLOWS
+    assert "done-gh-flow" in _GITHUB_COPILOT_LOGIN_TASKS
+    assert "done-gh-flow" in _GITHUB_COPILOT_LOGIN_STARTED_AT
 
 
 async def test_handle_rpc_json_line_sets_provider_secret(
