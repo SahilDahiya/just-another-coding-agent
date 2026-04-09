@@ -100,6 +100,9 @@ The core architectural risk is semantic drift between the Go shell and the Pytho
   During an active run, all slash commands must fail explicitly with recovery
   guidance instead of executing locally or being sent to the backend as model
   input.
+- `/model` suggestions should show the shipped model catalog even when a model
+  is not currently usable, and label missing access explicitly instead of
+  silently hiding those choices.
 - `/name <text>` should stay thin and backend-owned: the shell forwards raw
   text, the backend persists the normalized session name, and `/session`
   renders the returned durable name plus the opaque session id.
@@ -148,6 +151,9 @@ The core architectural risk is semantic drift between the Go shell and the Pytho
   docs.
 - The TUI must not collect API keys directly. Hosted-provider setup should
   point to the backend-owned auth file and keep OAuth under `/login`.
+- OAuth login completion notes must come from the backend-owned login wait
+  contract itself. The Go shell must not poll for completion or rely on later
+  commands such as `/model` or prompt submission to reconcile login success.
 - First-run setup should prioritize the four supported access lanes:
   ChatGPT subscription, GitHub Copilot subscription, OpenAI API key, and
   Anthropic API key. Removed providers should not survive in slash help,

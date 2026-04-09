@@ -294,6 +294,11 @@ func (m *model) submitSlashCommand(command string, whileStreaming bool) (tea.Mod
 	if !ok {
 		return m, nil
 	}
+	if !whileStreaming && m.waitingOAuthLoginBlocksInput() && cmdName != "/login" {
+		m.promptFooterNotice = "login in progress; only /login is available until completion or Esc"
+		m.refreshViewport()
+		return m, nil
+	}
 	if whileStreaming && spec.Value != "" {
 		m.promptFooterNotice = fmt.Sprintf(
 			"%s unavailable during an active run; press Esc or wait for idle",
@@ -436,14 +441,11 @@ func modelSuggestions(
 	rows := make([]slashSuggestion, 0)
 	for _, providerCatalog := range catalog.Providers {
 		for _, model := range providerCatalog.Models {
-			accessLabel, available := modelAccessLabel(
+			accessLabel := modelAccessLabel(
 				model.ModelID,
 				providerCatalog.Provider,
 				authStatus,
 			)
-			if !available {
-				continue
-			}
 			description := model.Description
 			if accessLabel != "" {
 				description = fmt.Sprintf("%s [%s]", description, accessLabel)
@@ -461,14 +463,23 @@ func modelAccessLabel(
 	modelID string,
 	provider string,
 	authStatus *rpc.AuthStatusResponse,
-) (string, bool) {
+) string {
 	if isOpenAICodexOAuthModel(modelID) {
-		return "oauth", oauthLoggedIn(authStatus, "openai-codex")
+		if oauthLoggedIn(authStatus, "openai-codex") {
+			return "oauth"
+		}
+		return "oauth login required"
 	}
 	if isGitHubCopilotOAuthModel(modelID) {
-		return "oauth", oauthLoggedIn(authStatus, "github-copilot")
+		if oauthLoggedIn(authStatus, "github-copilot") {
+			return "oauth"
+		}
+		return "oauth login required"
 	}
-	return "api-key", providerConfiguredForSuggestions(authStatus, provider)
+	if providerConfiguredForSuggestions(authStatus, provider) {
+		return "api-key"
+	}
+	return "api-key required"
 }
 
 func oauthLoggedIn(statuses *rpc.AuthStatusResponse, provider string) bool {

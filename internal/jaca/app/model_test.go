@@ -26,9 +26,13 @@ type stubBackend struct {
 	modelCatalogErr    error
 	authStatuses       map[string]rpc.AuthProviderStatus
 	oauthStatuses      map[string]rpc.OAuthProviderStatus
-	oauthPollDone      bool
+	oauthWaitDone      bool
+	oauthWaitDoneFn    func() bool
+	waitOpenAICodexFn  func(context.Context, string) (rpc.AuthLoginOpenAICodexWaitResponse, error)
+	waitGitHubFn       func(context.Context, string) (rpc.AuthLoginGitHubCopilotWaitResponse, error)
 	localSecretStore   rpc.LocalSecretStoreStatus
 	authStatusErr      error
+	authStatusCalls    int
 	setSecretErr       error
 	authStatusAfterSet map[string]rpc.AuthProviderStatus
 	clearSecretErr     error
@@ -120,6 +124,7 @@ func (b *stubBackend) ModelCatalog(_ context.Context) (rpc.ModelCatalogResponse,
 	return b.modelCatalog, b.modelCatalogErr
 }
 func (b *stubBackend) AuthStatus(_ context.Context) (rpc.AuthStatusResponse, error) {
+	b.authStatusCalls++
 	if b.authStatusErr != nil {
 		return rpc.AuthStatusResponse{}, b.authStatusErr
 	}
@@ -170,29 +175,39 @@ func (b *stubBackend) CompleteOpenAICodexLogin(
 	return rpc.AuthLoginOpenAICodexCompleteResponse{Status: status}, nil
 }
 
-func (b *stubBackend) PollOpenAICodexLogin(
-	_ context.Context,
+func (b *stubBackend) WaitOpenAICodexLogin(
+	ctx context.Context,
 	flowID string,
-) (rpc.AuthLoginOpenAICodexPollResponse, error) {
+) (rpc.AuthLoginOpenAICodexWaitResponse, error) {
+	if b.waitOpenAICodexFn != nil {
+		return b.waitOpenAICodexFn(ctx, flowID)
+	}
 	if flowID == "" {
-		return rpc.AuthLoginOpenAICodexPollResponse{}, fmt.Errorf("missing flow id")
+		return rpc.AuthLoginOpenAICodexWaitResponse{}, fmt.Errorf("missing flow id")
 	}
-	if !b.oauthPollDone {
-		return rpc.AuthLoginOpenAICodexPollResponse{Done: false}, nil
+	for {
+		done := b.oauthWaitDone
+		if b.oauthWaitDoneFn != nil {
+			done = b.oauthWaitDoneFn()
+		}
+		if done {
+			accountID := "acct-test"
+			expiresAt := time.Now().Add(time.Hour).UnixMilli()
+			status := rpc.OAuthProviderStatus{
+				Provider:  "openai-codex",
+				LoggedIn:  true,
+				AccountID: &accountID,
+				ExpiresAt: &expiresAt,
+			}
+			b.oauthStatuses["openai-codex"] = status
+			return rpc.AuthLoginOpenAICodexWaitResponse{Status: status}, nil
+		}
+		select {
+		case <-ctx.Done():
+			return rpc.AuthLoginOpenAICodexWaitResponse{}, ctx.Err()
+		case <-time.After(10 * time.Millisecond):
+		}
 	}
-	accountID := "acct-test"
-	expiresAt := time.Now().Add(time.Hour).UnixMilli()
-	status := rpc.OAuthProviderStatus{
-		Provider:  "openai-codex",
-		LoggedIn:  true,
-		AccountID: &accountID,
-		ExpiresAt: &expiresAt,
-	}
-	b.oauthStatuses["openai-codex"] = status
-	return rpc.AuthLoginOpenAICodexPollResponse{
-		Done:   true,
-		Status: &status,
-	}, nil
 }
 
 func (b *stubBackend) StartGitHubCopilotLogin(_ context.Context, _ string) (rpc.AuthLoginGitHubCopilotStartResponse, error) {
@@ -204,27 +219,37 @@ func (b *stubBackend) StartGitHubCopilotLogin(_ context.Context, _ string) (rpc.
 	}, nil
 }
 
-func (b *stubBackend) PollGitHubCopilotLogin(
-	_ context.Context,
+func (b *stubBackend) WaitGitHubCopilotLogin(
+	ctx context.Context,
 	flowID string,
-) (rpc.AuthLoginGitHubCopilotPollResponse, error) {
+) (rpc.AuthLoginGitHubCopilotWaitResponse, error) {
+	if b.waitGitHubFn != nil {
+		return b.waitGitHubFn(ctx, flowID)
+	}
 	if flowID == "" {
-		return rpc.AuthLoginGitHubCopilotPollResponse{}, fmt.Errorf("missing flow id")
+		return rpc.AuthLoginGitHubCopilotWaitResponse{}, fmt.Errorf("missing flow id")
 	}
-	if !b.oauthPollDone {
-		return rpc.AuthLoginGitHubCopilotPollResponse{Done: false}, nil
+	for {
+		done := b.oauthWaitDone
+		if b.oauthWaitDoneFn != nil {
+			done = b.oauthWaitDoneFn()
+		}
+		if done {
+			expiresAt := time.Now().Add(time.Hour).UnixMilli()
+			status := rpc.OAuthProviderStatus{
+				Provider:  "github-copilot",
+				LoggedIn:  true,
+				ExpiresAt: &expiresAt,
+			}
+			b.oauthStatuses["github-copilot"] = status
+			return rpc.AuthLoginGitHubCopilotWaitResponse{Status: status}, nil
+		}
+		select {
+		case <-ctx.Done():
+			return rpc.AuthLoginGitHubCopilotWaitResponse{}, ctx.Err()
+		case <-time.After(10 * time.Millisecond):
+		}
 	}
-	expiresAt := time.Now().Add(time.Hour).UnixMilli()
-	status := rpc.OAuthProviderStatus{
-		Provider:  "github-copilot",
-		LoggedIn:  true,
-		ExpiresAt: &expiresAt,
-	}
-	b.oauthStatuses["github-copilot"] = status
-	return rpc.AuthLoginGitHubCopilotPollResponse{
-		Done:   true,
-		Status: &status,
-	}, nil
 }
 func (b *stubBackend) SetProviderSecret(
 	_ context.Context,
@@ -1286,6 +1311,31 @@ func TestAuthSlashSuggestionsIncludeSupportedProviders(t *testing.T) {
 	}
 }
 
+func TestAuthStatusLoadRefreshesModelSlashSuggestions(t *testing.T) {
+	m := newTestModel()
+	backend := newStubBackend()
+	status, err := backend.AuthStatus(context.Background())
+	if err != nil {
+		t.Fatalf("AuthStatus() returned error: %v", err)
+	}
+
+	m = sendRunes(m, "/model ")
+	if m.slashMenuVisible() {
+		t.Fatalf("slash menu should stay hidden before auth status arrives, got %#v", m.slashMenu)
+	}
+
+	updated, _ := m.Update(authStatusLoadedMsg{Status: status})
+	m = updated.(*model)
+
+	if !m.slashMenuVisible() {
+		t.Fatal("expected /model slash suggestions to appear after auth status loads")
+	}
+	rendered := stripANSI(m.View())
+	if !strings.Contains(rendered, "openai-responses:gpt-5.4") {
+		t.Fatalf("view missing model suggestions after auth status load in %q", rendered)
+	}
+}
+
 func TestEscClosesSlashSuggestionsWithoutClearingPrompt(t *testing.T) {
 	m := newTestModel()
 
@@ -1759,6 +1809,55 @@ func TestLoginSlashStartsBackgroundOpenAICodexLogin(t *testing.T) {
 	}
 }
 
+func TestPromptSubmissionBlockedWhileExplicitOAuthLoginStarting(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	m := newTestModel()
+	m.options.Backend = newStubBackend()
+	m.login = loginState{
+		Provider: "openai-codex",
+	}
+	m.textInput.SetValue("hello")
+
+	updated, _ := m.handleEnter()
+	m = updated.(*model)
+
+	if m.streaming {
+		t.Fatal("prompt should not start while oauth login start is in flight")
+	}
+	if got := m.textInput.Value(); got != "hello" {
+		t.Fatalf("textInput.Value() = %q, want preserved prompt", got)
+	}
+	if got := m.currentPromptFooter(); got != "login in progress; wait for completion or press Esc to cancel" {
+		t.Fatalf("currentPromptFooter() = %q", got)
+	}
+}
+
+func TestNonLoginSlashBlockedWhileExplicitOAuthLoginWaiting(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	m := newTestModel()
+	m.options.Backend = newStubBackend()
+	m.login = loginState{
+		Provider: "openai-codex",
+		FlowID:   "flow-1",
+		Waiting:  true,
+	}
+
+	updated, _ := m.submitSlashCommand("/model openai-responses:gpt-5.4", false)
+	m = updated.(*model)
+
+	rendered := stripANSI(m.transcript.Render())
+	if strings.Contains(rendered, "note  model") {
+		t.Fatalf("model slash should not execute while explicit login is pending: %q", rendered)
+	}
+	if got := m.currentPromptFooter(); got != "login in progress; only /login is available until completion or Esc" {
+		t.Fatalf("currentPromptFooter() = %q", got)
+	}
+}
+
 func TestOAuthModelSelectionStartsLoginInsteadOfOpenAISecretFlow(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -1854,6 +1953,241 @@ func TestHandleLoginEnterUsesProviderSpecificCompletion(t *testing.T) {
 	}
 	if m.textInput.Value() != "manual-code" {
 		t.Fatalf("textInput.Value() = %q, want unchanged for Copilot", m.textInput.Value())
+	}
+}
+
+func TestOpenAICodexWaitSuccessShowsConfirmationBeforeRefreshingAuthStatus(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	backend := newStubBackend()
+	m := newTestModel()
+	m.options.Backend = backend
+	m.login = loginState{
+		Provider: "openai-codex",
+		FlowID:   "flow-1",
+		Waiting:  true,
+	}
+
+	updated, cmd := m.Update(waitOpenAICodexLoginMsg{
+		Response: rpc.AuthLoginOpenAICodexWaitResponse{
+			Status: rpc.OAuthProviderStatus{
+				Provider: "openai-codex",
+				LoggedIn: true,
+			},
+		},
+	})
+	m = updated.(*model)
+
+	if backend.authStatusCalls != 0 {
+		t.Fatalf("auth status should not be fetched synchronously, got %d calls", backend.authStatusCalls)
+	}
+	if cmd == nil {
+		t.Fatal("expected background auth status refresh command")
+	}
+	rendered := stripANSI(m.transcript.Render())
+	if !strings.Contains(rendered, "ChatGPT subscription login complete") {
+		t.Fatalf("transcript missing immediate login confirmation: %q", rendered)
+	}
+	if m.login.Waiting || m.login.FlowID != "" {
+		t.Fatalf("login state should be cleared after success: %#v", m.login)
+	}
+
+	msg := cmd()
+	if _, ok := msg.(authStatusLoadedMsg); !ok {
+		t.Fatalf("auth refresh command returned %T, want authStatusLoadedMsg", msg)
+	}
+	if backend.authStatusCalls != 1 {
+		t.Fatalf("auth status should be fetched in the background, got %d calls", backend.authStatusCalls)
+	}
+}
+
+func TestOpenAICodexWaitSuccessShowsConfirmationInVisibleViewWithoutExtraInput(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	m := newTestModel()
+	m.options.Backend = newStubBackend()
+
+	m = sendRunes(m, "/login openai-codex")
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(*model)
+	if cmd == nil {
+		t.Fatal("expected login start command")
+	}
+	updated, _ = m.Update(cmd())
+	m = updated.(*model)
+
+	updated, _ = m.Update(waitOpenAICodexLoginMsg{
+		Response: rpc.AuthLoginOpenAICodexWaitResponse{
+			Status: rpc.OAuthProviderStatus{
+				Provider: "openai-codex",
+				LoggedIn: true,
+			},
+		},
+	})
+	m = updated.(*model)
+
+	rendered := stripANSI(m.View())
+	if !strings.Contains(rendered, "ChatGPT subscription login complete") {
+		t.Fatalf("visible view missing login confirmation without extra input: %q", rendered)
+	}
+}
+
+func TestOpenAICodexWaitSuccessForcesViewportToBottom(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	m := newTestModel()
+	m.options.Backend = newStubBackend()
+	for i := 0; i < 30; i++ {
+		m.transcript.WriteLine(fmt.Sprintf("line %02d", i))
+	}
+	m.login = loginState{
+		Provider: "openai-codex",
+		FlowID:   "flow-1",
+		Waiting:  true,
+	}
+	m.refreshViewport()
+	m.viewport.GotoTop()
+
+	updated, _ := m.Update(waitOpenAICodexLoginMsg{
+		Response: rpc.AuthLoginOpenAICodexWaitResponse{
+			Status: rpc.OAuthProviderStatus{
+				Provider: "openai-codex",
+				LoggedIn: true,
+			},
+		},
+	})
+	m = updated.(*model)
+
+	if m.viewport.YOffset == 0 {
+		t.Fatal("login success should force viewport back to bottom")
+	}
+	rendered := stripANSI(m.View())
+	if !strings.Contains(rendered, "ChatGPT subscription login complete") {
+		t.Fatalf("visible view missing login confirmation after forced follow: %q", rendered)
+	}
+}
+
+func TestWaitOpenAICodexLoginWaitsUntilDoneWithoutPolling(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	backend := newStubBackend()
+	readyAt := time.Now().Add(120 * time.Millisecond)
+	backend.oauthWaitDoneFn = func() bool {
+		return time.Now().After(readyAt)
+	}
+
+	cmd := waitOpenAICodexLogin(backend, "flow-1")
+	resultCh := make(chan tea.Msg, 1)
+	go func() {
+		resultCh <- cmd()
+	}()
+
+	select {
+	case msg := <-resultCh:
+		waitMsg, ok := msg.(waitOpenAICodexLoginMsg)
+		if !ok {
+			t.Fatalf("wait command returned %T, want waitOpenAICodexLoginMsg", msg)
+		}
+		if waitMsg.Err != nil {
+			t.Fatalf("wait command returned unexpected error: %v", waitMsg.Err)
+		}
+		if !waitMsg.Response.Status.LoggedIn {
+			t.Fatalf("wait command returned incomplete login status: %#v", waitMsg.Response)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("wait command did not complete after login became ready")
+	}
+}
+
+func TestWaitOpenAICodexLoginUsesLongInteractiveTimeout(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	backend := newStubBackend()
+	var remaining time.Duration
+	backend.waitOpenAICodexFn = func(
+		ctx context.Context,
+		flowID string,
+	) (rpc.AuthLoginOpenAICodexWaitResponse, error) {
+		if flowID != "flow-1" {
+			t.Fatalf("flowID = %q, want flow-1", flowID)
+		}
+		deadline, ok := ctx.Deadline()
+		if !ok {
+			t.Fatal("wait context missing deadline")
+		}
+		remaining = time.Until(deadline)
+		return rpc.AuthLoginOpenAICodexWaitResponse{
+			Status: rpc.OAuthProviderStatus{
+				Provider: "openai-codex",
+				LoggedIn: true,
+			},
+		}, nil
+	}
+
+	msg := waitOpenAICodexLogin(backend, "flow-1")()
+	if _, ok := msg.(waitOpenAICodexLoginMsg); !ok {
+		t.Fatalf("wait command returned %T, want waitOpenAICodexLoginMsg", msg)
+	}
+	if remaining < 10*time.Minute {
+		t.Fatalf("wait timeout = %s, want at least 10m", remaining)
+	}
+}
+
+func TestPromptSubmissionBlockedWhileOAuthLoginPendingForModel(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	m := newTestModel()
+	m.options.Backend = newStubBackend()
+	m.login = loginState{
+		Provider:     "openai-codex",
+		FlowID:       "flow-1",
+		Waiting:      true,
+		PendingModel: "openai-responses:gpt-5.4-chatgpt",
+	}
+	m.textInput.SetValue("hello")
+
+	updated, _ := m.handleEnter()
+	m = updated.(*model)
+
+	if m.streaming {
+		t.Fatal("prompt should not start while oauth login is pending")
+	}
+	if got := m.textInput.Value(); got != "hello" {
+		t.Fatalf("textInput.Value() = %q, want preserved prompt", got)
+	}
+	if got := m.currentPromptFooter(); got != "login in progress; wait for completion or press Esc to cancel" {
+		t.Fatalf("currentPromptFooter() = %q", got)
+	}
+}
+
+func TestNonLoginSlashBlockedWhileOAuthLoginPendingForModel(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	m := newTestModel()
+	m.options.Backend = newStubBackend()
+	m.login = loginState{
+		Provider:     "openai-codex",
+		FlowID:       "flow-1",
+		Waiting:      true,
+		PendingModel: "openai-responses:gpt-5.4-chatgpt",
+	}
+
+	updated, _ := m.submitSlashCommand("/model openai-responses:gpt-5.4", false)
+	m = updated.(*model)
+
+	rendered := stripANSI(m.transcript.Render())
+	if strings.Contains(rendered, "note  model") {
+		t.Fatalf("model slash should not execute while login is pending: %q", rendered)
+	}
+	if got := m.currentPromptFooter(); got != "login in progress; only /login is available until completion or Esc" {
+		t.Fatalf("currentPromptFooter() = %q", got)
 	}
 }
 

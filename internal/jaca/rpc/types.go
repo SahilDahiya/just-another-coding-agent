@@ -45,7 +45,7 @@ type AuthLoginOpenAICodexCompletePayload struct {
 	CallbackOrCode string `json:"callback_or_code"`
 }
 
-type AuthLoginOpenAICodexPollPayload struct {
+type AuthLoginOpenAICodexWaitPayload struct {
 	FlowID string `json:"flow_id"`
 }
 
@@ -53,7 +53,7 @@ type AuthLoginGitHubCopilotStartPayload struct {
 	EnterpriseDomain *string `json:"enterprise_domain,omitempty"`
 }
 
-type AuthLoginGitHubCopilotPollPayload struct {
+type AuthLoginGitHubCopilotWaitPayload struct {
 	FlowID string `json:"flow_id"`
 }
 
@@ -195,9 +195,8 @@ type AuthLoginOpenAICodexCompleteResponse struct {
 	Status OAuthProviderStatus `json:"status"`
 }
 
-type AuthLoginOpenAICodexPollResponse struct {
-	Done   bool                 `json:"done"`
-	Status *OAuthProviderStatus `json:"status"`
+type AuthLoginOpenAICodexWaitResponse struct {
+	Status OAuthProviderStatus `json:"status"`
 }
 
 type AuthLoginGitHubCopilotStartResponse struct {
@@ -207,9 +206,8 @@ type AuthLoginGitHubCopilotStartResponse struct {
 	UserCode     string `json:"user_code"`
 }
 
-type AuthLoginGitHubCopilotPollResponse struct {
-	Done   bool                 `json:"done"`
-	Status *OAuthProviderStatus `json:"status"`
+type AuthLoginGitHubCopilotWaitResponse struct {
+	Status OAuthProviderStatus `json:"status"`
 }
 
 type RunEnqueueResponse struct {

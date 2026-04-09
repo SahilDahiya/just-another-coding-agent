@@ -68,6 +68,24 @@ Rules:
   preferences such as provider selection, model selection, trace mode, and
   base URLs.
 
+OAuth login RPC contract:
+
+- OAuth login is backend-owned and uses explicit RPC commands rather than
+  frontend polling loops.
+- `auth.login_openai_codex.start` returns the browser URL and flow id.
+- `auth.login_openai_codex.complete` is only the manual recovery path for a
+  pasted redirect URL or authorization code.
+- `auth.login_openai_codex.wait` is the canonical completion path. It blocks
+  until the browser callback or manual completion resolves, then returns the
+  final provider status.
+- `auth.login_github_copilot.start` returns the device-code URL, user code, and
+  flow id.
+- `auth.login_github_copilot.wait` blocks until device-code approval resolves,
+  then returns the final provider status.
+- Manual OpenAI completion and background browser-callback completion must
+  resolve the same canonical login result; the shell must not race two
+  different notions of success.
+
 `thinking` contract:
 
 - allowed values: `true`, `false`, `"minimal"`, `"low"`, `"medium"`, `"high"`, `"xhigh"`

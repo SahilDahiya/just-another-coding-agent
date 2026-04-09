@@ -485,6 +485,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		status := msg.Status
 		m.authStatus = &status
 		cmd := m.maybeStartOnboarding()
+		m.syncSlashMenu()
 		m.refreshViewport()
 		return m, cmd
 	case startOpenAICodexLoginMsg:
@@ -515,7 +516,8 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.transcript.WriteLine(err.Error())
 		}
 		m.refreshViewport()
-		return m, pollOpenAICodexLogin(m.options.Backend, m.login.FlowID)
+		m.viewport.GotoBottom()
+		return m, waitOpenAICodexLogin(m.options.Backend, m.login.FlowID)
 	case startGitHubCopilotLoginMsg:
 		if msg.Err != nil {
 			m.endLoginFlow()
@@ -544,7 +546,8 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.transcript.WriteLine(err.Error())
 		}
 		m.refreshViewport()
-		return m, pollGitHubCopilotLogin(m.options.Backend, m.login.FlowID)
+		m.viewport.GotoBottom()
+		return m, waitGitHubCopilotLogin(m.options.Backend, m.login.FlowID)
 	case completeOpenAICodexLoginMsg:
 		if msg.Err != nil {
 			m.transcript.WriteError(msg.Err.Error())
@@ -556,23 +559,12 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			lines = append(lines, fmt.Sprintf("account: %s", *msg.Response.Status.AccountID))
 		}
 		return m.finishLoginSuccess(lines)
-	case pollOpenAICodexLoginMsg:
+	case waitOpenAICodexLoginMsg:
 		if !m.login.Waiting || m.login.FlowID == "" {
 			return m, nil
 		}
 		if msg.Err != nil {
-			if strings.Contains(msg.Err.Error(), "unknown OpenAI Codex login flow") {
-				return m, nil
-			}
 			m.transcript.WriteError(msg.Err.Error())
-			m.refreshViewport()
-			return m, nil
-		}
-		if !msg.Response.Done {
-			return m, pollOpenAICodexLogin(m.options.Backend, m.login.FlowID)
-		}
-		if msg.Response.Status == nil {
-			m.transcript.WriteError("openai codex login completed without status")
 			m.refreshViewport()
 			return m, nil
 		}
@@ -581,23 +573,12 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			lines = append(lines, fmt.Sprintf("account: %s", *msg.Response.Status.AccountID))
 		}
 		return m.finishLoginSuccess(lines)
-	case pollGitHubCopilotLoginMsg:
+	case waitGitHubCopilotLoginMsg:
 		if !m.login.Waiting || m.login.FlowID == "" {
 			return m, nil
 		}
 		if msg.Err != nil {
-			if strings.Contains(msg.Err.Error(), "unknown GitHub Copilot login flow") {
-				return m, nil
-			}
 			m.transcript.WriteError(msg.Err.Error())
-			m.refreshViewport()
-			return m, nil
-		}
-		if !msg.Response.Done {
-			return m, pollGitHubCopilotLogin(m.options.Backend, m.login.FlowID)
-		}
-		if msg.Response.Status == nil {
-			m.transcript.WriteError("github copilot login completed without status")
 			m.refreshViewport()
 			return m, nil
 		}
@@ -660,13 +641,9 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *model) finishLoginSuccess(lines []string) (tea.Model, tea.Cmd) {
 	pendingModel := m.login.PendingModel
 	pendingPrompt := m.login.PendingPrompt
+	var cmds []tea.Cmd
 	m.endLoginFlow()
 	m.transcript.WriteNote("login", lines)
-	if statuses, err := m.fetchAuthStatus(); err == nil {
-		m.authStatus = &statuses
-	} else {
-		m.transcript.WriteError(fmt.Sprintf("auth status: %v", err))
-	}
 	if pendingModel != "" {
 		selectedLines, restart, err := m.applyModelSelection(
 			pendingModel,
@@ -686,8 +663,13 @@ func (m *model) finishLoginSuccess(lines []string) (tea.Model, tea.Cmd) {
 		}
 	}
 	m.restorePendingPrompt(pendingPrompt)
+	m.authStatus = nil
+	if cmd := m.requestAuthStatus(); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
 	m.refreshViewport()
-	return m, nil
+	m.viewport.GotoBottom()
+	return m, tea.Batch(cmds...)
 }
 
 func (m *model) View() string {
@@ -763,10 +745,17 @@ func (m *model) currentPromptFooter() string {
 	if m.login.Active || m.auth.Active {
 		return ""
 	}
+	if m.waitingOAuthLoginBlocksInput() {
+		return "login in progress; wait for completion or press Esc to cancel"
+	}
 	if m.shouldShowFirstRunPromptAssist() {
 		return "first-time setup: tab to connect ChatGPT, Copilot, OpenAI, or Anthropic"
 	}
 	return ""
+}
+
+func (m *model) waitingOAuthLoginBlocksInput() bool {
+	return m.login.Provider != "" || m.login.Waiting || m.login.Active || m.login.FlowID != ""
 }
 
 func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -1010,6 +999,14 @@ func (m *model) handleEnter() (tea.Model, tea.Cmd) {
 	}
 	prompt := strings.TrimSpace(m.textInput.Value())
 	if prompt == "" || m.streaming {
+		return m, nil
+	}
+	if m.waitingOAuthLoginBlocksInput() {
+		if strings.HasPrefix(prompt, "/login") {
+			return m.submitSlashCommand(prompt, false)
+		}
+		m.promptFooterNotice = "login in progress; wait for completion or press Esc to cancel"
+		m.refreshViewport()
 		return m, nil
 	}
 	if m.auth.Active {

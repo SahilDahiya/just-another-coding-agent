@@ -418,7 +418,11 @@ func renderPrompt(vm viewModel) string {
 	bottomRule := renderPromptRule(ruleWidth, rowBorder)
 
 	promptParts := make([]string, 0, 8)
-	promptParts = append(promptParts, "", "")
+	if vm.Login.Provider != "" && vm.Phase != PhaseStreaming && vm.Phase != PhaseCompacting {
+		promptParts = append(promptParts, "")
+	} else {
+		promptParts = append(promptParts, "", "")
+	}
 	if topRail != "" {
 		promptParts = append(promptParts, topRail)
 	}
@@ -572,6 +576,9 @@ func renderPromptRule(width int, rowBorder lipgloss.TerminalColor) string {
 }
 
 func buildTopRailIndicator(vm viewModel) string {
+	if vm.Phase != PhaseStreaming && vm.Phase != PhaseCompacting && vm.Login.Provider != "" {
+		return fmt.Sprintf("● %s (esc to cancel)", buildLoginWave(vm.MotionTick))
+	}
 	if vm.Phase != PhaseStreaming && vm.Phase != PhaseCompacting {
 		return ""
 	}
@@ -595,6 +602,10 @@ func buildWorkingWave(motionTick int) string {
 
 func buildCompactingWave(motionTick int) string {
 	return buildWordWave("Compacting", motionTick)
+}
+
+func buildLoginWave(motionTick int) string {
+	return buildWordWave("Logging in", motionTick)
 }
 
 func buildWordWave(word string, motionTick int) string {

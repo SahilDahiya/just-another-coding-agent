@@ -132,12 +132,20 @@ func TestModelSuggestionsHideUnavailableModels(t *testing.T) {
 	}
 	rows := modelSuggestions(*testModelCatalog(), status)
 
+	var sawOpenAI bool
 	for _, row := range rows {
 		if strings.HasPrefix(row.Value, "openai-responses:") {
-			t.Fatalf("unexpected unavailable openai model in suggestions: %#v", rows)
+			sawOpenAI = true
+			if !strings.Contains(row.Description, "[oauth login required]") &&
+				!strings.Contains(row.Description, "[api-key required]") {
+				t.Fatalf("expected unavailable openai model to be labeled in %#v", row)
+			}
 		}
 	}
-	if len(rows) != 2 {
-		t.Fatalf("len(rows) = %d, want 2 anthropic models", len(rows))
+	if !sawOpenAI {
+		t.Fatalf("expected unavailable openai models to remain visible in %#v", rows)
+	}
+	if len(rows) == 0 {
+		t.Fatal("expected non-empty model suggestions")
 	}
 }

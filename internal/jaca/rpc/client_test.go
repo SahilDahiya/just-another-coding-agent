@@ -2,6 +2,7 @@ package rpc
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"runtime"
@@ -265,6 +266,107 @@ for line in sys.stdin:
 
 	if err := <-runDone; err != nil {
 		t.Fatalf("StreamRun() returned error: %v", err)
+	}
+}
+
+func TestClientAuthStatusWhileOpenAICodexWaitIsActive(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell-based helper is unix-only")
+	}
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+
+	tmpDir := t.TempDir()
+	markerPath := tmpDir + "/wait-auth.txt"
+	readyPath := tmpDir + "/ready.txt"
+	client := startPythonHelperClient(
+		t,
+		markerPath,
+		readyPath,
+		`import json, os, pathlib, sys
+ready = pathlib.Path(os.environ['JACA_RPC_HELPER_READY'])
+ready.write_text('ready')
+wait_id = None
+for line in sys.stdin:
+    request = json.loads(line)
+    if request["command"] == "auth.login_openai_codex.wait":
+        wait_id = request["id"]
+    elif request["command"] == "auth.status":
+        sys.stdout.write(json.dumps({
+            "type": "rpc_response",
+            "id": request["id"],
+            "response": {
+                "providers": [{
+                    "provider": "openai",
+                    "configured": True,
+                    "secret_configured": True,
+                    "requires_secret": True,
+                    "source": "env",
+                    "env_key": "OPENAI_API_KEY",
+                    "reason": "ok",
+                }],
+                "local_secret_store": {
+                    "available": True,
+                    "message": None,
+                    "file_store_path": "",
+                },
+                "oauth_providers": [{
+                    "provider": "openai-codex",
+                    "logged_in": True,
+                    "account_id": "acct-123",
+                    "expires_at": 1760000000000,
+                }],
+            },
+        }) + "\n")
+        sys.stdout.write(json.dumps({
+            "type": "rpc_response",
+            "id": wait_id,
+            "response": {
+                "status": {
+                    "provider": "openai-codex",
+                    "logged_in": True,
+                    "account_id": "acct-123",
+                    "expires_at": 1760000000000,
+                }
+            },
+        }) + "\n")
+        sys.stdout.flush()
+        break`,
+	)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	waitDone := make(chan struct{})
+	waitErr := make(chan error, 1)
+	go func() {
+		defer close(waitDone)
+		resp, err := client.WaitOpenAICodexLogin(ctx, "flow-1")
+		if err != nil {
+			waitErr <- err
+			return
+		}
+		if got := resp.Status.Provider; got != "openai-codex" {
+			waitErr <- fmt.Errorf("provider = %q, want %q", got, "openai-codex")
+			return
+		}
+	}()
+
+	authResp, err := client.AuthStatus(ctx)
+	if err != nil {
+		t.Fatalf("AuthStatus() returned error: %v", err)
+	}
+	if len(authResp.OAuthProviders) != 1 || authResp.OAuthProviders[0].Provider != "openai-codex" {
+		t.Fatalf("OAuthProviders = %#v, want openai-codex", authResp.OAuthProviders)
+	}
+
+	select {
+	case <-waitDone:
+	case err := <-waitErr:
+		t.Fatalf("WaitOpenAICodexLogin() returned error: %v", err)
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for login wait completion")
 	}
 }
 

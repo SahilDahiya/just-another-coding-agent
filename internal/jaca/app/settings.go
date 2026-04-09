@@ -15,6 +15,7 @@ import (
 )
 
 const authStatusTimeout = 30 * time.Second
+const authLoginWaitTimeout = 16 * time.Minute
 
 func canonicalProviderName(raw string) string {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
@@ -57,9 +58,10 @@ func modelMatchesProvider(model string, provider string) bool {
 }
 
 func (m *model) handleModelCommand(arg string) (tea.Model, tea.Cmd) {
+	value := strings.TrimSpace(arg)
+
 	m.transcript.WriteNote("model", nil)
 	cmd := m.requestModelCatalog()
-	value := strings.TrimSpace(arg)
 	if value == "" {
 		m.transcript.WriteLine(fmt.Sprintf("model: %s", m.options.Model))
 		m.refreshViewport()

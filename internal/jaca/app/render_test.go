@@ -197,6 +197,24 @@ func TestBuildTopRailIndicatorHiddenWhenIdle(t *testing.T) {
 	}
 }
 
+func TestBuildTopRailIndicatorShowsLoginWaveWhenOAuthInProgress(t *testing.T) {
+	tick := 3
+	got := buildTopRailIndicator(viewModel{
+		Phase:      PhaseIdle,
+		MotionTick: tick,
+		Login: loginOverlayView{
+			Provider: "openai-codex",
+		},
+	})
+
+	if !strings.Contains(got, buildLoginWave(tick)) {
+		t.Fatalf("buildTopRailIndicator() missing login wave: %q", got)
+	}
+	if !strings.Contains(got, "esc to cancel") {
+		t.Fatalf("buildTopRailIndicator() missing cancel guidance: %q", got)
+	}
+}
+
 func TestRenderPromptRuleShowsTopRailIndicatorDuringStreaming(t *testing.T) {
 	tick := 2
 	rendered := stripANSI(renderTopRail(viewModel{
@@ -243,6 +261,24 @@ func TestRenderTopRailShowsCompactingWave(t *testing.T) {
 	}
 	if !strings.Contains(rendered, "00:09") {
 		t.Fatalf("renderTopRail() missing elapsed indicator: %q", rendered)
+	}
+}
+
+func TestRenderTopRailShowsLoginWave(t *testing.T) {
+	tick := 4
+	rendered := stripANSI(renderTopRail(viewModel{
+		Phase:      PhaseIdle,
+		MotionTick: tick,
+		Login: loginOverlayView{
+			Provider: "openai-codex",
+		},
+	}))
+
+	if !strings.Contains(rendered, buildLoginWave(tick)) {
+		t.Fatalf("renderTopRail() missing login wave: %q", rendered)
+	}
+	if !strings.Contains(rendered, "esc to cancel") {
+		t.Fatalf("renderTopRail() missing cancel guidance: %q", rendered)
 	}
 }
 

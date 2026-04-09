@@ -124,14 +124,14 @@ class AuthLoginOpenAICodexCompleteRequest(_RpcModel):
     payload: AuthLoginOpenAICodexCompletePayload
 
 
-class AuthLoginOpenAICodexPollPayload(_RpcModel):
+class AuthLoginOpenAICodexWaitPayload(_RpcModel):
     flow_id: str
 
 
-class AuthLoginOpenAICodexPollRequest(_RpcModel):
+class AuthLoginOpenAICodexWaitRequest(_RpcModel):
     id: str
-    command: Literal["auth.login_openai_codex.poll"]
-    payload: AuthLoginOpenAICodexPollPayload
+    command: Literal["auth.login_openai_codex.wait"]
+    payload: AuthLoginOpenAICodexWaitPayload
 
 
 class AuthLoginGitHubCopilotStartPayload(_RpcModel):
@@ -144,14 +144,14 @@ class AuthLoginGitHubCopilotStartRequest(_RpcModel):
     payload: AuthLoginGitHubCopilotStartPayload
 
 
-class AuthLoginGitHubCopilotPollPayload(_RpcModel):
+class AuthLoginGitHubCopilotWaitPayload(_RpcModel):
     flow_id: str
 
 
-class AuthLoginGitHubCopilotPollRequest(_RpcModel):
+class AuthLoginGitHubCopilotWaitRequest(_RpcModel):
     id: str
-    command: Literal["auth.login_github_copilot.poll"]
-    payload: AuthLoginGitHubCopilotPollPayload
+    command: Literal["auth.login_github_copilot.wait"]
+    payload: AuthLoginGitHubCopilotWaitPayload
 
 
 class RunStartPayload(_RpcModel):
@@ -214,9 +214,9 @@ RpcRequest = Annotated[
     | AuthClearRequest
     | AuthLoginOpenAICodexStartRequest
     | AuthLoginOpenAICodexCompleteRequest
-    | AuthLoginOpenAICodexPollRequest
+    | AuthLoginOpenAICodexWaitRequest
     | AuthLoginGitHubCopilotStartRequest
-    | AuthLoginGitHubCopilotPollRequest
+    | AuthLoginGitHubCopilotWaitRequest
     | RunStartRequest
     | RunEnqueueRequest
     | RunInterruptRequest
@@ -279,9 +279,8 @@ class AuthLoginOpenAICodexCompleteResponse(_RpcModel):
     status: OAuthProviderStatus
 
 
-class AuthLoginOpenAICodexPollResponse(_RpcModel):
-    done: bool
-    status: OAuthProviderStatus | None = None
+class AuthLoginOpenAICodexWaitResponse(_RpcModel):
+    status: OAuthProviderStatus
 
 
 class AuthLoginGitHubCopilotStartResponse(_RpcModel):
@@ -291,9 +290,8 @@ class AuthLoginGitHubCopilotStartResponse(_RpcModel):
     user_code: str
 
 
-class AuthLoginGitHubCopilotPollResponse(_RpcModel):
-    done: bool
-    status: OAuthProviderStatus | None = None
+class AuthLoginGitHubCopilotWaitResponse(_RpcModel):
+    status: OAuthProviderStatus
 
 
 class RunEnqueueResponse(_RpcModel):
@@ -330,9 +328,9 @@ class RpcResponseEnvelope(_RpcModel):
         | AuthClearResponse
         | AuthLoginOpenAICodexStartResponse
         | AuthLoginOpenAICodexCompleteResponse
-        | AuthLoginOpenAICodexPollResponse
+        | AuthLoginOpenAICodexWaitResponse
         | AuthLoginGitHubCopilotStartResponse
-        | AuthLoginGitHubCopilotPollResponse
+        | AuthLoginGitHubCopilotWaitResponse
         | RunStartResponse
         | RunEnqueueResponse
         | RunInterruptResponse
@@ -360,12 +358,15 @@ __all__ = [
     "AuthLoginOpenAICodexCompletePayload",
     "AuthLoginOpenAICodexCompleteRequest",
     "AuthLoginOpenAICodexCompleteResponse",
+    "AuthLoginOpenAICodexWaitPayload",
+    "AuthLoginOpenAICodexWaitRequest",
+    "AuthLoginOpenAICodexWaitResponse",
     "AuthLoginOpenAICodexStartPayload",
     "AuthLoginOpenAICodexStartRequest",
     "AuthLoginOpenAICodexStartResponse",
-    "AuthLoginGitHubCopilotPollPayload",
-    "AuthLoginGitHubCopilotPollRequest",
-    "AuthLoginGitHubCopilotPollResponse",
+    "AuthLoginGitHubCopilotWaitPayload",
+    "AuthLoginGitHubCopilotWaitRequest",
+    "AuthLoginGitHubCopilotWaitResponse",
     "AuthLoginGitHubCopilotStartPayload",
     "AuthLoginGitHubCopilotStartRequest",
     "AuthLoginGitHubCopilotStartResponse",

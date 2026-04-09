@@ -35,16 +35,16 @@ from just_another_coding_agent.contracts.model_catalog import (
 from just_another_coding_agent.contracts.rpc import (
     AuthClearRequest,
     AuthClearResponse,
-    AuthLoginGitHubCopilotPollRequest,
-    AuthLoginGitHubCopilotPollResponse,
     AuthLoginGitHubCopilotStartRequest,
     AuthLoginGitHubCopilotStartResponse,
+    AuthLoginGitHubCopilotWaitRequest,
+    AuthLoginGitHubCopilotWaitResponse,
     AuthLoginOpenAICodexCompleteRequest,
     AuthLoginOpenAICodexCompleteResponse,
-    AuthLoginOpenAICodexPollRequest,
-    AuthLoginOpenAICodexPollResponse,
     AuthLoginOpenAICodexStartRequest,
     AuthLoginOpenAICodexStartResponse,
+    AuthLoginOpenAICodexWaitRequest,
+    AuthLoginOpenAICodexWaitResponse,
     AuthSetRequest,
     AuthSetResponse,
     AuthStatusRequest,
@@ -105,9 +105,11 @@ _RPC_REQUEST_ADAPTER = TypeAdapter(RpcRequest)
 _LOGIN_FLOW_TTL_SECONDS = 15 * 60
 _OPENAI_CODEX_LOGIN_FLOWS: dict[str, OpenAICodexLoginFlow] = {}
 _OPENAI_CODEX_LOGIN_TASKS: dict[str, asyncio.Task] = {}
+_OPENAI_CODEX_LOGIN_RESULTS: dict[str, asyncio.Future] = {}
 _OPENAI_CODEX_LOGIN_STARTED_AT: dict[str, float] = {}
 _GITHUB_COPILOT_LOGIN_FLOWS: dict[str, GitHubCopilotLoginFlow] = {}
 _GITHUB_COPILOT_LOGIN_TASKS: dict[str, asyncio.Task] = {}
+_GITHUB_COPILOT_LOGIN_RESULTS: dict[str, asyncio.Future] = {}
 _GITHUB_COPILOT_LOGIN_STARTED_AT: dict[str, float] = {}
 
 
@@ -568,10 +570,21 @@ async def handle_rpc_json_line(
                 message=str(error),
             ).model_dump_json()
             return
+        _reset_login_flow_group(
+            flows=_OPENAI_CODEX_LOGIN_FLOWS,
+            tasks=_OPENAI_CODEX_LOGIN_TASKS,
+            results=_OPENAI_CODEX_LOGIN_RESULTS,
+            started_at=_OPENAI_CODEX_LOGIN_STARTED_AT,
+        )
+        result = asyncio.get_running_loop().create_future()
         _OPENAI_CODEX_LOGIN_FLOWS[flow_id] = flow
         _OPENAI_CODEX_LOGIN_TASKS[flow_id] = asyncio.create_task(
-            wait_for_openai_codex_oauth_login(flow)
+            _drive_login_result(
+                result=result,
+                wait_for_status=wait_for_openai_codex_oauth_login(flow),
+            )
         )
+        _OPENAI_CODEX_LOGIN_RESULTS[flow_id] = result
         _OPENAI_CODEX_LOGIN_STARTED_AT[flow_id] = time.monotonic()
         yield RpcResponseEnvelope(
             id=request.id,
@@ -583,42 +596,49 @@ async def handle_rpc_json_line(
         ).model_dump_json()
         return
 
-    if isinstance(request, AuthLoginOpenAICodexPollRequest):
-        task = _OPENAI_CODEX_LOGIN_TASKS.get(request.payload.flow_id)
-        if task is None:
+    if isinstance(request, AuthLoginOpenAICodexWaitRequest):
+        result = _OPENAI_CODEX_LOGIN_RESULTS.get(request.payload.flow_id)
+        if result is None:
+            status = _find_oauth_provider_status("openai-codex")
+            if status is not None and status.logged_in:
+                yield RpcResponseEnvelope(
+                    id=request.id,
+                    response=AuthLoginOpenAICodexWaitResponse(status=status),
+                ).model_dump_json()
+                return
             yield RpcErrorEnvelope(
                 id=request.id,
                 error_type="InvalidRequest",
                 message="unknown OpenAI Codex login flow",
             ).model_dump_json()
             return
-        if not task.done():
-            yield RpcResponseEnvelope(
-                id=request.id,
-                response=AuthLoginOpenAICodexPollResponse(done=False),
-            ).model_dump_json()
-            return
-        _OPENAI_CODEX_LOGIN_TASKS.pop(request.payload.flow_id, None)
-        _OPENAI_CODEX_LOGIN_FLOWS.pop(request.payload.flow_id, None)
-        _OPENAI_CODEX_LOGIN_STARTED_AT.pop(request.payload.flow_id, None)
         try:
-            status = task.result()
+            status = await result
         except Exception as error:
+            _OPENAI_CODEX_LOGIN_TASKS.pop(request.payload.flow_id, None)
+            _OPENAI_CODEX_LOGIN_FLOWS.pop(request.payload.flow_id, None)
+            _OPENAI_CODEX_LOGIN_RESULTS.pop(request.payload.flow_id, None)
+            _OPENAI_CODEX_LOGIN_STARTED_AT.pop(request.payload.flow_id, None)
             yield RpcErrorEnvelope(
                 id=request.id,
                 error_type="InternalError",
                 message=str(error),
             ).model_dump_json()
             return
+        _OPENAI_CODEX_LOGIN_TASKS.pop(request.payload.flow_id, None)
+        _OPENAI_CODEX_LOGIN_FLOWS.pop(request.payload.flow_id, None)
+        _OPENAI_CODEX_LOGIN_RESULTS.pop(request.payload.flow_id, None)
+        _OPENAI_CODEX_LOGIN_STARTED_AT.pop(request.payload.flow_id, None)
         yield RpcResponseEnvelope(
             id=request.id,
-            response=AuthLoginOpenAICodexPollResponse(done=True, status=status),
+            response=AuthLoginOpenAICodexWaitResponse(status=status),
         ).model_dump_json()
         return
 
     if isinstance(request, AuthLoginOpenAICodexCompleteRequest):
         flow = _OPENAI_CODEX_LOGIN_FLOWS.get(request.payload.flow_id)
-        if flow is None:
+        result = _OPENAI_CODEX_LOGIN_RESULTS.get(request.payload.flow_id)
+        if flow is None or result is None:
             yield RpcErrorEnvelope(
                 id=request.id,
                 error_type="InvalidRequest",
@@ -638,9 +658,11 @@ async def handle_rpc_json_line(
             ).model_dump_json()
             return
         task = _OPENAI_CODEX_LOGIN_TASKS.pop(request.payload.flow_id, None)
-        if task is not None:
-            task.cancel()
+        if not result.done():
+            result.set_result(status)
+        _cancel_login_flow_task(task)
         _OPENAI_CODEX_LOGIN_FLOWS.pop(request.payload.flow_id, None)
+        _OPENAI_CODEX_LOGIN_RESULTS.pop(request.payload.flow_id, None)
         _OPENAI_CODEX_LOGIN_STARTED_AT.pop(request.payload.flow_id, None)
         yield RpcResponseEnvelope(
             id=request.id,
@@ -662,10 +684,21 @@ async def handle_rpc_json_line(
                 message=str(error),
             ).model_dump_json()
             return
+        _reset_login_flow_group(
+            flows=_GITHUB_COPILOT_LOGIN_FLOWS,
+            tasks=_GITHUB_COPILOT_LOGIN_TASKS,
+            results=_GITHUB_COPILOT_LOGIN_RESULTS,
+            started_at=_GITHUB_COPILOT_LOGIN_STARTED_AT,
+        )
+        result = asyncio.get_running_loop().create_future()
         _GITHUB_COPILOT_LOGIN_FLOWS[flow_id] = flow
         _GITHUB_COPILOT_LOGIN_TASKS[flow_id] = asyncio.create_task(
-            wait_for_github_copilot_oauth_login(flow)
+            _drive_login_result(
+                result=result,
+                wait_for_status=wait_for_github_copilot_oauth_login(flow),
+            )
         )
+        _GITHUB_COPILOT_LOGIN_RESULTS[flow_id] = result
         _GITHUB_COPILOT_LOGIN_STARTED_AT[flow_id] = time.monotonic()
         yield RpcResponseEnvelope(
             id=request.id,
@@ -678,39 +711,44 @@ async def handle_rpc_json_line(
         ).model_dump_json()
         return
 
-    if isinstance(request, AuthLoginGitHubCopilotPollRequest):
-        task = _GITHUB_COPILOT_LOGIN_TASKS.get(request.payload.flow_id)
-        if task is None:
+    if isinstance(request, AuthLoginGitHubCopilotWaitRequest):
+        result = _GITHUB_COPILOT_LOGIN_RESULTS.get(request.payload.flow_id)
+        if result is None:
+            status = _find_oauth_provider_status("github-copilot")
+            if status is not None and status.logged_in:
+                yield RpcResponseEnvelope(
+                    id=request.id,
+                    response=AuthLoginGitHubCopilotWaitResponse(
+                        status=status,
+                    ),
+                ).model_dump_json()
+                return
             yield RpcErrorEnvelope(
                 id=request.id,
                 error_type="InvalidRequest",
                 message="unknown GitHub Copilot login flow",
             ).model_dump_json()
             return
-        if not task.done():
-            yield RpcResponseEnvelope(
-                id=request.id,
-                response=AuthLoginGitHubCopilotPollResponse(done=False),
-            ).model_dump_json()
-            return
-        _GITHUB_COPILOT_LOGIN_TASKS.pop(request.payload.flow_id, None)
-        _GITHUB_COPILOT_LOGIN_FLOWS.pop(request.payload.flow_id, None)
-        _GITHUB_COPILOT_LOGIN_STARTED_AT.pop(request.payload.flow_id, None)
         try:
-            status = task.result()
+            status = await result
         except Exception as error:
+            _GITHUB_COPILOT_LOGIN_TASKS.pop(request.payload.flow_id, None)
+            _GITHUB_COPILOT_LOGIN_FLOWS.pop(request.payload.flow_id, None)
+            _GITHUB_COPILOT_LOGIN_RESULTS.pop(request.payload.flow_id, None)
+            _GITHUB_COPILOT_LOGIN_STARTED_AT.pop(request.payload.flow_id, None)
             yield RpcErrorEnvelope(
                 id=request.id,
                 error_type="InternalError",
                 message=str(error),
             ).model_dump_json()
             return
+        _GITHUB_COPILOT_LOGIN_TASKS.pop(request.payload.flow_id, None)
+        _GITHUB_COPILOT_LOGIN_FLOWS.pop(request.payload.flow_id, None)
+        _GITHUB_COPILOT_LOGIN_RESULTS.pop(request.payload.flow_id, None)
+        _GITHUB_COPILOT_LOGIN_STARTED_AT.pop(request.payload.flow_id, None)
         yield RpcResponseEnvelope(
             id=request.id,
-            response=AuthLoginGitHubCopilotPollResponse(
-                done=True,
-                status=status,
-            ),
+            response=AuthLoginGitHubCopilotWaitResponse(status=status),
         ).model_dump_json()
         return
 
@@ -1081,14 +1119,18 @@ def _prune_stale_login_flows(now: float | None = None) -> None:
     _prune_login_flow_group(
         flows=_OPENAI_CODEX_LOGIN_FLOWS,
         tasks=_OPENAI_CODEX_LOGIN_TASKS,
+        results=_OPENAI_CODEX_LOGIN_RESULTS,
         started_at=_OPENAI_CODEX_LOGIN_STARTED_AT,
         now=current,
+        error_message="OpenAI Codex login flow expired",
     )
     _prune_login_flow_group(
         flows=_GITHUB_COPILOT_LOGIN_FLOWS,
         tasks=_GITHUB_COPILOT_LOGIN_TASKS,
+        results=_GITHUB_COPILOT_LOGIN_RESULTS,
         started_at=_GITHUB_COPILOT_LOGIN_STARTED_AT,
         now=current,
+        error_message="GitHub Copilot login flow expired",
     )
 
 
@@ -1096,21 +1138,70 @@ def _prune_login_flow_group(
     *,
     flows: dict[str, Any],
     tasks: dict[str, asyncio.Task],
+    results: dict[str, asyncio.Future],
     started_at: dict[str, float],
     now: float,
+    error_message: str,
 ) -> None:
     stale_flow_ids: list[str] = []
     for flow_id, started in started_at.items():
         task = tasks.get(flow_id)
         expired = (now - started) > _LOGIN_FLOW_TTL_SECONDS
         if expired:
-            if task is not None:
-                task.cancel()
+            _cancel_login_flow_task(task)
+            _fail_login_result(results.get(flow_id), error_message)
             stale_flow_ids.append(flow_id)
     for flow_id in stale_flow_ids:
         flows.pop(flow_id, None)
         tasks.pop(flow_id, None)
+        results.pop(flow_id, None)
         started_at.pop(flow_id, None)
+
+
+def _reset_login_flow_group(
+    *,
+    flows: dict[str, Any],
+    tasks: dict[str, asyncio.Task],
+    results: dict[str, asyncio.Future],
+    started_at: dict[str, float],
+) -> None:
+    for task in tasks.values():
+        _cancel_login_flow_task(task)
+    for result in results.values():
+        _fail_login_result(result, "login flow cancelled")
+    flows.clear()
+    tasks.clear()
+    results.clear()
+    started_at.clear()
+
+
+def _cancel_login_flow_task(task: asyncio.Task | None) -> None:
+    if task is None or task.done():
+        return
+    task.cancel()
+
+
+def _fail_login_result(result: asyncio.Future | None, message: str) -> None:
+    if result is None or result.done():
+        return
+    result.set_exception(RuntimeError(message))
+
+
+async def _drive_login_result(
+    *,
+    result: asyncio.Future,
+    wait_for_status: Awaitable[Any],
+) -> None:
+    try:
+        status = await wait_for_status
+    except asyncio.CancelledError:
+        raise
+    except Exception as error:
+        if not result.done():
+            result.set_exception(error)
+        return
+    if not result.done():
+        result.set_result(status)
 
 
 def _extract_request_id(payload: Any) -> str | None:
@@ -1119,6 +1210,13 @@ def _extract_request_id(payload: Any) -> str | None:
         if isinstance(request_id, str):
             return request_id
 
+    return None
+
+
+def _find_oauth_provider_status(provider: str):
+    for status in get_oauth_provider_statuses():
+        if status.provider == provider:
+            return status
     return None
 
 

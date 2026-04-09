@@ -7,7 +7,6 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
-	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -36,8 +35,8 @@ type completeOpenAICodexLoginMsg struct {
 	Err      error
 }
 
-type pollOpenAICodexLoginMsg struct {
-	Response rpc.AuthLoginOpenAICodexPollResponse
+type waitOpenAICodexLoginMsg struct {
+	Response rpc.AuthLoginOpenAICodexWaitResponse
 	Err      error
 }
 
@@ -46,8 +45,8 @@ type startGitHubCopilotLoginMsg struct {
 	Err      error
 }
 
-type pollGitHubCopilotLoginMsg struct {
-	Response rpc.AuthLoginGitHubCopilotPollResponse
+type waitGitHubCopilotLoginMsg struct {
+	Response rpc.AuthLoginGitHubCopilotWaitResponse
 	Err      error
 }
 
@@ -197,13 +196,13 @@ func completeOpenAICodexLogin(backend Backend, flowID string, callbackOrCode str
 	}
 }
 
-func pollOpenAICodexLogin(backend Backend, flowID string) tea.Cmd {
-	return tea.Tick(350*time.Millisecond, func(time.Time) tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), authStatusTimeout)
+func waitOpenAICodexLogin(backend Backend, flowID string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), authLoginWaitTimeout)
 		defer cancel()
-		response, err := backend.PollOpenAICodexLogin(ctx, flowID)
-		return pollOpenAICodexLoginMsg{Response: response, Err: err}
-	})
+		response, err := backend.WaitOpenAICodexLogin(ctx, flowID)
+		return waitOpenAICodexLoginMsg{Response: response, Err: err}
+	}
 }
 
 func startGitHubCopilotLogin(backend Backend, enterpriseDomain string) tea.Cmd {
@@ -215,13 +214,13 @@ func startGitHubCopilotLogin(backend Backend, enterpriseDomain string) tea.Cmd {
 	}
 }
 
-func pollGitHubCopilotLogin(backend Backend, flowID string) tea.Cmd {
-	return tea.Tick(1200*time.Millisecond, func(time.Time) tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), authStatusTimeout)
+func waitGitHubCopilotLogin(backend Backend, flowID string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), authLoginWaitTimeout)
 		defer cancel()
-		response, err := backend.PollGitHubCopilotLogin(ctx, flowID)
-		return pollGitHubCopilotLoginMsg{Response: response, Err: err}
-	})
+		response, err := backend.WaitGitHubCopilotLogin(ctx, flowID)
+		return waitGitHubCopilotLoginMsg{Response: response, Err: err}
+	}
 }
 
 func bestEffortOpenBrowser(url string) error {
