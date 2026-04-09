@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from just_another_coding_agent.contracts.platform import detect_default_shell_family
+from just_another_coding_agent.tools import shell as shell_module
 from just_another_coding_agent.tools.deps import WorkspaceDeps
 from just_another_coding_agent.tools.errors import ToolCommandError, ToolEncodingError
 from just_another_coding_agent.tools.shell import execute_shell
@@ -224,6 +225,37 @@ async def test_shell_tool_fails_for_invalid_utf8_output(monkeypatch, tmp_path) -
             command=_invalid_utf8_command(),
             shell_family=_test_shell_family(),
         )
+
+
+async def test_terminate_process_kills_child_when_killpg_is_not_permitted(
+    monkeypatch,
+) -> None:
+    wait_called = False
+    kill_called = False
+
+    class _FakeProcess:
+        pid = 123
+        returncode = None
+
+        def kill(self) -> None:
+            nonlocal kill_called
+            kill_called = True
+            self.returncode = -9
+
+        async def wait(self) -> int:
+            nonlocal wait_called
+            wait_called = True
+            return -9
+
+    def _raise_permission_error(_pid: int, _signal: int) -> None:
+        raise PermissionError(1, "Operation not permitted")
+
+    monkeypatch.setattr(shell_module.os, "killpg", _raise_permission_error)
+
+    await shell_module._terminate_process(_FakeProcess(), shell_family="posix")
+
+    assert kill_called is True
+    assert wait_called is True
 
 
 @pytest.mark.skipif(
