@@ -255,9 +255,23 @@ func (m *model) traceSlashSuggestions() []slashSuggestion {
 }
 
 func (m *model) handleSlashCommand(command string) (tea.Model, tea.Cmd) {
+	spec, cmdName, arg, ok := parseSlashCommand(command)
+	if !ok {
+		return m, nil
+	}
+	if spec.Value == "" {
+		m.transcript.WriteNote("command", nil)
+		m.transcript.WriteError(fmt.Sprintf("unknown: %s", cmdName))
+		m.refreshViewport()
+		return m, nil
+	}
+	return spec.Execute(m, arg)
+}
+
+func parseSlashCommand(command string) (slashCommandSpec, string, string, bool) {
 	parts := strings.Fields(command)
 	if len(parts) == 0 {
-		return m, nil
+		return slashCommandSpec{}, "", "", false
 	}
 	cmdName := strings.ToLower(parts[0])
 	arg := ""
@@ -266,6 +280,33 @@ func (m *model) handleSlashCommand(command string) (tea.Model, tea.Cmd) {
 	}
 	spec, ok := lookupSlashCommand(cmdName)
 	if !ok {
+		return slashCommandSpec{}, cmdName, arg, true
+	}
+	return spec, cmdName, arg, true
+}
+
+func isSlashInput(value string) bool {
+	return strings.HasPrefix(strings.TrimSpace(value), "/")
+}
+
+func (m *model) submitSlashCommand(command string, whileStreaming bool) (tea.Model, tea.Cmd) {
+	spec, cmdName, arg, ok := parseSlashCommand(command)
+	if !ok {
+		return m, nil
+	}
+	if whileStreaming && spec.Value != "" {
+		m.promptFooterNotice = fmt.Sprintf(
+			"%s unavailable during an active run; press Esc or wait for idle",
+			cmdName,
+		)
+		m.refreshViewport()
+		return m, nil
+	}
+	m.recordPromptHistory(command)
+	m.textInput.SetValue("")
+	m.clearSlashMenu()
+	m.clearInterruptGuidance()
+	if spec.Value == "" {
 		m.transcript.WriteNote("command", nil)
 		m.transcript.WriteError(fmt.Sprintf("unknown: %s", cmdName))
 		m.refreshViewport()

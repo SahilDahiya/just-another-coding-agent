@@ -828,6 +828,9 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if m.streaming {
+			if isSlashInput(m.textInput.Value()) {
+				return m.submitSlashCommand(strings.TrimSpace(m.textInput.Value()), true)
+			}
 			return m.handleQueueFollowUp()
 		}
 		if m.shouldShowFirstRunPromptAssist() && strings.TrimSpace(m.textInput.Value()) == "" {
@@ -845,6 +848,9 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if m.streaming {
+			if isSlashInput(m.textInput.Value()) {
+				return m.submitSlashCommand(strings.TrimSpace(m.textInput.Value()), true)
+			}
 			return m.handleQueueSteer()
 		}
 		return m.handleEnter()
@@ -1000,11 +1006,7 @@ func (m *model) handleEnter() (tea.Model, tea.Cmd) {
 		return m.handleAuthEnter()
 	}
 	if strings.HasPrefix(prompt, "/") {
-		m.recordPromptHistory(prompt)
-		m.textInput.SetValue("")
-		m.clearSlashMenu()
-		m.clearInterruptGuidance()
-		return m.handleSlashCommand(prompt)
+		return m.submitSlashCommand(prompt, false)
 	}
 	provider := m.currentProvider()
 	if isOpenAICodexOAuthModel(m.options.Model) {

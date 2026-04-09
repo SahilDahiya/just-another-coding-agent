@@ -96,6 +96,10 @@ The core architectural risk is semantic drift between the Go shell and the Pytho
   visible instead of being hidden inside a grouped block.
 - Completed assistant turns should settle into readable prose/Markdown instead of remaining raw streamed text.
 - The prompt is the single input surface for chat and slash commands.
+- Slash commands are never queued as `next` steering or `later` follow-ups.
+  During an active run, all slash commands must fail explicitly with recovery
+  guidance instead of executing locally or being sent to the backend as model
+  input.
 - `/name <text>` should stay thin and backend-owned: the shell forwards raw
   text, the backend persists the normalized session name, and `/session`
   renders the returned durable name plus the opaque session id.

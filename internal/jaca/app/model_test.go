@@ -458,6 +458,90 @@ func TestEnterWhileStreamingQueuesSteer(t *testing.T) {
 	}
 }
 
+func TestEnterWhileStreamingDoesNotQueueBlockedSlashCommand(t *testing.T) {
+	backend := newStubBackend()
+	m := newTestModel()
+	m.options.Backend = backend
+	m.streaming = true
+	m.sessionID = "session-123"
+	m.textInput.SetValue("/model openai-responses:gpt-5.4-mini")
+	m.textInput.Focus()
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(*model)
+	if cmd != nil {
+		t.Fatal("blocked live slash command should not enqueue")
+	}
+	if got := m.textInput.Value(); got != "/model openai-responses:gpt-5.4-mini" {
+		t.Fatalf("textInput.Value() = %q, want blocked command to stay in composer", got)
+	}
+	if backend.lastEnqueuedRun.Mode != "" || backend.lastEnqueuedRun.Prompt != "" {
+		t.Fatalf("unexpected queued run: %#v", backend.lastEnqueuedRun)
+	}
+	if !strings.Contains(m.promptFooterNotice, "/model unavailable during an active run") {
+		t.Fatalf("promptFooterNotice = %q", m.promptFooterNotice)
+	}
+	if strings.Contains(stripANSI(m.transcript.Render()), "model set to") {
+		t.Fatalf("model command should not execute while streaming: %q", stripANSI(m.transcript.Render()))
+	}
+}
+
+func TestTabWhileStreamingDoesNotQueueBlockedSlashCommand(t *testing.T) {
+	backend := newStubBackend()
+	m := newTestModel()
+	m.options.Backend = backend
+	m.streaming = true
+	m.sessionID = "session-123"
+	m.textInput.SetValue("/thinking high")
+	m.textInput.Focus()
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m = updated.(*model)
+	if cmd != nil {
+		t.Fatal("blocked live slash command should not queue as follow-up")
+	}
+	if got := m.textInput.Value(); got != "/thinking high" {
+		t.Fatalf("textInput.Value() = %q, want blocked command to stay in composer", got)
+	}
+	if backend.lastEnqueuedRun.Mode != "" || backend.lastEnqueuedRun.Prompt != "" {
+		t.Fatalf("unexpected queued run: %#v", backend.lastEnqueuedRun)
+	}
+	if !strings.Contains(m.promptFooterNotice, "/thinking unavailable during an active run") {
+		t.Fatalf("promptFooterNotice = %q", m.promptFooterNotice)
+	}
+	if strings.Contains(stripANSI(m.transcript.Render()), "thinking set to") {
+		t.Fatalf("thinking command should not execute while streaming: %q", stripANSI(m.transcript.Render()))
+	}
+}
+
+func TestEnterWhileStreamingDoesNotExecuteReadOnlySlashCommand(t *testing.T) {
+	m := newTestModel()
+	m.streaming = true
+	m.sessionID = "session-123"
+	m.sessionName = "test-session"
+	m.textInput.SetValue("/session")
+	m.textInput.Focus()
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(*model)
+	if cmd != nil {
+		t.Fatal("slash command should not execute during active run")
+	}
+	if got := m.textInput.Value(); got != "/session" {
+		t.Fatalf("textInput.Value() = %q, want blocked command to stay in composer", got)
+	}
+	if got := len(m.promptHistory); got != 0 {
+		t.Fatalf("promptHistory len = %d, want 0", got)
+	}
+	if !strings.Contains(m.promptFooterNotice, "/session unavailable during an active run") {
+		t.Fatalf("promptFooterNotice = %q", m.promptFooterNotice)
+	}
+	rendered := stripANSI(m.transcript.Render())
+	if strings.Contains(rendered, "note  session") || strings.Contains(rendered, "session: test-session") {
+		t.Fatalf("/session should not execute while streaming: %q", rendered)
+	}
+}
+
 func TestQueuedPromptBatchSubmittedShowsUserTurnInTranscript(t *testing.T) {
 	m := newTestModel()
 	updated, _ := m.Update(runEventMsg{Event: rpc.RunEvent{
