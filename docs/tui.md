@@ -117,12 +117,13 @@ The core architectural risk is semantic drift between the Go shell and the Pytho
   interrupting the active run.
 - While a run is streaming, `Enter` with a non-blank composer queues that text
   as backend-owned `next` steering for the active turn instead of interrupting
-  the run. The backend attaches that steer only at the next safe tool boundary.
+  the run. The backend attaches that steer only after the current tool phase
+  completes, before the next model round-trip in the same run.
 - While a run is streaming, `Esc` requests a backend-owned interrupt. If
   pending `next` steering exists, the backend promotes it into immediate
   follow-up delivery before draining the queue on the same `run.start` stream.
 - Queued input should be visible by structure, not transcript chatter: show a
-  compact grouped preview above the composer with one `After next tool call`
+  compact grouped preview above the composer with one `After current tool phase`
   block and one `At end of turn` block, each with a queued count and a few
   stacked prompt previews so batching is obvious without explanatory prose.
 - The Go TUI must treat that grouped preview as presentation only. Queue truth

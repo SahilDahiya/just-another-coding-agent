@@ -459,7 +459,7 @@ func TestEnterWhileStreamingQueuesSteer(t *testing.T) {
 	}})
 	m = updated.(*model)
 	rendered := stripANSI(m.View())
-	for _, want := range []string{"After next tool call", "1 queued", "↳ be more concise"} {
+	for _, want := range []string{"After current tool phase", "1 queued", "↳ be more concise"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("queued steer preview missing %q in %q", want, rendered)
 		}
@@ -480,6 +480,54 @@ func TestQueuedPromptBatchSubmittedShowsUserTurnInTranscript(t *testing.T) {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("queued prompt submission missing %q in %q", want, rendered)
 		}
+	}
+}
+
+func TestQueuedPromptBatchSubmittedClearsShelfImmediately(t *testing.T) {
+	m := newTestModel()
+	m.queuedPreview.Next = []string{"run go tests"}
+	m.queuedPreview.Later = []string{"what is compaction"}
+
+	updated, _ := m.Update(runEventMsg{Event: rpc.RunEvent{
+		Type:    "session_queued_prompt_batch_submitted",
+		Prompts: []string{"run go tests"},
+		Mode:    "next",
+	}})
+	m = updated.(*model)
+
+	if len(m.queuedPreview.Next) != 0 {
+		t.Fatalf("expected next queue to clear immediately, got %#v", m.queuedPreview.Next)
+	}
+	if len(m.queuedPreview.Later) != 1 || m.queuedPreview.Later[0] != "what is compaction" {
+		t.Fatalf("expected later queue to remain intact, got %#v", m.queuedPreview.Later)
+	}
+
+	rendered := stripANSI(m.View())
+	if strings.Contains(rendered, "After current tool phase") || strings.Contains(rendered, "↳ run go tests") {
+		t.Fatalf("expected submitted next prompt to disappear from queue shelf, got %q", rendered)
+	}
+	if !strings.Contains(rendered, "> run go tests") {
+		t.Fatalf("expected submitted prompt to appear in transcript, got %q", rendered)
+	}
+}
+
+func TestQueuedPromptBatchSubmittedRemovesPromptFromBothBuckets(t *testing.T) {
+	m := newTestModel()
+	m.queuedPreview.Next = []string{"run go tests"}
+	m.queuedPreview.Later = []string{"run go tests", "what is compaction"}
+
+	updated, _ := m.Update(runEventMsg{Event: rpc.RunEvent{
+		Type:    "session_queued_prompt_batch_submitted",
+		Prompts: []string{"run go tests"},
+		Mode:    "later",
+	}})
+	m = updated.(*model)
+
+	if len(m.queuedPreview.Next) != 0 {
+		t.Fatalf("expected submitted prompt removed from next queue too, got %#v", m.queuedPreview.Next)
+	}
+	if len(m.queuedPreview.Later) != 1 || m.queuedPreview.Later[0] != "what is compaction" {
+		t.Fatalf("expected later queue to retain only unsent prompts, got %#v", m.queuedPreview.Later)
 	}
 }
 

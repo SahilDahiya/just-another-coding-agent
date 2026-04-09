@@ -732,7 +732,7 @@ func renderQueuedInputPreview(vm viewModel, width int) string {
 	var sections []string
 	if len(vm.QueuedNext) > 0 {
 		sections = append(sections, renderQueuedInputSection(
-			"After next tool call",
+			"After current tool phase",
 			"Esc sends now",
 			vm.QueuedNext,
 			width,

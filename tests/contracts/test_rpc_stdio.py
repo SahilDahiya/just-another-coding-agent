@@ -45,6 +45,10 @@ async def _noop_emit_queue_state(_event) -> None:
     return None
 
 
+async def _noop_emit_submitted_prompt_batch(_mode: str, _prompts: list[str]) -> None:
+    return None
+
+
 async def _noop_emit_rpc_event(_request_id: str, _event) -> None:
     return None
 
@@ -225,6 +229,7 @@ async def test_follow_up_state_interrupt_promotes_pending_steer_to_front() -> No
         "a" * 32,
         run_task=run_task,
         emit_queue_state=_noop_emit_queue_state,
+        emit_submitted_prompt_batch=_noop_emit_submitted_prompt_batch,
     )
     await state.enqueue("a" * 32, "later prompt", mode="later")
     await state.activate_steer_boundary("a" * 32, lambda prompts: None)
@@ -262,6 +267,7 @@ async def test_follow_up_state_interrupt_preserves_fifo_within_promoted_and_late
         session_id,
         run_task=run_task,
         emit_queue_state=_noop_emit_queue_state,
+        emit_submitted_prompt_batch=_noop_emit_submitted_prompt_batch,
     )
     await state.enqueue(session_id, "later one", mode="later")
     await state.enqueue(session_id, "later two", mode="later")
@@ -296,6 +302,7 @@ async def test_follow_up_state_downgrades_pending_next_ahead_of_existing_later(
         session_id,
         run_task=run_task,
         emit_queue_state=_noop_emit_queue_state,
+        emit_submitted_prompt_batch=_noop_emit_submitted_prompt_batch,
     )
     await state.enqueue(session_id, "later one", mode="later")
     await state.enqueue(session_id, "later two", mode="later")
@@ -327,6 +334,7 @@ async def test_follow_up_state_interrupt_without_promotion_preserves_later_only(
         session_id,
         run_task=run_task,
         emit_queue_state=_noop_emit_queue_state,
+        emit_submitted_prompt_batch=_noop_emit_submitted_prompt_batch,
     )
     await state.enqueue(session_id, "later one", mode="later")
     await state.activate_steer_boundary(session_id, lambda prompts: None)
@@ -342,6 +350,43 @@ async def test_follow_up_state_interrupt_without_promotion_preserves_later_only(
         await run_task
     assert await state.take_next_follow_up_batch(session_id) == ["later one"]
     assert await state.take_next_follow_up_batch(session_id) is None
+
+
+async def test_follow_up_state_submit_active_boundary_emits_submitted_next(
+) -> None:
+    state = _FollowUpState()
+    session_id = "e" * 32
+    run_task = asyncio.create_task(asyncio.Event().wait())
+    submitted: list[tuple[str, list[str]]] = []
+
+    async def emit_submitted_prompt_batch(mode: str, prompts: list[str]) -> None:
+        submitted.append((mode, list(prompts)))
+
+    await state.activate(
+        session_id,
+        run_task=run_task,
+        emit_queue_state=_noop_emit_queue_state,
+        emit_submitted_prompt_batch=emit_submitted_prompt_batch,
+    )
+    attached: list[str] = []
+    await state.activate_steer_boundary(
+        session_id,
+        lambda prompts: attached.__setitem__(slice(None), list(prompts)),
+    )
+
+    queued_count = await state.enqueue(session_id, "be concise", mode="next")
+    assert queued_count == 1
+    assert attached == []
+    assert submitted == []
+
+    await state.submit_active_steer_boundary(session_id)
+
+    assert attached == ["be concise"]
+    assert submitted == [("next", ["be concise"])]
+
+    run_task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await run_task
 
 
 async def test_handle_rpc_json_line_creates_session_and_resumes_runs(

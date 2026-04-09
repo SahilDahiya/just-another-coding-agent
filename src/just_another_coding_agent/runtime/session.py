@@ -257,6 +257,7 @@ async def stream_session_run_events(
     activate_steer_boundary: (
         Callable[[Callable[[list[str]], None]], Awaitable[None]]
     ) | None = None,
+    submit_steer_boundary: Callable[[], Awaitable[None]] | None = None,
     deactivate_steer_boundary: Callable[[], Awaitable[None]] | None = None,
 ) -> AsyncIterator[RunEvent | SessionLifecycleEvent]:
     """Stream one run and persist session entries incrementally.
@@ -437,10 +438,14 @@ async def stream_session_run_events(
             )
             if (
                 activate_steer_boundary is not None
+                and submit_steer_boundary is not None
                 and deactivate_steer_boundary is not None
             ):
                 stream_run_kwargs["activate_steer_boundary"] = (
                     activate_steer_boundary
+                )
+                stream_run_kwargs["submit_steer_boundary"] = (
+                    submit_steer_boundary
                 )
                 stream_run_kwargs["deactivate_steer_boundary"] = (
                     deactivate_steer_boundary

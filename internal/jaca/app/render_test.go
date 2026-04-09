@@ -495,7 +495,7 @@ func TestRenderPromptShowsGroupedQueuedInputPreview(t *testing.T) {
 	}))
 
 	for _, want := range []string{
-		"After next tool call",
+		"After current tool phase",
 		"2 queued",
 		"Esc sends now",
 		"↳ tighten the answer",

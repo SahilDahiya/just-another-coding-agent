@@ -126,11 +126,12 @@ class _FollowUpState:
             deque
         )
         self._steer_queues: dict[str, deque[str]] = defaultdict(deque)
-        self._active_steer_targets: dict[
-            str, tuple[list[str], Callable[[list[str]], None]]
-        ] = {}
+        self._active_steer_targets: dict[str, Callable[[list[str]], None]] = {}
         self._queue_event_emitters: dict[
             str, Callable[[SessionQueueStateEvent], Awaitable[None]]
+        ] = {}
+        self._submitted_prompt_emitters: dict[
+            str, Callable[[str, list[str]], Awaitable[None]]
         ] = {}
 
     async def activate(
@@ -139,11 +140,19 @@ class _FollowUpState:
         *,
         run_task: asyncio.Task[None],
         emit_queue_state: Callable[[SessionQueueStateEvent], Awaitable[None]],
+        emit_submitted_prompt_batch: Callable[
+            [str, list[str]], Awaitable[None]
+        ]
+        | None = None,
     ) -> None:
         async with self._lock:
             self._active_sessions.add(session_id)
             self._active_run_tasks[session_id] = run_task
             self._queue_event_emitters[session_id] = emit_queue_state
+            if emit_submitted_prompt_batch is not None:
+                self._submitted_prompt_emitters[session_id] = (
+                    emit_submitted_prompt_batch
+                )
             event = self._build_queue_state_event_locked(session_id)
         if event.next_prompts or event.later_prompts:
             await emit_queue_state(event)
@@ -157,6 +166,7 @@ class _FollowUpState:
             self._active_run_tasks.pop(session_id, None)
             self._active_steer_targets.pop(session_id, None)
             emitter = self._queue_event_emitters.pop(session_id, None)
+            self._submitted_prompt_emitters.pop(session_id, None)
             if emitter is not None and (
                 previous_event.next_prompts or previous_event.later_prompts
             ):
@@ -184,20 +194,11 @@ class _FollowUpState:
                 )
             previous_event = self._build_queue_state_event_locked(session_id)
             if mode == "next":
-                target = self._active_steer_targets.get(session_id)
-                if target is not None:
-                    prompts, attach = target
-                    prompts.append(prompt)
-                    attach(prompts)
-                    queued_count = len(prompts)
-                    emitter = self._queue_event_emitters.get(session_id)
-                    event = self._build_queue_state_event_locked(session_id)
-                else:
-                    queue = self._steer_queues[session_id]
-                    queue.append(prompt)
-                    queued_count = len(queue)
-                    emitter = self._queue_event_emitters.get(session_id)
-                    event = self._build_queue_state_event_locked(session_id)
+                queue = self._steer_queues[session_id]
+                queue.append(prompt)
+                queued_count = len(queue)
+                emitter = self._queue_event_emitters.get(session_id)
+                event = self._build_queue_state_event_locked(session_id)
             else:
                 queued_count = self._append_follow_up_locked(
                     session_id,
@@ -218,24 +219,14 @@ class _FollowUpState:
         self,
         session_id: str,
         attach: Callable[[list[str]], None],
-    ) -> list[str]:
+    ) -> None:
         emitter: Callable[[SessionQueueStateEvent], Any] | None = None
         event: SessionQueueStateEvent | None = None
-        attached_prompts: list[str] = []
         async with self._lock:
             previous_event = self._build_queue_state_event_locked(session_id)
-            target = self._active_steer_targets.get(session_id)
-            if target is not None:
+            if self._active_steer_targets.get(session_id) is not None:
                 raise RuntimeError("Steer boundary already active for session")
-            prompts: list[str] = []
-            queue = self._steer_queues.get(session_id)
-            if queue:
-                while queue:
-                    prompts.append(queue.popleft())
-                self._steer_queues.pop(session_id, None)
-                attach(prompts)
-                attached_prompts = list(prompts)
-            self._active_steer_targets[session_id] = (prompts, attach)
+            self._active_steer_targets[session_id] = attach
             emitter = self._queue_event_emitters.get(session_id)
             event = self._build_queue_state_event_locked(session_id)
         if (
@@ -244,7 +235,35 @@ class _FollowUpState:
             and previous_event != event
         ):
             await emitter(event)
-        return attached_prompts
+
+    async def submit_active_steer_boundary(self, session_id: str) -> None:
+        attach: Callable[[list[str]], None] | None = None
+        emitter: Callable[[SessionQueueStateEvent], Any] | None = None
+        event: SessionQueueStateEvent | None = None
+        submitted_emitter: Callable[[str, list[str]], Awaitable[None]] | None = None
+        submitted_prompts: list[str] = []
+        async with self._lock:
+            previous_event = self._build_queue_state_event_locked(session_id)
+            attach = self._active_steer_targets.get(session_id)
+            if attach is None:
+                raise RuntimeError("Steer boundary is not active for session")
+            queue = self._steer_queues.get(session_id)
+            if queue:
+                while queue:
+                    submitted_prompts.append(queue.popleft())
+                self._steer_queues.pop(session_id, None)
+                attach(list(submitted_prompts))
+            emitter = self._queue_event_emitters.get(session_id)
+            event = self._build_queue_state_event_locked(session_id)
+            submitted_emitter = self._submitted_prompt_emitters.get(session_id)
+        if (
+            emitter is not None
+            and event is not None
+            and previous_event != event
+        ):
+            await emitter(event)
+        if submitted_emitter is not None and submitted_prompts:
+            await submitted_emitter("next", submitted_prompts)
 
     async def deactivate_steer_boundary(self, session_id: str) -> None:
         emitter: Callable[[SessionQueueStateEvent], Any] | None = None
@@ -339,12 +358,6 @@ class _FollowUpState:
 
     def _drain_pending_steers_locked(self, session_id: str) -> list[str]:
         prompts: list[str] = []
-        active_target = self._active_steer_targets.get(session_id)
-        if active_target is not None:
-            active_prompts, _attach = active_target
-            if active_prompts:
-                prompts.extend(active_prompts)
-                active_prompts.clear()
         queue = self._steer_queues.get(session_id)
         if queue:
             while queue:
@@ -381,10 +394,6 @@ class _FollowUpState:
         session_id: str,
     ) -> SessionQueueStateEvent:
         next_prompts: list[str] = []
-        active_target = self._active_steer_targets.get(session_id)
-        if active_target is not None:
-            active_prompts, _attach = active_target
-            next_prompts.extend(active_prompts)
         queue = self._steer_queues.get(session_id)
         if queue:
             next_prompts.extend(queue)
@@ -919,16 +928,21 @@ async def handle_rpc_json_line(
     async def activate_boundary(
         attach: Callable[[list[str]], None],
     ) -> None:
-        prompts = await _FOLLOW_UP_STATE.activate_steer_boundary(
+        await _FOLLOW_UP_STATE.activate_steer_boundary(
             request.payload.session_id,
             attach,
         )
-        await emit_submitted_prompt_batch("next", prompts)
+
+    async def submit_boundary() -> None:
+        await _FOLLOW_UP_STATE.submit_active_steer_boundary(
+            request.payload.session_id
+        )
 
     await _FOLLOW_UP_STATE.activate(
         request.payload.session_id,
         run_task=current_task,
         emit_queue_state=emit_queue_state,
+        emit_submitted_prompt_batch=emit_submitted_prompt_batch,
     )
     try:
         prompt = request.payload.prompt
@@ -942,6 +956,7 @@ async def handle_rpc_json_line(
                     tool_names=CANONICAL_TOOL_NAMES,
                     thinking=request.payload.thinking,
                     activate_steer_boundary=activate_boundary,
+                    submit_steer_boundary=submit_boundary,
                     deactivate_steer_boundary=lambda: (
                         _FOLLOW_UP_STATE.deactivate_steer_boundary(
                             request.payload.session_id

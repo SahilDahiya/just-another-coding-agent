@@ -1443,7 +1443,7 @@ async def test_stream_run_events_emits_bash_tool_updates(tmp_path) -> None:
     assert final_tool_event.result["output"].replace("\r\n", "\n") == "one\ntwo\n"
 
 
-async def test_stream_run_events_injects_pending_steer_at_tool_boundary(
+async def test_stream_run_events_injects_pending_steer_after_tool_phase_completes(
     tmp_path,
 ) -> None:
     workspace_root = tmp_path / "workspace"
@@ -1455,18 +1455,25 @@ async def test_stream_run_events_injects_pending_steer_at_tool_boundary(
         tool_names=("shell",),
     )
 
-    steer_attach_ready: asyncio.Future[object] = asyncio.Future()
+    steer_boundary_ready: asyncio.Future[object] = asyncio.Future()
+    pending_prompts: list[str] = []
+    attached_prompts: list[str] = []
 
     async def activate_steer_boundary(attach) -> None:
-        if not steer_attach_ready.done():
-            steer_attach_ready.set_result(attach)
+        if not steer_boundary_ready.done():
+            steer_boundary_ready.set_result(attach)
+
+    async def submit_steer_boundary() -> None:
+        steer_attach = await steer_boundary_ready
+        attached_prompts[:] = list(pending_prompts)
+        steer_attach(list(pending_prompts))
 
     async def deactivate_steer_boundary() -> None:
         return None
 
     async def queue_steer() -> None:
-        steer_attach = await steer_attach_ready
-        steer_attach(["be concise"])
+        await steer_boundary_ready
+        pending_prompts.append("be concise")
 
     steer_task = asyncio.create_task(queue_steer())
     try:
@@ -1477,6 +1484,7 @@ async def test_stream_run_events_injects_pending_steer_at_tool_boundary(
                 prompt="go",
                 deps=WorkspaceDeps.from_workspace_root(workspace_root),
                 activate_steer_boundary=activate_steer_boundary,
+                submit_steer_boundary=submit_steer_boundary,
                 deactivate_steer_boundary=deactivate_steer_boundary,
             )
         ]
@@ -1487,6 +1495,7 @@ async def test_stream_run_events_injects_pending_steer_at_tool_boundary(
     assert isinstance(events[1], ToolCallStartedEvent)
     assert isinstance(events[2], ToolCallSucceededEvent)
     assert isinstance(events[-1], RunSucceededEvent)
+    assert attached_prompts == ["be concise"]
     assert events[-1].output_text == "done steered"
 
 
@@ -1505,6 +1514,9 @@ async def test_stream_run_events_emits_bash_tool_updates_during_steer_boundary(
     async def activate_steer_boundary(_attach) -> None:
         return None
 
+    async def submit_steer_boundary() -> None:
+        return None
+
     async def deactivate_steer_boundary() -> None:
         return None
 
@@ -1513,6 +1525,7 @@ async def test_stream_run_events_emits_bash_tool_updates_during_steer_boundary(
         prompt="go",
         deps=WorkspaceDeps.from_workspace_root(workspace_root),
         activate_steer_boundary=activate_steer_boundary,
+        submit_steer_boundary=submit_steer_boundary,
         deactivate_steer_boundary=deactivate_steer_boundary,
     )
 

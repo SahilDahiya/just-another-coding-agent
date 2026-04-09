@@ -630,7 +630,7 @@ async def test_serve_rpc_stdio_batches_multiple_later_follow_ups_into_one_run(
     }
 
 
-async def test_serve_rpc_stdio_attaches_next_queue_to_active_tool_boundary(
+async def test_serve_rpc_stdio_submits_next_queue_after_active_tool_phase_completes(
     tmp_path,
     monkeypatch,
 ) -> None:
@@ -689,6 +689,7 @@ async def test_serve_rpc_stdio_attaches_next_queue_to_active_tool_boundary(
     async def fake_stream_session_run_events(
         *,
         activate_steer_boundary,
+        submit_steer_boundary,
         deactivate_steer_boundary,
         **_kwargs,
     ):
@@ -698,7 +699,9 @@ async def test_serve_rpc_stdio_attaches_next_queue_to_active_tool_boundary(
         yield RunStartedEvent(run_id="run-stream")
         await asyncio.sleep(0.05)
         await activate_steer_boundary(attach)
+        assert attached_prompts == []
         await asyncio.sleep(0.05)
+        await submit_steer_boundary()
         yield RunSucceededEvent(run_id="run-stream", output_text="done")
         await deactivate_steer_boundary()
 
@@ -722,9 +725,12 @@ async def test_serve_rpc_stdio_attaches_next_queue_to_active_tool_boundary(
     assert messages[1]["event"]["next_prompts"] == ["be concise"]
     assert messages[2]["id"] == "req-enqueue-next"
     assert messages[2]["response"]["queued_count"] == 1
-    assert messages[3]["event"]["type"] == "session_queued_prompt_batch_submitted"
-    assert messages[3]["event"]["mode"] == "next"
-    assert messages[3]["event"]["prompts"] == ["be concise"]
+    assert messages[3]["event"]["type"] == "session_queue_state"
+    assert messages[3]["event"]["next_prompts"] == []
+    assert messages[3]["event"]["later_prompts"] == []
+    assert messages[4]["event"]["type"] == "session_queued_prompt_batch_submitted"
+    assert messages[4]["event"]["mode"] == "next"
+    assert messages[4]["event"]["prompts"] == ["be concise"]
     assert attached_prompts == ["be concise"]
 
 
@@ -797,6 +803,7 @@ async def test_serve_rpc_stdio_interrupt_promotes_next_steer_into_immediate_foll
         *,
         prompt: str,
         activate_steer_boundary,
+        submit_steer_boundary,
         deactivate_steer_boundary,
         **_kwargs,
     ):
@@ -811,6 +818,7 @@ async def test_serve_rpc_stdio_interrupt_promotes_next_steer_into_immediate_foll
             finally:
                 await deactivate_steer_boundary()
         else:
+            await submit_steer_boundary()
             await deactivate_steer_boundary()
             yield RunSucceededEvent(run_id=f"run-{prompt}", output_text=prompt)
 

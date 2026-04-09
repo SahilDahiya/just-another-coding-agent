@@ -675,7 +675,7 @@ Ordering rules for the RPC slice:
 - `run.start` on an existing session is the canonical continue operation; there is no separate `session.continue` command
 - `run.enqueue` is the canonical active-run queueing operation
 - `run.enqueue` with `mode: "later"` is the canonical end-of-turn follow-up queueing operation; after the active streamed run for that session ends, the backend immediately drains queued follow-ups as additional runs on the same `run.start` stream until the queue is empty
-- `run.enqueue` with `mode: "next"` is the canonical active-turn steer queueing operation; the backend may attach queued steer prompts only at a safe tool boundary before the next model round-trip in the same run
+- `run.enqueue` with `mode: "next"` is the canonical active-turn steer queueing operation; the backend may attach queued steer prompts only after the current tool phase completes, before the next model round-trip in the same run
 - If a `mode: "next"` prompt is still pending when the active run ends, the backend downgrades it into the `later` queue before draining follow-ups
 - `run.interrupt` with `promote_queued_steer: true` is the canonical promotion path from pending `next` steering into immediate follow-up delivery; any pending steer prompts are prepended to the `later` queue before the cancelled run drains queued follow-ups on the same `run.start` stream
 - Queue ordering is explicit:

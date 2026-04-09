@@ -411,6 +411,10 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.queuedPreview.Next = append([]string{}, msg.Event.NextPrompts...)
 			m.queuedPreview.Later = append([]string{}, msg.Event.LaterPrompts...)
 		}
+		if msg.Event.Type == "session_queued_prompt_batch_submitted" {
+			m.queuedPreview.Next = removeQueuedPrompts(m.queuedPreview.Next, msg.Event.Prompts)
+			m.queuedPreview.Later = removeQueuedPrompts(m.queuedPreview.Later, msg.Event.Prompts)
+		}
 		if msg.Event.Type == "run_failed" && msg.Event.ErrorType != "CancelledError" {
 			m.phase = PhaseError
 		}
@@ -1377,4 +1381,20 @@ func max(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func removeQueuedPrompts(queue []string, submitted []string) []string {
+	if len(queue) == 0 || len(submitted) == 0 {
+		return queue
+	}
+	remaining := append([]string{}, queue...)
+	for _, prompt := range submitted {
+		for i, candidate := range remaining {
+			if candidate == prompt {
+				remaining = append(remaining[:i], remaining[i+1:]...)
+				break
+			}
+		}
+	}
+	return remaining
 }
