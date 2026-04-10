@@ -37,8 +37,8 @@ func (t *Transcript) writeRunSeparator(summary *rpc.RunTranscriptSummary) {
 }
 
 func newActivityPreviewCell(text string) *rawCell {
-	plain := "● " + text + "\n"
-	rendered := lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render("● ") +
+	plain := "* " + text + "\n"
+	rendered := lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render("* ") +
 		lipgloss.NewStyle().Foreground(defaultTheme.textSoft).Render(text) + "\n"
 	return &rawCell{plain: plain, rendered: rendered}
 }
@@ -55,7 +55,7 @@ func formatRunSeparator(summary *rpc.RunTranscriptSummary) string {
 		return ""
 	}
 
-	return "── jaca run " + formatSummaryDuration(summary.ElapsedMS) + " ──"
+	return "-- jaca run " + formatSummaryDuration(summary.ElapsedMS) + " --"
 }
 
 func formatSummaryDuration(ms int) string {

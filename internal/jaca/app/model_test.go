@@ -813,7 +813,7 @@ func TestSessionPreviewActivityEntryHydratesBackendActivity(t *testing.T) {
 		SessionID: "1234",
 		Entries: []rpc.SessionPreviewEntry{
 			{Kind: "user", Text: "check shell commands"},
-			{Kind: "activity", Text: "Shell · 5 commands · 1.2s"},
+			{Kind: "activity", Text: "Shell - 5 commands - 1.2s"},
 			{Kind: "assistant", Text: "The worktree is clean."},
 		},
 	})
@@ -821,7 +821,7 @@ func TestSessionPreviewActivityEntryHydratesBackendActivity(t *testing.T) {
 	rendered := stripANSI(m.transcript.Render())
 	for _, want := range []string{
 		"│ check shell commands",
-		"● Shell · 5 commands · 1.2s",
+		"* Shell - 5 commands - 1.2s",
 		"The worktree is clean.",
 	} {
 		if !strings.Contains(rendered, want) {

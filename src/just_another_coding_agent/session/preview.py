@@ -103,7 +103,7 @@ def _format_activity_group_preview(group: ActivityGroupSummary) -> str | None:
         parts.append(_format_duration_ms(group.elapsed_ms))
     if group.outcome != "success":
         parts.append(group.outcome.replace("_", " "))
-    return " · ".join(parts)
+    return " - ".join(parts)
 
 
 def _is_generic_shell_group(group: ActivityGroupSummary) -> bool:
@@ -167,7 +167,9 @@ def _truncate_preview_text(
         return "", False
     if len(normalized) <= max_chars:
         return normalized, False
-    return normalized[: max_chars - 1].rstrip() + "…", True
+    if max_chars <= 3:
+        return normalized[:max_chars], True
+    return normalized[: max_chars - 3].rstrip() + "...", True
 
 
 __all__ = [

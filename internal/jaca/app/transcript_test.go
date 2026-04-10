@@ -1056,7 +1056,7 @@ func TestRunSucceededRendersBackendSeparatorSummary(t *testing.T) {
 	})
 
 	plain := stripANSI(transcript.Render())
-	if !strings.Contains(plain, "── jaca run 2m 59s ──") {
+	if !strings.Contains(plain, "-- jaca run 2m 59s --") {
 		t.Fatalf("separator missing elapsed-only line in %q", plain)
 	}
 	for _, absent := range []string{

@@ -412,8 +412,8 @@ def test_build_session_preview_includes_meaningful_activity_summary(tmp_path) ->
 
     assert [(entry.kind, entry.text) for entry in preview.entries] == [
         ("user", "update docs"),
-        ("activity", "Read/Searched · 2 operations · 14ms"),
-        ("activity", "Edited files · 1 file · 23ms"),
+        ("activity", "Read/Searched - 2 operations - 14ms"),
+        ("activity", "Edited files - 1 file - 23ms"),
         ("assistant", "Updated docs."),
     ]
 
