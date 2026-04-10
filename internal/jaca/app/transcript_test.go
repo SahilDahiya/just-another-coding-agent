@@ -104,6 +104,10 @@ func TestToolSuccessDoesNotTreatResultMapWithoutOkAsError(t *testing.T) {
 	if !strings.Contains(plain, "shell  git status --short  ok  17ms") {
 		t.Fatalf("tool row missing success state: %q", plain)
 	}
+	groupPlain, groupRendered := transcript.toolGroup.render(0)
+	if groupPlain != stripANSI(groupRendered) {
+		t.Fatalf("tool group plain/render spacing mismatch: plain=%q rendered=%q", groupPlain, stripANSI(groupRendered))
+	}
 }
 
 func TestOperationalToolResultRendersAsNeutralOutput(t *testing.T) {

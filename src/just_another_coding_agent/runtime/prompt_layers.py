@@ -28,6 +28,8 @@ class PromptSection:
 
 @dataclass(frozen=True)
 class PromptContextLayers:
+    """Layers: base policy, project docs, runtime frame, mode overlay."""
+
     base_instructions: str
     project_messages: tuple[ModelMessage, ...]
     runtime_before_history_messages: tuple[ModelMessage, ...]

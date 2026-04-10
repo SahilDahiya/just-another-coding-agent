@@ -193,7 +193,7 @@ func formatToolActivityLine(entry *toolEntry) string {
 	}
 	switch {
 	case entry.outcome != "" && entry.duration != "" && entry.message == "":
-		return fmt.Sprintf("%s  %s %s\n", head, entry.outcome, entry.duration)
+		return fmt.Sprintf("%s  %s  %s\n", head, entry.outcome, entry.duration)
 	case entry.outcome != "" && entry.message != "" && entry.duration != "":
 		return fmt.Sprintf("%s  %s  %s  %s\n", head, entry.outcome, entry.message, entry.duration)
 	case entry.outcome != "" && entry.message != "":
