@@ -1550,10 +1550,10 @@ async def test_summarize_session_for_compaction_uses_model_output_and_previous_s
 
     loaded = load_session(path=session_path, workspace_root=workspace_root)
 
-    def summary_probe(
+    async def summary_probe(
         messages: list[ModelMessage],
         agent_info: object,
-    ) -> ModelResponse:
+    ):
         prompt = _last_user_prompt(messages)
         assert prompt is not None
         assert "Previous compaction summary:" in prompt
@@ -1568,19 +1568,13 @@ async def test_summarize_session_for_compaction_uses_model_output_and_previous_s
         assert "Completed Work:" in instructions
         assert "Important Files/Paths:" in instructions
         assert "Do not include code snippets" in instructions
-        return ModelResponse(
-            parts=[
-                TextPart(
-                    content=(
-                        "- Goal: ship the verified fix\n"
-                        "- Important path: src/app.py"
-                    )
-                )
-            ]
+        yield (
+            "- Goal: ship the verified fix\n"
+            "- Important path: src/app.py"
         )
 
     summary = await summarize_session_for_compaction(
-        model=FunctionModel(function=summary_probe),
+        model=FunctionModel(stream_function=summary_probe),
         loaded_session=loaded,
     )
 
@@ -1612,7 +1606,7 @@ async def test_summarize_session_for_compaction_normalizes_summary_content(
     assert summary == "- Goal: ship it\n- Path: src/app.py"
 
 
-async def test_summarize_session_for_compaction_uses_canonical_model_settings(
+async def test_summarize_session_for_compaction_streams_with_canonical_model_settings(
     tmp_path,
     monkeypatch,
 ) -> None:
@@ -1637,14 +1631,21 @@ async def test_summarize_session_for_compaction_uses_canonical_model_settings(
             captured["output_type"] = output_type
             captured["instructions"] = instructions
 
-        async def run(self, prompt, *, model_settings=None):
+        def run_stream(self, prompt, *, model_settings=None):
             captured["prompt"] = prompt
             captured["model_settings"] = model_settings
 
-            class Result:
-                output = "- Goal: continue"
+            class StreamResult:
+                async def __aenter__(self):
+                    return self
 
-            return Result()
+                async def __aexit__(self, exc_type, exc, tb):
+                    return None
+
+                async def get_output(self):
+                    return "- Goal: continue"
+
+            return StreamResult()
 
     monkeypatch.setattr(session_summary_module, "Agent", FakeAgent)
     monkeypatch.setattr(

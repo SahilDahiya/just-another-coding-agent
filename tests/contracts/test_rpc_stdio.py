@@ -5,13 +5,7 @@ from collections.abc import AsyncIterator
 from urllib.parse import parse_qs, urlparse
 
 import pytest
-from pydantic_ai.messages import (
-    ModelMessage,
-    ModelResponse,
-    TextPart,
-    ToolReturnPart,
-    UserPromptPart,
-)
+from pydantic_ai.messages import ModelMessage, ToolReturnPart, UserPromptPart
 from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 
 from just_another_coding_agent.auth import (
@@ -133,10 +127,10 @@ async def text_only_stream(
     yield "done"
 
 
-async def compaction_summary_function(
+async def compaction_summary_stream(
     messages: list[ModelMessage],
     _agent_info: object,
-) -> ModelResponse:
+) -> AsyncIterator[str]:
     prompt = _last_user_prompt(messages)
     assert prompt is not None
     assert "Runs since the latest compaction boundary:" in prompt
@@ -146,26 +140,34 @@ async def compaction_summary_function(
     assert "Completed work:" in prompt
     assert "Tool evidence:" in prompt
     assert "create note" in prompt
-    return ModelResponse(
-        parts=[
-            TextPart(
-                content="\n".join(
-                    [
-                        "Primary Intent:",
-                        "- Create note handling and preserve prior file work.",
-                        "Completed Work:",
-                        "- note.txt was created.",
-                        "Important Files/Paths:",
-                        "- note.txt: created during the previous run.",
-                        "Next Step:",
-                        "- Run the final verifier.",
-                        "Stable Preferences:",
-                        "- Be concise.",
-                    ]
-                )
-            )
+    yield "\n".join(
+        [
+            "Primary Intent:",
+            "- Create note handling and preserve prior file work.",
+            "Completed Work:",
+            "- note.txt was created.",
+            "Important Files/Paths:",
+            "- note.txt: created during the previous run.",
+            "Next Step:",
+            "- Run the final verifier.",
+            "Stable Preferences:",
+            "- Be concise.",
         ]
     )
+
+
+async def resume_or_compaction_stream(
+    messages: list[ModelMessage],
+    agent_info: object,
+) -> AsyncIterator[str | dict[int, DeltaToolCall]]:
+    prompt = _last_user_prompt(messages)
+    if prompt is not None and "Runs since the latest compaction boundary:" in prompt:
+        async for chunk in compaction_summary_stream(messages, agent_info):
+            yield chunk
+        return
+
+    async for chunk in resume_aware_write_stream(messages, agent_info):
+        yield chunk
 
 
 async def exploding_session_stream(*_args, **_kwargs):
@@ -1559,10 +1561,7 @@ async def test_handle_rpc_json_line_compacts_session_and_returns_metadata(
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
     sessions_root = tmp_path / "sessions"
-    model = FunctionModel(
-        function=compaction_summary_function,
-        stream_function=resume_aware_write_stream,
-    )
+    model = FunctionModel(stream_function=resume_or_compaction_stream)
 
     session_id = await _create_session_id(
         workspace_root=workspace_root,

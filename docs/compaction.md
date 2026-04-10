@@ -103,6 +103,8 @@ Operational rules:
 
 - automatic compaction runs only before a resumed run starts
 - it requires at least one completed run after `compacted_through_run_id`
+- summary generation uses the canonical model resolution/settings seam and the
+  streaming request path
 - after three consecutive automatic compaction failures, the runtime blocks
   further automatic attempts for that session and fails hard
 

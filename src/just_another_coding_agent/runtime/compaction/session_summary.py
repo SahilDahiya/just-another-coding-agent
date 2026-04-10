@@ -77,11 +77,12 @@ async def summarize_session_for_compaction(
         output_type=str,
         instructions=COMPACTION_SUMMARY_INSTRUCTIONS,
     )
-    result = await summarizer.run(
+    async with summarizer.run_stream(
         _build_compaction_source(loaded_session, model=model),
         model_settings=build_canonical_model_settings(model=resolved_model),
-    )
-    normalized = _normalize_compaction_summary_text(result.output)
+    ) as result:
+        summary_text = await result.get_output()
+    normalized = _normalize_compaction_summary_text(summary_text)
     if not normalized:
         raise SessionFormatError(
             "Compaction summary is empty. Preserve at least one durable "

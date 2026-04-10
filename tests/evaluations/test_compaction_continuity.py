@@ -3,7 +3,6 @@ from collections.abc import AsyncIterator
 from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
-    ModelResponse,
     TextPart,
     UserPromptPart,
 )
@@ -297,7 +296,7 @@ async def test_auto_compaction_preserves_multi_compaction_continuity(
         del model
         loaded = load_session(path=path, workspace_root=workspace_root)
         second_summary = await summarize_session_for_compaction(
-            model=FunctionModel(function=_summary_probe_function),
+            model=FunctionModel(stream_function=_summary_probe_stream),
             loaded_session=loaded,
         )
         return _append_summary_compaction(
@@ -390,10 +389,10 @@ async def test_auto_compaction_preserves_multi_compaction_continuity(
     ).parts[0].content in observed["assistant_texts"]
 
 
-def _summary_probe_function(
+async def _summary_probe_stream(
     messages: list[ModelMessage],
     _agent_info: object,
-) -> ModelResponse:
+) -> AsyncIterator[str]:
     prompt = next(
         part.content
         for part in _all_parts(messages)
@@ -403,22 +402,16 @@ def _summary_probe_function(
     assert "- Goal: repair the failing verifier" in prompt
     assert "Run run-3" in prompt
     assert "Run run-4" in prompt
-    return ModelResponse(
-        parts=[
-            TextPart(
-                content="\n".join(
-                    [
-                        "- Goal: ship the verified app fix",
-                        (
-                            "- Established fact: src/app.py was updated after "
-                            "the earlier verifier failure."
-                        ),
-                        "- Established fact: go test ./... passed on the latest run.",
-                        "- Important path: src/app.py",
-                        "- Important path: tests/test_app.py",
-                        "- Unresolved work: Send the user a final status update.",
-                    ]
-                )
-            )
+    yield "\n".join(
+        [
+            "- Goal: ship the verified app fix",
+            (
+                "- Established fact: src/app.py was updated after "
+                "the earlier verifier failure."
+            ),
+            "- Established fact: go test ./... passed on the latest run.",
+            "- Important path: src/app.py",
+            "- Important path: tests/test_app.py",
+            "- Unresolved work: Send the user a final status update.",
         ]
     )

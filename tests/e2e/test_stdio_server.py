@@ -9,7 +9,6 @@ from types import SimpleNamespace
 import pytest
 from pydantic_ai.messages import (
     ModelMessage,
-    ModelResponse,
     TextPart,
     ToolReturnPart,
     UserPromptPart,
@@ -92,10 +91,10 @@ async def resume_aware_write_stream(
     raise AssertionError(f"unexpected prompt: {latest_prompt!r}")
 
 
-async def compaction_summary_function(
+async def compaction_summary_stream(
     messages: list[ModelMessage],
     _agent_info: object,
-) -> ModelResponse:
+) -> AsyncIterator[str]:
     prompt = _last_user_prompt(messages)
     assert prompt is not None
     assert "Primary intent:" in prompt
@@ -103,26 +102,34 @@ async def compaction_summary_function(
     assert "Current state:" in prompt
     assert "Completed work:" in prompt
     assert "Tool evidence:" in prompt
-    return ModelResponse(
-        parts=[
-            TextPart(
-                content="\n".join(
-                    [
-                        "Primary Intent:",
-                        "- Create note handling and preserve prior file work.",
-                        "Completed Work:",
-                        "- note.txt was created.",
-                        "Important Files/Paths:",
-                        "- note.txt: created during the previous run.",
-                        "Next Step:",
-                        "- Run the final verifier.",
-                        "Stable Preferences:",
-                        "- Be concise.",
-                    ]
-                )
-            )
+    yield "\n".join(
+        [
+            "Primary Intent:",
+            "- Create note handling and preserve prior file work.",
+            "Completed Work:",
+            "- note.txt was created.",
+            "Important Files/Paths:",
+            "- note.txt: created during the previous run.",
+            "Next Step:",
+            "- Run the final verifier.",
+            "Stable Preferences:",
+            "- Be concise.",
         ]
     )
+
+
+async def resume_or_compaction_stream(
+    messages: list[ModelMessage],
+    agent_info: object,
+) -> AsyncIterator[str | dict[int, DeltaToolCall]]:
+    prompt = _last_user_prompt(messages)
+    if prompt is not None and "Runs since the latest compaction boundary:" in prompt:
+        async for chunk in compaction_summary_stream(messages, agent_info):
+            yield chunk
+        return
+
+    async for chunk in resume_aware_write_stream(messages, agent_info):
+        yield chunk
 
 
 async def test_serve_rpc_stdio_handles_multiple_lines_in_one_process(
@@ -176,10 +183,7 @@ async def test_serve_rpc_stdio_handles_multiple_lines_in_one_process(
     await serve_rpc_stdio(
         input_stream=input_stream,
         output_stream=output_stream,
-        model=FunctionModel(
-            function=compaction_summary_function,
-            stream_function=resume_aware_write_stream,
-        ),
+        model=FunctionModel(stream_function=resume_or_compaction_stream),
         workspace_root=workspace_root,
         sessions_root=sessions_root,
     )
@@ -311,7 +315,7 @@ async def test_serve_rpc_stdio_handles_auth_status_while_run_is_streaming(
     await serve_rpc_stdio(
         input_stream=input_stream,
         output_stream=output_stream,
-        model=FunctionModel(function=compaction_summary_function),
+        model=FunctionModel(stream_function=resume_or_compaction_stream),
         workspace_root=workspace_root,
         sessions_root=sessions_root,
     )
@@ -449,7 +453,7 @@ async def test_serve_rpc_stdio_drains_queued_follow_up_after_run(
     await serve_rpc_stdio(
         input_stream=input_stream,
         output_stream=output_stream,
-        model=FunctionModel(function=compaction_summary_function),
+        model=FunctionModel(stream_function=resume_or_compaction_stream),
         workspace_root=workspace_root,
         sessions_root=sessions_root,
     )
@@ -579,7 +583,7 @@ async def test_serve_rpc_stdio_batches_multiple_later_follow_ups_into_one_run(
     await serve_rpc_stdio(
         input_stream=input_stream,
         output_stream=output_stream,
-        model=FunctionModel(function=compaction_summary_function),
+        model=FunctionModel(stream_function=resume_or_compaction_stream),
         workspace_root=workspace_root,
         sessions_root=sessions_root,
     )
@@ -715,7 +719,7 @@ async def test_serve_rpc_stdio_submits_next_queue_after_active_tool_phase_comple
     await serve_rpc_stdio(
         input_stream=input_stream,
         output_stream=output_stream,
-        model=FunctionModel(function=compaction_summary_function),
+        model=FunctionModel(stream_function=resume_or_compaction_stream),
         workspace_root=workspace_root,
         sessions_root=sessions_root,
     )
@@ -832,7 +836,7 @@ async def test_serve_rpc_stdio_interrupt_promotes_next_steer_into_immediate_foll
     await serve_rpc_stdio(
         input_stream=input_stream,
         output_stream=output_stream,
-        model=FunctionModel(function=compaction_summary_function),
+        model=FunctionModel(stream_function=resume_or_compaction_stream),
         workspace_root=workspace_root,
         sessions_root=sessions_root,
     )
@@ -1117,10 +1121,7 @@ async def test_serve_rpc_stdio_supports_model_catalog(
     await serve_rpc_stdio(
         input_stream=input_stream,
         output_stream=output_stream,
-        model=FunctionModel(
-            function=compaction_summary_function,
-            stream_function=resume_aware_write_stream,
-        ),
+        model=FunctionModel(stream_function=resume_or_compaction_stream),
         workspace_root=workspace_root,
         sessions_root=sessions_root,
     )
@@ -1191,10 +1192,7 @@ async def test_serve_rpc_stdio_supports_session_compact(
     await serve_rpc_stdio(
         input_stream=input_stream,
         output_stream=output_stream,
-        model=FunctionModel(
-            function=compaction_summary_function,
-            stream_function=resume_aware_write_stream,
-        ),
+        model=FunctionModel(stream_function=resume_or_compaction_stream),
         workspace_root=workspace_root,
         sessions_root=sessions_root,
     )
