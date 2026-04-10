@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"hash/fnv"
 	"math"
 	"strings"
 
@@ -55,7 +56,21 @@ func formatRunSeparator(summary *rpc.RunTranscriptSummary) string {
 		return ""
 	}
 
-	return "-- jaca run " + formatSummaryDuration(summary.ElapsedMS) + " --"
+	return "-- jaca " + runSeparatorVerb(summary.ElapsedMS) + " for " + formatSummaryDuration(summary.ElapsedMS) + " --"
+}
+
+var runSeparatorVerbs = [...]string{
+	"cooked",
+	"ate",
+	"snapped",
+	"locked in",
+	"crushed",
+}
+
+func runSeparatorVerb(elapsedMS int) string {
+	hasher := fnv.New32a()
+	_, _ = hasher.Write([]byte(fmt.Sprintf("%d", elapsedMS)))
+	return runSeparatorVerbs[hasher.Sum32()%uint32(len(runSeparatorVerbs))]
 }
 
 func formatSummaryDuration(ms int) string {

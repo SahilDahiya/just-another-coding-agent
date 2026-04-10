@@ -162,6 +162,97 @@ func TestToolFailureRendersStructuredErrorRow(t *testing.T) {
 	}
 }
 
+func TestSubagentRowsRenderBoundedPreviewBlock(t *testing.T) {
+	transcript := NewTranscript()
+	transcript.ApplyRunEvent(rpc.RunEvent{
+		Type:       "tool_call_started",
+		ToolName:   "subagent",
+		ToolCallID: "call-subagent",
+		Args: map[string]any{
+			"name": "compaction-scan",
+			"role": "explore",
+			"task": "Find where compaction resets turn context.",
+		},
+		Activity: &rpc.ToolActivity{
+			Title:        "subagent compaction-scan",
+			DisplayLabel: strPtr("Explore"),
+		},
+	})
+
+	runningDuration := 14
+	transcript.ApplyRunEvent(rpc.RunEvent{
+		Type:       "tool_call_updated",
+		ToolName:   "subagent",
+		ToolCallID: "call-subagent",
+		Activity: &rpc.ToolActivity{
+			Title:        "subagent compaction-scan",
+			DisplayLabel: strPtr("Explore"),
+			Summary:      strPtr("exploring repository"),
+			DurationMS:   &runningDuration,
+			Details: map[string]any{
+				"kind":             "subagent",
+				"name":             "compaction-scan",
+				"role":             "explore",
+				"preview_lines":    []any{"read AGENTS.md"},
+				"preview_terminal": false,
+			},
+		},
+	})
+
+	runningPlain := transcriptPlain(transcript)
+	for _, want := range []string{
+		"● subagent  compaction-scan  running  exploring repository  14ms",
+		"  │ read AGENTS.md",
+	} {
+		if !strings.Contains(runningPlain, want) {
+			t.Fatalf("running subagent block missing %q in %q", want, runningPlain)
+		}
+	}
+
+	finalDuration := 61
+	transcript.ApplyRunEvent(rpc.RunEvent{
+		Type:       "tool_call_succeeded",
+		ToolName:   "subagent",
+		ToolCallID: "call-subagent",
+		Result: map[string]any{
+			"ok":          true,
+			"name":        "compaction-scan",
+			"role":        "explore",
+			"output_text": "Found reset in runtime/compaction/resume.py",
+		},
+		Activity: &rpc.ToolActivity{
+			Title:        "subagent compaction-scan",
+			DisplayLabel: strPtr("Explore"),
+			Summary:      strPtr("Found reset in runtime/compaction/resume.py"),
+			DurationMS:   &finalDuration,
+			Details: map[string]any{
+				"kind": "subagent",
+				"name": "compaction-scan",
+				"role": "explore",
+				"preview_lines": []any{
+					"read AGENTS.md",
+					"Found reset in runtime/compaction/resume.py",
+				},
+				"preview_terminal": true,
+			},
+		},
+	})
+
+	finalPlain := transcriptPlain(transcript)
+	for _, want := range []string{
+		"● subagent  compaction-scan  ok  61ms",
+		"  │ read AGENTS.md",
+		"  └ Found reset in runtime/compaction/resume.py",
+	} {
+		if !strings.Contains(finalPlain, want) {
+			t.Fatalf("final subagent block missing %q in %q", want, finalPlain)
+		}
+	}
+	if strings.Contains(finalPlain, "output_text") {
+		t.Fatalf("subagent result spilled raw payload into transcript: %q", finalPlain)
+	}
+}
+
 func TestRunFailureRendersStructuredErrorRow(t *testing.T) {
 	transcript := NewTranscript()
 	transcript.ApplyRunEvent(rpc.RunEvent{
@@ -1056,9 +1147,18 @@ func TestRunSucceededRendersBackendSeparatorSummary(t *testing.T) {
 	})
 
 	plain := stripANSI(transcript.Render())
-	if !strings.Contains(plain, "-- jaca run 2m 59s --") {
-		t.Fatalf("separator missing elapsed-only line in %q", plain)
+	if !strings.Contains(plain, "-- jaca ") || !strings.Contains(plain, " for 2m 59s --") {
+		t.Fatalf("separator missing curated verb line in %q", plain)
 	}
+	for _, verb := range runSeparatorVerbs {
+		needle := "-- jaca " + verb + " for 2m 59s --"
+		if strings.Contains(plain, needle) {
+			goto foundSeparatorVerb
+		}
+	}
+	t.Fatalf("separator did not use curated verb in %q", plain)
+
+foundSeparatorVerb:
 	for _, absent := range []string{
 		"Shell",
 		"tools 1.2s",
