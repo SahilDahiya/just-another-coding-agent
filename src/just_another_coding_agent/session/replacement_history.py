@@ -9,6 +9,7 @@ from pydantic_ai.messages import (
     ModelResponse,
     SystemPromptPart,
     TextPart,
+    UserContent,
     UserPromptPart,
 )
 
@@ -160,14 +161,36 @@ def _collect_real_user_message_texts(messages: Sequence[ModelMessage]) -> list[s
             continue
         if is_compaction_summary_message(message):
             continue
-        parts = [
-            part.content.strip()
-            for part in message.parts
-            if isinstance(part, UserPromptPart) and part.content.strip()
-        ]
+        parts = []
+        for part in message.parts:
+            if not isinstance(part, UserPromptPart):
+                continue
+            text = _normalize_user_prompt_text(part.content)
+            if text:
+                parts.append(text)
         if parts:
             collected.append("\n".join(parts))
     return collected
+
+
+def _normalize_user_prompt_text(content: str | Sequence[UserContent]) -> str | None:
+    if isinstance(content, str):
+        stripped = content.strip()
+        return stripped or None
+
+    text_parts: list[str] = []
+    for item in content:
+        if not isinstance(item, str):
+            raise ValueError(
+                "Compaction replacement history supports only text user "
+                "prompt content"
+            )
+        stripped = item.strip()
+        if stripped:
+            text_parts.append(stripped)
+    if not text_parts:
+        return None
+    return "\n".join(text_parts)
 
 
 def _truncate_text_to_token_budget(text: str, token_budget: int) -> str | None:

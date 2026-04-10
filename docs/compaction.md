@@ -30,6 +30,10 @@ There are no hidden resume instructions rebuilt from compaction state.
 - capped by `SESSION_AUTO_COMPACTION_RETAINED_TAIL_TOKENS`
 - plus one assistant-style plain-text compaction summary message appended last
 
+Text-only PydanticAI user prompt sequences are normalized into newline-joined
+text before they are retained. Non-text user content is not part of the current
+compaction contract and fails hard instead of being silently dropped.
+
 The retained user tail is selected by the backend-owned token-estimation seam in
 `runtime/token_estimation.py`.
 

@@ -6,6 +6,7 @@ from datetime import date
 
 import pytest
 from pydantic_ai.messages import (
+    BinaryContent,
     ModelMessage,
     ModelRequest,
     ModelResponse,
@@ -71,6 +72,7 @@ from just_another_coding_agent.session.replacement_history import (
     build_compaction_replacement_messages,
     build_compaction_summary_message,
     extract_compaction_summary_text,
+    is_compaction_summary_message,
 )
 from just_another_coding_agent.tools.deps import WorkspaceDeps
 
@@ -1521,6 +1523,63 @@ async def test_stream_session_run_events_replays_replacement_history(
     assert _summary_message_content("- Goal: continue after compaction") in (
         _assistant_texts(build_resume_message_history(loaded))
     )
+
+
+def test_compaction_replacement_messages_preserve_user_prompt_text_sequence() -> None:
+    replacement_messages = build_compaction_replacement_messages(
+        model=TestModel(),
+        messages=[
+            ModelRequest(
+                parts=[
+                    UserPromptPart(
+                        content=[
+                            "run go tests",
+                            "  ",
+                            "what is compaction?",
+                        ]
+                    )
+                ]
+            )
+        ],
+        summary_text="- Goal: continue",
+        token_budget=100,
+    )
+
+    assert len(replacement_messages) == 2
+    first_message = replacement_messages[0]
+    assert isinstance(first_message, ModelRequest)
+    assert len(first_message.parts) == 1
+    first_part = first_message.parts[0]
+    assert isinstance(first_part, UserPromptPart)
+    assert first_part.content == "run go tests\nwhat is compaction?"
+    assert is_compaction_summary_message(replacement_messages[-1])
+
+
+def test_build_compaction_replacement_messages_rejects_non_text_user_content() -> None:
+    with pytest.raises(
+        ValueError,
+        match="supports only text user prompt content",
+    ):
+        build_compaction_replacement_messages(
+            model=TestModel(),
+            messages=[
+                ModelRequest(
+                    parts=[
+                        UserPromptPart(
+                            content=[
+                                "describe this file",
+                                BinaryContent(
+                                    data=b"example",
+                                    media_type="text/plain",
+                                ),
+                            ]
+                        )
+                    ]
+                )
+            ],
+            summary_text="- Goal: continue",
+            token_budget=100,
+        )
 
 
 async def test_summarize_session_for_compaction_uses_model_output_and_previous_summary(
