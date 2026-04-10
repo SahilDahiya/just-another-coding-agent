@@ -806,6 +806,30 @@ func TestResumedSessionPreviewHydratesRecentHistory(t *testing.T) {
 	}
 }
 
+func TestSessionPreviewActivityEntryHydratesBackendActivity(t *testing.T) {
+	m := newTestModel()
+
+	m.transcript.ApplySessionPreview(rpc.SessionPreviewResponse{
+		SessionID: "1234",
+		Entries: []rpc.SessionPreviewEntry{
+			{Kind: "user", Text: "check git state"},
+			{Kind: "activity", Text: "Git check · 5 commands · 1.2s"},
+			{Kind: "assistant", Text: "The worktree is clean."},
+		},
+	})
+
+	rendered := stripANSI(m.transcript.Render())
+	for _, want := range []string{
+		"> check git state",
+		"● Git check · 5 commands · 1.2s",
+		"The worktree is clean.",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("preview transcript missing %q in %q", want, rendered)
+		}
+	}
+}
+
 func TestMouseWheelScrollsViewport(t *testing.T) {
 	m := newTestModel()
 	for i := 0; i < 30; i++ {

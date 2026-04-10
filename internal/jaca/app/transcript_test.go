@@ -869,6 +869,74 @@ func TestCodeBlockLanguageLabelRendered(t *testing.T) {
 	}
 }
 
+func TestRunSucceededRendersBackendSeparatorSummary(t *testing.T) {
+	transcript := NewTranscript()
+	transcript.WriteUserTurn("check the repo")
+	transcript.ApplyRunEvent(rpc.RunEvent{
+		Type:       "run_succeeded",
+		RunID:      "run-1",
+		OutputText: "done",
+		TranscriptSummary: &rpc.RunTranscriptSummary{
+			ElapsedMS:           179000,
+			ToolCallCount:       5,
+			ToolDurationMS:      1234,
+			TotalTokens:         intPtr(82000),
+			ContextWindowUsed:   floatPtr(0.41),
+			HadWorkActivity:     true,
+			ShouldShowSeparator: true,
+			ActivityGroups: []rpc.ActivityGroupSummary{
+				{
+					GroupKind:  "execution",
+					GroupLabel: "Git check",
+					GroupCounts: rpc.ActivityGroupCounts{
+						Shell: 5,
+						Tool:  5,
+					},
+					Outcome:   "success",
+					ElapsedMS: intPtr(1234),
+				},
+			},
+		},
+	})
+
+	plain := stripANSI(transcript.Render())
+	if !strings.Contains(plain, "── jaca run 2m 59s ──") {
+		t.Fatalf("separator missing elapsed-only line in %q", plain)
+	}
+	for _, absent := range []string{
+		"Git check",
+		"tools 1.2s",
+		"82k tok",
+		"41% ctx",
+	} {
+		if strings.Contains(plain, absent) {
+			t.Fatalf("separator should not include %q in %q", absent, plain)
+		}
+	}
+}
+
+func TestRunSucceededOmitsSeparatorWhenBackendSaysNo(t *testing.T) {
+	transcript := NewTranscript()
+	transcript.WriteUserTurn("short run")
+	transcript.ApplyRunEvent(rpc.RunEvent{
+		Type:       "run_succeeded",
+		RunID:      "run-1",
+		OutputText: "done",
+		TranscriptSummary: &rpc.RunTranscriptSummary{
+			ElapsedMS:           400,
+			ToolCallCount:       1,
+			ToolDurationMS:      40,
+			HadWorkActivity:     true,
+			ShouldShowSeparator: false,
+		},
+	})
+
+	plain := stripANSI(transcript.Render())
+	if strings.Contains(plain, "jaca run") {
+		t.Fatalf("separator rendered despite backend false hint: %q", plain)
+	}
+}
+
 func TestBlockquoteRendered(t *testing.T) {
 	markdown := "> This is a quote\n>> Nested quote\n"
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from just_another_coding_agent.contracts.run_events import (
+    ActivityGroupSummary,
     RunFailedEvent,
     RunSucceededEvent,
 )
@@ -41,6 +42,14 @@ def build_session_preview(*, path, workspace_root) -> SessionPreview:
             entries.append(SessionPreviewEntry(kind="user", text=prompt_text))
             truncated = truncated or prompt_truncated
 
+        for activity_text in _activity_preview_for_run(run):
+            preview_text, text_truncated = _truncate_preview_text(activity_text)
+            if preview_text:
+                entries.append(
+                    SessionPreviewEntry(kind="activity", text=preview_text)
+                )
+                truncated = truncated or text_truncated
+
         terminal_text, terminal_kind = _terminal_preview_for_run(run)
         if terminal_text is None:
             continue
@@ -65,6 +74,66 @@ def _terminal_preview_for_run(run) -> tuple[str | None, str]:
         if isinstance(event, RunFailedEvent):
             return event.message, "error"
     return None, "assistant"
+
+
+def _activity_preview_for_run(run) -> list[str]:
+    for event in reversed(run.events):
+        if isinstance(event, RunSucceededEvent):
+            summary = event.transcript_summary
+            if summary is None:
+                return []
+            return [
+                text
+                for group in summary.activity_groups
+                if (text := _format_activity_group_preview(group))
+            ]
+        if isinstance(event, RunFailedEvent):
+            return []
+    return []
+
+
+def _format_activity_group_preview(group: ActivityGroupSummary) -> str | None:
+    parts = [group.group_label]
+    count = _format_group_count(group)
+    if count:
+        parts.append(count)
+    if group.elapsed_ms is not None:
+        parts.append(_format_duration_ms(group.elapsed_ms))
+    if group.outcome != "success":
+        parts.append(group.outcome.replace("_", " "))
+    return " · ".join(parts)
+
+
+def _format_group_count(group: ActivityGroupSummary) -> str | None:
+    counts = group.group_counts
+    if counts.shell:
+        return _plural(counts.shell, "command")
+    changed_files = counts.write + counts.edit
+    if changed_files:
+        return _plural(changed_files, "file")
+    exploration_ops = counts.read + counts.search + counts.list
+    if exploration_ops:
+        return _plural(exploration_ops, "operation")
+    if counts.tool:
+        return _plural(counts.tool, "tool")
+    return None
+
+
+def _plural(count: int, singular: str) -> str:
+    suffix = "" if count == 1 else "s"
+    return f"{count} {singular}{suffix}"
+
+
+def _format_duration_ms(duration_ms: int) -> str:
+    if duration_ms < 1000:
+        return f"{duration_ms}ms"
+    seconds = duration_ms / 1000
+    if seconds < 60:
+        formatted = f"{seconds:.1f}".rstrip("0").rstrip(".")
+        return f"{formatted}s"
+    minutes = int(seconds // 60)
+    remaining_seconds = int(seconds % 60)
+    return f"{minutes}m {remaining_seconds:02d}s"
 
 
 def _truncate_preview_text(

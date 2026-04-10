@@ -14,9 +14,11 @@ from just_another_coding_agent.contracts.run_events import (
     RunFailedEvent,
     RunStartedEvent,
     RunSucceededEvent,
+    ShellActivityDetails,
 )
 from just_another_coding_agent.runtime.agent import build_canonical_agent
 from just_another_coding_agent.runtime.run import stream_run_events
+from just_another_coding_agent.tools._activity import make_tool_return
 from just_another_coding_agent.tools.deps import WorkspaceDeps
 
 
@@ -84,6 +86,23 @@ async def looping_tool_stream(
     }
 
 
+async def git_check_stream(
+    messages: object,
+    _agent_info: object,
+) -> AsyncIterator[dict[int, DeltaToolCall] | str]:
+    if len(messages) == 1:
+        yield {
+            0: DeltaToolCall(
+                name="shell",
+                json_args='{"command": "git status --short", "timeout": 5}',
+                tool_call_id="call-shell",
+            )
+        }
+        return
+
+    yield "done"
+
+
 class RecordingStreamAgent:
     def __init__(self, *, model=None) -> None:
         self.last_model_settings = None
@@ -128,6 +147,40 @@ async def test_stream_run_events_success() -> None:
     assert [event.run_id for event in events] == [run_id, run_id, run_id, run_id]
     assert [events[1].delta, events[2].delta] == ["hello ", "world"]
     assert events[3].output_text == "hello world"
+
+
+async def test_stream_run_events_attaches_backend_transcript_summary() -> None:
+    agent = Agent(FunctionModel(stream_function=git_check_stream), output_type=str)
+
+    @agent.tool_plain
+    async def shell(command: str, timeout: int | None = None):
+        return make_tool_return(
+            return_value={"exit_code": 0, "output": ""},
+            title=f"shell {command}",
+            summary="command exited 0",
+            details=ShellActivityDetails(
+                command_preview=command,
+                shell_family="posix",
+                timeout=timeout,
+                exit_code=0,
+            ),
+        )
+
+    events = [event async for event in stream_run_events(agent=agent, prompt="go")]
+
+    terminal = events[-1]
+    assert isinstance(terminal, RunSucceededEvent)
+    assert terminal.transcript_summary is not None
+    assert terminal.transcript_summary.had_work_activity is True
+    assert terminal.transcript_summary.tool_call_count == 1
+    assert len(terminal.transcript_summary.activity_groups) == 1
+    group = terminal.transcript_summary.activity_groups[0]
+    assert group.group_kind == "execution"
+    assert group.group_label == "Git check"
+    assert group.group_counts.shell == 1
+    assert group.group_counts.tool == 1
+    assert group.display_hint == "git status --short"
+    assert group.outcome == "success"
 
 
 async def test_stream_run_events_failure_is_terminal_error_event() -> None:

@@ -103,6 +103,45 @@ class ToolActivity(BaseModel):
     group_kind: str | None = None
 
 
+class ActivityGroupCounts(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    read: int = 0
+    search: int = 0
+    list: int = 0
+    shell: int = 0
+    write: int = 0
+    edit: int = 0
+    tool: int = 0
+
+
+class ActivityGroupSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    group_kind: Literal["exploration", "execution", "editing", "compaction", "other"]
+    group_label: str
+    group_counts: ActivityGroupCounts = Field(default_factory=ActivityGroupCounts)
+    display_hint: str | None = None
+    outcome: Literal["success", "operational_miss", "error"]
+    elapsed_ms: int | None = None
+
+
+class RunTranscriptSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    elapsed_ms: int
+    tool_call_count: int = 0
+    tool_duration_ms: int = 0
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    total_tokens: int | None = None
+    context_window_used: float | None = None
+    next_request_context_window_used: float | None = None
+    had_work_activity: bool = False
+    should_show_separator: bool = False
+    activity_groups: list[ActivityGroupSummary] = Field(default_factory=list)
+
+
 class RunStartedEvent(_RunEventBase):
     type: Literal["run_started"] = "run_started"
 
@@ -154,6 +193,7 @@ class RunSucceededEvent(_RunEventBase):
     total_tokens: int | None = None
     context_window_used: float | None = None
     next_request_context_window_used: float | None = None
+    transcript_summary: RunTranscriptSummary | None = None
 
 
 class RunFailedEvent(_RunEventBase):
@@ -231,6 +271,8 @@ RunEvent = Annotated[
 ]
 
 __all__ = [
+    "ActivityGroupCounts",
+    "ActivityGroupSummary",
     "AssistantTextDeltaEvent",
     "EditActivityDetails",
     "FindActivityDetails",
@@ -242,6 +284,7 @@ __all__ = [
     "RunFailedEvent",
     "RunStartedEvent",
     "RunSucceededEvent",
+    "RunTranscriptSummary",
     "SessionCompactionCompletedEvent",
     "SessionCompactionStartedEvent",
     "SessionLifecycleEvent",

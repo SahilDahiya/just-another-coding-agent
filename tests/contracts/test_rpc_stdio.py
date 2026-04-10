@@ -541,22 +541,19 @@ async def test_handle_rpc_json_line_returns_session_preview(tmp_path) -> None:
         sessions_root=sessions_root,
     )
 
-    assert messages == [
-        {
-            "type": "rpc_response",
-            "id": "req-preview",
-            "response": {
-                "session_id": session_id,
-                "entries": [
-                    {"kind": "user", "text": "create note"},
-                    {"kind": "assistant", "text": "created"},
-                    {"kind": "user", "text": "what did you do?"},
-                    {"kind": "assistant", "text": "I created note.txt"},
-                ],
-                "truncated": False,
-            },
-        }
-    ]
+    assert len(messages) == 1
+    response = messages[0]
+    assert response["type"] == "rpc_response"
+    assert response["id"] == "req-preview"
+    assert response["response"]["session_id"] == session_id
+    assert response["response"]["truncated"] is False
+    entries = response["response"]["entries"]
+    assert entries[0] == {"kind": "user", "text": "create note"}
+    assert entries[1]["kind"] == "activity"
+    assert entries[1]["text"].startswith("Edited files · 1 file · ")
+    assert entries[2] == {"kind": "assistant", "text": "created"}
+    assert entries[3] == {"kind": "user", "text": "what did you do?"}
+    assert entries[4] == {"kind": "assistant", "text": "I created note.txt"}
 
 
 async def test_handle_rpc_json_line_names_session_with_backend_normalization(

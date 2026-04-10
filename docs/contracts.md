@@ -346,7 +346,7 @@ Initial executable run slice:
 - `assistant_text_delta`
   - fields: `type`, `run_id`, `delta`
 - `run_succeeded`
-  - fields: `type`, `run_id`, `output_text`, `input_tokens`, `output_tokens`, `total_tokens`, `context_window_used`, `next_request_context_window_used`
+  - fields: `type`, `run_id`, `output_text`, `input_tokens`, `output_tokens`, `total_tokens`, `context_window_used`, `next_request_context_window_used`, `transcript_summary`
 - `run_failed`
   - fields: `type`, `run_id`, `error_type`, `message`
 
@@ -359,6 +359,12 @@ Ordering rules for the initial slice:
 - `input_tokens`, `output_tokens`, and `total_tokens` are optional integer token counts on `run_succeeded`
 - `context_window_used` is an optional float ratio on `run_succeeded` and is omitted when the backend cannot determine the active model context window
 - `next_request_context_window_used` is an optional float ratio on `run_succeeded` representing the backend estimate of the next resumed request substrate, not the cumulative cost of all inner model/tool turns from the run that just finished
+- `transcript_summary` is optional backend-owned presentation metadata on
+  `run_succeeded`. It contains total run elapsed time, tool-call counts,
+  aggregate tool duration, optional token/context metrics copied from the
+  terminal event, a `had_work_activity` boolean, a backend-owned
+  `should_show_separator` recommendation, and zero or more typed activity
+  group summaries.
 - `budget`, `budget_before`, and `budget_after` are backend-owned
   `CompactionBudgetReport` objects. They are additive observability payloads
   for compaction decisions and must not require Go-side reinterpretation.
@@ -428,6 +434,15 @@ Rules for the initial activity slice:
 - v1 remains within the existing event families; no group or timeline event families are added
 - `activity` must be derived from canonical tool semantics in the backend, not guessed in the frontend
 - canonical tool success activity should be owned by the tools themselves and passed through an internal carrier such as `ToolReturn.metadata`; the runtime validates and normalizes that metadata before emitting public events
+- `transcript_summary.activity_groups` are derived from emitted backend-owned
+  tool activity. Clients may render them as grouped transcript rows, but must
+  not reclassify commands or tool names locally.
+- `transcript_summary.activity_groups[].group_label` is deterministic
+  backend-owned text such as `Git check`, `Ran tests`, `Shell`, `Edited files`,
+  or `Read/Searched`.
+- `transcript_summary.should_show_separator` is a backend-owned hint for sparse
+  end-of-run separators. It does not create a new event and does not require
+  clients to invent local elapsed/token/context thresholds.
 - started, updated, and failed/error-result activity should stay minimal: backend-owned `title`, optional `summary`, and `duration_ms` when applicable
 - exploration-style rendering labels should come from backend `display_label`, not frontend tool-name maps
 - the runtime should not re-parse typed tool args into structured `details` for started, updated, or failed/error-result activity
@@ -639,7 +654,7 @@ Initial executable RPC slice:
     - `{"status": {"provider": <provider-name>, "configured": <bool>, "secret_configured": <bool>, "requires_secret": <bool>, "source": "env" | "file" | "none", "env_key": <provider-env-var>, "reason": "ok" | "missing_secret" | "local_endpoint_no_secret_required"}}` for `auth.clear`
     - `{"session_id": <opaque-lowercase-hex-string>}`
     - `{"session_id": <opaque-lowercase-hex-string>, "name": <backend-normalized-session-name>}` for `session.name`
-    - `{"session_id": <opaque-lowercase-hex-string>, "entries": [{"kind": "instructions" | "user" | "assistant" | "error", "text": <string>}], "truncated": <bool>}` for `session.preview`
+    - `{"session_id": <opaque-lowercase-hex-string>, "entries": [{"kind": "instructions" | "user" | "activity" | "assistant" | "error", "text": <string>}], "truncated": <bool>}` for `session.preview`
     - `{"compaction_id": <opaque-lowercase-hex-string>, "compacted_through_run_id": <run_id>}`
     - `{"session_id": <opaque-lowercase-hex-string>}` for `run.start`
     - `{"session_id": <opaque-lowercase-hex-string>, "queued_count": <positive-int>}` for `run.enqueue`
@@ -670,6 +685,9 @@ Ordering rules for the RPC slice:
 - `session.create` may also append one backend-owned `session_project_docs` entry when workspace project docs were loaded for that new session
 - A valid `session.name` request must reference an existing `session_id`, append one backend-normalized `session_info` entry when the requested name changes, enforce workspace-local name uniqueness, and yield exactly one `rpc_response` containing that normalized session name
 - A valid `session.preview` request must reference an existing `session_id` and yields exactly one `rpc_response` containing a bounded recent-history preview derived from durable session runs plus any persisted `session_project_docs` disclosure; it is a presentation helper and does not change resume authority
+- Session preview may include `activity` entries derived from persisted
+  `run_succeeded.transcript_summary.activity_groups`. These rows are bounded
+  summaries only; preview must not dump raw tool output.
 - A valid `session.compact` request must reference an existing `session_id` and yields exactly one `rpc_response` describing the newly appended compaction entry
 - If model-driven compaction summary generation fails, `session.compact` fails hard; it does not append a placeholder summary
 - A valid `run.start` request must reference an existing `session_id`, yields zero or more `rpc_event` lines whose embedded events satisfy the streamed run contract, and ends with exactly one final `rpc_response` after the active run and any drained follow-up runs complete

@@ -155,6 +155,47 @@ class StubStreamAgent:
         yield
 
 
+class LateToolUpdateAgent:
+    async def run_stream_events(
+        self,
+        _prompt: str,
+        *,
+        output_type: object | None = None,
+        message_history: list[ModelMessage] | None = None,
+        deps: object | None = None,
+        model_settings: object | None = None,
+        usage_limits: object | None = None,
+        instructions: object | None = None,
+    ) -> AsyncIterator[object]:
+        del output_type, message_history, model_settings, usage_limits, instructions
+        assert isinstance(deps, WorkspaceDeps)
+        assert deps.tool_update_sink is not None
+
+        yield FunctionToolCallEvent(
+            part=ToolCallPart(
+                "shell",
+                '{"command":"printf ok"}',
+                tool_call_id="call-shell",
+            )
+        )
+        await deps.tool_update_sink("call-shell", "shell", {"output": "running"})
+        yield FunctionToolResultEvent(
+            result=ToolReturnPart(
+                tool_name="shell",
+                content={"exit_code": 0, "output": "ok"},
+                tool_call_id="call-shell",
+            )
+        )
+        await deps.tool_update_sink("call-shell", "shell", {"output": "stale"})
+        yield AgentRunResultEvent(result=AgentRunResult("done"))
+
+    @staticmethod
+    @contextmanager
+    def parallel_tool_call_execution_mode(mode: str = "parallel"):
+        assert mode == "parallel"
+        yield
+
+
 class RecoveringAfterProviderToolErrorAgent:
     def __init__(self) -> None:
         self.calls: list[tuple[str, list[ModelMessage] | None]] = []
@@ -1441,6 +1482,38 @@ async def test_stream_run_events_emits_bash_tool_updates(tmp_path) -> None:
     assert final_tool_event.tool_call_id == "call-bash-stream"
     assert final_tool_event.result["exit_code"] == 0
     assert final_tool_event.result["output"].replace("\r\n", "\n") == "one\ntwo\n"
+
+
+async def test_stream_run_events_ignores_stale_tool_update_after_result(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    events = [
+        event
+        async for event in stream_run_events(
+            agent=LateToolUpdateAgent(),
+            prompt="go",
+            deps=WorkspaceDeps.from_workspace_root(workspace_root),
+        )
+    ]
+
+    assert [event.type for event in events] == [
+        "run_started",
+        "tool_call_started",
+        "tool_call_updated",
+        "tool_call_succeeded",
+        "run_succeeded",
+    ]
+    update_events = [
+        event for event in events if isinstance(event, ToolCallUpdatedEvent)
+    ]
+    assert len(update_events) == 1
+    assert update_events[0].partial_result == {"output": "running"}
+    terminal = events[-1]
+    assert isinstance(terminal, RunSucceededEvent)
+    assert terminal.output_text == "done"
 
 
 async def test_stream_run_events_injects_pending_steer_after_tool_phase_completes(

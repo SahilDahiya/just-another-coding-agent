@@ -15,10 +15,14 @@ from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 
 from just_another_coding_agent.contracts.platform import detect_default_shell_family
 from just_another_coding_agent.contracts.run_events import (
+    ActivityGroupCounts,
+    ActivityGroupSummary,
     AssistantTextDeltaEvent,
     RunFailedEvent,
     RunStartedEvent,
     RunSucceededEvent,
+    RunTranscriptSummary,
+    ShellActivityDetails,
     ToolActivity,
     ToolCallFailedEvent,
     ToolCallStartedEvent,
@@ -278,6 +282,82 @@ def test_build_session_preview_uses_recent_runs_only(tmp_path) -> None:
         ("assistant", "answer 11"),
         ("user", "prompt 12"),
         ("assistant", "answer 12"),
+    ]
+
+
+def test_build_session_preview_includes_backend_activity_summary(tmp_path) -> None:
+    path = tmp_path / "session.jsonl"
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    initialize_session(path=path, workspace_root=workspace_root)
+
+    command = "git status --short"
+    append_run_to_session(
+        path=path,
+        workspace_root=workspace_root,
+        prompt="review changes",
+        events=[
+            RunStartedEvent(run_id="run-1"),
+            ToolCallStartedEvent(
+                run_id="run-1",
+                tool_call_id="call-shell",
+                tool_name="shell",
+                args={"command": command, "timeout": 5},
+                args_valid=True,
+                activity=ToolActivity(title=f"shell {command}", display_label="Shell"),
+            ),
+            ToolCallSucceededEvent(
+                run_id="run-1",
+                tool_call_id="call-shell",
+                tool_name="shell",
+                result={"exit_code": 0, "output": ""},
+                activity=ToolActivity(
+                    title=f"shell {command}",
+                    display_label="Shell",
+                    summary="command exited 0",
+                    duration_ms=28,
+                    details=ShellActivityDetails(
+                        command_preview=command,
+                        shell_family=_SHELL_FAMILY,
+                        timeout=5,
+                        exit_code=0,
+                    ),
+                ),
+            ),
+            RunSucceededEvent(
+                run_id="run-1",
+                output_text="Reviewed changes.",
+                transcript_summary=RunTranscriptSummary(
+                    elapsed_ms=1500,
+                    tool_call_count=1,
+                    tool_duration_ms=28,
+                    had_work_activity=True,
+                    should_show_separator=False,
+                    activity_groups=[
+                        ActivityGroupSummary(
+                            group_kind="execution",
+                            group_label="Git check",
+                            group_counts=ActivityGroupCounts(shell=1, tool=1),
+                            display_hint=command,
+                            outcome="success",
+                            elapsed_ms=28,
+                        )
+                    ],
+                ),
+            ),
+        ],
+        messages=[
+            ModelRequest(parts=[UserPromptPart(content="review changes")]),
+            ModelResponse(parts=[TextPart(content="Reviewed changes.")]),
+        ],
+    )
+
+    preview = build_session_preview(path=path, workspace_root=workspace_root)
+
+    assert [(entry.kind, entry.text) for entry in preview.entries] == [
+        ("user", "review changes"),
+        ("activity", "Git check · 1 command · 28ms"),
+        ("assistant", "Reviewed changes."),
     ]
 
 

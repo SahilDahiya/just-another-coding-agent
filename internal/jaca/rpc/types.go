@@ -242,31 +242,32 @@ type EventEnvelope struct {
 }
 
 type RunEvent struct {
-	Type                   string         `json:"type"`
-	RunID                  string         `json:"run_id"`
-	CompactionID           string         `json:"compaction_id,omitempty"`
-	CompactionCount        *int           `json:"compaction_count,omitempty"`
-	SummarizedThrough      string         `json:"summarized_through_run_id,omitempty"`
-	Delta                  string         `json:"delta,omitempty"`
-	ToolCallID             string         `json:"tool_call_id,omitempty"`
-	ToolName               string         `json:"tool_name,omitempty"`
-	Args                   map[string]any `json:"args,omitempty"`
-	ArgsValid              *bool          `json:"args_valid,omitempty"`
-	Result                 any            `json:"result,omitempty"`
-	Partial                any            `json:"partial_result,omitempty"`
-	ErrorType              string         `json:"error_type,omitempty"`
-	Message                string         `json:"message,omitempty"`
-	OutputText             string         `json:"output_text,omitempty"`
-	InputTokens            *int           `json:"input_tokens,omitempty"`
-	OutputTokens           *int           `json:"output_tokens,omitempty"`
-	TotalTokens            *int           `json:"total_tokens,omitempty"`
-	ContextWindowUsed      *float64       `json:"context_window_used,omitempty"`
-	NextRequestContextUsed *float64       `json:"next_request_context_window_used,omitempty"`
-	NextPrompts            []string       `json:"next_prompts,omitempty"`
-	LaterPrompts           []string       `json:"later_prompts,omitempty"`
-	Prompts                []string       `json:"prompts,omitempty"`
-	Mode                   string         `json:"mode,omitempty"`
-	Activity               *ToolActivity  `json:"activity,omitempty"`
+	Type                   string                `json:"type"`
+	RunID                  string                `json:"run_id"`
+	CompactionID           string                `json:"compaction_id,omitempty"`
+	CompactionCount        *int                  `json:"compaction_count,omitempty"`
+	SummarizedThrough      string                `json:"summarized_through_run_id,omitempty"`
+	Delta                  string                `json:"delta,omitempty"`
+	ToolCallID             string                `json:"tool_call_id,omitempty"`
+	ToolName               string                `json:"tool_name,omitempty"`
+	Args                   map[string]any        `json:"args,omitempty"`
+	ArgsValid              *bool                 `json:"args_valid,omitempty"`
+	Result                 any                   `json:"result,omitempty"`
+	Partial                any                   `json:"partial_result,omitempty"`
+	ErrorType              string                `json:"error_type,omitempty"`
+	Message                string                `json:"message,omitempty"`
+	OutputText             string                `json:"output_text,omitempty"`
+	InputTokens            *int                  `json:"input_tokens,omitempty"`
+	OutputTokens           *int                  `json:"output_tokens,omitempty"`
+	TotalTokens            *int                  `json:"total_tokens,omitempty"`
+	ContextWindowUsed      *float64              `json:"context_window_used,omitempty"`
+	NextRequestContextUsed *float64              `json:"next_request_context_window_used,omitempty"`
+	NextPrompts            []string              `json:"next_prompts,omitempty"`
+	LaterPrompts           []string              `json:"later_prompts,omitempty"`
+	Prompts                []string              `json:"prompts,omitempty"`
+	Mode                   string                `json:"mode,omitempty"`
+	Activity               *ToolActivity         `json:"activity,omitempty"`
+	TranscriptSummary      *RunTranscriptSummary `json:"transcript_summary,omitempty"`
 }
 
 type ToolActivity struct {
@@ -276,6 +277,39 @@ type ToolActivity struct {
 	DurationMS   *int           `json:"duration_ms"`
 	Details      map[string]any `json:"details"`
 	GroupKind    *string        `json:"group_kind"`
+}
+
+type ActivityGroupCounts struct {
+	Read   int `json:"read"`
+	Search int `json:"search"`
+	List   int `json:"list"`
+	Shell  int `json:"shell"`
+	Write  int `json:"write"`
+	Edit   int `json:"edit"`
+	Tool   int `json:"tool"`
+}
+
+type ActivityGroupSummary struct {
+	GroupKind   string              `json:"group_kind"`
+	GroupLabel  string              `json:"group_label"`
+	GroupCounts ActivityGroupCounts `json:"group_counts"`
+	DisplayHint *string             `json:"display_hint"`
+	Outcome     string              `json:"outcome"`
+	ElapsedMS   *int                `json:"elapsed_ms"`
+}
+
+type RunTranscriptSummary struct {
+	ElapsedMS                    int                    `json:"elapsed_ms"`
+	ToolCallCount                int                    `json:"tool_call_count"`
+	ToolDurationMS               int                    `json:"tool_duration_ms"`
+	InputTokens                  *int                   `json:"input_tokens"`
+	OutputTokens                 *int                   `json:"output_tokens"`
+	TotalTokens                  *int                   `json:"total_tokens"`
+	ContextWindowUsed            *float64               `json:"context_window_used"`
+	NextRequestContextWindowUsed *float64               `json:"next_request_context_window_used"`
+	HadWorkActivity              bool                   `json:"had_work_activity"`
+	ShouldShowSeparator          bool                   `json:"should_show_separator"`
+	ActivityGroups               []ActivityGroupSummary `json:"activity_groups"`
 }
 
 func decodeEnvelope(line []byte) (any, error) {

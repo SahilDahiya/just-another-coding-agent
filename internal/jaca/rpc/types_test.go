@@ -45,6 +45,76 @@ func TestDecodeEnvelopePreservesRunSucceededUsageFields(t *testing.T) {
 	}
 }
 
+func TestDecodeEnvelopePreservesRunSucceededTranscriptSummary(t *testing.T) {
+	line := []byte(`{
+		"type":"rpc_event",
+		"id":"req-1",
+		"event":{
+			"type":"run_succeeded",
+			"run_id":"run-1",
+			"output_text":"done",
+			"transcript_summary":{
+				"elapsed_ms":179000,
+				"tool_call_count":5,
+				"tool_duration_ms":1234,
+				"input_tokens":80000,
+				"output_tokens":2000,
+				"total_tokens":82000,
+				"context_window_used":0.41,
+				"next_request_context_window_used":0.43,
+				"had_work_activity":true,
+				"should_show_separator":true,
+				"activity_groups":[
+					{
+						"group_kind":"execution",
+						"group_label":"Git check",
+						"group_counts":{"shell":5,"tool":5},
+						"display_hint":"git status --short",
+						"outcome":"success",
+						"elapsed_ms":1234
+					}
+				]
+			}
+		}
+	}`)
+
+	value, err := decodeEnvelope(line)
+	if err != nil {
+		t.Fatalf("decodeEnvelope() returned error: %v", err)
+	}
+
+	envelope, ok := value.(EventEnvelope)
+	if !ok {
+		t.Fatalf("decodeEnvelope() type = %T, want EventEnvelope", value)
+	}
+	summary := envelope.Event.TranscriptSummary
+	if summary == nil {
+		t.Fatal("TranscriptSummary = nil, want non-nil")
+	}
+	if summary.ElapsedMS != 179000 {
+		t.Fatalf("ElapsedMS = %d, want 179000", summary.ElapsedMS)
+	}
+	if !summary.ShouldShowSeparator {
+		t.Fatal("ShouldShowSeparator = false, want true")
+	}
+	if summary.TotalTokens == nil || *summary.TotalTokens != 82000 {
+		t.Fatalf("TotalTokens = %v, want 82000", summary.TotalTokens)
+	}
+	if len(summary.ActivityGroups) != 1 {
+		t.Fatalf("ActivityGroups len = %d, want 1", len(summary.ActivityGroups))
+	}
+	group := summary.ActivityGroups[0]
+	if group.GroupKind != "execution" || group.GroupLabel != "Git check" {
+		t.Fatalf("group identity = %q/%q, want execution/Git check", group.GroupKind, group.GroupLabel)
+	}
+	if group.GroupCounts.Shell != 5 || group.GroupCounts.Tool != 5 {
+		t.Fatalf("group counts = %+v, want shell=5 tool=5", group.GroupCounts)
+	}
+	if group.DisplayHint == nil || *group.DisplayHint != "git status --short" {
+		t.Fatalf("DisplayHint = %v, want git status --short", group.DisplayHint)
+	}
+}
+
 func TestDecodeEnvelopePreservesToolActivityGroupKind(t *testing.T) {
 	line := []byte(`{
 		"type":"rpc_event",

@@ -334,6 +334,8 @@ func (t *Transcript) ApplySessionPreview(preview rpc.SessionPreviewResponse) {
 			t.InsertNoteBeforeCurrentRun("instructions", []string{entry.Text})
 		case "user":
 			t.WriteUserTurn(entry.Text)
+		case "activity":
+			t.WriteActivityPreview(entry.Text)
 		case "assistant":
 			t.completeAssistant(entry.Text)
 		case "error":
@@ -370,7 +372,7 @@ func (t *Transcript) ApplyRunEvent(event rpc.RunEvent) {
 		}
 		t.finalizeCurrentRun()
 	case "run_succeeded":
-		t.completeAssistant(event.OutputText)
+		t.completeRunSucceeded(event)
 	}
 }
 
@@ -398,6 +400,11 @@ func (t *Transcript) appendAssistantDelta(delta string) {
 }
 
 func (t *Transcript) completeAssistant(markdown string) {
+	t.finishAssistant(markdown)
+	t.finalizeCurrentRun()
+}
+
+func (t *Transcript) finishAssistant(markdown string) {
 	t.endToolGroup()
 	rendered := renderCompletedAssistantMarkdown(markdown)
 	cell := &assistantCell{
@@ -410,11 +417,9 @@ func (t *Transcript) completeAssistant(markdown string) {
 	if t.liveAssistantIdx != -1 {
 		t.replaceBlock(t.liveAssistantIdx, cell)
 		t.liveAssistantIdx = -1
-		t.finalizeCurrentRun()
 		return
 	}
 	t.appendBlock(cell)
-	t.finalizeCurrentRun()
 }
 
 func (t *Transcript) endLiveAssistant() {

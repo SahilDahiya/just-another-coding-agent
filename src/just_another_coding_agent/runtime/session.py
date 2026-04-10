@@ -49,6 +49,9 @@ from just_another_coding_agent.runtime.compaction import (
     summarize_and_append_compaction_to_session,
 )
 from just_another_coding_agent.runtime.run import stream_run_events
+from just_another_coding_agent.runtime.transcript_summary import (
+    sync_run_transcript_summary_metrics,
+)
 from just_another_coding_agent.runtime.turn_context import (
     build_session_turn_context_entry,
     evaluate_turn_context_baseline,
@@ -494,6 +497,7 @@ async def stream_session_run_events(
                             )
                         }
                     )
+                    event = sync_run_transcript_summary_metrics(event)
                 run_appender.append_event(event)
                 if isinstance(event, ToolCallStartedEvent):
                     pending_tool_calls[event.tool_call_id] = event

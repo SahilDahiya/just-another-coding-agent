@@ -64,6 +64,9 @@ from just_another_coding_agent.runtime.models import (
     get_model_context_window_tokens,
 )
 from just_another_coding_agent.runtime.recovery import should_retry_run_error
+from just_another_coding_agent.runtime.transcript_summary import (
+    build_run_transcript_summary,
+)
 from just_another_coding_agent.tools.deps import WorkspaceDeps
 
 _JSON_VALUE_ADAPTER = TypeAdapter(JsonValue)
@@ -163,6 +166,7 @@ async def _stream_run_events_with_steer(
     current_message_history = list(message_history or [])
     carried_messages: list[ModelMessage] = []
     pending_tool_calls: dict[str, _PendingToolCall] = {}
+    completed_tool_calls: dict[str, str] = {}
     yield RunStartedEvent(run_id=run_id)
 
     while True:
@@ -254,27 +258,29 @@ async def _stream_run_events_with_steer(
                                             if update_task in done:
                                                 event = update_task.result()
                                                 pending_tool_call = (
-                                                    _peek_pending_tool_call(
+                                                    _resolve_tool_update(
                                                         pending_tool_calls=pending_tool_calls,
+                                                        completed_tool_calls=completed_tool_calls,
                                                         tool_call_id=event.tool_call_id,
                                                         tool_name=event.tool_name,
                                                     )
                                                 )
-                                                yield ToolCallUpdatedEvent(
-                                                    run_id=run_id,
-                                                    tool_call_id=event.tool_call_id,
-                                                    tool_name=pending_tool_call.tool_name,
-                                                    partial_result=event.partial_result,
-                                                    activity=build_updated_tool_activity(
+                                                if pending_tool_call is not None:
+                                                    yield ToolCallUpdatedEvent(
+                                                        run_id=run_id,
+                                                        tool_call_id=event.tool_call_id,
                                                         tool_name=pending_tool_call.tool_name,
-                                                        args=pending_tool_call.args,
-                                                        args_valid=pending_tool_call.args_valid,
                                                         partial_result=event.partial_result,
-                                                        duration_ms=_duration_ms_since(
-                                                            pending_tool_call.started_at
+                                                        activity=build_updated_tool_activity(
+                                                            tool_name=pending_tool_call.tool_name,
+                                                            args=pending_tool_call.args,
+                                                            args_valid=pending_tool_call.args_valid,
+                                                            partial_result=event.partial_result,
+                                                            duration_ms=_duration_ms_since(
+                                                                pending_tool_call.started_at
+                                                            ),
                                                         ),
-                                                    ),
-                                                )
+                                                    )
                                                 update_task = asyncio.create_task(
                                                     queue.get()
                                                 )
@@ -359,6 +365,9 @@ async def _stream_run_events_with_steer(
                                                                 event.tool_call_id
                                                             )
                                                         )
+                                                        completed_tool_calls[
+                                                            event.tool_call_id
+                                                        ] = pending_tool_call.tool_name
                                                         if correction_attempts >= (
                                                             CANONICAL_AGENT_TOOL_CORRECTION_RETRIES
                                                         ):
@@ -442,6 +451,9 @@ async def _stream_run_events_with_steer(
                                                                 ),
                                                             )
                                                         )
+                                                        completed_tool_calls[
+                                                            event.tool_call_id
+                                                        ] = pending_tool_call.tool_name
                                                         retry_message = (
                                                             _retry_prompt_message(
                                                                 event.result
@@ -484,6 +496,9 @@ async def _stream_run_events_with_steer(
                                                             ),
                                                         )
                                                     )
+                                                    completed_tool_calls[
+                                                        event.tool_call_id
+                                                    ] = pending_tool_call.tool_name
                                                     result = _normalize_json_value(
                                                         event.result.content
                                                     )
@@ -570,6 +585,7 @@ async def _stream_run_events_with_steer(
                 current_prompt = error.message
                 correction_attempts += 1
                 pending_tool_calls.clear()
+                completed_tool_calls.clear()
                 recovery_attempts = 0
                 continue
             if should_retry_run_error(
@@ -615,7 +631,7 @@ async def _stream_run_events_with_steer(
                 await queued_deps.read_only_worker.close()
 
 
-async def stream_run_events(
+async def _stream_run_events_inner(
     *,
     agent: Agent[Any, Any],
     prompt: str,
@@ -666,6 +682,7 @@ async def stream_run_events(
     current_message_history = list(message_history or [])
     carried_messages: list[ModelMessage] = []
     pending_tool_calls: dict[str, _PendingToolCall] = {}
+    completed_tool_calls: dict[str, str] = {}
     yield RunStartedEvent(run_id=run_id)
 
     while True:
@@ -731,11 +748,14 @@ async def stream_run_events(
                         raise event.error
 
                     if isinstance(event, _QueuedToolUpdate):
-                        pending_tool_call = _peek_pending_tool_call(
+                        pending_tool_call = _resolve_tool_update(
                             pending_tool_calls=pending_tool_calls,
+                            completed_tool_calls=completed_tool_calls,
                             tool_call_id=event.tool_call_id,
                             tool_name=event.tool_name,
                         )
+                        if pending_tool_call is None:
+                            continue
                         yield ToolCallUpdatedEvent(
                             run_id=run_id,
                             tool_call_id=event.tool_call_id,
@@ -801,6 +821,9 @@ async def stream_run_events(
                             pending_tool_call = pending_tool_calls.pop(
                                 event.tool_call_id
                             )
+                            completed_tool_calls[event.tool_call_id] = (
+                                pending_tool_call.tool_name
+                            )
                             if (
                                 correction_attempts
                                 >= CANONICAL_AGENT_TOOL_CORRECTION_RETRIES
@@ -865,6 +888,9 @@ async def stream_run_events(
                                 tool_call_id=event.tool_call_id,
                                 result_tool_name=event.result.tool_name,
                             )
+                            completed_tool_calls[event.tool_call_id] = (
+                                pending_tool_call.tool_name
+                            )
                             retry_message = _retry_prompt_message(event.result)
                             retry_result = _tool_error_result(
                                 error_type="RetryPromptPart",
@@ -891,6 +917,9 @@ async def stream_run_events(
                             pending_tool_calls=pending_tool_calls,
                             tool_call_id=event.tool_call_id,
                             result_tool_name=event.result.tool_name,
+                        )
+                        completed_tool_calls[event.tool_call_id] = (
+                            pending_tool_call.tool_name
                         )
                         result = _normalize_json_value(event.result.content)
                         result_metadata = getattr(event.result, "metadata", None)
@@ -962,6 +991,7 @@ async def stream_run_events(
                     current_prompt = error.message
                     correction_attempts += 1
                     pending_tool_calls.clear()
+                    completed_tool_calls.clear()
                     recovery_attempts = 0
                     continue
 
@@ -1018,6 +1048,53 @@ async def stream_run_events(
                     await queued_deps.read_only_worker.close()
 
 
+async def stream_run_events(
+    *,
+    agent: Agent[Any, Any],
+    prompt: str,
+    message_history: Sequence[ModelMessage] | None = None,
+    instructions: str | None = None,
+    thinking: ThinkingSetting | None = None,
+    deps: WorkspaceDeps | None = None,
+    message_history_sink: Callable[[Sequence[ModelMessage]], None] | None = None,
+    available_tool_names: Sequence[str] = CANONICAL_TOOL_NAMES,
+    activate_steer_boundary: (
+        Callable[[Callable[[list[str]], None]], Awaitable[None]]
+    ) | None = None,
+    submit_steer_boundary: Callable[[], Awaitable[None]] | None = None,
+    deactivate_steer_boundary: Callable[[], Awaitable[None]] | None = None,
+) -> AsyncIterator[RunEvent]:
+    """Translate one PydanticAI run into the canonical streamed event contract."""
+    run_started_at = monotonic()
+    event_history: list[RunEvent] = []
+
+    async for event in _stream_run_events_inner(
+        agent=agent,
+        prompt=prompt,
+        message_history=message_history,
+        instructions=instructions,
+        thinking=thinking,
+        deps=deps,
+        message_history_sink=message_history_sink,
+        available_tool_names=available_tool_names,
+        activate_steer_boundary=activate_steer_boundary,
+        submit_steer_boundary=submit_steer_boundary,
+        deactivate_steer_boundary=deactivate_steer_boundary,
+    ):
+        if isinstance(event, RunSucceededEvent):
+            event = event.model_copy(
+                update={
+                    "transcript_summary": build_run_transcript_summary(
+                        events=event_history,
+                        terminal_event=event,
+                        elapsed_ms=_duration_ms_since(run_started_at),
+                    )
+                }
+            )
+        event_history.append(event)
+        yield event
+
+
 def _extract_text_delta(event: object) -> str | None:
     if isinstance(event, PartStartEvent) and isinstance(event.part, TextPart):
         return event.part.content or None
@@ -1051,14 +1128,24 @@ def _resolve_pending_tool_call(
     return pending_tool_call
 
 
-def _peek_pending_tool_call(
+def _resolve_tool_update(
     *,
     pending_tool_calls: dict[str, _PendingToolCall],
+    completed_tool_calls: dict[str, str],
     tool_call_id: str,
     tool_name: str,
-) -> _PendingToolCall:
+) -> _PendingToolCall | None:
     pending_tool_call = pending_tool_calls.get(tool_call_id)
     if pending_tool_call is None:
+        completed_tool_name = completed_tool_calls.get(tool_call_id)
+        if completed_tool_name is not None:
+            if tool_name != completed_tool_name:
+                raise RuntimeError(
+                    "Tool update tool_name mismatch for completed tool_call_id "
+                    f"{tool_call_id!r}: expected {completed_tool_name!r}, got "
+                    f"{tool_name!r}"
+                )
+            return None
         raise RuntimeError(
             f"Tool update must match a pending tool_call_started: {tool_call_id}"
         )

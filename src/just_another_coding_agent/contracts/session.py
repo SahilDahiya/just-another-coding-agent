@@ -147,7 +147,7 @@ class SessionMetadata(_SessionEntryBase):
 
 
 class SessionPreviewEntry(_SessionEntryBase):
-    kind: Literal["instructions", "user", "assistant", "error"]
+    kind: Literal["instructions", "user", "activity", "assistant", "error"]
     text: str
 
 
