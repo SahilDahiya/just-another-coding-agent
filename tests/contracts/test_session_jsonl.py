@@ -336,7 +336,7 @@ def test_build_session_preview_includes_backend_activity_summary(tmp_path) -> No
                     activity_groups=[
                         ActivityGroupSummary(
                             group_kind="execution",
-                            group_label="Git check",
+                            group_label="Shell",
                             group_counts=ActivityGroupCounts(shell=1, tool=1),
                             display_hint=command,
                             outcome="success",
@@ -356,7 +356,7 @@ def test_build_session_preview_includes_backend_activity_summary(tmp_path) -> No
 
     assert [(entry.kind, entry.text) for entry in preview.entries] == [
         ("user", "review changes"),
-        ("activity", "Git check · 1 command · 28ms"),
+        ("activity", "Shell · 1 command · 28ms"),
         ("assistant", "Reviewed changes."),
     ]
 

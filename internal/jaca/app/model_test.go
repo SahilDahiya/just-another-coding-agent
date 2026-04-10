@@ -812,16 +812,16 @@ func TestSessionPreviewActivityEntryHydratesBackendActivity(t *testing.T) {
 	m.transcript.ApplySessionPreview(rpc.SessionPreviewResponse{
 		SessionID: "1234",
 		Entries: []rpc.SessionPreviewEntry{
-			{Kind: "user", Text: "check git state"},
-			{Kind: "activity", Text: "Git check · 5 commands · 1.2s"},
+			{Kind: "user", Text: "check shell commands"},
+			{Kind: "activity", Text: "Shell · 5 commands · 1.2s"},
 			{Kind: "assistant", Text: "The worktree is clean."},
 		},
 	})
 
 	rendered := stripANSI(m.transcript.Render())
 	for _, want := range []string{
-		"> check git state",
-		"● Git check · 5 commands · 1.2s",
+		"> check shell commands",
+		"● Shell · 5 commands · 1.2s",
 		"The worktree is clean.",
 	} {
 		if !strings.Contains(rendered, want) {

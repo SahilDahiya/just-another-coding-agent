@@ -887,7 +887,7 @@ func TestRunSucceededRendersBackendSeparatorSummary(t *testing.T) {
 			ActivityGroups: []rpc.ActivityGroupSummary{
 				{
 					GroupKind:  "execution",
-					GroupLabel: "Git check",
+					GroupLabel: "Shell",
 					GroupCounts: rpc.ActivityGroupCounts{
 						Shell: 5,
 						Tool:  5,
@@ -904,7 +904,7 @@ func TestRunSucceededRendersBackendSeparatorSummary(t *testing.T) {
 		t.Fatalf("separator missing elapsed-only line in %q", plain)
 	}
 	for _, absent := range []string{
-		"Git check",
+		"Shell",
 		"tools 1.2s",
 		"82k tok",
 		"41% ctx",

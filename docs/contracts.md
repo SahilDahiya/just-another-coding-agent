@@ -460,8 +460,11 @@ Rules for the initial activity slice:
   tool activity. Clients may render them as grouped transcript rows, but must
   not reclassify commands or tool names locally.
 - `transcript_summary.activity_groups[].group_label` is deterministic
-  backend-owned text such as `Git check`, `Ran tests`, `Shell`, `Edited files`,
-  or `Read/Searched`.
+  backend-owned text such as `Shell`, `Edited files`, or `Read/Searched`.
+- `Shell` grouping is intentionally generic. The backend must not infer
+  specialized shell labels by parsing command strings; future command intent
+  labels need explicit backend-owned metadata rather than a frontend or summary
+  command taxonomy.
 - `transcript_summary.should_show_separator` is a backend-owned hint for sparse
   end-of-run separators. It does not create a new event and does not require
   clients to invent local elapsed/token/context thresholds.

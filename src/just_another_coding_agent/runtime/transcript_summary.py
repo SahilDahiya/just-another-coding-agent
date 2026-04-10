@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import shlex
 from collections.abc import Sequence
 from dataclasses import dataclass
 
@@ -26,19 +25,6 @@ from just_another_coding_agent.contracts.run_events import (
 _SEPARATOR_MIN_ELAPSED_MS = 60_000
 _SEPARATOR_MIN_TOTAL_TOKENS = 100_000
 _SEPARATOR_MIN_CONTEXT_USED = 0.40
-_READ_ONLY_GIT_SUBCOMMANDS = frozenset(
-    {
-        "branch",
-        "diff",
-        "log",
-        "ls-files",
-        "rev-parse",
-        "show",
-        "status",
-    }
-)
-_TEST_COMMANDS = frozenset({"cargo", "go", "jest", "pytest", "tox"})
-_PACKAGE_MANAGER_TEST_COMMANDS = frozenset({"npm", "pnpm", "yarn"})
 
 
 @dataclass
@@ -199,7 +185,7 @@ def _build_activity_groups(events: Sequence[RunEvent]) -> list[ActivityGroupSumm
 def _group_identity(*, activity: ToolActivity, tool_name: str) -> tuple[str, str]:
     details = activity.details
     if isinstance(details, ShellActivityDetails):
-        return "execution", _shell_group_label(details.command_preview)
+        return "execution", activity.display_label or "Shell"
     if isinstance(details, WriteActivityDetails | EditActivityDetails):
         return "editing", "Edited files"
     if activity.group_kind == "exploration":
@@ -251,48 +237,6 @@ def _event_outcome(event: ToolCallSucceededEvent | ToolCallFailedEvent) -> str:
     if isinstance(event.result, dict) and event.result.get("ok") is False:
         return "operational_miss"
     return "success"
-
-
-def _shell_group_label(command: str) -> str:
-    argv = _split_command(command)
-    if _is_git_inspection_command(argv):
-        return "Git check"
-    if _is_test_command(argv):
-        return "Ran tests"
-    return "Shell"
-
-
-def _split_command(command: str) -> list[str]:
-    try:
-        return shlex.split(command)
-    except ValueError:
-        return []
-
-
-def _is_git_inspection_command(argv: Sequence[str]) -> bool:
-    if len(argv) < 2 or argv[0] != "git":
-        return False
-    for arg in argv[1:]:
-        if arg in {"-C", "-c"}:
-            return False
-        if arg.startswith("-"):
-            continue
-        return arg in _READ_ONLY_GIT_SUBCOMMANDS
-    return False
-
-
-def _is_test_command(argv: Sequence[str]) -> bool:
-    if not argv:
-        return False
-    if argv[0] in _TEST_COMMANDS:
-        return argv[0] != "go" or (len(argv) > 1 and argv[1] == "test")
-    if argv[0] == "uv":
-        return len(argv) > 2 and argv[1] == "run" and _is_test_command(argv[2:])
-    if argv[0] in _PACKAGE_MANAGER_TEST_COMMANDS:
-        if len(argv) > 1 and argv[1] == "test":
-            return True
-        return len(argv) > 2 and argv[1] == "run" and argv[2].startswith("test")
-    return False
 
 
 def _should_show_separator(summary: RunTranscriptSummary) -> bool:

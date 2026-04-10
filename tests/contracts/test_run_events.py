@@ -176,7 +176,7 @@ async def test_stream_run_events_attaches_backend_transcript_summary() -> None:
     assert len(terminal.transcript_summary.activity_groups) == 1
     group = terminal.transcript_summary.activity_groups[0]
     assert group.group_kind == "execution"
-    assert group.group_label == "Git check"
+    assert group.group_label == "Shell"
     assert group.group_counts.shell == 1
     assert group.group_counts.tool == 1
     assert group.display_hint == "git status --short"
