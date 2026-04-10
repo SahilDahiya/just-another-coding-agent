@@ -711,6 +711,10 @@ Ordering rules for the RPC slice:
 - Session preview may include `activity` entries derived from persisted
   `run_succeeded.transcript_summary.activity_groups`. These rows are bounded
   summaries only; preview must not dump raw tool output.
+- Session preview should omit generic `Shell` groups because they are not
+  meaningful resumed-history landmarks. More specific shell intent may appear
+  in preview only when the backend exposes explicit intent metadata instead of
+  deriving it from command strings.
 - A valid `session.compact` request must reference an existing `session_id` and yields exactly one `rpc_response` describing the newly appended compaction entry
 - If model-driven compaction summary generation fails, `session.compact` fails hard; it does not append a placeholder summary
 - A valid `run.start` request must reference an existing `session_id`, yields zero or more `rpc_event` lines whose embedded events satisfy the streamed run contract, and ends with exactly one final `rpc_response` after the active run and any drained follow-up runs complete

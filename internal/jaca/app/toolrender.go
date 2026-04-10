@@ -28,16 +28,16 @@ type toolEntry struct {
 }
 
 type toolGroup struct {
-	index int
-	phase string
-	order []string
+	index   int
+	phase   string
+	order   []string
 	entries map[string]*toolEntry
 }
 
 func newToolGroup(index int, phase string) *toolGroup {
 	return &toolGroup{
-		index: index,
-		phase: phase,
+		index:   index,
+		phase:   phase,
 		entries: map[string]*toolEntry{},
 	}
 }
@@ -288,6 +288,7 @@ func isExplorationComplete(order []string, entries map[string]*toolEntry) bool {
 
 const (
 	maxExplorationLines    = 6
+	maxExplorationArgsLen  = 96
 	maxExplorationQueryLen = 40
 )
 
@@ -469,7 +470,6 @@ func buildToolPhase(toolName string, activity *rpc.ToolActivity) string {
 
 func renderExplorationGroup(order []string, entries map[string]*toolEntry, motionTick int) (string, string) {
 	complete := isExplorationComplete(order, entries)
-	count := len(order)
 
 	headerLabel := "Exploring"
 	var markerColor lipgloss.TerminalColor
@@ -478,9 +478,6 @@ func renderExplorationGroup(order []string, entries map[string]*toolEntry, motio
 		markerColor = defaultTheme.textMuted
 	} else {
 		markerColor = breathingMarkerColor(motionTick)
-	}
-	if count > 1 {
-		headerLabel += fmt.Sprintf(" (%d tools)", count)
 	}
 
 	headerPlain := "● " + headerLabel + "\n"
@@ -491,7 +488,8 @@ func renderExplorationGroup(order []string, entries map[string]*toolEntry, motio
 	plain.WriteString(headerPlain)
 	rendered.WriteString(headerRendered)
 
-	cyanStyle := lipgloss.NewStyle().Foreground(themeColor("#56b6c2", "73", "6"))
+	labelStyle := lipgloss.NewStyle().Foreground(defaultTheme.accentSoft)
+	argsStyle := lipgloss.NewStyle().Foreground(defaultTheme.textSoft)
 	dimStyle := lipgloss.NewStyle().Foreground(defaultTheme.textMuted)
 
 	lines := coalesceExplorationEntries(order, entries)
@@ -508,10 +506,11 @@ func renderExplorationGroup(order []string, entries map[string]*toolEntry, motio
 		}
 
 		plainLine := prefix + line.label
-		renderedLine := dimStyle.Render(prefix) + cyanStyle.Render(line.label)
-		if line.args != "" {
-			plainLine += " " + line.args
-			renderedLine += " " + dimStyle.Render(line.args)
+		renderedLine := dimStyle.Render(prefix) + labelStyle.Render(line.label)
+		args := truncateInline(line.args, maxExplorationArgsLen)
+		if args != "" {
+			plainLine += " " + args
+			renderedLine += " " + argsStyle.Render(args)
 		}
 		if line.operationalMiss {
 			if line.message != "" {

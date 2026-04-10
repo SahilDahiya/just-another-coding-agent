@@ -285,7 +285,7 @@ def test_build_session_preview_uses_recent_runs_only(tmp_path) -> None:
     ]
 
 
-def test_build_session_preview_includes_backend_activity_summary(tmp_path) -> None:
+def test_build_session_preview_omits_generic_shell_activity_summary(tmp_path) -> None:
     path = tmp_path / "session.jsonl"
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
@@ -356,8 +356,65 @@ def test_build_session_preview_includes_backend_activity_summary(tmp_path) -> No
 
     assert [(entry.kind, entry.text) for entry in preview.entries] == [
         ("user", "review changes"),
-        ("activity", "Shell · 1 command · 28ms"),
         ("assistant", "Reviewed changes."),
+    ]
+
+
+def test_build_session_preview_includes_meaningful_activity_summary(tmp_path) -> None:
+    path = tmp_path / "session.jsonl"
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    initialize_session(path=path, workspace_root=workspace_root)
+
+    append_run_to_session(
+        path=path,
+        workspace_root=workspace_root,
+        prompt="update docs",
+        events=[
+            RunStartedEvent(run_id="run-1"),
+            RunSucceededEvent(
+                run_id="run-1",
+                output_text="Updated docs.",
+                transcript_summary=RunTranscriptSummary(
+                    elapsed_ms=1200,
+                    tool_call_count=3,
+                    tool_duration_ms=37,
+                    had_work_activity=True,
+                    should_show_separator=False,
+                    activity_groups=[
+                        ActivityGroupSummary(
+                            group_kind="exploration",
+                            group_label="Read/Searched",
+                            group_counts=ActivityGroupCounts(read=1, search=1, tool=2),
+                            display_hint="docs/contracts.md",
+                            outcome="success",
+                            elapsed_ms=14,
+                        ),
+                        ActivityGroupSummary(
+                            group_kind="editing",
+                            group_label="Edited files",
+                            group_counts=ActivityGroupCounts(edit=1, tool=1),
+                            display_hint="docs/contracts.md",
+                            outcome="success",
+                            elapsed_ms=23,
+                        ),
+                    ],
+                ),
+            ),
+        ],
+        messages=[
+            ModelRequest(parts=[UserPromptPart(content="update docs")]),
+            ModelResponse(parts=[TextPart(content="Updated docs.")]),
+        ],
+    )
+
+    preview = build_session_preview(path=path, workspace_root=workspace_root)
+
+    assert [(entry.kind, entry.text) for entry in preview.entries] == [
+        ("user", "update docs"),
+        ("activity", "Read/Searched · 2 operations · 14ms"),
+        ("activity", "Edited files · 1 file · 23ms"),
+        ("assistant", "Updated docs."),
     ]
 
 

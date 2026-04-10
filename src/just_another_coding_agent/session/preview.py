@@ -93,6 +93,8 @@ def _activity_preview_for_run(run) -> list[str]:
 
 
 def _format_activity_group_preview(group: ActivityGroupSummary) -> str | None:
+    if _is_generic_shell_group(group):
+        return None
     parts = [group.group_label]
     count = _format_group_count(group)
     if count:
@@ -102,6 +104,25 @@ def _format_activity_group_preview(group: ActivityGroupSummary) -> str | None:
     if group.outcome != "success":
         parts.append(group.outcome.replace("_", " "))
     return " · ".join(parts)
+
+
+def _is_generic_shell_group(group: ActivityGroupSummary) -> bool:
+    counts = group.group_counts
+    known_non_shell_count = (
+        counts.read
+        + counts.search
+        + counts.list
+        + counts.write
+        + counts.edit
+    )
+    unknown_tool_count = max(counts.tool - counts.shell - known_non_shell_count, 0)
+    return (
+        group.group_kind == "execution"
+        and group.group_label == "Shell"
+        and counts.shell > 0
+        and known_non_shell_count == 0
+        and unknown_tool_count == 0
+    )
 
 
 def _format_group_count(group: ActivityGroupSummary) -> str | None:

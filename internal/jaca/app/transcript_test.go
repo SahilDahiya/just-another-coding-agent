@@ -380,7 +380,7 @@ func TestExplorationGroupRendersCoalescedExploredBlock(t *testing.T) {
 
 	plain := transcript.blocks[len(transcript.blocks)-1].Plain()
 	for _, want := range []string{
-		"● Explored (4 tools)",
+		"● Explored",
 		"  └ Read README.md, AGENTS.md",
 		"    List src",
 		"    Search build_canonical_agent( in tests",
@@ -438,6 +438,34 @@ func TestExplorationGroupDeduplicatesRepeatedReads(t *testing.T) {
 	}
 }
 
+func TestExplorationGroupTruncatesLongCoalescedArgs(t *testing.T) {
+	transcript := NewTranscript()
+	longPath := strings.Repeat("deeply-nested-file-name-", 6) + ".go"
+
+	transcript.ApplyRunEvent(rpc.RunEvent{
+		Type:       "tool_call_started",
+		ToolName:   "read",
+		ToolCallID: "read-long",
+		Args:       map[string]any{"path": "/workspace/" + longPath},
+		Activity:   explorationActivity("read", map[string]any{"short_path": longPath}),
+	})
+	transcript.ApplyRunEvent(rpc.RunEvent{
+		Type:       "tool_call_succeeded",
+		ToolName:   "read",
+		ToolCallID: "read-long",
+		Result:     "content",
+		Activity:   explorationActivity("read", map[string]any{"short_path": longPath}),
+	})
+
+	plain := transcript.blocks[len(transcript.blocks)-1].Plain()
+	if strings.Contains(plain, longPath) {
+		t.Fatalf("exploration group kept unbounded args in %q", plain)
+	}
+	if !strings.Contains(plain, "Read deeply-nested-file-name-") || !strings.Contains(plain, "...") {
+		t.Fatalf("exploration group missing truncated args in %q", plain)
+	}
+}
+
 func TestExplorationGroupShowsExploringWhileInFlight(t *testing.T) {
 	transcript := NewTranscript()
 
@@ -458,7 +486,7 @@ func TestExplorationGroupShowsExploringWhileInFlight(t *testing.T) {
 
 	plain := transcript.blocks[len(transcript.blocks)-1].Plain()
 	for _, want := range []string{
-		"● Exploring (2 tools)",
+		"● Exploring",
 		"  └ Read README.md",
 		"    Search RetryPromptPart in src",
 	} {
@@ -506,7 +534,7 @@ func TestExplorationGroupTruncatesHeadAndTail(t *testing.T) {
 
 	plain := transcript.blocks[len(transcript.blocks)-1].Plain()
 	for _, want := range []string{
-		"● Explored (8 tools)",
+		"● Explored",
 		"  └ Read session.py",
 		"    Search InvalidSession in src",
 		"    List tests",
@@ -572,7 +600,7 @@ func TestExplorationOperationalMissStaysGrouped(t *testing.T) {
 
 	plain := transcript.blocks[len(transcript.blocks)-1].Plain()
 	for _, want := range []string{
-		"● Explored (2 tools)",
+		"● Explored",
 		"  └ Read agents.md  No such file or directory: '/workspace/agents.md'",
 		"    Read AGENTS.md",
 	} {
@@ -616,7 +644,7 @@ func TestExplorationHardErrorStaysGrouped(t *testing.T) {
 
 	plain := transcript.blocks[len(transcript.blocks)-1].Plain()
 	for _, want := range []string{
-		"● Explored (2 tools)",
+		"● Explored",
 		"  └ Read run.py",
 		"    Search RetryPromptPart in src  error  ripgrep (rg) is not installed",
 	} {
