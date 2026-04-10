@@ -102,10 +102,10 @@ func TestBuildTopRailIndicatorShowsFixedElapsed(t *testing.T) {
 		RunElapsed: 42 * time.Second,
 	})
 
-	if !strings.Contains(got, "00:42") {
+	if !strings.Contains(got, "(42s · esc to interrupt)") {
 		t.Fatalf("buildTopRailIndicator() missing fixed elapsed: %q", got)
 	}
-	if !strings.Contains(got, buildWorkingWave(3)) {
+	if !strings.Contains(got, buildWorkingWave(3)+"…") {
 		t.Fatalf("buildTopRailIndicator() missing working wave: %q", got)
 	}
 }
@@ -138,8 +138,20 @@ func TestBuildTopRailIndicatorShowsDetachedWorkingState(t *testing.T) {
 	if !strings.Contains(got, buildWorkingWave(tick)) {
 		t.Fatalf("buildTopRailIndicator() missing detached live label: %q", got)
 	}
-	if !strings.Contains(got, "00:37") {
+	if !strings.Contains(got, "(37s · esc to interrupt)") {
 		t.Fatalf("buildTopRailIndicator() missing elapsed indicator: %q", got)
+	}
+}
+
+func TestBuildTopRailIndicatorUsesNaturalElapsedDuration(t *testing.T) {
+	got := buildTopRailIndicator(viewModel{
+		Phase:      PhaseStreaming,
+		MotionTick: 1,
+		RunElapsed: 2*time.Minute + 3*time.Second,
+	})
+
+	if !strings.Contains(got, "(2m 3s · esc to interrupt)") {
+		t.Fatalf("buildTopRailIndicator() missing natural elapsed duration: %q", got)
 	}
 }
 
@@ -223,10 +235,10 @@ func TestRenderPromptRuleShowsTopRailIndicatorDuringStreaming(t *testing.T) {
 		RunElapsed: 37 * time.Second,
 	}))
 
-	if !strings.Contains(rendered, "00:37") {
+	if !strings.Contains(rendered, "(37s · esc to interrupt)") {
 		t.Fatalf("renderTopRail() missing elapsed indicator: %q", rendered)
 	}
-	if !strings.Contains(rendered, buildWorkingWave(tick)) {
+	if !strings.Contains(rendered, buildWorkingWave(tick)+"…") {
 		t.Fatalf("renderTopRail() missing working wave: %q", rendered)
 	}
 }
@@ -243,7 +255,7 @@ func TestRenderTopRailShowsDetachedWorkingState(t *testing.T) {
 	if !strings.Contains(rendered, buildWorkingWave(tick)) {
 		t.Fatalf("renderTopRail() missing detached working label: %q", rendered)
 	}
-	if !strings.Contains(rendered, "00:12") {
+	if !strings.Contains(rendered, "(12s · esc to interrupt)") {
 		t.Fatalf("renderTopRail() missing elapsed indicator: %q", rendered)
 	}
 }
@@ -259,7 +271,7 @@ func TestRenderTopRailShowsCompactingWave(t *testing.T) {
 	if !strings.Contains(rendered, buildCompactingWave(tick)) {
 		t.Fatalf("renderTopRail() missing compacting wave: %q", rendered)
 	}
-	if !strings.Contains(rendered, "00:09") {
+	if !strings.Contains(rendered, "(9s · esc to interrupt)") {
 		t.Fatalf("renderTopRail() missing elapsed indicator: %q", rendered)
 	}
 }
@@ -325,10 +337,10 @@ func TestRenderPromptShowsSingleTopRailIndicator(t *testing.T) {
 		Model:         "openai-responses:gpt-5.4-chatgpt",
 	}))
 
-	if count := strings.Count(rendered, "00:08"); count != 1 {
+	if count := strings.Count(rendered, "(8s · esc to interrupt)"); count != 1 {
 		t.Fatalf("renderPrompt() elapsed indicator count = %d, want 1 in %q", count, rendered)
 	}
-	if !strings.Contains(rendered, buildWorkingWave(tick)+" 00:08") {
+	if !strings.Contains(rendered, buildWorkingWave(tick)+"… (8s · esc to interrupt)") {
 		t.Fatalf("renderPrompt() missing top rail indicator: %q", rendered)
 	}
 }

@@ -498,34 +498,33 @@ func renderTopRail(vm viewModel) string {
 		if vm.AwaitingFirstOutput {
 			wave = buildThinkingWave(vm.MotionTick)
 		}
-		return lipgloss.JoinHorizontal(
-			lipgloss.Left,
-			renderWordWave(wave, vm.MotionTick),
-			" ",
-			lipgloss.NewStyle().
-				Foreground(defaultTheme.accentSoft).
-				Render(formatElapsedClock(vm.RunElapsed)),
-			lipgloss.NewStyle().
-				Foreground(defaultTheme.textMuted).
-				Render(" (esc to interrupt)"),
-		)
+		return renderActiveTopRail(wave, vm.MotionTick, vm.RunElapsed)
 	}
 	if vm.Phase == PhaseCompacting {
-		return lipgloss.JoinHorizontal(
-			lipgloss.Left,
-			renderWordWave(buildCompactingWave(vm.MotionTick), vm.MotionTick),
-			" ",
-			lipgloss.NewStyle().
-				Foreground(defaultTheme.accentSoft).
-				Render(formatElapsedClock(vm.RunElapsed)),
-			lipgloss.NewStyle().
-				Foreground(defaultTheme.textMuted).
-				Render(" (esc to interrupt)"),
-		)
+		return renderActiveTopRail(buildCompactingWave(vm.MotionTick), vm.MotionTick, vm.RunElapsed)
 	}
 	return lipgloss.NewStyle().
 		Foreground(defaultTheme.accentSoft).
 		Render(indicator)
+}
+
+func renderActiveTopRail(wave string, motionTick int, elapsed time.Duration) string {
+	return lipgloss.JoinHorizontal(
+		lipgloss.Left,
+		renderWordWave(wave, motionTick),
+		lipgloss.NewStyle().
+			Foreground(defaultTheme.accentSoft).
+			Render("…"),
+		lipgloss.NewStyle().
+			Foreground(defaultTheme.textMuted).
+			Render(" ("),
+		lipgloss.NewStyle().
+			Foreground(defaultTheme.accentSoft).
+			Render(formatTopRailElapsed(elapsed)),
+		lipgloss.NewStyle().
+			Foreground(defaultTheme.textMuted).
+			Render(" · esc to interrupt)"),
+	)
 }
 
 func renderPromptRule(width int, rowBorder lipgloss.TerminalColor) string {
@@ -553,9 +552,9 @@ func buildTopRailIndicator(vm viewModel) string {
 		if vm.AwaitingFirstOutput {
 			wave = buildThinkingWave(vm.MotionTick)
 		}
-		return fmt.Sprintf("● %s %s (esc to interrupt)", wave, formatElapsedClock(vm.RunElapsed))
+		return fmt.Sprintf("● %s… (%s · esc to interrupt)", wave, formatTopRailElapsed(vm.RunElapsed))
 	}
-	return fmt.Sprintf("● %s %s (esc to interrupt)", buildCompactingWave(vm.MotionTick), formatElapsedClock(vm.RunElapsed))
+	return fmt.Sprintf("● %s… (%s · esc to interrupt)", buildCompactingWave(vm.MotionTick), formatTopRailElapsed(vm.RunElapsed))
 }
 
 func buildThinkingWave(motionTick int) string {
@@ -840,20 +839,23 @@ func buildUsageFooterText(vm viewModel, detailed bool) string {
 	return joinFooterParts(parts...)
 }
 
-func formatElapsedClock(d time.Duration) string {
+func formatTopRailElapsed(d time.Duration) string {
 	if d <= 0 {
-		return "00:00"
+		return "0s"
 	}
 	totalSeconds := int(d.Seconds())
-	if totalSeconds < 0 {
-		totalSeconds = 0
+	if totalSeconds <= 0 {
+		return "0s"
+	}
+	if totalSeconds < 60 {
+		return fmt.Sprintf("%ds", totalSeconds)
 	}
 	minutes := totalSeconds / 60
 	seconds := totalSeconds % 60
-	if minutes > 99 {
-		minutes = 99
+	if seconds == 0 {
+		return fmt.Sprintf("%dm", minutes)
 	}
-	return fmt.Sprintf("%02d:%02d", minutes, seconds)
+	return fmt.Sprintf("%dm %ds", minutes, seconds)
 }
 
 func joinFooterParts(parts ...string) string {
