@@ -296,14 +296,14 @@ func (t *Transcript) WriteUserTurn(prompt string) {
 func userTurnLines(prompt string) []string {
 	lines := strings.Split(strings.TrimRight(prompt, "\n"), "\n")
 	if len(lines) == 0 {
-		return []string{">"}
+		return []string{"│"}
 	}
 	for i, line := range lines {
 		if strings.TrimSpace(line) == "" {
-			lines[i] = ">"
+			lines[i] = "│"
 			continue
 		}
-		lines[i] = "> " + line
+		lines[i] = "│ " + line
 	}
 	return lines
 }
@@ -314,14 +314,16 @@ func formatUserTurnPlain(prompt string) string {
 
 func renderUserTurn(prompt string) string {
 	markerStyle := lipgloss.NewStyle().Foreground(defaultTheme.accentSoft).Bold(true)
-	textStyle := lipgloss.NewStyle().Foreground(defaultTheme.textSoft).Bold(true)
+	textStyle := lipgloss.NewStyle().Foreground(defaultTheme.text).Bold(true)
 	lines := userTurnLines(prompt)
 	for i, line := range lines {
-		if line == ">" {
-			lines[i] = markerStyle.Render(">")
+		content := markerStyle.Render("│")
+		if line == "│" {
+			lines[i] = content
 			continue
 		}
-		lines[i] = markerStyle.Render("> ") + textStyle.Render(strings.TrimPrefix(line, "> "))
+		content += markerStyle.Render(" ") + textStyle.Render(strings.TrimPrefix(line, "│ "))
+		lines[i] = content
 	}
 	return strings.Join(lines, "\n") + "\n"
 }

@@ -53,15 +53,15 @@ func TestWriteStartupBannerDoesNotGuessCredentialStateFromEnvironment(t *testing
 	}
 }
 
-func TestWriteUserTurnUsesLightweightMarker(t *testing.T) {
+func TestWriteUserTurnUsesSpeakerRail(t *testing.T) {
 	transcript := NewTranscript()
 	transcript.WriteUserTurn("review changes\nthen run tests")
 
 	rendered := transcript.Render()
 	plain := stripANSI(rendered)
 	for _, want := range []string{
-		"> review changes",
-		"> then run tests",
+		"│ review changes",
+		"│ then run tests",
 	} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("user turn missing %q in %q", want, plain)

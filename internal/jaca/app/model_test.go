@@ -546,7 +546,7 @@ func TestQueuedPromptBatchSubmittedShowsUserTurnInTranscript(t *testing.T) {
 	m = updated.(*model)
 
 	rendered := stripANSI(m.View())
-	for _, want := range []string{"> tighten the answer", "add tests"} {
+	for _, want := range []string{"│ tighten the answer", "add tests"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("queued prompt submission missing %q in %q", want, rendered)
 		}
@@ -576,7 +576,7 @@ func TestQueuedPromptBatchSubmittedClearsShelfImmediately(t *testing.T) {
 	if strings.Contains(rendered, "After current tool phase") || strings.Contains(rendered, "↳ run go tests") {
 		t.Fatalf("expected submitted next prompt to disappear from queue shelf, got %q", rendered)
 	}
-	if !strings.Contains(rendered, "> run go tests") {
+	if !strings.Contains(rendered, "│ run go tests") {
 		t.Fatalf("expected submitted prompt to appear in transcript, got %q", rendered)
 	}
 }
@@ -798,7 +798,7 @@ func TestResumedSessionPreviewHydratesRecentHistory(t *testing.T) {
 	if !strings.Contains(rendered, "older history omitted") {
 		t.Fatalf("resume preview truncation note missing from transcript: %q", rendered)
 	}
-	if !strings.Contains(rendered, "> fix the auth store") {
+	if !strings.Contains(rendered, "│ fix the auth store") {
 		t.Fatalf("resumed user turn missing from transcript: %q", rendered)
 	}
 	if !strings.Contains(rendered, "I updated the auth store logic.") {
@@ -820,7 +820,7 @@ func TestSessionPreviewActivityEntryHydratesBackendActivity(t *testing.T) {
 
 	rendered := stripANSI(m.transcript.Render())
 	for _, want := range []string{
-		"> check shell commands",
+		"│ check shell commands",
 		"● Shell · 5 commands · 1.2s",
 		"The worktree is clean.",
 	} {
@@ -1123,7 +1123,7 @@ func TestSessionPreviewInstructionsEntryPinsBeforeCurrentRun(t *testing.T) {
 
 	rendered := stripANSI(m.transcript.Render())
 	instructionsIndex := strings.Index(rendered, "loaded project instructions: AGENTS.md")
-	userIndex := strings.Index(rendered, "> hello")
+	userIndex := strings.Index(rendered, "│ hello")
 	if instructionsIndex == -1 || userIndex == -1 {
 		t.Fatalf("expected instructions note and user turn in %q", rendered)
 	}
@@ -1148,7 +1148,7 @@ func TestSessionCreatedMsgPinsInstructionsWithoutPreviewReplay(t *testing.T) {
 	m = updated.(*model)
 
 	rendered := stripANSI(m.transcript.Render())
-	if strings.Count(rendered, "> hello") != 1 {
+	if strings.Count(rendered, "│ hello") != 1 {
 		t.Fatalf("expected one user turn in %q", rendered)
 	}
 	if strings.Count(rendered, "Hi! What would you like to work on?") != 1 {
