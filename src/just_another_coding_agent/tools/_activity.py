@@ -39,11 +39,14 @@ def make_tool_return(
     title: str,
     summary: str | None,
     details: ToolActivityDetails | None,
+    display_label: str | None = None,
 ) -> ToolReturn:
     metadata: dict[str, Any] = {
         "title": title,
         "summary": summary,
     }
+    if display_label is not None:
+        metadata["display_label"] = display_label
     if details is not None:
         metadata["details"] = details.model_dump(mode="python")
     return ToolReturn(return_value=return_value, metadata=metadata)

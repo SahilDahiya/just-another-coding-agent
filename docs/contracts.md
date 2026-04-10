@@ -141,11 +141,12 @@ Canonical tool set for the first maintained version:
 - `grep`
 - `ls`
 - `find`
+- `subagent`
 
 Rules:
 
 - Tool names are stable once published.
-- The seven canonical coding tools remain directly model-visible. Do not hide
+- The eight canonical coding tools remain directly model-visible. Do not hide
   them behind a tool-search or deferred-loading indirection without a separate
   evidence-backed contract change.
 - Tool inputs must be explicit and validated.
@@ -182,9 +183,9 @@ Expected tool-domain error result:
 
 Initial executable tool slice:
 
-- canonical registry names: `read`, `write`, `edit`, `shell`, `grep`, `ls`, `find`
+- canonical registry names: `read`, `write`, `edit`, `shell`, `grep`, `ls`, `find`, `subagent`
 - unknown tool names fail explicitly
-- initial concrete tool implementations: `read`, `write`, `edit`, `shell`, `grep`, `ls`, `find`
+- initial concrete tool implementations: `read`, `write`, `edit`, `shell`, `grep`, `ls`, `find`, `subagent`
 
 `read` input contract:
 
@@ -331,6 +332,34 @@ Initial executable tool slice:
 - when output is bounded, returns an explicit note telling the model how to ask for more or refine the pattern
 - missing paths, non-directory search paths, invalid `rg` execution, and non-UTF-8 decode failures return an explicit tool error result
 
+`subagent` input contract:
+
+- fields: `name`, `task`, `role`
+- `name` must be a non-empty kebab-case session name
+- `task` must be a non-empty string
+- `role` is optional and, when present, must be one of `general`, `explore`, or `verification`
+
+`subagent` behavior contract:
+
+- spawns exactly one ephemeral child run and waits for it to finish before returning
+- child runs are read-only, non-recursive, and fresh-context
+- child runs inherit the parent run's workspace root, shell family, model, thinking, current date, and timezone
+- child runs do not create durable session files or public session commands in this first slice
+- subagent spawning is allowed only from root runs; nested child runs return an explicit tool error result
+- child output must be valid JSON with exactly these keys:
+  `direct_evidence`, `inference`, `confidence`, `ambiguities`,
+  `recommended_followup`
+- invalid child output returns an explicit tool error result; the backend does
+  not silently coerce free-form prose into structured evidence
+- successful results return an object with `ok: true`, `name`, `role`,
+  `summary_text`, `direct_evidence`, `inference`, `confidence`,
+  `ambiguities`, and `recommended_followup`
+- child run failures surface as explicit tool error results rather than crashing the parent run
+- parent transcript rendering for subagent work is backend-owned and compact:
+  streamed activity carries bounded `preview_lines` plus `preview_terminal`
+  so clients can render one stable parent block with optional `|` / `└`
+  detail lines instead of replaying the child transcript
+
 ## Streamed Event Contract
 
 Initial canonical event families:
@@ -348,6 +377,10 @@ Rules:
 - Event names and payloads should be simple, typed, and versionable.
 - The runtime must not emit alternate fallback event shapes for older clients.
 - The public event stream should represent the phases of a coding-agent run, not every internal PydanticAI event verbatim.
+- Tool updates may arrive before the matching tool-call start is emitted from
+  the framework. The runtime must buffer those early updates until the
+  canonical `tool_call_started` event exists, then emit them in order instead
+  of crashing on scheduler timing.
 - Session lifecycle events may appear before `run_started` when the runtime
   performs work such as automatic session compaction at the resumed-run
   boundary.

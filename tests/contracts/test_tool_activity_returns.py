@@ -1,15 +1,26 @@
 from __future__ import annotations
 
+import json
 import shutil
 import sys
+from datetime import date
 from types import SimpleNamespace
 
 import pytest
 from pydantic_ai.messages import ToolReturn
 
 from just_another_coding_agent.contracts.platform import detect_default_shell_family
-from just_another_coding_agent.tools.deps import WorkspaceDeps
+from just_another_coding_agent.contracts.run_events import (
+    RunStartedEvent,
+    RunSucceededEvent,
+)
+from just_another_coding_agent.tools.deps import (
+    RunRuntimeFrame,
+    RunSessionScope,
+    WorkspaceDeps,
+)
 from just_another_coding_agent.tools.edit import edit
+from just_another_coding_agent.tools.errors import ToolOperationalError
 from just_another_coding_agent.tools.find import find
 from just_another_coding_agent.tools.grep import grep
 from just_another_coding_agent.tools.ls import ls
@@ -18,6 +29,7 @@ from just_another_coding_agent.tools.read_only_worker.runtime import (
     ReadOnlyWorkerRuntime,
 )
 from just_another_coding_agent.tools.shell import shell
+from just_another_coding_agent.tools.subagent import subagent
 from just_another_coding_agent.tools.write import write
 
 
@@ -287,3 +299,168 @@ async def test_shell_returns_tool_owned_activity_metadata(
             "exit_code": 0,
         },
     }
+
+
+async def test_subagent_returns_tool_owned_activity_metadata(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    ctx = _ctx(tmp_path)
+    ctx.tool_name = "subagent"
+    ctx.deps = WorkspaceDeps(
+        workspace_root=ctx.deps.workspace_root,
+        shell_family=ctx.deps.shell_family,
+        session_scope=RunSessionScope(),
+        run_frame=RunRuntimeFrame(
+            model="test:model",
+            current_date=date(2026, 4, 10),
+            timezone="America/Los_Angeles",
+            thinking="medium",
+        ),
+    )
+
+    async def fake_stream_ephemeral_subagent_run_events(**kwargs):
+        assert kwargs["spec"].name == "compaction-scan"
+        assert kwargs["spec"].role == "explore"
+        assert kwargs["spec"].task == "Find where compaction resets turn context."
+        yield RunStartedEvent(run_id="sub-run-1")
+        yield RunSucceededEvent(
+            run_id="sub-run-1",
+            output_text=json.dumps(
+                {
+                    "direct_evidence": [
+                        "Observed reset in runtime/compaction/resume.py"
+                    ],
+                    "inference": "Found reset in runtime/compaction/resume.py",
+                    "confidence": "medium",
+                    "ambiguities": [
+                        "Did not yet confirm whether another caller clears it later."
+                    ],
+                    "recommended_followup": (
+                        "Trace the next resumed-run caller after compaction."
+                    ),
+                }
+            ),
+        )
+
+    monkeypatch.setattr(
+        "just_another_coding_agent.tools.subagent."
+        "stream_ephemeral_subagent_run_events",
+        fake_stream_ephemeral_subagent_run_events,
+    )
+
+    result = await subagent(
+        ctx,
+        name="compaction-scan",
+        role="explore",
+        task="Find where compaction resets turn context.",
+    )
+
+    assert isinstance(result, ToolReturn)
+    assert result.return_value == {
+        "ok": True,
+        "name": "compaction-scan",
+        "role": "explore",
+        "summary_text": (
+            "Medium confidence: Found reset in runtime/compaction/resume.py"
+        ),
+        "direct_evidence": [
+            "Observed reset in runtime/compaction/resume.py",
+        ],
+        "inference": "Found reset in runtime/compaction/resume.py",
+        "confidence": "medium",
+        "ambiguities": [
+            "Did not yet confirm whether another caller clears it later."
+        ],
+        "recommended_followup": "Trace the next resumed-run caller after compaction.",
+    }
+    assert result.metadata == {
+        "title": "subagent compaction-scan",
+        "display_label": "Explore",
+        "summary": "Medium confidence: Found reset in runtime/compaction/resume.py",
+        "details": {
+            "kind": "subagent",
+            "name": "compaction-scan",
+            "role": "explore",
+            "preview_lines": [
+                "Medium confidence: Found reset in runtime/compaction/resume.py"
+            ],
+            "preview_terminal": True,
+        },
+    }
+
+
+async def test_subagent_fails_hard_on_invalid_structured_evidence(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    ctx = _ctx(tmp_path)
+    ctx.tool_name = "subagent"
+    ctx.deps = WorkspaceDeps(
+        workspace_root=ctx.deps.workspace_root,
+        shell_family=ctx.deps.shell_family,
+        session_scope=RunSessionScope(),
+        run_frame=RunRuntimeFrame(
+            model="test:model",
+            current_date=date(2026, 4, 10),
+            timezone="America/Los_Angeles",
+            thinking="medium",
+        ),
+    )
+
+    async def fake_stream_ephemeral_subagent_run_events(**kwargs):
+        del kwargs
+        yield RunStartedEvent(run_id="sub-run-1")
+        yield RunSucceededEvent(
+            run_id="sub-run-1",
+            output_text="not valid json",
+        )
+
+    monkeypatch.setattr(
+        "just_another_coding_agent.tools.subagent."
+        "stream_ephemeral_subagent_run_events",
+        fake_stream_ephemeral_subagent_run_events,
+    )
+
+    with pytest.raises(
+        ToolOperationalError,
+        match="returned invalid structured evidence",
+    ):
+        await subagent(
+            ctx,
+            name="compaction-scan",
+            role="explore",
+            task="Find where compaction resets turn context.",
+        )
+
+
+async def test_subagent_rejects_nested_child_run(tmp_path) -> None:
+    ctx = _ctx(tmp_path)
+    ctx.tool_name = "subagent"
+    ctx.deps = WorkspaceDeps(
+        workspace_root=ctx.deps.workspace_root,
+        shell_family=ctx.deps.shell_family,
+        session_scope=RunSessionScope(
+            kind="subagent",
+            name="parent-child",
+            parent_session_id="a" * 32,
+            parent_run_id="run-1",
+        ),
+        run_frame=RunRuntimeFrame(
+            model="test:model",
+            current_date=date(2026, 4, 10),
+            timezone="America/Los_Angeles",
+            thinking="medium",
+        ),
+    )
+
+    with pytest.raises(
+        ToolOperationalError,
+        match="Subagent spawning is only available to root runs",
+    ):
+        await subagent(
+            ctx,
+            name="compaction-scan",
+            role="explore",
+            task="Find where compaction resets turn context.",
+        )

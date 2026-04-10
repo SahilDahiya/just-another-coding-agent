@@ -74,7 +74,7 @@ def test_build_canonical_instructions_include_dynamic_context(tmp_path) -> None:
         in instructions
     )
     assert (
-        "Use only these tools: read, write, edit, shell, grep, ls, find."
+        "Use only these tools: read, write, edit, shell, grep, ls, find, subagent."
         in instructions
     )
     assert "Use grep for content search across files." in instructions

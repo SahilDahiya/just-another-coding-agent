@@ -104,8 +104,14 @@ func (g *toolGroup) update(event rpc.RunEvent) bool {
 		entry.activity = event.Activity
 		entry.displayLabel = buildToolDisplayLabel(entry.toolName, event.Activity)
 	}
-	entry.detailLines = nil
-	entry.resultLines, entry.resultTruncated, entry.resultOmittedLines, entry.resultHeadCount = extractToolResultLines(event.Partial)
+	entry.detailLines = buildToolDetailLines(event.Activity)
+	entry.resultLines = nil
+	entry.resultTruncated = false
+	entry.resultOmittedLines = 0
+	entry.resultHeadCount = 0
+	if len(entry.detailLines) == 0 {
+		entry.resultLines, entry.resultTruncated, entry.resultOmittedLines, entry.resultHeadCount = extractToolResultLines(event.Partial)
+	}
 	return true
 }
 
@@ -725,9 +731,17 @@ func buildToolDetailLines(activity *rpc.ToolActivity) []string {
 		return nil
 	}
 	kind, _ := activity.Details["kind"].(string)
-	if kind != "edit" {
+	switch kind {
+	case "edit":
+		return buildEditDetailLines(activity)
+	case "subagent":
+		return buildSubagentDetailLines(activity)
+	default:
 		return nil
 	}
+}
+
+func buildEditDetailLines(activity *rpc.ToolActivity) []string {
 	path, _ := activity.Details["path"].(string)
 	if path == "" {
 		return nil
@@ -756,6 +770,23 @@ func buildToolDetailLines(activity *rpc.ToolActivity) []string {
 	diff, _ := activity.Details["diff"].(string)
 	if diff != "" {
 		lines = append(lines, renderEditDiffLines(diff)...)
+	}
+	return lines
+}
+
+func buildSubagentDetailLines(activity *rpc.ToolActivity) []string {
+	rawLines := stringSliceFromAny(activity.Details["preview_lines"])
+	if len(rawLines) == 0 {
+		return nil
+	}
+	previewTerminal, _ := activity.Details["preview_terminal"].(bool)
+	lines := make([]string, 0, len(rawLines))
+	for idx, line := range rawLines {
+		prefix := "  │ "
+		if previewTerminal && idx == len(rawLines)-1 {
+			prefix = "  └ "
+		}
+		lines = append(lines, prefix+truncateDisplayLine(line, maxToolResultLineChars))
 	}
 	return lines
 }
@@ -856,4 +887,30 @@ func intFromAny(value any) *int {
 		return &n
 	}
 	return nil
+}
+
+func stringSliceFromAny(value any) []string {
+	switch v := value.(type) {
+	case []string:
+		lines := make([]string, 0, len(v))
+		for _, line := range v {
+			if strings.TrimSpace(line) == "" {
+				continue
+			}
+			lines = append(lines, strings.Join(strings.Fields(line), " "))
+		}
+		return lines
+	case []any:
+		lines := make([]string, 0, len(v))
+		for _, raw := range v {
+			line, ok := raw.(string)
+			if !ok || strings.TrimSpace(line) == "" {
+				continue
+			}
+			lines = append(lines, strings.Join(strings.Fields(line), " "))
+		}
+		return lines
+	default:
+		return nil
+	}
 }

@@ -109,6 +109,56 @@ class _RestartRunWithCorrection(Exception):
     message: str
 
 
+def _build_tool_updated_event(
+    *,
+    run_id: str,
+    queued_update: _QueuedToolUpdate,
+    pending_tool_call: _PendingToolCall,
+) -> ToolCallUpdatedEvent:
+    return ToolCallUpdatedEvent(
+        run_id=run_id,
+        tool_call_id=queued_update.tool_call_id,
+        tool_name=pending_tool_call.tool_name,
+        partial_result=queued_update.partial_result,
+        activity=build_updated_tool_activity(
+            tool_name=pending_tool_call.tool_name,
+            args=pending_tool_call.args,
+            args_valid=pending_tool_call.args_valid,
+            partial_result=queued_update.partial_result,
+            duration_ms=_duration_ms_since(pending_tool_call.started_at),
+        ),
+    )
+
+
+def _drain_buffered_tool_updates(
+    *,
+    run_id: str,
+    pending_tool_call: _PendingToolCall,
+    tool_call_id: str,
+    buffered_tool_updates: dict[str, list[_QueuedToolUpdate]],
+) -> list[ToolCallUpdatedEvent]:
+    return [
+        _build_tool_updated_event(
+            run_id=run_id,
+            queued_update=queued_update,
+            pending_tool_call=pending_tool_call,
+        )
+        for queued_update in buffered_tool_updates.pop(tool_call_id, [])
+    ]
+
+
+def _raise_if_buffered_tool_updates_remain(
+    buffered_tool_updates: dict[str, list[_QueuedToolUpdate]],
+) -> None:
+    if not buffered_tool_updates:
+        return
+    stale_tool_call_id = next(iter(buffered_tool_updates))
+    raise RuntimeError(
+        "Tool update must match a pending tool_call_started: "
+        f"{stale_tool_call_id}"
+    )
+
+
 def _build_unbounded_usage_limits() -> UsageLimits:
     return UsageLimits(
         request_limit=None,
@@ -166,6 +216,7 @@ async def _stream_run_events_with_steer(
     current_message_history = list(message_history or [])
     carried_messages: list[ModelMessage] = []
     pending_tool_calls: dict[str, _PendingToolCall] = {}
+    buffered_tool_updates: dict[str, list[_QueuedToolUpdate]] = {}
     completed_tool_calls: dict[str, str] = {}
     yield RunStartedEvent(run_id=run_id)
 
@@ -260,26 +311,16 @@ async def _stream_run_events_with_steer(
                                                 pending_tool_call = (
                                                     _resolve_tool_update(
                                                         pending_tool_calls=pending_tool_calls,
+                                                        buffered_tool_updates=buffered_tool_updates,
                                                         completed_tool_calls=completed_tool_calls,
-                                                        tool_call_id=event.tool_call_id,
-                                                        tool_name=event.tool_name,
+                                                        queued_update=event,
                                                     )
                                                 )
                                                 if pending_tool_call is not None:
-                                                    yield ToolCallUpdatedEvent(
+                                                    yield _build_tool_updated_event(
                                                         run_id=run_id,
-                                                        tool_call_id=event.tool_call_id,
-                                                        tool_name=pending_tool_call.tool_name,
-                                                        partial_result=event.partial_result,
-                                                        activity=build_updated_tool_activity(
-                                                            tool_name=pending_tool_call.tool_name,
-                                                            args=pending_tool_call.args,
-                                                            args_valid=pending_tool_call.args_valid,
-                                                            partial_result=event.partial_result,
-                                                            duration_ms=_duration_ms_since(
-                                                                pending_tool_call.started_at
-                                                            ),
-                                                        ),
+                                                        queued_update=event,
+                                                        pending_tool_call=pending_tool_call,
                                                     )
                                                 update_task = asyncio.create_task(
                                                     queue.get()
@@ -351,6 +392,20 @@ async def _stream_run_events_with_steer(
                                                             args_valid=args_valid,
                                                         ),
                                                     )
+                                                    updates = (
+                                                        _drain_buffered_tool_updates(
+                                                            run_id=run_id,
+                                                            pending_tool_call=(
+                                                                pending_tool_calls[
+                                                                    event.tool_call_id
+                                                                ]
+                                                            ),
+                                                            tool_call_id=event.tool_call_id,
+                                                            buffered_tool_updates=buffered_tool_updates,
+                                                        )
+                                                    )
+                                                    for update in updates:
+                                                        yield update
                                                     malformed_message = (
                                                         _malformed_tool_correction_message(
                                                             tool_name=event.part.tool_name,
@@ -559,6 +614,9 @@ async def _stream_run_events_with_steer(
                                 message_history_sink(
                                     [*carried_messages, *result.new_messages()]
                                 )
+                            _raise_if_buffered_tool_updates_remain(
+                                buffered_tool_updates
+                            )
                             yield _build_run_succeeded_event(
                                 run_id=run_id,
                                 agent=agent,
@@ -682,6 +740,7 @@ async def _stream_run_events_inner(
     current_message_history = list(message_history or [])
     carried_messages: list[ModelMessage] = []
     pending_tool_calls: dict[str, _PendingToolCall] = {}
+    buffered_tool_updates: dict[str, list[_QueuedToolUpdate]] = {}
     completed_tool_calls: dict[str, str] = {}
     yield RunStartedEvent(run_id=run_id)
 
@@ -742,6 +801,7 @@ async def _stream_run_events_inner(
                             raise RuntimeError(
                                 "PydanticAI stream ended without a terminal result"
                             )
+                        _raise_if_buffered_tool_updates_remain(buffered_tool_updates)
                         return
 
                     if isinstance(event, _QueuedRunError):
@@ -750,26 +810,16 @@ async def _stream_run_events_inner(
                     if isinstance(event, _QueuedToolUpdate):
                         pending_tool_call = _resolve_tool_update(
                             pending_tool_calls=pending_tool_calls,
+                            buffered_tool_updates=buffered_tool_updates,
                             completed_tool_calls=completed_tool_calls,
-                            tool_call_id=event.tool_call_id,
-                            tool_name=event.tool_name,
+                            queued_update=event,
                         )
                         if pending_tool_call is None:
                             continue
-                        yield ToolCallUpdatedEvent(
+                        yield _build_tool_updated_event(
                             run_id=run_id,
-                            tool_call_id=event.tool_call_id,
-                            tool_name=pending_tool_call.tool_name,
-                            partial_result=event.partial_result,
-                            activity=build_updated_tool_activity(
-                                tool_name=pending_tool_call.tool_name,
-                                args=pending_tool_call.args,
-                                args_valid=pending_tool_call.args_valid,
-                                partial_result=event.partial_result,
-                                duration_ms=_duration_ms_since(
-                                    pending_tool_call.started_at
-                                ),
-                            ),
+                            queued_update=event,
+                            pending_tool_call=pending_tool_call,
                         )
                         continue
 
@@ -811,6 +861,14 @@ async def _stream_run_events_inner(
                                 args_valid=args_valid,
                             ),
                         )
+                        updates = _drain_buffered_tool_updates(
+                            run_id=run_id,
+                            pending_tool_call=pending_tool_calls[event.tool_call_id],
+                            tool_call_id=event.tool_call_id,
+                            buffered_tool_updates=buffered_tool_updates,
+                        )
+                        for update in updates:
+                            yield update
                         malformed_message = _malformed_tool_correction_message(
                             tool_name=event.part.tool_name,
                             raw_args=event.part.args,
@@ -1131,30 +1189,31 @@ def _resolve_pending_tool_call(
 def _resolve_tool_update(
     *,
     pending_tool_calls: dict[str, _PendingToolCall],
+    buffered_tool_updates: dict[str, list[_QueuedToolUpdate]],
     completed_tool_calls: dict[str, str],
-    tool_call_id: str,
-    tool_name: str,
+    queued_update: _QueuedToolUpdate,
 ) -> _PendingToolCall | None:
-    pending_tool_call = pending_tool_calls.get(tool_call_id)
+    pending_tool_call = pending_tool_calls.get(queued_update.tool_call_id)
     if pending_tool_call is None:
-        completed_tool_name = completed_tool_calls.get(tool_call_id)
+        completed_tool_name = completed_tool_calls.get(queued_update.tool_call_id)
         if completed_tool_name is not None:
-            if tool_name != completed_tool_name:
+            if queued_update.tool_name != completed_tool_name:
                 raise RuntimeError(
                     "Tool update tool_name mismatch for completed tool_call_id "
-                    f"{tool_call_id!r}: expected {completed_tool_name!r}, got "
-                    f"{tool_name!r}"
+                    f"{queued_update.tool_call_id!r}: expected "
+                    f"{completed_tool_name!r}, got {queued_update.tool_name!r}"
                 )
             return None
-        raise RuntimeError(
-            f"Tool update must match a pending tool_call_started: {tool_call_id}"
+        buffered_tool_updates.setdefault(queued_update.tool_call_id, []).append(
+            queued_update
         )
+        return None
 
-    if tool_name != pending_tool_call.tool_name:
+    if queued_update.tool_name != pending_tool_call.tool_name:
         raise RuntimeError(
             "Tool update tool_name mismatch for tool_call_id "
-            f"{tool_call_id!r}: expected {pending_tool_call.tool_name!r}, got "
-            f"{tool_name!r}"
+            f"{queued_update.tool_call_id!r}: expected "
+            f"{pending_tool_call.tool_name!r}, got {queued_update.tool_name!r}"
         )
 
     return pending_tool_call

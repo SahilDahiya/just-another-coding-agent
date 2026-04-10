@@ -26,8 +26,14 @@ _DISPLAY_LABEL_BY_TOOL = {
     "grep": "Search",
     "ls": "List",
     "find": "Find",
+    "subagent": "Subagent",
 }
 _EXPLORATION_TOOL_NAMES = frozenset({"read", "grep", "ls", "find"})
+_SUBAGENT_DISPLAY_LABEL_BY_ROLE = {
+    "general": "Subagent",
+    "explore": "Explore",
+    "verification": "Verify",
+}
 
 
 def _group_kind_for_tool(tool_name: str) -> str | None:
@@ -40,6 +46,18 @@ def _display_label_for_tool(tool_name: str) -> str | None:
     return _DISPLAY_LABEL_BY_TOOL.get(tool_name)
 
 
+def _display_label_for_subagent(args: Any, args_valid: bool | None) -> str | None:
+    if args_valid is False or not isinstance(args, dict):
+        return _DISPLAY_LABEL_BY_TOOL["subagent"]
+    role = args.get("role")
+    if isinstance(role, str):
+        return _SUBAGENT_DISPLAY_LABEL_BY_ROLE.get(
+            role,
+            _DISPLAY_LABEL_BY_TOOL["subagent"],
+        )
+    return _DISPLAY_LABEL_BY_TOOL["subagent"]
+
+
 def build_started_tool_activity(
     *,
     tool_name: str,
@@ -47,13 +65,18 @@ def build_started_tool_activity(
     args_valid: bool | None,
 ) -> ToolActivity:
     group_kind = _group_kind_for_tool(tool_name)
+    display_label = (
+        _display_label_for_subagent(args, args_valid)
+        if tool_name == "subagent"
+        else _display_label_for_tool(tool_name)
+    )
     return ToolActivity(
         title=_build_tool_title(
             tool_name=tool_name,
             args=args,
             args_valid=args_valid,
         ),
-        display_label=_display_label_for_tool(tool_name),
+        display_label=display_label,
         group_kind=group_kind,
     )
 
@@ -68,6 +91,11 @@ def build_succeeded_tool_activity(
     duration_ms: int,
 ) -> ToolActivity:
     group_kind = _group_kind_for_tool(tool_name)
+    display_label = (
+        _display_label_for_subagent(args, args_valid)
+        if tool_name == "subagent"
+        else _display_label_for_tool(tool_name)
+    )
 
     if result_metadata is not None:
         activity = _build_tool_activity_from_metadata(
@@ -76,7 +104,7 @@ def build_succeeded_tool_activity(
         )
         updates: dict[str, Any] = {}
         if activity.display_label is None:
-            updates["display_label"] = _display_label_for_tool(tool_name)
+            updates["display_label"] = display_label
         if activity.group_kind is None:
             updates["group_kind"] = group_kind
         if updates:
@@ -89,7 +117,7 @@ def build_succeeded_tool_activity(
             args=args,
             args_valid=args_valid,
         ),
-        display_label=_display_label_for_tool(tool_name),
+        display_label=display_label,
         summary=_build_fallback_success_summary(tool_name=tool_name, result=result),
         duration_ms=duration_ms,
         group_kind=group_kind,
@@ -104,17 +132,33 @@ def build_updated_tool_activity(
     partial_result: Any,
     duration_ms: int,
 ) -> ToolActivity:
-    del partial_result
     group_kind = _group_kind_for_tool(tool_name)
+    display_label = (
+        _display_label_for_subagent(args, args_valid)
+        if tool_name == "subagent"
+        else _display_label_for_tool(tool_name)
+    )
+    summary = None
+    details = None
+    if tool_name == "shell":
+        summary = "command still running"
+    elif tool_name == "subagent" and isinstance(partial_result, dict):
+        partial_summary = partial_result.get("summary")
+        if isinstance(partial_summary, str) and partial_summary.strip():
+            summary = partial_summary
+        partial_details = partial_result.get("details")
+        if partial_details is not None:
+            details = _TOOL_ACTIVITY_DETAILS_ADAPTER.validate_python(partial_details)
     return ToolActivity(
         title=_build_tool_title(
             tool_name=tool_name,
             args=args,
             args_valid=args_valid,
         ),
-        display_label=_display_label_for_tool(tool_name),
-        summary="command still running" if tool_name == "shell" else None,
+        display_label=display_label,
+        summary=summary,
         duration_ms=duration_ms,
+        details=details,
         group_kind=group_kind,
     )
 
@@ -128,13 +172,18 @@ def build_failed_tool_activity(
     duration_ms: int,
 ) -> ToolActivity:
     group_kind = _group_kind_for_tool(tool_name)
+    display_label = (
+        _display_label_for_subagent(args, args_valid)
+        if tool_name == "subagent"
+        else _display_label_for_tool(tool_name)
+    )
     return ToolActivity(
         title=_build_tool_title(
             tool_name=tool_name,
             args=args,
             args_valid=args_valid,
         ),
-        display_label=_display_label_for_tool(tool_name),
+        display_label=display_label,
         summary=message,
         duration_ms=duration_ms,
         group_kind=group_kind,
@@ -144,6 +193,15 @@ def build_failed_tool_activity(
 def _build_tool_title(*, tool_name: str, args: Any, args_valid: bool | None) -> str:
     if args_valid is False or not isinstance(args, dict):
         return tool_name
+
+    if tool_name == "subagent":
+        name = args.get("name")
+        if isinstance(name, str) and name.strip():
+            return f"subagent {truncate_activity_label(name)}"
+        task = args.get("task")
+        if isinstance(task, str) and task.strip():
+            return f"subagent {truncate_activity_label(task)}"
+        return "subagent"
 
     if tool_name == "shell":
         command = args.get("command")
@@ -183,6 +241,7 @@ def _build_fallback_success_summary(*, tool_name: str, result: Any) -> str | Non
         "grep": "search completed",
         "ls": "listing completed",
         "find": "find completed",
+        "subagent": "subagent completed",
     }
     return summaries.get(tool_name)
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -7,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic_ai.messages import ModelMessage
 
+from just_another_coding_agent.contracts.tools import CANONICAL_TOOL_NAMES
 from just_another_coding_agent.runtime.project_docs import (
     PROJECT_DOC_TOTAL_BYTE_BUDGET,
     build_project_doc_prefix_messages,
@@ -49,120 +51,194 @@ class PromptContextLayers:
         return self.runtime_after_history_messages
 
 
-BASE_PRODUCT_PROMPT_SECTIONS: tuple[PromptSection, ...] = (
-    PromptSection(
-        name="identity",
-        lines=(
-            (
-                "You are a headless coding assistant operating inside one "
-                "configured workspace."
-            ),
-        ),
-    ),
-    PromptSection(
-        name="tool_policy",
-        lines=(
-            "Use only these tools: read, write, edit, shell, grep, ls, find.",
-            (
-                "Prefer read to examine files instead of shelling out just "
-                "to view files."
-            ),
-            (
-                "Use edit for precise surgical changes; it tries exact matching "
-                "first and then a normalized fallback for minor formatting "
-                "differences."
-            ),
-            "Use write only for new files or complete rewrites.",
-            "Use grep for content search across files.",
-            "Use ls for bounded directory listings.",
-            "Use find for file discovery by glob pattern.",
-            "Use shell for builds, commands, and verification.",
-            (
-                "Use read with offset and limit for large files instead of "
-                "pulling everything at once."
-            ),
-        ),
-    ),
-    PromptSection(
-        name="tool_failure_policy",
-        lines=(
-            (
-                "If a tool returns an object with ok: false, treat it as an "
-                "operational error and decide the next corrective step yourself."
-            ),
-        ),
-    ),
-    PromptSection(
-        name="verification_policy",
-        lines=(
-            (
-                "Do not claim you created, edited, or saved a file unless you "
-                "actually used write or edit, or verified the result with read "
-                "or shell."
-            ),
-            (
-                "After code changes or required file outputs, run the smallest "
-                "relevant verification step before concluding."
-            ),
-            (
-                "When the user asks to run tests, lint, or another obvious "
-                "verification step, run the narrowest relevant command directly; "
-                "inspect first only if the command or scope is ambiguous."
-            ),
-        ),
-    ),
-    PromptSection(
-        name="failure_semantics",
-        lines=(
-            "Do not invent tools or alternate behaviors.",
-            "Do not rely on fallbacks.",
-            "Only uncaught tool failures end the run automatically.",
-        ),
-    ),
-    PromptSection(
-        name="response_style",
-        lines=(
-            "Default response style: brief, direct, and outcome-first.",
-            (
-                "Do not restate the user's request or narrate routine process "
-                "unless that context is necessary."
-            ),
-            (
-                "During work, keep progress updates to one short sentence focused "
-                "on the next action or concrete finding."
-            ),
-            (
-                "Final answers should usually be one short paragraph: state what "
-                "changed or what you found, then mention verification or blockers."
-            ),
-            (
-                "Use bullets only when there are multiple distinct findings, "
-                "steps, or options."
-            ),
-            (
-                "If no files changed, answer the question directly without a "
-                "change-style summary."
-            ),
-        ),
-    ),
-    PromptSection(
-        name="filesystem_truth",
-        lines=(
-            "Refer to files clearly by path.",
-            (
-                "For read, write, and edit, relative paths resolve from the "
-                "workspace root."
-            ),
-            "shell runs in the workspace root and no tool is a filesystem sandbox.",
+_IDENTITY_SECTION = PromptSection(
+    name="identity",
+    lines=(
+        (
+            "You are a headless coding assistant operating inside one "
+            "configured workspace."
         ),
     ),
 )
+_TOOL_FAILURE_POLICY_SECTION = PromptSection(
+    name="tool_failure_policy",
+    lines=(
+        (
+            "If a tool returns an object with ok: false, treat it as an "
+            "operational error and decide the next corrective step yourself."
+        ),
+    ),
+)
+_FAILURE_SEMANTICS_SECTION = PromptSection(
+    name="failure_semantics",
+    lines=(
+        "Do not invent tools or alternate behaviors.",
+        "Do not rely on fallbacks.",
+        "Only uncaught tool failures end the run automatically.",
+    ),
+)
+_RESPONSE_STYLE_SECTION = PromptSection(
+    name="response_style",
+    lines=(
+        "Default response style: brief, direct, and outcome-first.",
+        (
+            "Do not restate the user's request or narrate routine process "
+            "unless that context is necessary."
+        ),
+        (
+            "During work, keep progress updates to one short sentence focused "
+            "on the next action or concrete finding."
+        ),
+        (
+            "Final answers should usually be one short paragraph: state what "
+            "changed or what you found, then mention verification or blockers."
+        ),
+        (
+            "Use bullets only when there are multiple distinct findings, "
+            "steps, or options."
+        ),
+        (
+            "If no files changed, answer the question directly without a "
+            "change-style summary."
+        ),
+    ),
+)
+_FILESYSTEM_TRUTH_SECTION = PromptSection(
+    name="filesystem_truth",
+    lines=(
+        "Refer to files clearly by path.",
+        (
+            "For read, write, and edit, relative paths resolve from the "
+            "workspace root."
+        ),
+        "shell runs in the workspace root and no tool is a filesystem sandbox.",
+    ),
+)
+_TOOL_GUIDANCE_BY_NAME = {
+    "read": (
+        "Prefer read to examine files instead of shelling out just to view files.",
+        (
+            "Use read with offset and limit for large files instead of "
+            "pulling everything at once."
+        ),
+    ),
+    "write": ("Use write only for new files or complete rewrites.",),
+    "edit": (
+        (
+            "Use edit for precise surgical changes; it tries exact matching "
+            "first and then a normalized fallback for minor formatting "
+            "differences."
+        ),
+    ),
+    "shell": ("Use shell for builds, commands, and verification.",),
+    "grep": ("Use grep for content search across files.",),
+    "ls": ("Use ls for bounded directory listings.",),
+    "find": ("Use find for file discovery by glob pattern.",),
+    "subagent": (
+        (
+            "Use subagent for one bounded read-only side task. The child uses "
+            "the same workspace, model, and thinking, cannot edit files, and "
+            "returns one final report."
+        ),
+    ),
+}
 
 
-def build_base_product_prompt() -> str:
+def _dedupe_tool_names(tool_names: Sequence[str]) -> tuple[str, ...]:
+    ordered = tuple(tool_names)
+    if len(ordered) != len(set(ordered)):
+        raise ValueError("Tool prompt policy requires unique tool names")
+    return ordered
+
+
+def build_tool_policy_lines(
+    tool_names: Sequence[str] = CANONICAL_TOOL_NAMES,
+) -> tuple[str, ...]:
+    resolved_tool_names = _dedupe_tool_names(tool_names)
+    if not resolved_tool_names:
+        return ("No tools are available in this run.",)
+    lines = [f"Use only these tools: {', '.join(resolved_tool_names)}."]
+    for tool_name in resolved_tool_names:
+        try:
+            lines.extend(_TOOL_GUIDANCE_BY_NAME[tool_name])
+        except KeyError as error:
+            raise ValueError(
+                f"Unknown tool name in prompt policy: {tool_name}"
+            ) from error
+    return tuple(lines)
+
+
+def build_verification_policy_lines(
+    tool_names: Sequence[str] = CANONICAL_TOOL_NAMES,
+) -> tuple[str, ...]:
+    resolved_tool_names = set(_dedupe_tool_names(tool_names))
+    can_mutate = "write" in resolved_tool_names or "edit" in resolved_tool_names
+    can_shell = "shell" in resolved_tool_names
+    if not can_mutate:
+        return (
+            "This run is read-only. Do not claim you created, edited, or saved files.",
+        )
+    verification_tools = "read or shell" if can_shell else "read"
+    return (
+        (
+            "Do not claim you created, edited, or saved a file unless you "
+            "actually used write or edit, or verified the result with "
+            f"{verification_tools}."
+        ),
+        (
+            "After code changes or required file outputs, run the smallest "
+            "relevant verification step before concluding."
+        ),
+        (
+            "When the user asks to run tests, lint, or another obvious "
+            "verification step, run the narrowest relevant command directly; "
+            "inspect first only if the command or scope is ambiguous."
+        ),
+    )
+
+
+def _build_sections_with_layout(
+    *,
+    tool_names: Sequence[str] = CANONICAL_TOOL_NAMES,
+    extra_sections: Sequence[PromptSection] = (),
+) -> tuple[PromptSection, ...]:
+    return (
+        _IDENTITY_SECTION,
+        PromptSection(
+            name="tool_policy",
+            lines=build_tool_policy_lines(tool_names),
+        ),
+        _TOOL_FAILURE_POLICY_SECTION,
+        PromptSection(
+            name="verification_policy",
+            lines=build_verification_policy_lines(tool_names),
+        ),
+        *tuple(extra_sections),
+        _FAILURE_SEMANTICS_SECTION,
+        _RESPONSE_STYLE_SECTION,
+        _FILESYSTEM_TRUTH_SECTION,
+    )
+
+
+BASE_PRODUCT_PROMPT_SECTIONS: tuple[PromptSection, ...] = _build_sections_with_layout()
+
+
+def build_base_product_prompt(
+    *,
+    tool_names: Sequence[str] = CANONICAL_TOOL_NAMES,
+    extra_sections: Sequence[PromptSection] = (),
+) -> str:
+    sections = (
+        BASE_PRODUCT_PROMPT_SECTIONS
+        if tuple(tool_names) == CANONICAL_TOOL_NAMES and not extra_sections
+        else _build_sections_with_layout(
+            tool_names=tool_names,
+            extra_sections=extra_sections,
+        )
+    )
     return "\n".join(
         line
-        for section in BASE_PRODUCT_PROMPT_SECTIONS
+        for section in sections
         for line in section.lines
     )
 

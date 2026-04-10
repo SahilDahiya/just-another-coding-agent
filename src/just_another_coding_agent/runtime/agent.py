@@ -128,6 +128,7 @@ def build_canonical_agent(
     current_date: date | None = None,
     shell_family: ShellFamily | None = None,
     tool_names: Sequence[str] = CANONICAL_TOOL_NAMES,
+    instructions: str | None = None,
 ) -> Agent[WorkspaceDeps, str]:
     normalize_workspace_root(workspace_root)
     resolved_model = resolve_canonical_model(model)
@@ -147,7 +148,11 @@ def build_canonical_agent(
         output_type=str,
         retries=0,
         output_retries=CANONICAL_AGENT_OUTPUT_RETRIES,
-        instructions=build_static_agent_instructions(),
+        instructions=(
+            build_static_agent_instructions()
+            if instructions is None
+            else instructions
+        ),
         deps_type=WorkspaceDeps,
         toolsets=[build_canonical_toolset(tool_names)],
         capabilities=[CanonicalValidatedToolArgsCapability()],

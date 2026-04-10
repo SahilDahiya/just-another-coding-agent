@@ -9,6 +9,7 @@ from just_another_coding_agent.contracts.tools import CANONICAL_TOOL_NAMES
 from just_another_coding_agent.runtime.activity import (
     build_started_tool_activity,
     build_succeeded_tool_activity,
+    build_updated_tool_activity,
 )
 from just_another_coding_agent.tools._activity import shorten_path
 
@@ -27,6 +28,11 @@ _SAMPLE_ARGS_BY_TOOL: dict[str, dict[str, object]] = {
     },
     "ls": {"path": "src", "limit": 20},
     "find": {"pattern": "*.py", "path": "src", "limit": 20},
+    "subagent": {
+        "name": "compaction-scan",
+        "role": "explore",
+        "task": "Find where compaction resets turn context.",
+    },
 }
 
 _EXPECTED_STARTED_TITLE_BY_TOOL = {
@@ -37,6 +43,7 @@ _EXPECTED_STARTED_TITLE_BY_TOOL = {
     "grep": "grep TODO",
     "ls": "ls src",
     "find": "find *.py",
+    "subagent": "subagent compaction-scan",
 }
 
 _EXPECTED_DISPLAY_LABEL_BY_TOOL = {
@@ -47,6 +54,7 @@ _EXPECTED_DISPLAY_LABEL_BY_TOOL = {
     "grep": "Search",
     "ls": "List",
     "find": "Find",
+    "subagent": "Explore",
 }
 
 
@@ -103,6 +111,43 @@ def test_succeeded_activity_prefers_tool_owned_metadata() -> None:
             "limit": 5,
         },
         group_kind="exploration",
+    )
+
+
+def test_updated_subagent_activity_uses_backend_owned_preview_details() -> None:
+    activity = build_updated_tool_activity(
+        tool_name="subagent",
+        args={
+            "name": "compaction-scan",
+            "role": "explore",
+            "task": "Find where compaction resets turn context.",
+        },
+        args_valid=True,
+        partial_result={
+            "summary": "exploring repository",
+            "details": {
+                "kind": "subagent",
+                "name": "compaction-scan",
+                "role": "explore",
+                "preview_lines": ["read AGENTS.md"],
+                "preview_terminal": False,
+            },
+        },
+        duration_ms=19,
+    )
+
+    assert activity == ToolActivity(
+        title="subagent compaction-scan",
+        display_label="Explore",
+        summary="exploring repository",
+        duration_ms=19,
+        details={
+            "kind": "subagent",
+            "name": "compaction-scan",
+            "role": "explore",
+            "preview_lines": ["read AGENTS.md"],
+            "preview_terminal": False,
+        },
     )
 
 

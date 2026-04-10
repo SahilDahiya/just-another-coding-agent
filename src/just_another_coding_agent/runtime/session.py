@@ -42,7 +42,10 @@ from just_another_coding_agent.provider_readiness import (
     compute_model_readiness,
 )
 from just_another_coding_agent.runtime.activity import build_failed_tool_activity
-from just_another_coding_agent.runtime.agent import build_canonical_agent
+from just_another_coding_agent.runtime.agent import (
+    build_canonical_agent,
+    detect_current_timezone_label,
+)
 from just_another_coding_agent.runtime.compaction import (
     build_auto_compact_session_budget_report,
     build_runtime_framed_resume_message_history,
@@ -66,7 +69,7 @@ from just_another_coding_agent.session.replacement_history import (
     strip_internal_prompt_state,
 )
 from just_another_coding_agent.tools._workspace import normalize_workspace_root
-from just_another_coding_agent.tools.deps import WorkspaceDeps
+from just_another_coding_agent.tools.deps import RunRuntimeFrame, WorkspaceDeps
 
 MAX_CONSECUTIVE_AUTO_COMPACTION_FAILURES = 3
 
@@ -275,6 +278,7 @@ async def stream_session_run_events(
     normalized_workspace_root = normalize_workspace_root(workspace_root)
     shell_family = detect_default_shell_family()
     current_date = date.today()
+    current_timezone = detect_current_timezone_label()
     if isinstance(model, str):
         readiness = compute_model_readiness(model)
         if not readiness.configured:
@@ -436,6 +440,12 @@ async def stream_session_run_events(
                 deps=WorkspaceDeps(
                     workspace_root=normalized_workspace_root,
                     shell_family=shell_family,
+                    run_frame=RunRuntimeFrame(
+                        model=model,
+                        current_date=current_date,
+                        timezone=current_timezone,
+                        thinking=resolved_thinking,
+                    ),
                 ),
                 message_history_sink=_record_message_history,
             )

@@ -82,6 +82,8 @@ The current split is:
 - durable compaction state is stored in our session file
 - durable cross-run replay is materialized from session state before the next run
 - live runs keep their raw tool transcript for the duration of the run
+- internal ephemeral subagents stay run-local and do not create durable session
+  files or session commands in the first slice
 - successful resumed runs persist only new PydanticAI message deltas rather
   than replayed checkpoint history
 

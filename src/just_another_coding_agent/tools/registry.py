@@ -17,6 +17,7 @@ from just_another_coding_agent.tools.grep import GREP_TOOL
 from just_another_coding_agent.tools.ls import LS_TOOL
 from just_another_coding_agent.tools.read import READ_TOOL
 from just_another_coding_agent.tools.shell import SHELL_TOOL
+from just_another_coding_agent.tools.subagent import SUBAGENT_TOOL
 from just_another_coding_agent.tools.write import WRITE_TOOL
 
 
@@ -34,6 +35,7 @@ SEQUENTIAL_CANONICAL_TOOL_NAMES = (
     "write",
     "edit",
     "shell",
+    "subagent",
 )
 
 _TOOLS_BY_NAME = {
@@ -43,6 +45,7 @@ _TOOLS_BY_NAME = {
     "ls": LS_TOOL,
     "read": READ_TOOL,
     "shell": SHELL_TOOL,
+    "subagent": SUBAGENT_TOOL,
     "write": WRITE_TOOL,
 }
 

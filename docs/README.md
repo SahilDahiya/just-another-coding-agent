@@ -21,6 +21,7 @@ read_when: start here, onboarding, or you need to find the right doc quickly
 - Harbor and Terminal Bench workflow: [harbor-terminal-bench.md](harbor-terminal-bench.md)
 - Terminal Bench run journal: [terminal-bench-journal.md](terminal-bench-journal.md)
 - Terminal Bench baseline checklist: [learning/terminal-bench-checklist.md](learning/terminal-bench-checklist.md)
+- Subagent Terminal Bench eval cohort: [learning/subagent-terminal-bench-eval-set.md](learning/subagent-terminal-bench-eval-set.md)
 - Architectural decisions: [adr/](adr/)
 
 ## Document Index
@@ -42,6 +43,7 @@ read_when: start here, onboarding, or you need to find the right doc quickly
 - [harbor-terminal-bench.md](harbor-terminal-bench.md) - Harbor adapter usage and Terminal Bench workflow
 - [terminal-bench-journal.md](terminal-bench-journal.md) - running record of benchmark outcomes and task-picking learnings
 - [learning/terminal-bench-checklist.md](learning/terminal-bench-checklist.md) - full Terminal Bench task checklist with current pass, fail, and untried status
+- [learning/subagent-terminal-bench-eval-set.md](learning/subagent-terminal-bench-eval-set.md) - curated GPT-5.4 high-failure cohort for subagent Harbor reruns
 - [adr/0001-use-pydanticai-as-engine.md](adr/0001-use-pydanticai-as-engine.md) - engine choice
 - [adr/0002-headless-coding-agent-is-the-product.md](adr/0002-headless-coding-agent-is-the-product.md) - product boundary
 - [adr/0003-canonical-session-and-rpc-contract.md](adr/0003-canonical-session-and-rpc-contract.md) - external contract decision

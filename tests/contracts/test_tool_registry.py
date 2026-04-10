@@ -18,6 +18,7 @@ from just_another_coding_agent.tools.registry import (
     list_canonical_tool_names,
 )
 from just_another_coding_agent.tools.shell import SHELL_TOOL
+from just_another_coding_agent.tools.subagent import SUBAGENT_TOOL
 from just_another_coding_agent.tools.write import WRITE_TOOL
 
 CANONICAL_CORE_TOOL_SCHEMA_MAX_CHARS = 8_000
@@ -44,6 +45,7 @@ def test_registry_exposes_canonical_tool_names() -> None:
         "grep",
         "ls",
         "find",
+        "subagent",
     )
 
 
@@ -67,6 +69,7 @@ def test_registry_exposes_explicit_parallel_tool_policy() -> None:
     assert WRITE_TOOL.sequential is True
     assert EDIT_TOOL.sequential is True
     assert SHELL_TOOL.sequential is True
+    assert SUBAGENT_TOOL.sequential is True
 
 
 def test_build_canonical_toolset_registers_implemented_tools_with_pydanticai(
@@ -77,7 +80,7 @@ def test_build_canonical_toolset_registers_implemented_tools_with_pydanticai(
         model,
         toolsets=[
             build_canonical_toolset(
-                ["read", "write", "edit", "shell", "grep", "ls", "find"]
+                ["read", "write", "edit", "shell", "grep", "ls", "find", "subagent"]
             )
         ],
         deps_type=WorkspaceDeps,
@@ -87,7 +90,16 @@ def test_build_canonical_toolset_registers_implemented_tools_with_pydanticai(
 
     function_tools = model.last_model_request_parameters.function_tools
     tool_names = [tool.name for tool in function_tools]
-    assert tool_names == ["read", "write", "edit", "shell", "grep", "ls", "find"]
+    assert tool_names == [
+        "read",
+        "write",
+        "edit",
+        "shell",
+        "grep",
+        "ls",
+        "find",
+        "subagent",
+    ]
 
 
 def test_build_canonical_toolset_exposes_rich_model_facing_tool_descriptions(
@@ -98,7 +110,7 @@ def test_build_canonical_toolset_exposes_rich_model_facing_tool_descriptions(
         model,
         toolsets=[
             build_canonical_toolset(
-                ["read", "write", "edit", "shell", "grep", "ls", "find"]
+                ["read", "write", "edit", "shell", "grep", "ls", "find", "subagent"]
             )
         ],
         deps_type=WorkspaceDeps,
@@ -276,6 +288,24 @@ def test_build_canonical_toolset_exposes_rich_model_facing_tool_descriptions(
         == 1
     )
 
+    assert function_tools["subagent"].description == (
+        "Run one ephemeral read-only subagent for a bounded side task. "
+        "The child uses the same workspace, model, and thinking, cannot "
+        "edit files, and returns one final report."
+    )
+    assert (
+        function_tools["subagent"].parameters_json_schema["properties"]["name"][
+            "description"
+        ]
+        == "Short kebab-case session name for the child run."
+    )
+    assert (
+        function_tools["subagent"].parameters_json_schema["properties"]["task"][
+            "description"
+        ]
+        == "Bounded task for the child run to complete."
+    )
+
 
 def test_canonical_core_tool_schemas_stay_direct_and_within_budget(tmp_path) -> None:
     model = TestModel(call_tools=[], custom_output_text="ok")
@@ -283,7 +313,7 @@ def test_canonical_core_tool_schemas_stay_direct_and_within_budget(tmp_path) -> 
         model,
         toolsets=[
             build_canonical_toolset(
-                ["read", "write", "edit", "shell", "grep", "ls", "find"]
+                ["read", "write", "edit", "shell", "grep", "ls", "find", "subagent"]
             )
         ],
         deps_type=WorkspaceDeps,
@@ -300,6 +330,7 @@ def test_canonical_core_tool_schemas_stay_direct_and_within_budget(tmp_path) -> 
         "grep",
         "ls",
         "find",
+        "subagent",
     ]
     assert (
         len(_model_visible_tool_schema_payload(function_tools))

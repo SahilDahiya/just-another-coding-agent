@@ -2,6 +2,7 @@ import asyncio
 import json
 from collections.abc import AsyncIterator
 from contextlib import contextmanager
+from datetime import date
 
 from pydantic_ai import (
     Agent,
@@ -33,7 +34,11 @@ from just_another_coding_agent.contracts.run_events import (
 )
 from just_another_coding_agent.runtime.agent import build_canonical_agent
 from just_another_coding_agent.runtime.run import stream_run_events
-from just_another_coding_agent.tools.deps import WorkspaceDeps
+from just_another_coding_agent.tools.deps import (
+    RunRuntimeFrame,
+    RunSessionScope,
+    WorkspaceDeps,
+)
 
 _SHELL_FAMILY = detect_default_shell_family()
 
@@ -854,6 +859,186 @@ async def test_stream_run_events_uses_canonical_validated_args_for_empty_string_
     assert events[2].result == "(empty directory)"
     assert isinstance(events[4], RunSucceededEvent)
     assert events[4].output_text == "done"
+
+
+def make_subagent_stream():
+    call_count = 0
+
+    async def subagent_stream(_messages, _agent_info):
+        nonlocal call_count
+        call_count += 1
+
+        if call_count == 1:
+            yield {
+                0: DeltaToolCall(
+                    name="subagent",
+                    json_args=(
+                        '{"name":"compaction-scan","role":"explore",'
+                        '"task":"Find where compaction resets turn context."}'
+                    ),
+                    tool_call_id="call-subagent",
+                )
+            }
+            return
+
+        yield "done"
+
+    return subagent_stream
+
+
+async def test_stream_run_events_exposes_compact_subagent_activity(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    model = FunctionModel(stream_function=make_subagent_stream())
+    agent = build_canonical_agent(
+        model=model,
+        workspace_root=workspace_root,
+        tool_names=("subagent",),
+    )
+
+    async def fake_stream_ephemeral_subagent_run_events(**kwargs):
+        assert kwargs["spec"].name == "compaction-scan"
+        assert kwargs["spec"].role == "explore"
+        assert kwargs["thinking"] == "medium"
+        yield RunStartedEvent(run_id="child-run-1")
+        yield ToolCallStartedEvent(
+            run_id="child-run-1",
+            tool_call_id="child-call-1",
+            tool_name="read",
+            args={"path": "AGENTS.md"},
+            args_valid=True,
+            activity=ToolActivity(
+                title="read AGENTS.md",
+                display_label="Read",
+                group_kind="exploration",
+            ),
+        )
+        yield RunSucceededEvent(
+            run_id="child-run-1",
+            output_text=json.dumps(
+                {
+                    "direct_evidence": [
+                        "Observed reset in runtime/compaction/resume.py"
+                    ],
+                    "inference": "Found reset in runtime/compaction/resume.py",
+                    "confidence": "medium",
+                    "ambiguities": [
+                        "Did not yet confirm whether another caller clears it later."
+                    ],
+                    "recommended_followup": (
+                        "Trace the next resumed-run caller after compaction."
+                    ),
+                }
+            ),
+        )
+
+    monkeypatch.setattr(
+        "just_another_coding_agent.tools.subagent."
+        "stream_ephemeral_subagent_run_events",
+        fake_stream_ephemeral_subagent_run_events,
+    )
+
+    events = [
+        event
+        async for event in stream_run_events(
+            agent=agent,
+            prompt="go",
+            deps=WorkspaceDeps(
+                workspace_root=workspace_root,
+                shell_family=_SHELL_FAMILY,
+                session_scope=RunSessionScope(),
+                run_frame=RunRuntimeFrame(
+                    model=model,
+                    current_date=date(2026, 4, 10),
+                    timezone="America/Los_Angeles",
+                    thinking="medium",
+                ),
+            ),
+            thinking="medium",
+            available_tool_names=("subagent",),
+        )
+    ]
+
+    assert [event.type for event in events] == [
+        "run_started",
+        "tool_call_started",
+        "tool_call_updated",
+        "tool_call_updated",
+        "tool_call_succeeded",
+        "assistant_text_delta",
+        "run_succeeded",
+    ]
+    assert isinstance(events[1], ToolCallStartedEvent)
+    assert events[1].tool_name == "subagent"
+    assert events[1].activity is not None
+    assert events[1].activity.title == "subagent compaction-scan"
+    assert events[1].activity.display_label == "Explore"
+    assert isinstance(events[2], ToolCallUpdatedEvent)
+    assert events[2].activity is not None
+    assert events[2].activity.title == "subagent compaction-scan"
+    assert events[2].activity.summary == "starting child run"
+    assert events[2].activity.details is not None
+    assert events[2].activity.details.model_dump(mode="python") == {
+        "kind": "subagent",
+        "name": "compaction-scan",
+        "role": "explore",
+        "preview_lines": [],
+        "preview_terminal": False,
+    }
+    assert isinstance(events[3], ToolCallUpdatedEvent)
+    assert events[3].activity is not None
+    assert events[3].activity.title == "subagent compaction-scan"
+    assert events[3].activity.display_label == "Explore"
+    assert events[3].activity.summary == "exploring repository"
+    assert events[3].activity.details is not None
+    assert events[3].activity.details.model_dump(mode="python") == {
+        "kind": "subagent",
+        "name": "compaction-scan",
+        "role": "explore",
+        "preview_lines": ["read AGENTS.md"],
+        "preview_terminal": False,
+    }
+    assert isinstance(events[4], ToolCallSucceededEvent)
+    assert events[4].result == {
+        "ok": True,
+        "name": "compaction-scan",
+        "role": "explore",
+        "summary_text": (
+            "Medium confidence: Found reset in runtime/compaction/resume.py"
+        ),
+        "direct_evidence": [
+            "Observed reset in runtime/compaction/resume.py",
+        ],
+        "inference": "Found reset in runtime/compaction/resume.py",
+        "confidence": "medium",
+        "ambiguities": [
+            "Did not yet confirm whether another caller clears it later."
+        ],
+        "recommended_followup": "Trace the next resumed-run caller after compaction.",
+    }
+    assert events[4].activity is not None
+    assert events[4].activity.title == "subagent compaction-scan"
+    assert events[4].activity.display_label == "Explore"
+    assert (
+        events[4].activity.summary
+        == "Medium confidence: Found reset in runtime/compaction/resume.py"
+    )
+    assert events[4].activity.details is not None
+    assert events[4].activity.details.model_dump(mode="python") == {
+        "kind": "subagent",
+        "name": "compaction-scan",
+        "role": "explore",
+        "preview_lines": [
+            "read AGENTS.md",
+            "Medium confidence: Found reset in runtime/compaction/resume.py",
+        ],
+        "preview_terminal": True,
+    }
+    assert isinstance(events[6], RunSucceededEvent)
+    assert events[6].output_text == "done"
 
 
 async def test_stream_run_events_fails_hard_when_retry_prompt_has_no_pending_tool_call(

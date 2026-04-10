@@ -66,8 +66,24 @@ only a seam for now; default mode adds no extra instructions, and task-specific
 overlays should be added only when a concrete behavior gap justifies them.
 `runtime/prompt_layers.py` owns this assembly boundary so these layers do not
 become scattered prompt concatenation.
+That prompt assembly is also tool-aware: restricted internal agents must be
+given instructions that match the toolset they actually have, instead of
+reusing the full canonical tool list and relying on hidden caveats.
 Project-doc and runtime-context messages are runtime-owned contextual history,
 not static baseline prompt text and not durable session memory.
+The first subagent slice follows the same rule. The model-visible `subagent`
+tool is only a thin frontend over the internal `runtime/subagent.py`
+run-local seam: same runtime frame, same model, same thinking, read-only
+child toolset, and no durable child-session JSONL persistence. If subagent
+behavior later grows into public session or RPC semantics, that contract must
+be made explicit in Python first rather than being inferred in Go.
+The child-to-parent contract is also Python-owned: the child must return one
+strict JSON evidence object, and the tool validates that into structured
+result fields rather than handing the parent an opaque prose blob.
+The transcript slice for subagent work follows the same ownership rule:
+Python emits one compact parent activity with bounded preview lines, and Go
+only renders that typed detail block. The shell must not stream or infer child
+transcript semantics locally.
 The canonical prompt must also enforce side-effect truthfulness and verification discipline: the model must not claim to have created or modified files without tool evidence, and it should run the smallest relevant verification step before concluding after code changes or required file outputs.
 The canonical runtime should expose `thinking` as an explicit run setting and pass it through PydanticAI model settings rather than encoding reasoning level in prompt text.
 The canonical runtime should resolve model strings through one local model seam before agent construction so provider-native retries, instrumentation, and OpenAI-specific settings stay centralized instead of leaking through the runtime.
@@ -195,6 +211,7 @@ The important boundary is:
     - `resume.py` for compacted session replay helpers
   - `token_estimation.py` for the canonical backend-owned token-estimation seam
   - `turn_context.py` for persisted per-run runtime-framing snapshots
+  - `subagent.py` for internal ephemeral child-run scaffolding
   - orchestration entrypoints
   - event translation from PydanticAI into the public contract
 - `src/just_another_coding_agent/tools/`

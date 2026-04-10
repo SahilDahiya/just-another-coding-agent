@@ -80,6 +80,14 @@ class FindActivityDetails(_ToolActivityDetailsBase):
     limit: int | None = None
 
 
+class SubagentActivityDetails(_ToolActivityDetailsBase):
+    kind: Literal["subagent"] = "subagent"
+    name: str
+    role: Literal["general", "explore", "verification"]
+    preview_lines: list[str] = Field(default_factory=list)
+    preview_terminal: bool = False
+
+
 ToolActivityDetails = Annotated[
     ShellActivityDetails
     | ReadActivityDetails
@@ -87,7 +95,8 @@ ToolActivityDetails = Annotated[
     | EditActivityDetails
     | GrepActivityDetails
     | LsActivityDetails
-    | FindActivityDetails,
+    | FindActivityDetails
+    | SubagentActivityDetails,
     Field(discriminator="kind"),
 ]
 
@@ -292,6 +301,7 @@ __all__ = [
     "SessionQueuedPromptBatchSubmittedEvent",
     "SessionTurnContextStatusEvent",
     "ShellActivityDetails",
+    "SubagentActivityDetails",
     "ToolActivity",
     "ToolActivityDetails",
     "ToolCallFailedEvent",
