@@ -43,7 +43,7 @@ func (c *assistantCell) Render() string {
 }
 func (c *assistantCell) IsMarkdown() bool { return true }
 
-// toolGroupCell holds pre-computed tool group text, rebuilt by rewriteToolGroup.
+// toolGroupCell holds pre-computed committed tool group text.
 type toolGroupCell struct {
 	plain    string
 	rendered string
@@ -115,6 +115,13 @@ func (t *Transcript) Render() string {
 		currentOffset += len(blockRendered)
 	}
 	offsets[len(t.blocks)] = currentOffset
+	if t.toolGroup != nil {
+		_, activeRendered := t.toolGroup.render(t.MotionTick)
+		if t.Width > 0 {
+			activeRendered = wrapLines(activeRendered, t.Width)
+		}
+		rendered.WriteString(activeRendered)
+	}
 
 	t.renderedCache = rendered.String()
 	t.renderOffsets = offsets
@@ -126,9 +133,6 @@ func (t *Transcript) Render() string {
 func (t *Transcript) discardImmutableRenderedBlocks() {
 	for i := range t.blocks {
 		if i == t.liveAssistantIdx {
-			continue
-		}
-		if t.toolGroup != nil && i == t.toolGroup.index {
 			continue
 		}
 		if ac, ok := t.blocks[i].(*assistantCell); ok {
@@ -364,6 +368,7 @@ func (t *Transcript) ApplyRunEvent(event rpc.RunEvent) {
 		t.failTool(event)
 	case "run_failed":
 		t.endLiveAssistant()
+		t.endToolGroup()
 		if event.ErrorType != "CancelledError" {
 			t.appendBlock(&rawCell{
 				plain:    "error  " + event.Message + "\n",
@@ -521,9 +526,6 @@ func (t *Transcript) adjustTrackedIndexesAfterRemoval(start int, removed int) {
 	if t.omissionBlockIdx >= start {
 		t.omissionBlockIdx -= removed
 	}
-	if t.toolGroup != nil && t.toolGroup.index >= start {
-		t.toolGroup.index -= removed
-	}
 }
 
 func (t *Transcript) adjustTrackedIndexesAfterInsertion(index int) {
@@ -538,9 +540,6 @@ func (t *Transcript) adjustTrackedIndexesAfterInsertion(index int) {
 	}
 	if t.currentRunStart >= index {
 		t.currentRunStart++
-	}
-	if t.toolGroup != nil && t.toolGroup.index >= index {
-		t.toolGroup.index++
 	}
 }
 
@@ -625,7 +624,7 @@ func (t *Transcript) RefreshLiveMarker() {
 		t.rebuildLiveAssistantRendered()
 	}
 	if t.toolGroup != nil {
-		t.rewriteToolGroup()
+		t.markActiveToolGroupDirty()
 	}
 }
 
@@ -655,11 +654,10 @@ func (t *Transcript) startTool(event rpc.RunEvent) {
 		if !hadLiveAssistant {
 			t.ensureBlockGap()
 		}
-		index := t.appendBlock(&toolGroupCell{})
-		t.toolGroup = newToolGroup(index, buildToolPhase(event.ToolName, event.Activity))
+		t.toolGroup = newToolGroup(buildToolPhase(event.ToolName, event.Activity))
 	}
 	t.toolGroup.start(event)
-	t.rewriteToolGroup()
+	t.markActiveToolGroupDirty()
 }
 
 func (t *Transcript) finishTool(event rpc.RunEvent) {
@@ -669,7 +667,7 @@ func (t *Transcript) finishTool(event rpc.RunEvent) {
 	if !t.toolGroup.finish(event) {
 		return
 	}
-	t.rewriteToolGroup()
+	t.markActiveToolGroupDirty()
 }
 
 func (t *Transcript) updateTool(event rpc.RunEvent) {
@@ -679,7 +677,7 @@ func (t *Transcript) updateTool(event rpc.RunEvent) {
 	if !t.toolGroup.update(event) {
 		return
 	}
-	t.rewriteToolGroup()
+	t.markActiveToolGroupDirty()
 }
 
 func (t *Transcript) failTool(event rpc.RunEvent) {
@@ -689,22 +687,23 @@ func (t *Transcript) failTool(event rpc.RunEvent) {
 	if !t.toolGroup.fail(event) {
 		return
 	}
-	t.rewriteToolGroup()
+	t.markActiveToolGroupDirty()
 }
 
 func (t *Transcript) endToolGroup() {
-	t.toolGroup = nil
-}
-
-func (t *Transcript) rewriteToolGroup() {
 	if t.toolGroup == nil {
 		return
 	}
 	plain, rendered := t.toolGroup.render(t.MotionTick)
-	t.replaceBlock(t.toolGroup.index, &toolGroupCell{
+	t.toolGroup = nil
+	t.appendBlock(&toolGroupCell{
 		plain:    plain,
 		rendered: rendered,
 	})
+}
+
+func (t *Transcript) markActiveToolGroupDirty() {
+	t.markDirty(len(t.blocks))
 }
 
 func buildToolGroupKind(activity *rpc.ToolActivity) string {

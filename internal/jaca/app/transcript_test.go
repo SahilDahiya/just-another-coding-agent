@@ -21,6 +21,10 @@ func stripANSI(text string) string {
 	return osc8Re.ReplaceAllString(text, "")
 }
 
+func transcriptPlain(transcript *Transcript) string {
+	return stripANSI(transcript.Render())
+}
+
 func TestWriteStartupBannerIncludesModelInPlainText(t *testing.T) {
 	workspaceRoot := filepath.Join("workspace", "repo")
 
@@ -93,11 +97,11 @@ func TestToolSuccessDoesNotTreatResultMapWithoutOkAsError(t *testing.T) {
 		Activity:   &rpc.ToolActivity{DurationMS: &duration},
 	})
 
-	plain := transcript.blocks[len(transcript.blocks)-1].Plain()
+	plain := transcriptPlain(transcript)
 	if strings.Contains(plain, "error") {
 		t.Fatalf("tool row incorrectly rendered as error: %q", plain)
 	}
-	if !strings.Contains(plain, "shell  git status --short  ok 17ms") {
+	if !strings.Contains(plain, "shell  git status --short  ok  17ms") {
 		t.Fatalf("tool row missing success state: %q", plain)
 	}
 }
@@ -127,7 +131,7 @@ func TestOperationalToolResultRendersAsNeutralOutput(t *testing.T) {
 		},
 	})
 
-	plain := transcript.blocks[len(transcript.blocks)-1].Plain()
+	plain := transcriptPlain(transcript)
 	if strings.Contains(plain, "error") {
 		t.Fatalf("operational tool result rendered as error: %q", plain)
 	}
@@ -205,9 +209,9 @@ func TestEditToolRowsRenderStructuredDiffPreview(t *testing.T) {
 		},
 	})
 
-	plain := transcript.blocks[len(transcript.blocks)-1].Plain()
+	plain := transcriptPlain(transcript)
 	for _, want := range []string{
-		"edit  src/app.go  ok 83ms",
+		"edit  src/app.go  ok  83ms",
 		"  Update(src/app.go)",
 		"Added 3 lines, removed 1 line",
 		"@@ -10,2 +10,4 @@",
@@ -243,7 +247,7 @@ func TestToolUpdateRendersLivePartialOutputAndFinalResult(t *testing.T) {
 		},
 	})
 
-	plain := transcript.blocks[len(transcript.blocks)-1].Plain()
+	plain := transcriptPlain(transcript)
 	for _, want := range []string{
 		"● shell  python - <<'PY'  running  command still running  250ms",
 		"  └ one",
@@ -267,17 +271,64 @@ func TestToolUpdateRendersLivePartialOutputAndFinalResult(t *testing.T) {
 		},
 	})
 
-	plain = transcript.blocks[len(transcript.blocks)-1].Plain()
+	plain = transcriptPlain(transcript)
 	if strings.Contains(plain, "command still running") || strings.Contains(plain, "  └ one") {
 		t.Fatalf("final tool row kept live partial output: %q", plain)
 	}
 	for _, want := range []string{
-		"● shell  python - <<'PY'  ok 500ms",
+		"● shell  python - <<'PY'  ok  500ms",
 		"  └ done",
 	} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("final tool result missing %q in %q", want, plain)
 		}
+	}
+}
+
+func TestToolGroupRendersActiveUntilPhaseEnds(t *testing.T) {
+	transcript := NewTranscript()
+	transcript.WriteUserTurn("inspect repo")
+	transcript.ApplyRunEvent(rpc.RunEvent{
+		Type:       "tool_call_started",
+		ToolName:   "shell",
+		ToolCallID: "call-shell",
+		Args:       map[string]any{"command": "git status --short"},
+	})
+	duration := 12
+	transcript.ApplyRunEvent(rpc.RunEvent{
+		Type:       "tool_call_succeeded",
+		ToolName:   "shell",
+		ToolCallID: "call-shell",
+		Result:     map[string]any{"output": "clean"},
+		Activity:   &rpc.ToolActivity{DurationMS: &duration},
+	})
+
+	if transcript.toolGroup == nil {
+		t.Fatal("tool group should stay active before the next transcript phase")
+	}
+	for _, block := range transcript.blocks {
+		if strings.Contains(block.Plain(), "git status --short") {
+			t.Fatalf("active tool group was committed early in block %q", block.Plain())
+		}
+	}
+	plain := transcriptPlain(transcript)
+	if !strings.Contains(plain, "shell  git status --short  ok  12ms") {
+		t.Fatalf("active tool group missing from render: %q", plain)
+	}
+
+	transcript.ApplyRunEvent(rpc.RunEvent{Type: "assistant_text_delta", Delta: "done"})
+
+	if transcript.toolGroup != nil {
+		t.Fatal("tool group should commit when assistant text starts")
+	}
+	committed := false
+	for _, block := range transcript.blocks {
+		if strings.Contains(block.Plain(), "git status --short") {
+			committed = true
+		}
+	}
+	if !committed {
+		t.Fatalf("tool group was not committed after phase transition: %q", transcriptPlain(transcript))
 	}
 }
 
@@ -378,7 +429,7 @@ func TestExplorationGroupRendersCoalescedExploredBlock(t *testing.T) {
 		Activity:   explorationActivity("grep", map[string]any{"pattern": "build_canonical_agent(", "short_path": "tests"}),
 	})
 
-	plain := transcript.blocks[len(transcript.blocks)-1].Plain()
+	plain := transcriptPlain(transcript)
 	for _, want := range []string{
 		"● Explored",
 		"  └ Read README.md, AGENTS.md",
@@ -427,7 +478,7 @@ func TestExplorationGroupDeduplicatesRepeatedReads(t *testing.T) {
 		Activity:   explorationActivity("read", map[string]any{"short_path": "AGENTS.md"}),
 	})
 
-	plain := transcript.blocks[len(transcript.blocks)-1].Plain()
+	plain := transcriptPlain(transcript)
 	want := "Read README.md, AGENTS.md"
 	if !strings.Contains(plain, want) {
 		t.Fatalf("expected deduplicated %q in %q", want, plain)
@@ -457,7 +508,7 @@ func TestExplorationGroupTruncatesLongCoalescedArgs(t *testing.T) {
 		Activity:   explorationActivity("read", map[string]any{"short_path": longPath}),
 	})
 
-	plain := transcript.blocks[len(transcript.blocks)-1].Plain()
+	plain := transcriptPlain(transcript)
 	if strings.Contains(plain, longPath) {
 		t.Fatalf("exploration group kept unbounded args in %q", plain)
 	}
@@ -484,7 +535,7 @@ func TestExplorationGroupShowsExploringWhileInFlight(t *testing.T) {
 		Activity:   explorationActivity("grep", map[string]any{"pattern": "RetryPromptPart", "short_path": "src"}),
 	})
 
-	plain := transcript.blocks[len(transcript.blocks)-1].Plain()
+	plain := transcriptPlain(transcript)
 	for _, want := range []string{
 		"● Exploring",
 		"  └ Read README.md",
@@ -532,7 +583,7 @@ func TestExplorationGroupTruncatesHeadAndTail(t *testing.T) {
 		})
 	}
 
-	plain := transcript.blocks[len(transcript.blocks)-1].Plain()
+	plain := transcriptPlain(transcript)
 	for _, want := range []string{
 		"● Explored",
 		"  └ Read session.py",
@@ -598,7 +649,7 @@ func TestExplorationOperationalMissStaysGrouped(t *testing.T) {
 		Activity:   explorationActivity("read", map[string]any{"short_path": "AGENTS.md"}),
 	})
 
-	plain := transcript.blocks[len(transcript.blocks)-1].Plain()
+	plain := transcriptPlain(transcript)
 	for _, want := range []string{
 		"● Explored",
 		"  └ Read agents.md  No such file or directory: '/workspace/agents.md'",
@@ -642,7 +693,7 @@ func TestExplorationHardErrorStaysGrouped(t *testing.T) {
 		Activity:   explorationActivity("grep", map[string]any{"pattern": "RetryPromptPart", "short_path": "src"}),
 	})
 
-	plain := transcript.blocks[len(transcript.blocks)-1].Plain()
+	plain := transcriptPlain(transcript)
 	for _, want := range []string{
 		"● Explored",
 		"  └ Read run.py",
@@ -741,7 +792,7 @@ func TestToolResultLinesTruncateVeryLongDisplayLines(t *testing.T) {
 		Result:     map[string]any{"output": longLine},
 	})
 
-	plain := transcript.blocks[len(transcript.blocks)-1].Plain()
+	plain := transcriptPlain(transcript)
 	if strings.Contains(plain, longLine) {
 		t.Fatalf("tool row kept unbounded long output line: %q", plain)
 	}
@@ -773,7 +824,7 @@ func TestToolResultTruncationKeepsHeadAndTail(t *testing.T) {
 		Result:     map[string]any{"output": output},
 	})
 
-	plain := transcript.blocks[len(transcript.blocks)-1].Plain()
+	plain := transcriptPlain(transcript)
 
 	// Head lines must be present.
 	for _, want := range []string{"line-1", "line-2", "line-3"} {
@@ -826,7 +877,7 @@ func TestToolResultNoTruncationWhenWithinLimit(t *testing.T) {
 		Result:     map[string]any{"output": output},
 	})
 
-	plain := transcript.blocks[len(transcript.blocks)-1].Plain()
+	plain := transcriptPlain(transcript)
 	for _, want := range lines {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("line %q missing from non-truncated output: %q", want, plain)

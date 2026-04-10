@@ -28,15 +28,13 @@ type toolEntry struct {
 }
 
 type toolGroup struct {
-	index   int
 	phase   string
 	order   []string
 	entries map[string]*toolEntry
 }
 
-func newToolGroup(index int, phase string) *toolGroup {
+func newToolGroup(phase string) *toolGroup {
 	return &toolGroup{
-		index:   index,
 		phase:   phase,
 		entries: map[string]*toolEntry{},
 	}
