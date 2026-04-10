@@ -14,6 +14,10 @@ from just_another_coding_agent.runtime import (
     build_runtime_context_text,
     build_static_agent_instructions,
 )
+from just_another_coding_agent.runtime.prompt_layers import (
+    BASE_PRODUCT_PROMPT_SECTIONS,
+    build_base_product_prompt,
+)
 from just_another_coding_agent.tools.deps import WorkspaceDeps
 
 
@@ -149,6 +153,20 @@ def test_static_agent_instructions_include_response_style_contract() -> None:
         "change-style summary."
         in instructions
     )
+
+
+def test_base_product_prompt_sections_have_stable_order() -> None:
+    assert [section.name for section in BASE_PRODUCT_PROMPT_SECTIONS] == [
+        "identity",
+        "tool_policy",
+        "tool_failure_policy",
+        "verification_policy",
+        "failure_semantics",
+        "response_style",
+        "filesystem_truth",
+    ]
+    assert CANONICAL_AGENT_INSTRUCTIONS == build_base_product_prompt()
+    assert build_static_agent_instructions() == build_base_product_prompt()
 
 
 def test_build_runtime_context_text_is_dynamic_only(tmp_path) -> None:
