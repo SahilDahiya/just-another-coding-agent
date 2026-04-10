@@ -1,3 +1,5 @@
+import json
+
 import pytest
 from pydantic_ai import Agent
 from pydantic_ai.models.test import TestModel
@@ -17,6 +19,20 @@ from just_another_coding_agent.tools.registry import (
 )
 from just_another_coding_agent.tools.shell import SHELL_TOOL
 from just_another_coding_agent.tools.write import WRITE_TOOL
+
+CANONICAL_CORE_TOOL_SCHEMA_MAX_CHARS = 8_000
+
+
+def _model_visible_tool_schema_payload(function_tools: object) -> str:
+    payload = [
+        {
+            "name": tool.name,
+            "description": tool.description,
+            "parameters_json_schema": tool.parameters_json_schema,
+        }
+        for tool in function_tools
+    ]
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"))
 
 
 def test_registry_exposes_canonical_tool_names() -> None:
@@ -258,4 +274,34 @@ def test_build_canonical_toolset_exposes_rich_model_facing_tool_descriptions(
     assert (
         function_tools["find"].parameters_json_schema["properties"]["limit"]["minimum"]
         == 1
+    )
+
+
+def test_canonical_core_tool_schemas_stay_direct_and_within_budget(tmp_path) -> None:
+    model = TestModel(call_tools=[], custom_output_text="ok")
+    agent = Agent(
+        model,
+        toolsets=[
+            build_canonical_toolset(
+                ["read", "write", "edit", "shell", "grep", "ls", "find"]
+            )
+        ],
+        deps_type=WorkspaceDeps,
+    )
+
+    agent.run_sync("What tools are available?", deps=WorkspaceDeps(tmp_path))
+
+    function_tools = model.last_model_request_parameters.function_tools
+    assert [tool.name for tool in function_tools] == [
+        "read",
+        "write",
+        "edit",
+        "shell",
+        "grep",
+        "ls",
+        "find",
+    ]
+    assert (
+        len(_model_visible_tool_schema_payload(function_tools))
+        <= CANONICAL_CORE_TOOL_SCHEMA_MAX_CHARS
     )

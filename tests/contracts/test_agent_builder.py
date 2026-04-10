@@ -8,6 +8,7 @@ from pydantic_ai.models.openai import OpenAIResponsesModel
 from just_another_coding_agent.runtime import (
     CANONICAL_AGENT_INSTRUCTIONS,
     CANONICAL_AGENT_OUTPUT_RETRIES,
+    CANONICAL_STATIC_PROMPT_MAX_CHARS,
     build_canonical_agent,
     build_canonical_instructions,
     build_canonical_model_settings,
@@ -87,6 +88,12 @@ def test_build_canonical_instructions_include_dynamic_context(tmp_path) -> None:
         "After code changes or required file outputs, run the smallest "
         "relevant verification step before concluding." in instructions
     )
+    assert (
+        "When the user asks to run tests, lint, or another obvious "
+        "verification step, run the narrowest relevant command directly; "
+        "inspect first only if the command or scope is ambiguous."
+        in instructions
+    )
     assert "Current date: 2026-03-26" in instructions
     assert f"Current workspace root: {workspace_root.resolve()}" in instructions
 
@@ -112,6 +119,43 @@ def test_build_canonical_instructions_include_truthfulness_and_verification_rule
         "After code changes or required file outputs, run the smallest "
         "relevant verification step before concluding." in instructions
     )
+
+
+def test_static_agent_instructions_include_response_style_contract() -> None:
+    instructions = build_static_agent_instructions()
+
+    assert "Default response style: brief, direct, and outcome-first." in instructions
+    assert (
+        "Do not restate the user's request or narrate routine process "
+        "unless that context is necessary."
+        in instructions
+    )
+    assert (
+        "During work, keep progress updates to one short sentence focused "
+        "on the next action or concrete finding."
+        in instructions
+    )
+    assert (
+        "Final answers should usually be one short paragraph: state what "
+        "changed or what you found, then mention verification or blockers."
+        in instructions
+    )
+    assert (
+        "Use bullets only when there are multiple distinct findings, "
+        "steps, or options."
+        in instructions
+    )
+    assert (
+        "If no files changed, answer the question directly without a "
+        "change-style summary."
+        in instructions
+    )
+
+
+def test_static_agent_instructions_stay_within_budget() -> None:
+    instructions = build_static_agent_instructions()
+
+    assert len(instructions) <= CANONICAL_STATIC_PROMPT_MAX_CHARS
 
 
 def test_build_runtime_context_text_is_dynamic_only(tmp_path) -> None:
@@ -184,6 +228,7 @@ def test_build_canonical_agent_resolves_string_models(tmp_path, monkeypatch) -> 
     unwrapped_model = unwrap_instrumented_model(agent.model)
     assert isinstance(unwrapped_model, OpenAIResponsesModel)
     assert agent.model.model_name == "gpt-5.3-codex"
+
 
 def test_build_canonical_agent_documents_plain_text_output_retry_policy(
     tmp_path,

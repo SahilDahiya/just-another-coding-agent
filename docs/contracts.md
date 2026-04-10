@@ -25,6 +25,19 @@ Rules:
 - project-doc injection is bounded and deterministic
 - the canonical agent prompt must explicitly forbid claiming file side effects without tool evidence
 - the canonical agent prompt must explicitly instruct the model to verify code changes or required file outputs before concluding
+- when the user asks to run tests, lint, or another obvious verification step,
+  the model should run the narrowest relevant command directly instead of
+  searching or diff-reading first unless the command or scope is ambiguous
+- the static baseline prompt must remain budgeted by a contract test so response
+  style fixes do not quietly become a prompt-template platform
+- the canonical response style must be brief, direct, and outcome-first by
+  default
+- the model should not restate the user's request or narrate routine process
+  unless that context is necessary
+- final answers should usually state the outcome, verification, and blockers
+  without a process recap
+- longer explanations remain allowed when the user asks for detail or the task
+  needs it
 
 ## Model Settings Contract
 
@@ -124,6 +137,9 @@ Canonical tool set for the first maintained version:
 Rules:
 
 - Tool names are stable once published.
+- The seven canonical coding tools remain directly model-visible. Do not hide
+  them behind a tool-search or deferred-loading indirection without a separate
+  evidence-backed contract change.
 - Tool inputs must be explicit and validated.
 - Canonical public tool schema and validation live on the PydanticAI tool
   function signatures plus parameter constraints, not on duplicate public
@@ -142,6 +158,12 @@ Rules:
 - Tool registration and validation should prefer PydanticAI-native mechanisms unless the public contract requires a local wrapper.
 - Workspace root is explicit backend configuration, not implicit process state.
 - Workspace root sets the default base for relative paths; it is not a filesystem sandbox.
+- Future non-core tools such as MCP, app, work-graph, or optional provider
+  tools must define a Python-owned visibility policy before they are added to
+  the model-visible surface.
+- If future dynamic tools are large enough to threaten latency or context
+  budget, the backend should introduce a deferred dynamic tool surface instead
+  of sending every optional tool schema on every request.
 
 Expected tool-domain error result:
 

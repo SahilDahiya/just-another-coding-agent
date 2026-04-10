@@ -23,6 +23,7 @@ from just_another_coding_agent.tools.registry import build_canonical_toolset
 
 CANONICAL_AGENT_OUTPUT_RETRIES = 1_000_000
 CANONICAL_AGENT_TOOL_CORRECTION_RETRIES = 2
+CANONICAL_STATIC_PROMPT_MAX_CHARS = 2_400
 _UNSET = object()
 
 CANONICAL_AGENT_INSTRUCTIONS = "\n".join(
@@ -58,10 +59,35 @@ CANONICAL_AGENT_INSTRUCTIONS = "\n".join(
             "After code changes or required file outputs, run the smallest "
             "relevant verification step before concluding."
         ),
+        (
+            "When the user asks to run tests, lint, or another obvious "
+            "verification step, run the narrowest relevant command directly; "
+            "inspect first only if the command or scope is ambiguous."
+        ),
         "Do not invent tools or alternate behaviors.",
         "Do not rely on fallbacks.",
         "Only uncaught tool failures end the run automatically.",
-        "Keep responses concise and task-focused.",
+        "Default response style: brief, direct, and outcome-first.",
+        (
+            "Do not restate the user's request or narrate routine process "
+            "unless that context is necessary."
+        ),
+        (
+            "During work, keep progress updates to one short sentence focused "
+            "on the next action or concrete finding."
+        ),
+        (
+            "Final answers should usually be one short paragraph: state what "
+            "changed or what you found, then mention verification or blockers."
+        ),
+        (
+            "Use bullets only when there are multiple distinct findings, "
+            "steps, or options."
+        ),
+        (
+            "If no files changed, answer the question directly without a "
+            "change-style summary."
+        ),
         "Refer to files clearly by path.",
         "For read, write, and edit, relative paths resolve from the workspace root.",
         "shell runs in the workspace root and no tool is a filesystem sandbox.",
@@ -202,6 +228,7 @@ def build_canonical_agent(
 
 __all__ = [
     "CANONICAL_AGENT_OUTPUT_RETRIES",
+    "CANONICAL_STATIC_PROMPT_MAX_CHARS",
     "CANONICAL_AGENT_TOOL_CORRECTION_RETRIES",
     "CANONICAL_AGENT_INSTRUCTIONS",
     "build_canonical_agent",
