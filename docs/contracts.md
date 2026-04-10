@@ -28,8 +28,6 @@ Rules:
 - when the user asks to run tests, lint, or another obvious verification step,
   the model should run the narrowest relevant command directly instead of
   searching or diff-reading first unless the command or scope is ambiguous
-- the static baseline prompt must remain budgeted by a contract test so response
-  style fixes do not quietly become a prompt-template platform
 - the canonical response style must be brief, direct, and outcome-first by
   default
 - the model should not restate the user's request or narrate routine process

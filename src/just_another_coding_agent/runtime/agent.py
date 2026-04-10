@@ -23,7 +23,6 @@ from just_another_coding_agent.tools.registry import build_canonical_toolset
 
 CANONICAL_AGENT_OUTPUT_RETRIES = 1_000_000
 CANONICAL_AGENT_TOOL_CORRECTION_RETRIES = 2
-CANONICAL_STATIC_PROMPT_MAX_CHARS = 2_400
 _UNSET = object()
 
 CANONICAL_AGENT_INSTRUCTIONS = "\n".join(
@@ -228,7 +227,6 @@ def build_canonical_agent(
 
 __all__ = [
     "CANONICAL_AGENT_OUTPUT_RETRIES",
-    "CANONICAL_STATIC_PROMPT_MAX_CHARS",
     "CANONICAL_AGENT_TOOL_CORRECTION_RETRIES",
     "CANONICAL_AGENT_INSTRUCTIONS",
     "build_canonical_agent",

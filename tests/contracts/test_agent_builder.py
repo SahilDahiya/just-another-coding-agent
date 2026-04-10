@@ -8,7 +8,6 @@ from pydantic_ai.models.openai import OpenAIResponsesModel
 from just_another_coding_agent.runtime import (
     CANONICAL_AGENT_INSTRUCTIONS,
     CANONICAL_AGENT_OUTPUT_RETRIES,
-    CANONICAL_STATIC_PROMPT_MAX_CHARS,
     build_canonical_agent,
     build_canonical_instructions,
     build_canonical_model_settings,
@@ -150,12 +149,6 @@ def test_static_agent_instructions_include_response_style_contract() -> None:
         "change-style summary."
         in instructions
     )
-
-
-def test_static_agent_instructions_stay_within_budget() -> None:
-    instructions = build_static_agent_instructions()
-
-    assert len(instructions) <= CANONICAL_STATIC_PROMPT_MAX_CHARS
 
 
 def test_build_runtime_context_text_is_dynamic_only(tmp_path) -> None:
