@@ -1797,12 +1797,14 @@ func TestOpenAICodexWaitSuccessShowsConfirmationBeforeRefreshingAuthStatus(t *te
 		FlowID:   "flow-1",
 		Waiting:  true,
 	}
+	accountID := "acct-test"
 
 	updated, cmd := m.Update(waitOpenAICodexLoginMsg{
 		Response: rpc.AuthLoginOpenAICodexWaitResponse{
 			Status: rpc.OAuthProviderStatus{
-				Provider: "openai-codex",
-				LoggedIn: true,
+				Provider:  "openai-codex",
+				LoggedIn:  true,
+				AccountID: &accountID,
 			},
 		},
 	})
@@ -1817,6 +1819,9 @@ func TestOpenAICodexWaitSuccessShowsConfirmationBeforeRefreshingAuthStatus(t *te
 	rendered := stripANSI(m.transcript.Render())
 	if !strings.Contains(rendered, "ChatGPT subscription login complete") {
 		t.Fatalf("transcript missing immediate login confirmation: %q", rendered)
+	}
+	if strings.Contains(rendered, "acct-test") || strings.Contains(rendered, "account:") {
+		t.Fatalf("transcript should not expose account id after login: %q", rendered)
 	}
 	if m.login.Waiting || m.login.FlowID != "" {
 		t.Fatalf("login state should be cleared after success: %#v", m.login)
@@ -2137,11 +2142,17 @@ func TestModelWithoutCredentialsShowsAuthFileNote(t *testing.T) {
 
 func TestAuthStatusCommandRendersProviderSources(t *testing.T) {
 	backend := newStubBackend()
+	accountID := "acct-test"
 	backend.authStatuses["anthropic"] = rpc.AuthProviderStatus{
 		Provider:   "anthropic",
 		Configured: true,
 		Source:     "file",
 		EnvKey:     "ANTHROPIC_API_KEY",
+	}
+	backend.oauthStatuses["openai-codex"] = rpc.OAuthProviderStatus{
+		Provider:  "openai-codex",
+		LoggedIn:  true,
+		AccountID: &accountID,
 	}
 
 	m := newTestModel()
@@ -2153,6 +2164,12 @@ func TestAuthStatusCommandRendersProviderSources(t *testing.T) {
 	rendered := stripANSI(m.transcript.Render())
 	if !strings.Contains(rendered, "anthropic: configured (file)") {
 		t.Fatalf("transcript missing anthropic auth status: %q", rendered)
+	}
+	if !strings.Contains(rendered, "openai-codex: logged in") {
+		t.Fatalf("transcript missing oauth auth status: %q", rendered)
+	}
+	if strings.Contains(rendered, "acct-test") {
+		t.Fatalf("auth status should not expose account id: %q", rendered)
 	}
 }
 

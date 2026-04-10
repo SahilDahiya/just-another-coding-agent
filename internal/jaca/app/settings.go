@@ -364,11 +364,7 @@ func (m *model) writeAuthStatus() {
 		if status.LoggedIn {
 			state = "logged in"
 		}
-		line := fmt.Sprintf("%s: %s", status.Provider, state)
-		if status.AccountID != nil && *status.AccountID != "" {
-			line = fmt.Sprintf("%s (%s)", line, *status.AccountID)
-		}
-		m.transcript.WriteLine(line)
+		m.transcript.WriteLine(fmt.Sprintf("%s: %s", status.Provider, state))
 	}
 	if !statuses.LocalSecretStore.Available {
 		m.transcript.WriteLine("interactive auth unavailable")

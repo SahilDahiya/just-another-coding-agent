@@ -508,11 +508,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.refreshViewport()
 			return m, nil
 		}
-		lines := []string{"ChatGPT subscription login complete"}
-		if msg.Response.Status.AccountID != nil && *msg.Response.Status.AccountID != "" {
-			lines = append(lines, fmt.Sprintf("account: %s", *msg.Response.Status.AccountID))
-		}
-		return m.finishLoginSuccess(lines)
+		return m.finishLoginSuccess([]string{"ChatGPT subscription login complete"})
 	case waitOpenAICodexLoginMsg:
 		if !m.login.Waiting || m.login.FlowID == "" {
 			return m, nil
@@ -522,11 +518,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.refreshViewport()
 			return m, nil
 		}
-		lines := []string{"ChatGPT subscription login complete"}
-		if msg.Response.Status.AccountID != nil && *msg.Response.Status.AccountID != "" {
-			lines = append(lines, fmt.Sprintf("account: %s", *msg.Response.Status.AccountID))
-		}
-		return m.finishLoginSuccess(lines)
+		return m.finishLoginSuccess([]string{"ChatGPT subscription login complete"})
 	case sessionPreviewLoadedMsg:
 		m.sessionPreviewLoading = false
 		m.sessionPreviewLoaded = true
