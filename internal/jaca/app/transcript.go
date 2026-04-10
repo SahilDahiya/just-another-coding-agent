@@ -27,6 +27,17 @@ func (c *rawCell) Plain() string    { return c.plain }
 func (c *rawCell) Render() string   { return c.rendered }
 func (c *rawCell) IsMarkdown() bool { return false }
 
+func newTranscriptErrorCell(title string, message string) *rawCell {
+	plain := "× " + title + "\n"
+	rendered := lipgloss.NewStyle().Foreground(defaultTheme.err).Render("× "+title) + "\n"
+	if strings.TrimSpace(message) != "" {
+		detail := "  └ " + strings.TrimSpace(message)
+		plain += detail + "\n"
+		rendered += lipgloss.NewStyle().Foreground(defaultTheme.errSoft).Render(detail) + "\n"
+	}
+	return &rawCell{plain: plain, rendered: rendered}
+}
+
 // assistantCell holds completed assistant markdown with lazy, evictable rendering.
 type assistantCell struct {
 	plain        string
@@ -273,24 +284,46 @@ func (t *Transcript) WriteUserTurn(prompt string) {
 	t.endToolGroup()
 	t.endLiveAssistant()
 	t.ensureBlockGap()
-	plainLine := "> " + prompt
-	width := t.Width
-	if width <= 0 {
-		width = 80
-	}
-	rendered := lipgloss.NewStyle().
-		Foreground(defaultTheme.text).
-		Bold(true).
-		Background(defaultTheme.border).
-		Width(width).
-		Render(plainLine)
 	index := t.appendBlock(&rawCell{
-		plain:    plainLine + "\n",
-		rendered: rendered + "\n",
+		plain:    formatUserTurnPlain(prompt),
+		rendered: renderUserTurn(prompt),
 	})
 	if t.currentRunStart == -1 {
 		t.currentRunStart = index
 	}
+}
+
+func userTurnLines(prompt string) []string {
+	lines := strings.Split(strings.TrimRight(prompt, "\n"), "\n")
+	if len(lines) == 0 {
+		return []string{">"}
+	}
+	for i, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			lines[i] = ">"
+			continue
+		}
+		lines[i] = "> " + line
+	}
+	return lines
+}
+
+func formatUserTurnPlain(prompt string) string {
+	return strings.Join(userTurnLines(prompt), "\n") + "\n"
+}
+
+func renderUserTurn(prompt string) string {
+	markerStyle := lipgloss.NewStyle().Foreground(defaultTheme.accentSoft).Bold(true)
+	textStyle := lipgloss.NewStyle().Foreground(defaultTheme.textSoft).Bold(true)
+	lines := userTurnLines(prompt)
+	for i, line := range lines {
+		if line == ">" {
+			lines[i] = markerStyle.Render(">")
+			continue
+		}
+		lines[i] = markerStyle.Render("> ") + textStyle.Render(strings.TrimPrefix(line, "> "))
+	}
+	return strings.Join(lines, "\n") + "\n"
 }
 
 func (t *Transcript) WriteLine(line string) {
@@ -302,10 +335,7 @@ func (t *Transcript) WriteLine(line string) {
 func (t *Transcript) WriteError(message string) {
 	t.endToolGroup()
 	t.endLiveAssistant()
-	t.appendBlock(&rawCell{
-		plain:    "ERROR: " + message + "\n",
-		rendered: "ERROR: " + message + "\n",
-	})
+	t.appendBlock(newTranscriptErrorCell("Error", message))
 	t.finalizeCurrentRun()
 }
 
@@ -370,10 +400,7 @@ func (t *Transcript) ApplyRunEvent(event rpc.RunEvent) {
 		t.endLiveAssistant()
 		t.endToolGroup()
 		if event.ErrorType != "CancelledError" {
-			t.appendBlock(&rawCell{
-				plain:    "error  " + event.Message + "\n",
-				rendered: "error  " + event.Message + "\n",
-			})
+			t.appendBlock(newTranscriptErrorCell("Run failed", event.Message))
 		}
 		t.finalizeCurrentRun()
 	case "run_succeeded":

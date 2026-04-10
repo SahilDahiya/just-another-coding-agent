@@ -168,7 +168,7 @@ func (g *toolGroup) render(motionTick int) (string, string) {
 				rendered.WriteString(lipgloss.NewStyle().Foreground(resultColor).Render(truncMsg) + "\n")
 			}
 		}
-		prevHadDetail = len(entry.detailLines) > 0 || len(entry.resultLines) > 0 || entry.resultTruncated
+		prevHadDetail = len(entry.detailLines) > 0 || len(entry.resultLines) > 0 || entry.resultTruncated || (entry.outcome == "error" && entry.message != "")
 	}
 	return plain.String(), rendered.String()
 }
@@ -187,6 +187,9 @@ var (
 )
 
 func formatToolActivityLine(entry *toolEntry) string {
+	if entry.outcome == "error" {
+		return formatToolErrorActivityLine(entry)
+	}
 	head := "● " + entry.toolName
 	if entry.preview != "" {
 		head += "  " + entry.preview
@@ -211,7 +214,28 @@ func formatToolActivityLine(entry *toolEntry) string {
 	}
 }
 
+func formatToolErrorActivityLine(entry *toolEntry) string {
+	head := "× " + toolActivityTitle(entry) + " failed"
+	if entry.duration != "" {
+		head += " " + entry.duration
+	}
+	if entry.message == "" {
+		return head + "\n"
+	}
+	return head + "\n  └ " + entry.message + "\n"
+}
+
+func toolActivityTitle(entry *toolEntry) string {
+	if entry.displayLabel != "" {
+		return entry.displayLabel
+	}
+	return capitalizeFirst(entry.toolName)
+}
+
 func renderToolActivityLine(entry *toolEntry, motionTick int) string {
+	if entry.outcome == "error" {
+		return renderToolErrorActivityLine(entry)
+	}
 	var markerColor lipgloss.TerminalColor
 	switch {
 	case entry.outcome == "ok" && entry.groupKind == "exploration":
@@ -259,6 +283,23 @@ func renderToolActivityLine(entry *toolEntry, motionTick int) string {
 	return b.String()
 }
 
+func renderToolErrorActivityLine(entry *toolEntry) string {
+	var b strings.Builder
+	b.WriteString(lipgloss.NewStyle().Foreground(defaultTheme.err).Render("× "))
+	b.WriteString(lipgloss.NewStyle().Foreground(defaultTheme.err).Render(toolActivityTitle(entry)))
+	b.WriteString(lipgloss.NewStyle().Foreground(defaultTheme.err).Render(" failed"))
+	if entry.duration != "" {
+		b.WriteString(" ")
+		b.WriteString(lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render(entry.duration))
+	}
+	b.WriteByte('\n')
+	if entry.message != "" {
+		b.WriteString(lipgloss.NewStyle().Foreground(defaultTheme.errSoft).Render("  └ " + entry.message))
+		b.WriteByte('\n')
+	}
+	return b.String()
+}
+
 func isExplorationGroup(order []string, entries map[string]*toolEntry) bool {
 	if len(order) == 0 {
 		return false
@@ -282,6 +323,38 @@ func isExplorationComplete(order []string, entries map[string]*toolEntry) bool {
 		}
 	}
 	return true
+}
+
+func explorationGroupState(order []string, entries map[string]*toolEntry, complete bool) string {
+	if !complete {
+		return ""
+	}
+	for _, id := range order {
+		if entries[id].outcome == "error" {
+			return "error"
+		}
+	}
+	for _, id := range order {
+		if entries[id].operationalMiss {
+			return "partial"
+		}
+	}
+	return "ok"
+}
+
+func explorationGroupDuration(order []string, entries map[string]*toolEntry) string {
+	totalMS := 0
+	for _, id := range order {
+		entry := entries[id]
+		if entry.activity == nil || entry.activity.DurationMS == nil || *entry.activity.DurationMS <= 0 {
+			continue
+		}
+		totalMS += *entry.activity.DurationMS
+	}
+	if totalMS == 0 {
+		return ""
+	}
+	return formatToolDurationMS(totalMS)
 }
 
 const (
@@ -468,25 +541,43 @@ func buildToolPhase(toolName string, activity *rpc.ToolActivity) string {
 
 func renderExplorationGroup(order []string, entries map[string]*toolEntry, motionTick int) (string, string) {
 	complete := isExplorationComplete(order, entries)
+	state := explorationGroupState(order, entries, complete)
+	duration := explorationGroupDuration(order, entries)
 
-	headerLabel := "Exploring"
+	marker := "● "
+	headerLabel := fmt.Sprintf("Read/Searched (%d)", len(order))
+	if state != "" {
+		headerLabel += " " + state
+	}
+	if duration != "" {
+		headerLabel += " " + duration
+	}
 	var markerColor lipgloss.TerminalColor
-	if complete {
-		headerLabel = "Explored"
+	if state == "error" {
+		marker = "× "
+		markerColor = defaultTheme.err
+	} else if complete {
 		markerColor = defaultTheme.textMuted
 	} else {
 		markerColor = breathingMarkerColor(motionTick)
 	}
 
-	headerPlain := "● " + headerLabel + "\n"
-	headerRendered := lipgloss.NewStyle().Foreground(markerColor).Render("● ") +
-		lipgloss.NewStyle().Foreground(defaultTheme.textSoft).Bold(true).Render(headerLabel) + "\n"
+	headerPlain := marker + headerLabel + "\n"
+	headerLabelStyle := lipgloss.NewStyle().Foreground(defaultTheme.textMuted)
+	if !complete {
+		headerLabelStyle = lipgloss.NewStyle().Foreground(defaultTheme.textSoft).Bold(true)
+	}
+	headerRendered := lipgloss.NewStyle().Foreground(markerColor).Render(marker) +
+		headerLabelStyle.Render(headerLabel) + "\n"
 
 	var plain, rendered strings.Builder
 	plain.WriteString(headerPlain)
 	rendered.WriteString(headerRendered)
 
-	labelStyle := lipgloss.NewStyle().Foreground(defaultTheme.accentSoft)
+	labelStyle := lipgloss.NewStyle().Foreground(defaultTheme.textMuted)
+	if !complete {
+		labelStyle = lipgloss.NewStyle().Foreground(defaultTheme.accentSoft)
+	}
 	argsStyle := lipgloss.NewStyle().Foreground(defaultTheme.textSoft)
 	dimStyle := lipgloss.NewStyle().Foreground(defaultTheme.textMuted)
 
@@ -619,10 +710,14 @@ func buildToolDuration(activity *rpc.ToolActivity) string {
 	if activity == nil || activity.DurationMS == nil || *activity.DurationMS < 0 {
 		return ""
 	}
-	if *activity.DurationMS < 1000 {
-		return fmt.Sprintf("%dms", *activity.DurationMS)
+	return formatToolDurationMS(*activity.DurationMS)
+}
+
+func formatToolDurationMS(durationMS int) string {
+	if durationMS < 1000 {
+		return fmt.Sprintf("%dms", durationMS)
 	}
-	return fmt.Sprintf("%.1fs", float64(*activity.DurationMS)/1000.0)
+	return fmt.Sprintf("%.1fs", float64(durationMS)/1000.0)
 }
 
 func buildToolDetailLines(activity *rpc.ToolActivity) []string {

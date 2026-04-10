@@ -53,6 +53,25 @@ func TestWriteStartupBannerDoesNotGuessCredentialStateFromEnvironment(t *testing
 	}
 }
 
+func TestWriteUserTurnUsesLightweightMarker(t *testing.T) {
+	transcript := NewTranscript()
+	transcript.WriteUserTurn("review changes\nthen run tests")
+
+	rendered := transcript.Render()
+	plain := stripANSI(rendered)
+	for _, want := range []string{
+		"> review changes",
+		"> then run tests",
+	} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("user turn missing %q in %q", want, plain)
+		}
+	}
+	if strings.Contains(rendered, "[48;") {
+		t.Fatalf("user turn should not use background fill: %q", rendered)
+	}
+}
+
 func TestCompletedAssistantMarkdownAvoidsBackgroundFills(t *testing.T) {
 	markdown := "## Review\n\n- first point\n- second point\n\n1. step one\n2. step two\n\n`inline code`"
 
@@ -107,6 +126,60 @@ func TestToolSuccessDoesNotTreatResultMapWithoutOkAsError(t *testing.T) {
 	groupPlain, groupRendered := transcript.toolGroup.render(0)
 	if groupPlain != stripANSI(groupRendered) {
 		t.Fatalf("tool group plain/render spacing mismatch: plain=%q rendered=%q", groupPlain, stripANSI(groupRendered))
+	}
+}
+
+func TestToolFailureRendersStructuredErrorRow(t *testing.T) {
+	transcript := NewTranscript()
+	duration := 70
+	transcript.ApplyRunEvent(rpc.RunEvent{
+		Type:       "tool_call_started",
+		ToolName:   "shell",
+		ToolCallID: "call-shell",
+		Args:       map[string]any{"command": "git status --short"},
+	})
+	transcript.ApplyRunEvent(rpc.RunEvent{
+		Type:       "tool_call_failed",
+		ToolName:   "shell",
+		ToolCallID: "call-shell",
+		Message:    "Tool update must match a pending tool_call_started: call_123",
+		Activity: &rpc.ToolActivity{
+			DurationMS: &duration,
+		},
+	})
+
+	plain := transcriptPlain(transcript)
+	for _, want := range []string{
+		"× Shell failed 70ms",
+		"  └ Tool update must match a pending tool_call_started: call_123",
+	} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("tool failure row missing %q in %q", want, plain)
+		}
+	}
+	if strings.Contains(plain, "error  ") {
+		t.Fatalf("tool failure row kept flat error copy in %q", plain)
+	}
+}
+
+func TestRunFailureRendersStructuredErrorRow(t *testing.T) {
+	transcript := NewTranscript()
+	transcript.ApplyRunEvent(rpc.RunEvent{
+		Type:    "run_failed",
+		Message: "Tool update must match a pending tool_call_started: call_123",
+	})
+
+	plain := transcriptPlain(transcript)
+	for _, want := range []string{
+		"× Run failed",
+		"  └ Tool update must match a pending tool_call_started: call_123",
+	} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("run failure row missing %q in %q", want, plain)
+		}
+	}
+	if strings.Contains(plain, "error  ") {
+		t.Fatalf("run failure row kept flat error copy in %q", plain)
 	}
 }
 
@@ -435,7 +508,7 @@ func TestExplorationGroupRendersCoalescedExploredBlock(t *testing.T) {
 
 	plain := transcriptPlain(transcript)
 	for _, want := range []string{
-		"● Explored",
+		"● Read/Searched (4) ok",
 		"  └ Read README.md, AGENTS.md",
 		"    List src",
 		"    Search build_canonical_agent( in tests",
@@ -541,7 +614,7 @@ func TestExplorationGroupShowsExploringWhileInFlight(t *testing.T) {
 
 	plain := transcriptPlain(transcript)
 	for _, want := range []string{
-		"● Exploring",
+		"● Read/Searched (2)",
 		"  └ Read README.md",
 		"    Search RetryPromptPart in src",
 	} {
@@ -589,7 +662,7 @@ func TestExplorationGroupTruncatesHeadAndTail(t *testing.T) {
 
 	plain := transcriptPlain(transcript)
 	for _, want := range []string{
-		"● Explored",
+		"● Read/Searched (8) ok",
 		"  └ Read session.py",
 		"    Search InvalidSession in src",
 		"    List tests",
@@ -655,7 +728,7 @@ func TestExplorationOperationalMissStaysGrouped(t *testing.T) {
 
 	plain := transcriptPlain(transcript)
 	for _, want := range []string{
-		"● Explored",
+		"● Read/Searched (2) partial 15ms",
 		"  └ Read agents.md  No such file or directory: '/workspace/agents.md'",
 		"    Read AGENTS.md",
 	} {
@@ -699,7 +772,7 @@ func TestExplorationHardErrorStaysGrouped(t *testing.T) {
 
 	plain := transcriptPlain(transcript)
 	for _, want := range []string{
-		"● Explored",
+		"× Read/Searched (2) error",
 		"  └ Read run.py",
 		"    Search RetryPromptPart in src  error  ripgrep (rg) is not installed",
 	} {
@@ -944,10 +1017,10 @@ func TestCodeBlockLanguageLabelRendered(t *testing.T) {
 
 	rendered := transcript.blocks[len(transcript.blocks)-1].Render()
 	plain := stripANSI(rendered)
-	if !strings.Contains(plain, "python") {
+	if !strings.Contains(plain, "│ python") {
 		t.Fatalf("rendered code block missing language label: %q", plain)
 	}
-	if !strings.Contains(plain, "print('hello')") {
+	if !strings.Contains(plain, "│ print('hello')") {
 		t.Fatalf("rendered code block missing code content: %q", plain)
 	}
 }
@@ -1096,7 +1169,7 @@ func TestCodeBlockWithoutLanguageHasNoLabel(t *testing.T) {
 
 	rendered := transcript.blocks[len(transcript.blocks)-1].Render()
 	plain := stripANSI(rendered)
-	if !strings.Contains(plain, "plain code") {
+	if !strings.Contains(plain, "│ plain code") {
 		t.Fatalf("rendered code block missing content: %q", plain)
 	}
 }
@@ -1465,17 +1538,17 @@ func TestToolPhaseChangeSplitsExplorationAndEditingIntoSeparateBlocks(t *testing
 	rendered := transcript.Render()
 	plain := stripANSI(rendered)
 	for _, want := range []string{
-		"● Explored",
+		"● Read/Searched (1) ok",
 		"  └ Read AGENTS.md",
 		"● edit  AGENTS.md  ok  4ms",
-		"● Explored",
+		"● Read/Searched (1) ok",
 	} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("phase-split transcript missing %q in %q", want, plain)
 		}
 	}
-	if strings.Count(plain, "● Explored") != 2 {
-		t.Fatalf("expected two separate explored blocks in %q", plain)
+	if strings.Count(plain, "● Read/Searched (1) ok") != 2 {
+		t.Fatalf("expected two separate read/searched blocks in %q", plain)
 	}
 }
 

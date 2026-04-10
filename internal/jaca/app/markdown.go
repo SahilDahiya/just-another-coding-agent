@@ -25,6 +25,8 @@ var (
 	assistantBlockquoteText   = lipgloss.NewStyle().Foreground(defaultTheme.textSoft)
 )
 
+const assistantCodeBlockPrefix = "  │ "
+
 func renderCompletedAssistantMarkdown(markdown string) string {
 	if strings.TrimSpace(markdown) == "" {
 		marker := lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render("● ")
@@ -46,7 +48,7 @@ func renderCompletedAssistantMarkdown(markdown string) string {
 			}
 			if inCodeBlock {
 				if m := assistantCodeFenceLangRe.FindStringSubmatch(line); m != nil {
-					b.WriteString(assistantMutedPrefixStyle.Render("    " + m[1]))
+					b.WriteString(assistantMutedPrefixStyle.Render(assistantCodeBlockPrefix + m[1]))
 					b.WriteByte('\n')
 				}
 			}
@@ -54,7 +56,7 @@ func renderCompletedAssistantMarkdown(markdown string) string {
 		}
 
 		if inCodeBlock {
-			b.WriteString(assistantMutedPrefixStyle.Render("    "))
+			b.WriteString(assistantMutedPrefixStyle.Render(assistantCodeBlockPrefix))
 			b.WriteString(assistantCodeBlockStyle.Render(line))
 			b.WriteByte('\n')
 			continue
