@@ -1,12 +1,50 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+from pydantic_ai.messages import ModelMessage
+
+from just_another_coding_agent.runtime.project_docs import (
+    PROJECT_DOC_TOTAL_BYTE_BUDGET,
+    build_project_doc_prefix_messages,
+)
+
+if TYPE_CHECKING:
+    from just_another_coding_agent.contracts.platform import ShellFamily
+    from just_another_coding_agent.contracts.thinking import ThinkingSetting
+    from just_another_coding_agent.runtime.turn_context import (
+        TurnContextBaselineDecision,
+    )
 
 
 @dataclass(frozen=True)
 class PromptSection:
     name: str
     lines: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class PromptContextLayers:
+    base_instructions: str
+    project_messages: tuple[ModelMessage, ...]
+    runtime_before_history_messages: tuple[ModelMessage, ...]
+    runtime_after_history_messages: tuple[ModelMessage, ...]
+    mode_messages: tuple[ModelMessage, ...] = ()
+
+    @property
+    def before_history_messages(self) -> tuple[ModelMessage, ...]:
+        return (
+            *self.project_messages,
+            *self.runtime_before_history_messages,
+            *self.mode_messages,
+        )
+
+    @property
+    def after_history_messages(self) -> tuple[ModelMessage, ...]:
+        return self.runtime_after_history_messages
 
 
 BASE_PRODUCT_PROMPT_SECTIONS: tuple[PromptSection, ...] = (
@@ -127,8 +165,52 @@ def build_base_product_prompt() -> str:
     )
 
 
+def build_default_mode_messages() -> tuple[ModelMessage, ...]:
+    return ()
+
+
+def build_prompt_context_layers(
+    *,
+    baseline_decision: "TurnContextBaselineDecision | None" = None,
+    model: Any,
+    workspace_root: Path | str,
+    current_date: date | None = None,
+    shell_family: "ShellFamily | None" = None,
+    timezone: str | None = None,
+    thinking: "ThinkingSetting | None" = None,
+    project_doc_total_byte_budget: int = PROJECT_DOC_TOTAL_BYTE_BUDGET,
+) -> PromptContextLayers:
+    from just_another_coding_agent.runtime.turn_context import (
+        build_runtime_context_injection_plan,
+    )
+
+    _, project_messages = build_project_doc_prefix_messages(
+        workspace_root,
+        total_byte_budget=project_doc_total_byte_budget,
+    )
+    runtime_plan = build_runtime_context_injection_plan(
+        baseline_decision=baseline_decision,
+        model=model,
+        workspace_root=workspace_root,
+        current_date=current_date,
+        shell_family=shell_family,
+        timezone=timezone,
+        thinking=thinking,
+    )
+    return PromptContextLayers(
+        base_instructions=build_base_product_prompt(),
+        project_messages=project_messages,
+        runtime_before_history_messages=runtime_plan.before_history_messages,
+        runtime_after_history_messages=runtime_plan.after_history_messages,
+        mode_messages=build_default_mode_messages(),
+    )
+
+
 __all__ = [
     "BASE_PRODUCT_PROMPT_SECTIONS",
+    "PromptContextLayers",
     "PromptSection",
     "build_base_product_prompt",
+    "build_default_mode_messages",
+    "build_prompt_context_layers",
 ]
