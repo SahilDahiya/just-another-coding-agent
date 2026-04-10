@@ -12,17 +12,27 @@ The contract preserves the backend-facing behavior of a pi-style coding agent wh
 
 Canonical prompt context for the maintained version:
 
-- static baseline instructions
-- dynamic model-visible project-doc messages from workspace-root `AGENTS.md` and `CLAUDE.md`, when present
-- dynamic current date
-- dynamic resolved workspace root
+- base product prompt instructions assembled from named sections
+- dynamic model-visible project-instruction messages from workspace-root
+  `AGENTS.md` and `CLAUDE.md`, when present
+- dynamic runtime-context messages containing current date, timezone,
+  workspace root, shell family, model, and thinking
+- a mode/task layer seam, currently active only as the default no-op mode
 
 Rules:
 
-- the canonical agent prompt must be assembled through one builder path
-- dynamic prompt context must be explicit and reproducible
+- the canonical prompt context must be assembled through one Python-owned layer
+  builder path
+- base product prompt sections must have explicit names and stable ordering
+- dynamic prompt context must be explicit, reproducible, and model-visible
+- runtime-context injection is dynamic contextual history, not baked into the
+  static baseline prompt
 - project-doc injection is runtime-owned contextual history, not baked into the static baseline prompt
 - project-doc injection is bounded and deterministic
+- the mode/task layer must not grow new behavior unless a task-specific
+  behavior gap justifies it
+- prompt quality is a product-owner review responsibility; do not add
+  arbitrary prompt character-budget gates as product policy
 - the canonical agent prompt must explicitly forbid claiming file side effects without tool evidence
 - the canonical agent prompt must explicitly instruct the model to verify code changes or required file outputs before concluding
 - when the user asks to run tests, lint, or another obvious verification step,

@@ -38,7 +38,8 @@ Prefer direct use of PydanticAI primitives before creating local abstractions:
   canonical tool schema instead of mirroring per-tool input carriers in
   `contracts/`
 - use PydanticAI message-history primitives as the default conversation substrate
-- use PydanticAI `instructions` for the canonical agent prompt; keep a static baseline plus explicit dynamic runtime context rather than preserving prompt messages in history unless that is explicitly required
+- use PydanticAI `instructions` for the base product prompt and explicit
+  model-visible message history for dynamic prompt-context layers
 - use PydanticAI testing primitives for unit and contract tests
 
 Local code should translate those primitives into the canonical backend contract for tools, events, sessions, RPC, and failure semantics.
@@ -55,8 +56,18 @@ Persisted sessions must also bind to that explicit workspace root and store nati
 Persisted sessions must also record the effective per-run thinking setting so later runs can inherit it when the caller omits `thinking`.
 The canonical runtime is unbounded within a single run and does not impose backend-level request or tool-call ceilings.
 Do not use PydanticAI `UsageLimits` as a JACA design primitive. If a framework call requires `UsageLimits`, keep it explicitly unbounded and treat it as an internal adapter detail rather than product policy.
-The canonical prompt should inject the current date and resolved workspace root dynamically at agent-build time so the model can reason about time and paths without inferring hidden process state.
-The canonical runtime should also inject bounded model-visible project-doc messages from workspace-root `AGENTS.md` and `CLAUDE.md` when present. Those docs are runtime-owned contextual history, not static baseline prompt text and not durable session memory.
+The canonical prompt context has four Python-owned layers. The base product
+prompt is static `instructions` text assembled from named sections. The
+project-instructions layer injects bounded model-visible messages from
+workspace-root `AGENTS.md` and `CLAUDE.md` when present. The runtime-context
+layer injects current date, timezone, workspace root, shell family, model, and
+thinking as dynamic model-visible contextual history. The mode/task layer is
+only a seam for now; default mode adds no extra instructions, and task-specific
+overlays should be added only when a concrete behavior gap justifies them.
+`runtime/prompt_layers.py` owns this assembly boundary so these layers do not
+become scattered prompt concatenation.
+Project-doc and runtime-context messages are runtime-owned contextual history,
+not static baseline prompt text and not durable session memory.
 The canonical prompt must also enforce side-effect truthfulness and verification discipline: the model must not claim to have created or modified files without tool evidence, and it should run the smallest relevant verification step before concluding after code changes or required file outputs.
 The canonical runtime should expose `thinking` as an explicit run setting and pass it through PydanticAI model settings rather than encoding reasoning level in prompt text.
 The canonical runtime should resolve model strings through one local model seam before agent construction so provider-native retries, instrumentation, and OpenAI-specific settings stay centralized instead of leaking through the runtime.
