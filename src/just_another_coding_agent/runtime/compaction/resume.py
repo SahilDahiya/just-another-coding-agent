@@ -10,12 +10,9 @@ from just_another_coding_agent.contracts.platform import ShellFamily
 from just_another_coding_agent.contracts.session import LoadedSession
 from just_another_coding_agent.contracts.thinking import ThinkingSetting
 from just_another_coding_agent.runtime.compaction.boundary import run_index_for_id
-from just_another_coding_agent.runtime.project_docs import (
-    build_project_doc_prefix_messages,
-)
+from just_another_coding_agent.runtime.prompt_layers import build_prompt_context_layers
 from just_another_coding_agent.runtime.turn_context import (
     TurnContextBaselineDecision,
-    build_runtime_context_injection_plan,
 )
 from just_another_coding_agent.session.replacement_history import (
     strip_internal_prompt_state,
@@ -57,8 +54,7 @@ def build_runtime_framed_resume_message_history(
         if loaded_session is not None
         else []
     )
-    _, project_doc_messages = build_project_doc_prefix_messages(workspace_root)
-    injection_plan = build_runtime_context_injection_plan(
+    prompt_context = build_prompt_context_layers(
         baseline_decision=baseline_decision,
         model=model,
         workspace_root=workspace_root,
@@ -68,10 +64,9 @@ def build_runtime_framed_resume_message_history(
         thinking=thinking,
     )
     return [
-        *project_doc_messages,
-        *injection_plan.before_history_messages,
+        *prompt_context.before_history_messages,
         *resume_history,
-        *injection_plan.after_history_messages,
+        *prompt_context.after_history_messages,
     ]
 
 
