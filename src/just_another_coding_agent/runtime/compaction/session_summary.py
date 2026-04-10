@@ -16,6 +16,7 @@ from just_another_coding_agent.contracts.session import (
 )
 from just_another_coding_agent.contracts.thinking import ThinkingSetting
 from just_another_coding_agent.runtime.models import (
+    build_canonical_model_settings,
     get_model_context_window_tokens,
     resolve_canonical_model,
 )
@@ -70,12 +71,16 @@ async def summarize_session_for_compaction(
     if not loaded_session.runs:
         raise SessionFormatError("Cannot compact a session with no completed runs")
 
+    resolved_model = resolve_canonical_model(model)
     summarizer = Agent(
-        resolve_canonical_model(model),
+        resolved_model,
         output_type=str,
         instructions=COMPACTION_SUMMARY_INSTRUCTIONS,
     )
-    result = await summarizer.run(_build_compaction_source(loaded_session, model=model))
+    result = await summarizer.run(
+        _build_compaction_source(loaded_session, model=model),
+        model_settings=build_canonical_model_settings(model=resolved_model),
+    )
     normalized = _normalize_compaction_summary_text(result.output)
     if not normalized:
         raise SessionFormatError(

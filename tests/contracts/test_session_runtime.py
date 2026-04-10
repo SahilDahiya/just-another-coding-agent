@@ -1612,6 +1612,62 @@ async def test_summarize_session_for_compaction_normalizes_summary_content(
     assert summary == "- Goal: ship it\n- Path: src/app.py"
 
 
+async def test_summarize_session_for_compaction_uses_canonical_model_settings(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    session_path = tmp_path / "session.jsonl"
+    _append_simple_run(
+        path=session_path,
+        workspace_root=workspace_root,
+        run_id="run-1",
+        prompt="inspect plan",
+    )
+
+    loaded = load_session(path=session_path, workspace_root=workspace_root)
+    captured: dict[str, object] = {}
+    expected_settings = {"openai_store": False, "parallel_tool_calls": True}
+    resolved_model = object()
+
+    class FakeAgent:
+        def __init__(self, model, output_type, instructions) -> None:
+            captured["model"] = model
+            captured["output_type"] = output_type
+            captured["instructions"] = instructions
+
+        async def run(self, prompt, *, model_settings=None):
+            captured["prompt"] = prompt
+            captured["model_settings"] = model_settings
+
+            class Result:
+                output = "- Goal: continue"
+
+            return Result()
+
+    monkeypatch.setattr(session_summary_module, "Agent", FakeAgent)
+    monkeypatch.setattr(
+        session_summary_module,
+        "resolve_canonical_model",
+        lambda model: resolved_model,
+    )
+    monkeypatch.setattr(
+        session_summary_module,
+        "build_canonical_model_settings",
+        lambda *, model, thinking=None: expected_settings,
+    )
+
+    summary = await summarize_session_for_compaction(
+        model="openai-responses:gpt-5.4-chatgpt",
+        loaded_session=loaded,
+    )
+
+    assert summary == "- Goal: continue"
+    assert captured["model"] is resolved_model
+    assert captured["model_settings"] == expected_settings
+
+
 async def test_summarize_session_for_compaction_rejects_empty_summary(
     tmp_path,
 ) -> None:
