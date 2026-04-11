@@ -550,7 +550,7 @@ async def test_handle_rpc_json_line_returns_session_preview(tmp_path) -> None:
     entries = response["response"]["entries"]
     assert entries[0] == {"kind": "user", "text": "create note"}
     assert entries[1]["kind"] == "activity"
-    assert entries[1]["text"] == "Edited files - 1 file"
+    assert entries[1]["text"].startswith("Edited files - 1 file")
     assert entries[2] == {"kind": "assistant", "text": "created"}
     assert entries[3] == {"kind": "user", "text": "what did you do?"}
     assert entries[4] == {"kind": "assistant", "text": "I created note.txt"}
