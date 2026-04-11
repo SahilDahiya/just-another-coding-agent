@@ -420,10 +420,15 @@ async def test_stream_session_run_events_resumes_session_created_on_other_shell_
             message_history,
             instructions,
             thinking,
-            message_history_sink,
         )
         captured["deps"] = deps
         yield RunStartedEvent(run_id="run-2")
+        # Mirror real stream_run_events: fire the sink before the
+        # terminal yield so session.py's finalization invariant holds.
+        if message_history_sink is not None:
+            message_history_sink(
+                [ModelRequest(parts=[UserPromptPart(content="second")])]
+            )
         yield RunSucceededEvent(run_id="run-2", output_text="done")
 
     monkeypatch.setattr(
@@ -492,10 +497,13 @@ async def test_stream_session_run_events_passes_root_session_id_in_deps(
             message_history,
             instructions,
             thinking,
-            message_history_sink,
         )
         captured["deps"] = deps
         yield RunStartedEvent(run_id="run-1")
+        if message_history_sink is not None:
+            message_history_sink(
+                [ModelRequest(parts=[UserPromptPart(content="done")])]
+            )
         yield RunSucceededEvent(run_id="run-1", output_text="done")
 
     monkeypatch.setattr(
@@ -869,9 +877,13 @@ async def test_stream_session_run_events_emits_runtime_context_diff_on_shell_cha
         deps=None,
         message_history_sink=None,
     ):
-        del agent, prompt, instructions, thinking, deps, message_history_sink
+        del agent, prompt, instructions, thinking, deps
         captured["message_history"] = message_history
         yield RunStartedEvent(run_id="run-2")
+        if message_history_sink is not None:
+            message_history_sink(
+                [ModelRequest(parts=[UserPromptPart(content="done")])]
+            )
         yield RunSucceededEvent(run_id="run-2", output_text="done")
 
     monkeypatch.setattr(
@@ -1278,6 +1290,10 @@ async def test_stream_session_run_events_inherits_last_persisted_thinking_when_o
         captured["deps"] = deps
         captured["message_history_sink"] = message_history_sink
         yield RunStartedEvent(run_id="run-2")
+        if message_history_sink is not None:
+            message_history_sink(
+                [ModelRequest(parts=[UserPromptPart(content="done")])]
+            )
         yield RunSucceededEvent(run_id="run-2", output_text="done")
 
     monkeypatch.setattr(
@@ -1355,6 +1371,10 @@ async def test_stream_session_run_events_injects_workspace_project_docs(
     ):
         captured["message_history"] = message_history
         yield RunStartedEvent(run_id="run-1")
+        if message_history_sink is not None:
+            message_history_sink(
+                [ModelRequest(parts=[UserPromptPart(content="done")])]
+            )
         yield RunSucceededEvent(run_id="run-1", output_text="done")
 
     monkeypatch.setattr(
@@ -2402,18 +2422,25 @@ async def test_stream_session_run_events_finalizes_cancelled_run(
             instructions,
             thinking,
             deps,
-            message_history_sink,
         )
-        yield RunStartedEvent(run_id="run-1")
-        yield ToolCallStartedEvent(
-            run_id="run-1",
-            tool_call_id="call-read",
-            tool_name="read",
-            args={"path": "README.md"},
-            args_valid=True,
-        )
-        started.set()
-        await asyncio.Event().wait()
+        try:
+            yield RunStartedEvent(run_id="run-1")
+            yield ToolCallStartedEvent(
+                run_id="run-1",
+                tool_call_id="call-read",
+                tool_name="read",
+                args={"path": "README.md"},
+                args_valid=True,
+            )
+            started.set()
+            await asyncio.Event().wait()
+        finally:
+            # Mirror real stream_run_events: fire the sink on cancellation
+            # so session.py's finalize invariant holds.
+            if message_history_sink is not None:
+                message_history_sink(
+                    [ModelRequest(parts=[UserPromptPart(content="go")])]
+                )
 
     monkeypatch.setattr(
         "just_another_coding_agent.runtime.session.stream_run_events",
@@ -2474,18 +2501,23 @@ async def test_stream_session_run_events_yields_cancelled_run_failed_event(
             instructions,
             thinking,
             deps,
-            message_history_sink,
         )
-        yield RunStartedEvent(run_id="run-1")
-        yield ToolCallStartedEvent(
-            run_id="run-1",
-            tool_call_id="call-read",
-            tool_name="read",
-            args={"path": "README.md"},
-            args_valid=True,
-        )
-        started.set()
-        await asyncio.Event().wait()
+        try:
+            yield RunStartedEvent(run_id="run-1")
+            yield ToolCallStartedEvent(
+                run_id="run-1",
+                tool_call_id="call-read",
+                tool_name="read",
+                args={"path": "README.md"},
+                args_valid=True,
+            )
+            started.set()
+            await asyncio.Event().wait()
+        finally:
+            if message_history_sink is not None:
+                message_history_sink(
+                    [ModelRequest(parts=[UserPromptPart(content="go")])]
+                )
 
     monkeypatch.setattr(
         "just_another_coding_agent.runtime.session.stream_run_events",

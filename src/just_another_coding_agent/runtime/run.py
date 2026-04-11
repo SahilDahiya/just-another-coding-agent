@@ -698,15 +698,12 @@ async def _stream_run_events_with_steer(
 
             terminal_emitted = True
             if message_history_sink is not None:
-                try:
-                    message_history_sink(
-                        [
-                            *carried_messages,
-                            *list(captured_messages)[attempt_history_count:],
-                        ]
-                    )
-                except Exception:
-                    pass
+                message_history_sink(
+                    [
+                        *carried_messages,
+                        *list(captured_messages)[attempt_history_count:],
+                    ]
+                )
             yield RunFailedEvent(
                 run_id=run_id,
                 error_type=type(error).__name__,
@@ -720,18 +717,15 @@ async def _stream_run_events_with_steer(
             ):
                 # Cancellation (or any other BaseException) propagates through
                 # the body without hitting the `except Exception` branch above,
-                # so publish whatever pydantic-ai accumulated before the abort
-                # so session.py can persist partial message history without
-                # needing its own capture_run_messages fallback.
-                try:
-                    message_history_sink(
-                        [
-                            *carried_messages,
-                            *list(captured_messages)[attempt_history_count:],
-                        ]
-                    )
-                except Exception:
-                    pass
+                # so publish whatever pydantic-ai accumulated before the abort.
+                # The sink must be fired here so session.py can trust that
+                # authoritative_messages is populated for every terminal path.
+                message_history_sink(
+                    [
+                        *carried_messages,
+                        *list(captured_messages)[attempt_history_count:],
+                    ]
+                )
             if isinstance(queued_deps, WorkspaceDeps):
                 await queued_deps.read_only_worker.close()
 
@@ -1141,12 +1135,9 @@ async def _stream_run_events_inner(
 
                 terminal_emitted = True
                 if message_history_sink is not None:
-                    try:
-                        message_history_sink(
-                            list(captured_messages)[attempt_history_count:]
-                        )
-                    except Exception:
-                        pass
+                    message_history_sink(
+                        list(captured_messages)[attempt_history_count:]
+                    )
                 yield RunFailedEvent(
                     run_id=run_id,
                     error_type=type(error).__name__,
@@ -1159,14 +1150,12 @@ async def _stream_run_events_inner(
                     and message_history_sink is not None
                 ):
                     # Cancellation (BaseException) propagates through the body
-                    # without being caught above; publish whatever was
-                    # accumulated so session.py can persist partial messages.
-                    try:
-                        message_history_sink(
-                            list(captured_messages)[attempt_history_count:]
-                        )
-                    except Exception:
-                        pass
+                    # without being caught above; the sink must be fired here
+                    # so session.py can trust that authoritative_messages is
+                    # populated for every terminal path.
+                    message_history_sink(
+                        list(captured_messages)[attempt_history_count:]
+                    )
                 if not pump_task.done():
                     pump_task.cancel()
                     with contextlib.suppress(asyncio.CancelledError):
