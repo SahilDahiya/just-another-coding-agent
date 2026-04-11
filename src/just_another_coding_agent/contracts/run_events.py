@@ -84,6 +84,8 @@ class SubagentActivityDetails(_ToolActivityDetailsBase):
     kind: Literal["subagent"] = "subagent"
     name: str
     role: Literal["general", "explore", "verification"]
+    spawn_mode: Literal["fresh", "fork"]
+    capability: Literal["default", "shell"]
     preview_lines: list[str] = Field(default_factory=list)
     preview_terminal: bool = False
 

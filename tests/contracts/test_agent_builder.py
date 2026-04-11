@@ -81,8 +81,8 @@ def test_build_canonical_instructions_include_dynamic_context(tmp_path) -> None:
     assert "Use ls for bounded directory listings." in instructions
     assert "Use find for file discovery by glob pattern." in instructions
     assert (
-        "Use subagent for one bounded side task when a fresh child pass "
-        "would help."
+        "Use subagent for one bounded side task when either a fresh or "
+        "forked child pass would help."
         in instructions
     )
     assert (
@@ -95,6 +95,12 @@ def test_build_canonical_instructions_include_dynamic_context(tmp_path) -> None:
         "By default the child gets read, grep, find, and ls only; "
         "request shell capability only when the child needs local "
         "commands or scripts."
+        in instructions
+    )
+    assert (
+        "Prefer spawn_mode='fork' so the child can build on the parent's "
+        "current conversation or tool context; use spawn_mode='fresh' only "
+        "for an independent repo or artifact pass."
         in instructions
     )
     assert (

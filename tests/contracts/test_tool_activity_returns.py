@@ -6,7 +6,13 @@ from datetime import date
 from types import SimpleNamespace
 
 import pytest
-from pydantic_ai.messages import ToolReturn
+from pydantic_ai.messages import (
+    ModelRequest,
+    ModelResponse,
+    TextPart,
+    ToolReturn,
+    UserPromptPart,
+)
 
 from just_another_coding_agent.contracts.platform import detect_default_shell_family
 from just_another_coding_agent.contracts.run_events import (
@@ -306,10 +312,17 @@ async def test_subagent_returns_tool_owned_activity_metadata(
 ) -> None:
     ctx = _ctx(tmp_path)
     ctx.tool_name = "subagent"
+    ctx.messages = [
+        ModelRequest(parts=[UserPromptPart(content="review current compaction path")]),
+        ModelResponse(parts=[TextPart(content="I will inspect the reset flow.")]),
+    ]
     ctx.deps = WorkspaceDeps(
         workspace_root=ctx.deps.workspace_root,
         shell_family=ctx.deps.shell_family,
-        session_scope=RunSessionScope(),
+        session_scope=RunSessionScope(
+            session_id="a" * 32,
+            run_id="run-1",
+        ),
         run_frame=RunRuntimeFrame(
             model="test:model",
             current_date=date(2026, 4, 10),
@@ -321,8 +334,12 @@ async def test_subagent_returns_tool_owned_activity_metadata(
     async def fake_stream_ephemeral_subagent_run_events(**kwargs):
         assert kwargs["spec"].name == "compaction-scan"
         assert kwargs["spec"].role == "explore"
+        assert kwargs["spec"].spawn_mode == "fork"
         assert kwargs["spec"].capability == "default"
         assert kwargs["spec"].task == "Find where compaction resets turn context."
+        assert kwargs["spec"].parent_session_id == "a" * 32
+        assert kwargs["spec"].parent_run_id == "run-1"
+        assert kwargs["spec"].parent_tool_call_id == "call-1"
         yield RunStartedEvent(run_id="sub-run-1")
         yield RunSucceededEvent(
             run_id="sub-run-1",
@@ -352,6 +369,7 @@ async def test_subagent_returns_tool_owned_activity_metadata(
         "ok": True,
         "name": "compaction-scan",
         "role": "explore",
+        "spawn_mode": "fork",
         "capability": "default",
         "summary_text": "Found reset in runtime/compaction/resume.py",
         "output_text": (
@@ -369,6 +387,8 @@ async def test_subagent_returns_tool_owned_activity_metadata(
             "kind": "subagent",
             "name": "compaction-scan",
             "role": "explore",
+            "spawn_mode": "fork",
+            "capability": "default",
             "preview_lines": [
                 "Found reset in runtime/compaction/resume.py"
             ],
@@ -377,16 +397,72 @@ async def test_subagent_returns_tool_owned_activity_metadata(
     }
 
 
+async def test_subagent_passes_parent_history_for_fork_mode(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    ctx = _ctx(tmp_path)
+    ctx.tool_name = "subagent"
+    ctx.messages = [
+        ModelRequest(parts=[UserPromptPart(content="parent prompt")]),
+        ModelResponse(parts=[TextPart(content="prior answer")]),
+    ]
+    ctx.deps = WorkspaceDeps(
+        workspace_root=ctx.deps.workspace_root,
+        shell_family=ctx.deps.shell_family,
+        session_scope=RunSessionScope(
+            session_id="a" * 32,
+            run_id="run-1",
+        ),
+        run_frame=RunRuntimeFrame(
+            model="test:model",
+            current_date=date(2026, 4, 10),
+            timezone="America/Los_Angeles",
+            thinking="medium",
+        ),
+    )
+
+    async def fake_stream_ephemeral_subagent_run_events(**kwargs):
+        assert kwargs["spec"].spawn_mode == "fork"
+        assert kwargs["parent_message_history"] == tuple(ctx.messages)
+        yield RunStartedEvent(run_id="sub-run-1")
+        yield RunSucceededEvent(run_id="sub-run-1", output_text="done")
+
+    monkeypatch.setattr(
+        "just_another_coding_agent.tools.subagent."
+        "stream_ephemeral_subagent_run_events",
+        fake_stream_ephemeral_subagent_run_events,
+    )
+
+    result = await subagent(
+        ctx,
+        name="compaction-scan",
+        role="verification",
+        spawn_mode="fork",
+        task="Check the parent claim.",
+    )
+
+    assert isinstance(result, ToolReturn)
+    assert result.return_value["spawn_mode"] == "fork"
+
+
 async def test_subagent_fails_hard_on_empty_output(
     tmp_path,
     monkeypatch,
 ) -> None:
     ctx = _ctx(tmp_path)
     ctx.tool_name = "subagent"
+    ctx.messages = [
+        ModelRequest(parts=[UserPromptPart(content="review current compaction path")]),
+        ModelResponse(parts=[TextPart(content="I will inspect the reset flow.")]),
+    ]
     ctx.deps = WorkspaceDeps(
         workspace_root=ctx.deps.workspace_root,
         shell_family=ctx.deps.shell_family,
-        session_scope=RunSessionScope(),
+        session_scope=RunSessionScope(
+            session_id="a" * 32,
+            run_id="run-1",
+        ),
         run_frame=RunRuntimeFrame(
             model="test:model",
             current_date=date(2026, 4, 10),
@@ -412,6 +488,33 @@ async def test_subagent_fails_hard_on_empty_output(
     with pytest.raises(
         ToolOperationalError,
         match="Subagent returned empty output",
+    ):
+        await subagent(
+            ctx,
+            name="compaction-scan",
+            role="explore",
+            task="Find where compaction resets turn context.",
+        )
+
+
+async def test_subagent_rejects_root_scope_without_real_lineage(tmp_path) -> None:
+    ctx = _ctx(tmp_path)
+    ctx.tool_name = "subagent"
+    ctx.deps = WorkspaceDeps(
+        workspace_root=ctx.deps.workspace_root,
+        shell_family=ctx.deps.shell_family,
+        session_scope=RunSessionScope(),
+        run_frame=RunRuntimeFrame(
+            model="test:model",
+            current_date=date(2026, 4, 10),
+            timezone="America/Los_Angeles",
+            thinking="medium",
+        ),
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="Subagent tool requires populated root session lineage",
     ):
         await subagent(
             ctx,

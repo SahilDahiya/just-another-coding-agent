@@ -29,12 +29,29 @@ RunSessionKind: TypeAlias = Literal["root", "subagent"]
 class RunSessionScope:
     kind: RunSessionKind = "root"
     name: SessionName | None = None
+    session_id: str | None = None
+    run_id: str | None = None
     parent_session_id: str | None = None
     parent_run_id: str | None = None
+    parent_tool_call_id: str | None = None
 
     def __post_init__(self) -> None:
+        for field_name in (
+            "session_id",
+            "run_id",
+            "parent_session_id",
+            "parent_run_id",
+            "parent_tool_call_id",
+        ):
+            value = getattr(self, field_name)
+            if value == "":
+                raise ValueError(f"Run session scope {field_name} cannot be empty")
         if self.kind == "root":
-            if self.parent_session_id is not None or self.parent_run_id is not None:
+            if (
+                self.parent_session_id is not None
+                or self.parent_run_id is not None
+                or self.parent_tool_call_id is not None
+            ):
                 raise ValueError(
                     "Root session scope cannot declare parent session lineage"
                 )

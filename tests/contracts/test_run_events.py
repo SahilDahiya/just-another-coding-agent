@@ -19,7 +19,7 @@ from just_another_coding_agent.contracts.run_events import (
 from just_another_coding_agent.runtime.agent import build_canonical_agent
 from just_another_coding_agent.runtime.run import stream_run_events
 from just_another_coding_agent.tools._activity import make_tool_return
-from just_another_coding_agent.tools.deps import WorkspaceDeps
+from just_another_coding_agent.tools.deps import RunSessionScope, WorkspaceDeps
 
 
 async def hello_stream(_messages: object, _agent_info: object) -> AsyncIterator[str]:
@@ -108,6 +108,7 @@ class RecordingStreamAgent:
         self.last_model_settings = None
         self.last_usage_limits = None
         self.model = model
+        self.last_deps = None
 
     def parallel_tool_call_execution_mode(self, _mode: str):
         return nullcontext()
@@ -125,7 +126,7 @@ class RecordingStreamAgent:
     ) -> AsyncIterator[object]:
         # output_type assertion removed
         assert message_history is None
-        assert deps is None
+        self.last_deps = deps
         self.last_model_settings = model_settings
         self.last_usage_limits = usage_limits
         yield AgentRunResultEvent(result=AgentRunResult("done"))
@@ -224,6 +225,32 @@ async def test_stream_run_events_passes_explicit_unbounded_usage_limits() -> Non
         output_tokens_limit=None,
         total_tokens_limit=None,
     )
+
+
+async def test_stream_run_events_binds_run_id_into_workspace_session_scope(
+    tmp_path,
+) -> None:
+    agent = RecordingStreamAgent()
+    deps = WorkspaceDeps(
+        workspace_root=tmp_path,
+        session_scope=RunSessionScope(session_id="a" * 32),
+    )
+
+    events = [
+        event
+        async for event in stream_run_events(
+            agent=agent,
+            prompt="go",
+            deps=deps,
+        )
+    ]
+
+    assert [event.type for event in events] == ["run_started", "run_succeeded"]
+    assert isinstance(agent.last_deps, WorkspaceDeps)
+    assert agent.last_deps is not deps
+    assert agent.last_deps.session_scope.session_id == "a" * 32
+    assert agent.last_deps.session_scope.run_id == events[0].run_id
+    assert agent.last_deps.tool_update_sink is not None
 
 
 async def test_build_canonical_agent_retries_one_transient_pre_stream_failure(

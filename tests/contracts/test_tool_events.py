@@ -903,6 +903,9 @@ async def test_stream_run_events_exposes_compact_subagent_activity(
         assert kwargs["spec"].name == "compaction-scan"
         assert kwargs["spec"].role == "explore"
         assert kwargs["spec"].capability == "default"
+        assert kwargs["spec"].parent_session_id == "a" * 32
+        assert kwargs["spec"].parent_run_id is not None
+        assert kwargs["spec"].parent_tool_call_id == "call-subagent"
         assert kwargs["thinking"] == "medium"
         yield RunStartedEvent(run_id="child-run-1")
         yield ToolCallStartedEvent(
@@ -941,7 +944,7 @@ async def test_stream_run_events_exposes_compact_subagent_activity(
             deps=WorkspaceDeps(
                 workspace_root=workspace_root,
                 shell_family=_SHELL_FAMILY,
-                session_scope=RunSessionScope(),
+                session_scope=RunSessionScope(session_id="a" * 32),
                 run_frame=RunRuntimeFrame(
                     model=model,
                     current_date=date(2026, 4, 10),
@@ -977,6 +980,8 @@ async def test_stream_run_events_exposes_compact_subagent_activity(
         "kind": "subagent",
         "name": "compaction-scan",
         "role": "explore",
+        "spawn_mode": "fork",
+        "capability": "default",
         "preview_lines": [],
         "preview_terminal": False,
     }
@@ -990,6 +995,8 @@ async def test_stream_run_events_exposes_compact_subagent_activity(
         "kind": "subagent",
         "name": "compaction-scan",
         "role": "explore",
+        "spawn_mode": "fork",
+        "capability": "default",
         "preview_lines": ["read AGENTS.md"],
         "preview_terminal": False,
     }
@@ -998,6 +1005,7 @@ async def test_stream_run_events_exposes_compact_subagent_activity(
         "ok": True,
         "name": "compaction-scan",
         "role": "explore",
+        "spawn_mode": "fork",
         "capability": "default",
         "summary_text": "Found reset in runtime/compaction/resume.py",
         "output_text": (
@@ -1019,6 +1027,8 @@ async def test_stream_run_events_exposes_compact_subagent_activity(
         "kind": "subagent",
         "name": "compaction-scan",
         "role": "explore",
+        "spawn_mode": "fork",
+        "capability": "default",
         "preview_lines": [
             "read AGENTS.md",
             "Found reset in runtime/compaction/resume.py",

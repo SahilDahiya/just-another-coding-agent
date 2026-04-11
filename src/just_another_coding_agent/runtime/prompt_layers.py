@@ -136,13 +136,19 @@ _TOOL_GUIDANCE_BY_NAME = {
     "find": ("Use find for file discovery by glob pattern.",),
     "subagent": (
         (
-            "Use subagent for one bounded side task when a fresh child pass "
-            "would help."
+            "Use subagent for one bounded side task when either a fresh or "
+            "forked child pass would help."
         ),
         (
             "Good fits: locating relevant files or evidence, checking one "
             "claim against repository state, or inspecting one large "
             "artifact for the parent."
+        ),
+        (
+            "Prefer spawn_mode='fork' so the child can build on the "
+            "parent's current conversation or tool context; use "
+            "spawn_mode='fresh' only for an independent repo or artifact "
+            "pass."
         ),
         (
             "By default the child gets read, grep, find, and ls only; "

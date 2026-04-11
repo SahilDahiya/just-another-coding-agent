@@ -334,20 +334,32 @@ Initial executable tool slice:
 
 `subagent` input contract:
 
-- fields: `name`, `task`, `role`, `capability`
+- fields: `name`, `task`, `role`, `spawn_mode`, `capability`
 - `name` must be a non-empty kebab-case session name
 - `task` must be a non-empty string
 - `task` should state the exact child goal, relevant files or artifacts,
   constraints, stop condition, and desired output shape when needed
 - callers may omit `role`; omitted values default to `general`, otherwise the
   value must be one of `general`, `explore`, or `verification`
+- callers may omit `spawn_mode`; omitted values default to `fork`,
+  otherwise the value must be `fresh` or `fork`
 - callers may omit `capability`; omitted values default to `default`,
   otherwise the value must be `default` or `shell`
 
 `subagent` behavior contract:
 
 - spawns exactly one ephemeral child run and waits for it to finish before returning
-- child runs are non-recursive and fresh-context
+- child runs are non-recursive
+- root run deps carry the durable parent `session_id`, and the runtime binds the
+  active parent `run_id` before tools execute
+- child lineage must be truthful: ephemeral child scope records the real parent
+  `session_id`, real parent `run_id`, and the spawning parent `tool_call_id`
+  when available
+- `spawn_mode=fresh` gives the child a fresh runtime/project frame with no
+  inherited parent conversation history
+- `spawn_mode=fork` gives the child a sanitized snapshot of the parent's
+  current conversation history with unresolved tool calls removed and old
+  system-prompt state stripped
 - child runs inherit the parent run's workspace root, shell family, model, thinking, current date, and timezone
 - child runs never get `write` or `edit`
 - `capability=default` exposes `read`, `grep`, `find`, and `ls`
@@ -356,16 +368,21 @@ Initial executable tool slice:
 - subagent spawning is allowed only from root runs; nested child runs return an explicit tool error result
 - child output is plain text; any desired structure belongs in the parent-provided task prompt
 - empty child output returns an explicit tool error result
-- successful results return an object with `ok: true`, `name`, `role`, `capability`,
-  backend-derived `summary_text`, and raw `output_text`
+- successful results return an object with `ok: true`, `name`, `role`,
+  `spawn_mode`, `capability`, backend-derived `summary_text`, and raw
+  `output_text`
 - child run failures surface as explicit tool error results rather than crashing the parent run
 - parent guidance should treat subagent as a focused delegation tool:
-  use it for one bounded subquestion, request `shell` only when the child
-  needs local commands or scripts, and avoid broad multi-step work
+  use it for one bounded subquestion, prefer `spawn_mode=fork` so the child
+  can build on the parent's current conversation context, use
+  `spawn_mode=fresh` only for an independent repo/artifact pass, request
+  `shell` only when the child needs local commands or scripts, and avoid
+  broad multi-step work
 - parent transcript rendering for subagent work is backend-owned and compact:
-  streamed activity carries bounded `preview_lines` plus `preview_terminal`
-  so clients can render one stable parent block with optional `|` / `└`
-  detail lines instead of replaying the child transcript
+  streamed activity carries typed child semantics (`role`, `spawn_mode`,
+  `capability`) plus bounded `preview_lines` and `preview_terminal` so
+  clients can render one stable parent block with optional `|` / `└` detail
+  lines instead of replaying the child transcript
 
 ## Streamed Event Contract
 

@@ -79,6 +79,15 @@ child always lacks `write` and `edit`; `shell` is optional and must be
 requested explicitly through the backend-owned subagent contract. If subagent
 behavior later grows into public session or RPC semantics, that contract must
 be made explicit in Python first rather than being inferred in Go.
+Even while child runs stay ephemeral, their lineage must still be real.
+Root-session deps carry the durable session id, `runtime/run.py` binds the
+active run id before tools execute, and ephemeral child scope records the real
+parent session/run provenance instead of placeholder values.
+Subagent context inheritance is also explicit now: `spawn_mode=fork` is the
+default and inherits a sanitized snapshot of the parent's current message
+history, while `spawn_mode=fresh` rebuilds only the fresh runtime/project
+frame. The fork path must strip unresolved tool calls and old system-prompt
+state before reuse so child history stays valid and backend-owned.
 The child-to-parent contract is also Python-owned: the child must return one
 plain-text report, while the backend derives only a compact summary line for
 transcript rendering. If the parent needs a stricter report shape, it must ask
@@ -88,8 +97,9 @@ parent to write detailed child tasks with the exact goal, relevant artifacts,
 constraints, stop condition, and desired output shape when needed.
 The transcript slice for subagent work follows the same ownership rule:
 Python emits one compact parent activity with bounded preview lines, and Go
-only renders that typed detail block. The shell must not stream or infer child
-transcript semantics locally.
+only renders that typed detail block. Role, spawn mode, and capability are now
+backend-owned child semantics in that activity contract, so the shell must not
+stream or infer child transcript semantics locally.
 The canonical prompt must also enforce side-effect truthfulness and verification discipline: the model must not claim to have created or modified files without tool evidence, and it should run the smallest relevant verification step before concluding after code changes or required file outputs.
 The canonical runtime should expose `thinking` as an explicit run setting and pass it through PydanticAI model settings rather than encoding reasoning level in prompt text.
 The canonical runtime should resolve model strings through one local model seam before agent construction so provider-native retries, instrumentation, and OpenAI-specific settings stay centralized instead of leaking through the runtime.

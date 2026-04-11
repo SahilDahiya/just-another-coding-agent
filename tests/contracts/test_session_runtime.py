@@ -467,6 +467,60 @@ async def test_stream_session_run_events_resumes_session_created_on_other_shell_
     assert loaded.latest_turn_context.shell_family == "powershell"
 
 
+async def test_stream_session_run_events_passes_root_session_id_in_deps(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    session_path = tmp_path / "session-id-target.jsonl"
+    captured: dict[str, object] = {}
+
+    async def fake_stream_run_events(
+        *,
+        agent,
+        prompt,
+        message_history=None,
+        instructions=None,
+        thinking=None,
+        deps=None,
+        message_history_sink=None,
+    ):
+        del (
+            agent,
+            prompt,
+            message_history,
+            instructions,
+            thinking,
+            message_history_sink,
+        )
+        captured["deps"] = deps
+        yield RunStartedEvent(run_id="run-1")
+        yield RunSucceededEvent(run_id="run-1", output_text="done")
+
+    monkeypatch.setattr(
+        "just_another_coding_agent.runtime.session.stream_run_events",
+        fake_stream_run_events,
+    )
+
+    _ = [
+        event
+        async for event in stream_session_run_events(
+            model=FunctionModel(stream_function=text_only_stream),
+            workspace_root=workspace_root,
+            session_path=session_path,
+            prompt="go",
+        )
+    ]
+
+    deps = captured["deps"]
+    assert isinstance(deps, WorkspaceDeps)
+    assert deps.session_scope.session_id == session_path.stem
+    assert deps.session_scope.run_id is None
+    assert deps.session_scope.parent_session_id is None
+    assert deps.session_scope.parent_run_id is None
+
+
 async def test_stream_session_run_events_resumes_with_pydanticai_message_history(
     tmp_path,
 ) -> None:
@@ -1252,7 +1306,11 @@ async def test_stream_session_run_events_inherits_last_persisted_thinking_when_o
     assert status.reason == "missing"
     assert captured["prompt"] == "second"
     assert captured["thinking"] == "high"
-    assert captured["deps"] == WorkspaceDeps.from_workspace_root(workspace_root)
+    deps = captured["deps"]
+    assert isinstance(deps, WorkspaceDeps)
+    assert deps.workspace_root == workspace_root.resolve()
+    assert deps.session_scope.session_id == session_path.stem
+    assert deps.session_scope.run_id is None
     assert _project_doc_texts(captured["message_history"]) == []
     assert _runtime_context_texts(captured["message_history"]) == [
         _expected_runtime_context_message_content(

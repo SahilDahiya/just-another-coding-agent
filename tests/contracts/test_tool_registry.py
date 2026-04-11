@@ -292,9 +292,11 @@ def test_build_canonical_toolset_exposes_rich_model_facing_tool_descriptions(
         "Run one ephemeral subagent for a bounded side task. Use it for "
         "focused investigation or verification, not broad multi-step work. "
         "The child uses the same workspace, model, and thinking, never gets "
-        "write or edit, and returns one final report. Request capability="
-        "'shell' when the child needs local commands or scripts beyond "
-        "read, grep, find, and ls."
+        "write or edit, and returns one final report. Default to "
+        "spawn_mode='fork' so the child can build on the parent's current "
+        "conversation context; use 'fresh' only for an independent pass. "
+        "Request capability='shell' when the child needs local commands or "
+        "scripts beyond read, grep, find, and ls."
     )
     assert (
         function_tools["subagent"].parameters_json_schema["properties"]["name"][
@@ -310,6 +312,16 @@ def test_build_canonical_toolset_exposes_rich_model_facing_tool_descriptions(
             "Bounded task for the child run to complete. Include the exact "
             "goal, relevant files or artifacts, constraints, stop condition, "
             "and desired report shape when needed."
+        )
+    )
+    assert (
+        function_tools["subagent"].parameters_json_schema["properties"][
+            "spawn_mode"
+        ]["description"]
+        == (
+            "Child context mode. Defaults to 'fork' so the child "
+            "inherits the parent's current conversation context; use "
+            "'fresh' for an independent clean-room pass."
         )
     )
     assert (

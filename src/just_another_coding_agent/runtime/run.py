@@ -169,6 +169,22 @@ def _build_unbounded_usage_limits() -> UsageLimits:
     )
 
 
+def _bind_workspace_deps_to_run(
+    *,
+    deps: WorkspaceDeps,
+    run_id: str,
+    tool_update_sink: Callable[[str, str, JsonValue | None], Awaitable[None]] | None,
+) -> WorkspaceDeps:
+    return replace(
+        deps,
+        session_scope=replace(
+            deps.session_scope,
+            run_id=run_id,
+        ),
+        tool_update_sink=tool_update_sink,
+    )
+
+
 def _build_run_succeeded_event(
     *,
     run_id: str,
@@ -224,10 +240,9 @@ async def _stream_run_events_with_steer(
         saw_streamed_event = False
         terminal_emitted = False
         attempt_history_count = len(current_message_history)
+        queue: asyncio.Queue[object] = asyncio.Queue()
         queued_deps = deps
         if isinstance(deps, WorkspaceDeps):
-            queue: asyncio.Queue[object] = asyncio.Queue()
-
             async def _queue_tool_update(
                 tool_call_id: str,
                 tool_name: str,
@@ -240,8 +255,11 @@ async def _stream_run_events_with_steer(
                         partial_result=partial_result,
                     )
                 )
-
-            queued_deps = replace(deps, tool_update_sink=_queue_tool_update)
+            queued_deps = _bind_workspace_deps_to_run(
+                deps=deps,
+                run_id=run_id,
+                tool_update_sink=_queue_tool_update,
+            )
         else:
             queue = asyncio.Queue()
 
@@ -765,8 +783,9 @@ async def _stream_run_events_inner(
 
         queued_deps = deps
         if isinstance(deps, WorkspaceDeps):
-            queued_deps = replace(
-                deps,
+            queued_deps = _bind_workspace_deps_to_run(
+                deps=deps,
+                run_id=run_id,
                 tool_update_sink=_queue_tool_update,
             )
 

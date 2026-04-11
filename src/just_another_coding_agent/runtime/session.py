@@ -69,7 +69,11 @@ from just_another_coding_agent.session.replacement_history import (
     strip_internal_prompt_state,
 )
 from just_another_coding_agent.tools._workspace import normalize_workspace_root
-from just_another_coding_agent.tools.deps import RunRuntimeFrame, WorkspaceDeps
+from just_another_coding_agent.tools.deps import (
+    RunRuntimeFrame,
+    RunSessionScope,
+    WorkspaceDeps,
+)
 
 MAX_CONSECUTIVE_AUTO_COMPACTION_FAILURES = 3
 
@@ -440,6 +444,7 @@ async def stream_session_run_events(
                 deps=WorkspaceDeps(
                     workspace_root=normalized_workspace_root,
                     shell_family=shell_family,
+                    session_scope=RunSessionScope(session_id=session_path.stem),
                     run_frame=RunRuntimeFrame(
                         model=model,
                         current_date=current_date,
