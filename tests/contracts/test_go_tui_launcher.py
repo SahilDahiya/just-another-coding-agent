@@ -871,3 +871,54 @@ def test_run_tui_skips_update_check_for_non_tty_streams(
         "--sessions-root",
         str(sessions_root.resolve()),
     ]
+
+
+def test_run_tui_bootstraps_windows_search_tools_before_launch(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    go_binary = tmp_path / ("jaca-go.exe" if os.name == "nt" else "jaca-go")
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        entry,
+        "resolve_go_tui_launch",
+        lambda: ([str(go_binary)], None),
+    )
+    monkeypatch.setattr(entry, "package_version", lambda: "0.1.5")
+    monkeypatch.setattr(
+        entry,
+        "default_backend_command",
+        lambda: ["/tmp/fake-python", "-m", "just_another_coding_agent"],
+    )
+    monkeypatch.setattr(
+        entry,
+        "bootstrap_windows_search_tools",
+        lambda *, writer: captured.setdefault("writer", writer),
+    )
+
+    def fake_run(command, *, check, cwd=None):
+        captured["command"] = command
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(
+        "just_another_coding_agent.__main__.subprocess.run",
+        fake_run,
+    )
+
+    output_stream = _TTYBuffer()
+    exit_code = entry._run_tui(
+        model="openai:test-model",
+        workspace_root=workspace_root.resolve(),
+        sessions_root=sessions_root.resolve(),
+        thinking=None,
+        input_stream=_TTYBuffer("\n"),
+        output_stream=output_stream,
+    )
+
+    assert exit_code == 0
+    assert captured["writer"] is output_stream
+    assert captured["command"][0] == str(go_binary)

@@ -331,3 +331,51 @@ async def test_execute_shell_uses_posix_runner_for_posix_shell_family(
 
     assert result == {"exit_code": 0, "output": "ok"}
     assert observed["args"][:2] == ("bash", "-lc")
+
+
+async def test_execute_shell_uses_managed_tool_env(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    observed: dict[str, object] = {}
+
+    class _FakeStdout:
+        async def read(self, _count: int) -> bytes:
+            if observed.get("read_once"):
+                return b""
+            observed["read_once"] = True
+            return b"ok"
+
+    class _FakeProcess:
+        def __init__(self) -> None:
+            self.pid = 123
+            self.returncode = 0
+            self.stdout = _FakeStdout()
+
+        async def wait(self) -> int:
+            return 0
+
+    async def fake_create_subprocess_exec(*args, **kwargs):
+        observed["kwargs"] = kwargs
+        return _FakeProcess()
+
+    monkeypatch.setattr(
+        shell_module,
+        "build_tool_process_env",
+        lambda: {"PATH": "managed-bin"},
+    )
+    monkeypatch.setattr(
+        "just_another_coding_agent.tools.shell.asyncio.create_subprocess_exec",
+        fake_create_subprocess_exec,
+    )
+
+    result = await execute_shell(
+        workspace_root=workspace_root,
+        command="pwd",
+        shell_family="posix",
+    )
+
+    assert result == {"exit_code": 0, "output": "ok"}
+    assert observed["kwargs"]["env"] == {"PATH": "managed-bin"}

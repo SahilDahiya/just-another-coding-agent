@@ -26,6 +26,9 @@ from just_another_coding_agent.tools.truncation import (
     append_tool_note,
     truncate_tail_text,
 )
+from just_another_coding_agent.tools.windows_search_tools import (
+    build_tool_process_env,
+)
 
 SHELL_MAX_LINES = 2000
 SHELL_MAX_BYTES = 50 * 1024
@@ -200,6 +203,7 @@ async def execute_shell(
         cwd=str(workspace_root),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
+        env=build_tool_process_env(),
         start_new_session=(shell_family == "posix"),
         **_shell_process_kwargs(shell_family),
     )

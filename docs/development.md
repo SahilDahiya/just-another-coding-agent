@@ -82,6 +82,9 @@ canonical Python headless backend.
 - Copy `.env.example` to `.env` if you need local provider credentials.
 - For interactive local use, API keys belong in `~/.jaca/auth.json`, not in
   `~/.jaca/config.json`.
+- On Windows interactive startup, JACA now bootstraps missing `fd.exe` and
+  `rg.exe` into `~/.jaca/bin` before normal use and prepends that directory to
+  the PATH used for JACA-managed subprocesses.
 - Environment variables remain the canonical override for headless,
   evaluation, and CI flows.
 - Current foundation expects:

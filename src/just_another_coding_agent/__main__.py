@@ -34,6 +34,10 @@ from just_another_coding_agent.runtime.observability import (
     configure_observability,
 )
 from just_another_coding_agent.tools._workspace import normalize_workspace_root
+from just_another_coding_agent.tools.windows_search_tools import (
+    apply_managed_tool_path,
+    bootstrap_windows_search_tools,
+)
 
 
 def main(
@@ -276,6 +280,7 @@ def _run_headless(
     input_stream: TextIO | None,
     output_stream: TextIO | None,
 ) -> int:
+    apply_managed_tool_path()
     configure_observability()
     try:
         asyncio.run(
@@ -314,6 +319,9 @@ def _run_tui(
         output_stream=output_stream,
     ):
         return 0
+    bootstrap_windows_search_tools(
+        writer=sys.stdout if output_stream is None else output_stream
+    )
     command = [
         *launch_command,
         "--backend-command-json",

@@ -13,11 +13,20 @@ from just_another_coding_agent.tools.read_only_worker.protocol import (
     WorkerRequest,
     WorkerResponse,
 )
+from just_another_coding_agent.tools.windows_search_tools import (
+    build_tool_process_env,
+)
 
 
 class ReadOnlyWorkerRuntime:
-    def __init__(self, command: Sequence[str] | None = None) -> None:
+    def __init__(
+        self,
+        command: Sequence[str] | None = None,
+        *,
+        env: dict[str, str] | None = None,
+    ) -> None:
         self._command = tuple(command) if command is not None else None
+        self._env = dict(env) if env is not None else None
         self._client: ReadOnlyWorkerClient | None = None
         self._lock = asyncio.Lock()
 
@@ -44,7 +53,14 @@ class ReadOnlyWorkerRuntime:
                 if self._command is not None
                 else resolve_read_only_worker_command()
             )
-            client = ReadOnlyWorkerClient(command)
+            client = ReadOnlyWorkerClient(
+                command,
+                env=(
+                    dict(self._env)
+                    if self._env is not None
+                    else build_tool_process_env()
+                ),
+            )
             await client.start()
             self._client = client
             return client

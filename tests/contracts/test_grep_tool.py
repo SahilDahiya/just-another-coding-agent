@@ -4,6 +4,7 @@ import shutil
 
 import pytest
 
+from just_another_coding_agent.tools import grep as grep_module
 from just_another_coding_agent.tools.errors import ToolPathError
 from just_another_coding_agent.tools.grep import grep
 from tests.contracts.read_only_tool_test_support import (
@@ -73,3 +74,18 @@ async def test_grep_tool_respects_global_match_limit(tmp_path) -> None:
         "alpha.txt:2:needle two\n\n"
         "[Showing first 2 matches. Refine pattern or path to narrow results.]"
     )
+
+
+async def test_grep_tool_bootstrap_failure_is_fatal(tmp_path, monkeypatch) -> None:
+    ctx = worker_ctx(tmp_path)
+    monkeypatch.setattr(
+        grep_module,
+        "ensure_windows_search_tool",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("bootstrap failed")),
+    )
+
+    try:
+        with pytest.raises(RuntimeError, match="bootstrap failed"):
+            await grep(ctx, "needle")
+    finally:
+        await ctx.deps.read_only_worker.close()

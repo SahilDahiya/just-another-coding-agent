@@ -24,6 +24,9 @@ from just_another_coding_agent.tools.read_only_worker.runtime import (
 from just_another_coding_agent.tools.truncation import (
     append_tool_note,
 )
+from just_another_coding_agent.tools.windows_search_tools import (
+    ensure_windows_search_tool,
+)
 
 FIND_DEFAULT_LIMIT = 1000
 FIND_MAX_BYTES = 50 * 1024
@@ -90,6 +93,7 @@ async def find(
         limit: Maximum number of results to return before find's own byte
             ceiling is applied.
     """
+    ensure_windows_search_tool("rg", silent=True)
 
     result = await _execute_find_async(
         read_only_worker=ctx.deps.read_only_worker,

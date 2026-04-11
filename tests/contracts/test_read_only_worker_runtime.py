@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+from just_another_coding_agent.tools.read_only_worker import runtime as runtime_module
 from just_another_coding_agent.tools.read_only_worker.protocol import (
     ReadCallResult,
     ReadWorkerRequest,
@@ -95,3 +96,54 @@ async def test_read_only_worker_runtime_reuses_a_single_worker_process(
     assert isinstance(first, ReadCallResult)
     assert isinstance(second, ReadCallResult)
     assert counter_path.read_text(encoding="utf-8").splitlines() == ["started"]
+
+
+async def test_read_only_worker_runtime_uses_managed_tool_env(
+    monkeypatch,
+) -> None:
+    observed: dict[str, object] = {}
+
+    class _FakeClient:
+        def __init__(self, command, *, env=None) -> None:
+            observed["command"] = command
+            observed["env"] = env
+
+        async def start(self):
+            return self
+
+        async def send(self, message):
+            return message
+
+        async def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(
+        runtime_module,
+        "ReadOnlyWorkerClient",
+        _FakeClient,
+    )
+    monkeypatch.setattr(
+        runtime_module,
+        "build_tool_process_env",
+        lambda: {"PATH": "managed-bin"},
+    )
+
+    runtime = ReadOnlyWorkerRuntime(command=["worker"])
+    try:
+        result = await runtime.send(
+            ReadWorkerRequest(
+                request_id="read-1",
+                workspace_root="/workspace",
+                path="note.txt",
+                offset=1,
+                limit=1,
+                max_lines=2000,
+                max_bytes=50 * 1024,
+            )
+        )
+    finally:
+        await runtime.close()
+
+    assert isinstance(result, ReadWorkerRequest)
+    assert observed["command"] == ["worker"]
+    assert observed["env"] == {"PATH": "managed-bin"}

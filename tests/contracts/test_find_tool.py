@@ -4,6 +4,7 @@ import shutil
 
 import pytest
 
+from just_another_coding_agent.tools import find as find_module
 from just_another_coding_agent.tools.errors import ToolPathError
 from just_another_coding_agent.tools.find import find
 from tests.contracts.read_only_tool_test_support import (
@@ -86,3 +87,18 @@ async def test_find_tool_respects_result_limit(tmp_path) -> None:
         "alpha.py\nbeta.py\n\n"
         "[Showing first 2 results. Use limit=4 for more or refine the pattern.]"
     )
+
+
+async def test_find_tool_bootstrap_failure_is_fatal(tmp_path, monkeypatch) -> None:
+    ctx = worker_ctx(tmp_path)
+    monkeypatch.setattr(
+        find_module,
+        "ensure_windows_search_tool",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("bootstrap failed")),
+    )
+
+    try:
+        with pytest.raises(RuntimeError, match="bootstrap failed"):
+            await find(ctx, "*.py")
+    finally:
+        await ctx.deps.read_only_worker.close()

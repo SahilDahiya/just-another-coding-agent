@@ -24,6 +24,9 @@ from just_another_coding_agent.tools.read_only_worker.runtime import (
 from just_another_coding_agent.tools.truncation import (
     append_tool_note,
 )
+from just_another_coding_agent.tools.windows_search_tools import (
+    ensure_windows_search_tool,
+)
 
 GREP_MAX_MATCHES = 100
 GREP_MAX_BYTES = 50 * 1024
@@ -116,6 +119,7 @@ async def grep(
         limit: Maximum number of matches to return before grep's own output
             ceiling is applied.
     """
+    ensure_windows_search_tool("rg", silent=True)
 
     result = await _execute_grep_async(
         read_only_worker=ctx.deps.read_only_worker,
