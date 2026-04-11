@@ -9,7 +9,7 @@ SCRIPT_PATH = (
     Path(__file__).resolve().parents[2]
     / "evaluations"
     / "scripts"
-    / "run_tb2_submission_glm5_slice.sh"
+    / "run_tb2_submission_slice.sh"
 )
 GIT_BASH_PATH = Path(r"C:\Program Files\Git\bin\bash.exe")
 
@@ -140,7 +140,7 @@ def _launcher_env(tmp_path: Path) -> dict[str, str]:
             "OLLAMA_API_KEY": "test-key",
             "MODEL": "ollama:glm-5:cloud",
             "JOBS_DIR": str(tmp_path / "jobs"),
-            "SUBMISSION_ID": "glm5-test",
+            "SUBMISSION_ID": "submission-test",
             "TARGET_TRIALS": "5",
             "PASSES_PER_RUN": "1",
             "TASK_FILE": _bash_path(task_file),
@@ -184,9 +184,9 @@ def test_slice_launcher_records_completed_first_pass_and_task_names(
     invocations = _parse_harbor_invocations(Path(env["HARBOR_LOG"]))
 
     assert len(completed_jobs) == 1
-    assert completed_jobs[0].startswith("glm5-test-slice-a-pass-1-")
+    assert completed_jobs[0].startswith("submission-test-slice-a-pass-1-")
     assert invocations[0][invocations[0].index("--job-name") + 1].startswith(
-        "glm5-test-slice-a-pass-1-"
+        "submission-test-slice-a-pass-1-"
     )
     assert invocations[0][invocations[0].index("--n-attempts") + 1] == "1"
     assert invocations[0].count("--task-name") == 3
@@ -228,8 +228,12 @@ def test_slice_launcher_resumes_from_last_completed_pass(tmp_path: Path) -> None
     )
     completed_jobs = (bundle_dir / "completed-jobs.txt").read_text().splitlines()
     assert len(completed_jobs) == 2
-    assert any(job.startswith("glm5-test-slice-a-pass-1-") for job in completed_jobs)
-    assert any(job.startswith("glm5-test-slice-a-pass-2-") for job in completed_jobs)
+    assert any(
+        job.startswith("submission-test-slice-a-pass-1-") for job in completed_jobs
+    )
+    assert any(
+        job.startswith("submission-test-slice-a-pass-2-") for job in completed_jobs
+    )
 
 
 def test_slice_launcher_status_does_not_start_harbor(tmp_path: Path) -> None:
@@ -258,8 +262,8 @@ def test_slice_launcher_status_does_not_start_harbor(tmp_path: Path) -> None:
         )
     )
     (bundle_dir / "completed-jobs.txt").write_text(
-        "glm5-test-slice-a-pass-1-20260327-000001\n"
-        "glm5-test-slice-a-pass-2-20260327-000002\n"
+        "submission-test-slice-a-pass-1-20260327-000001\n"
+        "submission-test-slice-a-pass-2-20260327-000002\n"
     )
 
     result = subprocess.run(

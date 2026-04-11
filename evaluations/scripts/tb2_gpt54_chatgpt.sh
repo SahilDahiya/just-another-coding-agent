@@ -14,4 +14,4 @@ export JUST_ANOTHER_CODING_AGENT_THINKING="$THINKING"
 export SUBMISSION_ID
 export N_CONCURRENT
 
-exec "$REPO_ROOT/evaluations/scripts/tb2_glm5.sh" "$@"
+exec "$REPO_ROOT/evaluations/scripts/tb2_submission.sh" "$@"

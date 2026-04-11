@@ -160,23 +160,23 @@ Notes:
 For day-to-day use, prefer the short harness:
 
 ```bash
-evaluations/scripts/tb2_glm5.sh
+evaluations/scripts/tb2_submission.sh
 ```
 
-It wraps the longer launchers and gives you two commands:
+It wraps the longer neutral launchers and gives you two commands:
 
 ```bash
 # Full-dataset run/status.
-evaluations/scripts/tb2_glm5.sh run <submission-id>
-evaluations/scripts/tb2_glm5.sh status <submission-id>
+MODEL=<model> evaluations/scripts/tb2_submission.sh run <submission-id>
+MODEL=<model> evaluations/scripts/tb2_submission.sh status <submission-id>
 
 # One or more slices from task files.
-evaluations/scripts/tb2_glm5.sh run <submission-id> tasks/a.txt
-evaluations/scripts/tb2_glm5.sh status <submission-id> tasks/a.txt
-evaluations/scripts/tb2_glm5.sh run <submission-id> tasks/a.txt tasks/b.txt tasks/c.txt
+MODEL=<model> evaluations/scripts/tb2_submission.sh run <submission-id> tasks/a.txt
+MODEL=<model> evaluations/scripts/tb2_submission.sh status <submission-id> tasks/a.txt
+MODEL=<model> evaluations/scripts/tb2_submission.sh run <submission-id> tasks/a.txt tasks/b.txt tasks/c.txt
 
 # Optional number of passes to run in one invocation.
-evaluations/scripts/tb2_glm5.sh run <submission-id> --passes 2 tasks/a.txt
+MODEL=<model> evaluations/scripts/tb2_submission.sh run <submission-id> --passes 2 tasks/a.txt
 ```
 
 What it does:
@@ -189,24 +189,42 @@ What it does:
 Examples:
 
 ```bash
-# Run the next full pass.
-evaluations/scripts/tb2_glm5.sh run glm5-high
+# Run the next full pass with an explicit model.
+MODEL=openai-responses:gpt-5.4-chatgpt evaluations/scripts/tb2_submission.sh run chatgpt-high
 
 # Check full-bundle status.
-evaluations/scripts/tb2_glm5.sh status glm5-high
+MODEL=openai-responses:gpt-5.4-chatgpt evaluations/scripts/tb2_submission.sh status chatgpt-high
 
 # Run one pass for three fixed slices.
-evaluations/scripts/tb2_glm5.sh run glm5-high tasks/a.txt tasks/b.txt tasks/c.txt
+MODEL=openai-responses:gpt-5.4-chatgpt evaluations/scripts/tb2_submission.sh run chatgpt-high tasks/a.txt tasks/b.txt tasks/c.txt
 
 # Check one slice.
-evaluations/scripts/tb2_glm5.sh status glm5-high tasks/a.txt
+MODEL=openai-responses:gpt-5.4-chatgpt evaluations/scripts/tb2_submission.sh status chatgpt-high tasks/a.txt
 ```
+
+Model-specific convenience wrappers are also available:
+
+- `evaluations/scripts/tb2_glm5.sh`
+- `evaluations/scripts/tb2_gpt54_chatgpt.sh`
 
 Starter slice files can live at:
 
 - `tasks/a.txt`
 - `tasks/b.txt`
 - `tasks/c.txt`
+
+For the dedicated GLM-5 submission lane, use:
+
+```bash
+evaluations/scripts/tb2_glm5.sh
+```
+
+It presets:
+
+- `MODEL=ollama:glm-5:cloud`
+- `JUST_ANOTHER_CODING_AGENT_THINKING=high`
+- `SUBMISSION_ID=glm5-high`
+- `N_CONCURRENT=5`
 
 For the dedicated ChatGPT `gpt-5.4` submission lane, use:
 
@@ -231,17 +249,17 @@ evaluations/scripts/tb2_gpt54_chatgpt.sh run gpt54-chatgpt-high --passes 1 tasks
 
 ## Full Submission Run
 
-For the full Terminal Bench 2.0 submission-style GLM-5 run, use the checked-in
-launcher:
+For the full Terminal Bench 2.0 submission-style run, use the checked-in
+generic launcher:
 
 ```bash
-evaluations/scripts/run_tb2_submission_glm5.sh
+evaluations/scripts/run_tb2_submission.sh
 ```
 
 What it does:
 
 - loads `.env` if present
-- defaults to `ollama:glm-5:cloud`
+- requires `MODEL` to be set explicitly unless you use a model-specific wrapper
 - defaults to `JUST_ANOTHER_CODING_AGENT_THINKING=high`
 - treats a submission as a bundle of intact Harbor jobs, one trial-per-task pass
   per job
@@ -271,16 +289,16 @@ Useful knobs:
 
 ```bash
 # Show bundle status without starting Harbor.
-ACTION=status evaluations/scripts/run_tb2_submission_glm5.sh
+MODEL=openai-responses:gpt-5.4-chatgpt ACTION=status evaluations/scripts/run_tb2_submission.sh
 
 # Use a stable bundle id across reruns.
-SUBMISSION_ID=glm5-high evaluations/scripts/run_tb2_submission_glm5.sh
+MODEL=openai-responses:gpt-5.4-chatgpt SUBMISSION_ID=chatgpt-high evaluations/scripts/run_tb2_submission.sh
 
 # Run two completed passes in one invocation.
-PASSES_PER_RUN=2 evaluations/scripts/run_tb2_submission_glm5.sh
+MODEL=openai-responses:gpt-5.4-chatgpt PASSES_PER_RUN=2 evaluations/scripts/run_tb2_submission.sh
 
 # Change the target number of trials per task.
-TARGET_TRIALS=5 evaluations/scripts/run_tb2_submission_glm5.sh
+MODEL=openai-responses:gpt-5.4-chatgpt TARGET_TRIALS=5 evaluations/scripts/run_tb2_submission.sh
 ```
 
 ## Final Submission Preflight
@@ -348,8 +366,8 @@ Submission guidance:
 If you want to submit in batches, use the slice launcher:
 
 ```bash
-TASK_FILE=tasks/slice-a.txt SUBMISSION_ID=glm5-high \
-evaluations/scripts/run_tb2_submission_glm5_slice.sh
+MODEL=openai-responses:gpt-5.4-chatgpt TASK_FILE=tasks/slice-a.txt SUBMISSION_ID=chatgpt-high \
+evaluations/scripts/run_tb2_submission_slice.sh
 ```
 
 The task file must be newline-delimited:
@@ -380,16 +398,16 @@ Useful commands:
 
 ```bash
 # Show status for one slice.
-ACTION=status TASK_FILE=tasks/slice-a.txt SUBMISSION_ID=glm5-high \
-evaluations/scripts/run_tb2_submission_glm5_slice.sh
+MODEL=openai-responses:gpt-5.4-chatgpt ACTION=status TASK_FILE=tasks/slice-a.txt SUBMISSION_ID=chatgpt-high \
+evaluations/scripts/run_tb2_submission_slice.sh
 
 # Run two slice passes back-to-back.
-PASSES_PER_RUN=2 TASK_FILE=tasks/slice-a.txt SUBMISSION_ID=glm5-high \
-evaluations/scripts/run_tb2_submission_glm5_slice.sh
+MODEL=openai-responses:gpt-5.4-chatgpt PASSES_PER_RUN=2 TASK_FILE=tasks/slice-a.txt SUBMISSION_ID=chatgpt-high \
+evaluations/scripts/run_tb2_submission_slice.sh
 
 # Override the derived slice name if needed.
-SLICE_NAME=first-50 TASK_FILE=tasks/slice-a.txt SUBMISSION_ID=glm5-high \
-evaluations/scripts/run_tb2_submission_glm5_slice.sh
+MODEL=openai-responses:gpt-5.4-chatgpt SLICE_NAME=first-50 TASK_FILE=tasks/slice-a.txt SUBMISSION_ID=chatgpt-high \
+evaluations/scripts/run_tb2_submission_slice.sh
 ```
 
 Submission guidance for slices:

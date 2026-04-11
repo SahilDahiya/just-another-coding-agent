@@ -9,7 +9,7 @@ SCRIPT_PATH = (
     Path(__file__).resolve().parents[2]
     / "evaluations"
     / "scripts"
-    / "run_tb2_submission_glm5.sh"
+    / "run_tb2_submission.sh"
 )
 GIT_BASH_PATH = Path(r"C:\Program Files\Git\bin\bash.exe")
 
@@ -132,7 +132,7 @@ def _launcher_env(tmp_path: Path) -> dict[str, str]:
             "MODEL": "ollama:glm-5:cloud",
             "JOBS_DIR": str(tmp_path / "jobs"),
             "SUBMISSION_BUNDLE_DIR": str(tmp_path / "bundle"),
-            "SUBMISSION_ID": "glm5-test",
+            "SUBMISSION_ID": "submission-test",
             "PASSES_PER_RUN": "1",
             "TARGET_TRIALS": "5",
             "HARBOR_LOG": str(harbor_log),
@@ -167,14 +167,16 @@ def test_submission_launcher_records_completed_first_pass(tmp_path: Path) -> Non
     invocations = _parse_harbor_invocations(Path(env["HARBOR_LOG"]))
 
     assert completed_jobs_path.read_text().splitlines() == [
-        next(arg for arg in invocations[0] if arg.startswith("glm5-test-pass-1-"))
+        next(
+            arg for arg in invocations[0] if arg.startswith("submission-test-pass-1-")
+        )
     ]
     assert "BUNDLE_MODEL=ollama:glm-5:cloud" in bundle_config_path.read_text()
     assert "--n-attempts" in invocations[0]
     assert invocations[0][invocations[0].index("--n-attempts") + 1] == "1"
     assert "--job-name" in invocations[0]
     assert invocations[0][invocations[0].index("--job-name") + 1].startswith(
-        "glm5-test-pass-1-"
+        "submission-test-pass-1-"
     )
 
 
@@ -205,13 +207,19 @@ def test_submission_launcher_resumes_from_last_completed_pass(tmp_path: Path) ->
     invocations = _parse_harbor_invocations(Path(env["HARBOR_LOG"]))
 
     assert len(completed_jobs) == 2
-    assert any(job_name.startswith("glm5-test-pass-1-") for job_name in completed_jobs)
-    assert any(job_name.startswith("glm5-test-pass-2-") for job_name in completed_jobs)
+    assert any(
+        job_name.startswith("submission-test-pass-1-")
+        for job_name in completed_jobs
+    )
+    assert any(
+        job_name.startswith("submission-test-pass-2-")
+        for job_name in completed_jobs
+    )
     assert invocations[0][invocations[0].index("--job-name") + 1].startswith(
-        "glm5-test-pass-1-"
+        "submission-test-pass-1-"
     )
     assert invocations[1][invocations[1].index("--job-name") + 1].startswith(
-        "glm5-test-pass-2-"
+        "submission-test-pass-2-"
     )
 
 
@@ -232,7 +240,8 @@ def test_submission_launcher_status_does_not_start_harbor(tmp_path: Path) -> Non
         )
     )
     (bundle_dir / "completed-jobs.txt").write_text(
-        "glm5-test-pass-1-20260327-000001\nglm5-test-pass-2-20260327-000002\n"
+        "submission-test-pass-1-20260327-000001\n"
+        "submission-test-pass-2-20260327-000002\n"
     )
     env["ACTION"] = "status"
 

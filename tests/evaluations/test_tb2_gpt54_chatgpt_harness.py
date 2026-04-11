@@ -23,7 +23,7 @@ def _copy_harness(tmp_path: Path) -> tuple[Path, Path]:
     scripts_dir = repo_root / "evaluations" / "scripts"
     scripts_dir.mkdir(parents=True)
     harness_path = scripts_dir / SCRIPT_PATH.name
-    delegated_path = scripts_dir / "tb2_glm5.sh"
+    delegated_path = scripts_dir / "tb2_submission.sh"
     harness_path.write_text(
         SCRIPT_PATH.read_text(encoding="utf-8").replace("\r\n", "\n"),
         encoding="utf-8",

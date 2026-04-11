@@ -5,7 +5,10 @@ from pathlib import Path
 import pytest
 
 SCRIPT_PATH = (
-    Path(__file__).resolve().parents[2] / "evaluations" / "scripts" / "tb2_glm5.sh"
+    Path(__file__).resolve().parents[2]
+    / "evaluations"
+    / "scripts"
+    / "tb2_submission.sh"
 )
 GIT_BASH_PATH = Path(r"C:\Program Files\Git\bin\bash.exe")
 
@@ -92,15 +95,15 @@ def _write_stub_launcher(path: Path, label: str) -> None:
 def test_harness_run_full_delegates_to_full_launcher(tmp_path: Path) -> None:
     harness_path = _copy_harness(tmp_path)
     scripts_dir = harness_path.parent
-    _write_stub_launcher(scripts_dir / "run_tb2_submission_glm5.sh", "full")
-    _write_stub_launcher(scripts_dir / "run_tb2_submission_glm5_slice.sh", "slice")
+    _write_stub_launcher(scripts_dir / "run_tb2_submission.sh", "full")
+    _write_stub_launcher(scripts_dir / "run_tb2_submission_slice.sh", "slice")
     log_path = tmp_path / "harness.log"
 
     env = os.environ.copy()
     env["HARNESS_LOG"] = str(log_path)
 
     result = subprocess.run(
-        _harness_command(harness_path, "run", "glm5-high"),
+        _harness_command(harness_path, "run", "submission-high"),
         text=True,
         capture_output=True,
         env=env,
@@ -110,9 +113,9 @@ def test_harness_run_full_delegates_to_full_launcher(tmp_path: Path) -> None:
     assert result.returncode == 0
     assert log_path.read_text().splitlines() == [
         _expected_log_line(
-            scripts_dir / "run_tb2_submission_glm5.sh",
+            scripts_dir / "run_tb2_submission.sh",
             action="run",
-            submission_id="glm5-high",
+            submission_id="submission-high",
             task_file="",
             passes="1",
             label="full",
@@ -125,8 +128,8 @@ def test_harness_run_multiple_slices_delegates_to_slice_launcher(
 ) -> None:
     harness_path = _copy_harness(tmp_path)
     scripts_dir = harness_path.parent
-    _write_stub_launcher(scripts_dir / "run_tb2_submission_glm5.sh", "full")
-    _write_stub_launcher(scripts_dir / "run_tb2_submission_glm5_slice.sh", "slice")
+    _write_stub_launcher(scripts_dir / "run_tb2_submission.sh", "full")
+    _write_stub_launcher(scripts_dir / "run_tb2_submission_slice.sh", "slice")
     log_path = tmp_path / "harness.log"
     task_a = tmp_path / "tasks" / "a.txt"
     task_b = tmp_path / "tasks" / "b.txt"
@@ -141,7 +144,7 @@ def test_harness_run_multiple_slices_delegates_to_slice_launcher(
         [
             *_harness_command(harness_path),
             "run",
-            "glm5-high",
+            "submission-high",
             "--passes",
             "2",
             str(task_a),
@@ -156,17 +159,17 @@ def test_harness_run_multiple_slices_delegates_to_slice_launcher(
     assert result.returncode == 0
     assert log_path.read_text().splitlines() == [
         _expected_log_line(
-            scripts_dir / "run_tb2_submission_glm5_slice.sh",
+            scripts_dir / "run_tb2_submission_slice.sh",
             action="run",
-            submission_id="glm5-high",
+            submission_id="submission-high",
             task_file=str(task_a),
             passes="2",
             label="slice",
         ),
         _expected_log_line(
-            scripts_dir / "run_tb2_submission_glm5_slice.sh",
+            scripts_dir / "run_tb2_submission_slice.sh",
             action="run",
-            submission_id="glm5-high",
+            submission_id="submission-high",
             task_file=str(task_b),
             passes="2",
             label="slice",
@@ -177,8 +180,8 @@ def test_harness_run_multiple_slices_delegates_to_slice_launcher(
 def test_harness_status_slice_delegates_with_action_status(tmp_path: Path) -> None:
     harness_path = _copy_harness(tmp_path)
     scripts_dir = harness_path.parent
-    _write_stub_launcher(scripts_dir / "run_tb2_submission_glm5.sh", "full")
-    _write_stub_launcher(scripts_dir / "run_tb2_submission_glm5_slice.sh", "slice")
+    _write_stub_launcher(scripts_dir / "run_tb2_submission.sh", "full")
+    _write_stub_launcher(scripts_dir / "run_tb2_submission_slice.sh", "slice")
     log_path = tmp_path / "harness.log"
     task_a = tmp_path / "tasks" / "a.txt"
     task_a.parent.mkdir(parents=True)
@@ -188,7 +191,7 @@ def test_harness_status_slice_delegates_with_action_status(tmp_path: Path) -> No
     env["HARNESS_LOG"] = str(log_path)
 
     result = subprocess.run(
-        _harness_command(harness_path, "status", "glm5-high", str(task_a)),
+        _harness_command(harness_path, "status", "submission-high", str(task_a)),
         text=True,
         capture_output=True,
         env=env,
@@ -198,9 +201,9 @@ def test_harness_status_slice_delegates_with_action_status(tmp_path: Path) -> No
     assert result.returncode == 0
     assert log_path.read_text().splitlines() == [
         _expected_log_line(
-            scripts_dir / "run_tb2_submission_glm5_slice.sh",
+            scripts_dir / "run_tb2_submission_slice.sh",
             action="status",
-            submission_id="glm5-high",
+            submission_id="submission-high",
             task_file=str(task_a),
             passes="",
             label="slice",
