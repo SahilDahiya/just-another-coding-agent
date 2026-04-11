@@ -27,6 +27,7 @@ see [../README.md](../README.md).
 - Test: `uv run pytest`
 - Test Go packages: `go test ./...`
 - Run the canonical interactive launcher: `uv run jaca`
+- Force repo-local Go TUI execution: `JACA_GO_RUN=1 uv run jaca`
 - Run the Python headless backend directly: `uv run just-another-coding-agent --headless`
 - Run the Go TUI client directly: `go run ./cmd/jaca --backend-command-json='["uv","run","python","-m","just_another_coding_agent"]'`
 
@@ -41,7 +42,8 @@ canonical Python headless backend.
 - The default Python install path now includes the internal `jaca-read-only-worker` helper because the canonical `read`, `ls`, `find`, and `grep` tools depend on it
 - `uv sync --extra dev --extra test` builds and installs the platform-native `jaca-read-only-worker` binary for the current environment
 - `JACA_BUILD_TUI=1 uv sync --reinstall-package just-another-coding-agent --extra dev --extra test` builds and installs the platform-native `jaca-go` binary for the current environment
-- In a live repo checkout, `uv run jaca` prefers `go run ./cmd/jaca` when `go` is available so the TUI matches current source
+- In a live repo checkout, `uv run jaca` now prefers the installed `jaca-go` binary by default
+- Set `JACA_GO_RUN=1` to opt into `go run ./cmd/jaca` when you explicitly want the TUI to track the current Go source tree
 - Outside a repo checkout, `uv run jaca` launches the installed `jaca-go` binary
 - The Go client requires an explicit backend command and the canonical launcher passes `["<python>", "-m", "just_another_coding_agent"]`
 - The Go client launches the Python backend over stdio RPC with `--headless`

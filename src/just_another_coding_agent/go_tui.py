@@ -13,6 +13,7 @@ from pathlib import Path
 
 GO_TUI_BINARY = "jaca-go.exe" if os.name == "nt" else "jaca-go"
 GO_TUI_BUILD_ENV = "JACA_BUILD_TUI"
+GO_TUI_GO_RUN_ENV = "JACA_GO_RUN"
 PACKAGE_NAME = "just-another-coding-agent"
 UPDATE_CHECK_URL = "https://pypi.org/pypi/just-another-coding-agent/json"
 UPDATE_CHECK_TIMEOUT = 5.0
@@ -33,6 +34,12 @@ def default_backend_command(python_executable: str | None = None) -> list[str]:
 def go_tui_build_requested(env: Mapping[str, str] | None = None) -> bool:
     values = os.environ if env is None else env
     raw = values.get(GO_TUI_BUILD_ENV, "")
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def go_tui_go_run_requested(env: Mapping[str, str] | None = None) -> bool:
+    values = os.environ if env is None else env
+    raw = values.get(GO_TUI_GO_RUN_ENV, "")
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
@@ -169,7 +176,7 @@ def find_go_tui_repo_root(start: Path | None = None) -> Path | None:
 
 def resolve_go_tui_launch() -> tuple[list[str], Path | None]:
     repo_root = find_go_tui_repo_root()
-    if repo_root is not None and shutil.which("go"):
+    if repo_root is not None and go_tui_go_run_requested() and shutil.which("go"):
         return ["go", "run", "./cmd/jaca"], repo_root
     binary = resolve_go_tui_binary()
     return [str(binary)], None

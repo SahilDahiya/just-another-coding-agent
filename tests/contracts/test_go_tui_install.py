@@ -12,6 +12,13 @@ def test_go_tui_build_is_opt_in() -> None:
     assert go_tui.go_tui_build_requested({"JACA_BUILD_TUI": "0"}) is False
 
 
+def test_go_tui_go_run_is_opt_in() -> None:
+    assert go_tui.go_tui_go_run_requested({}) is False
+    assert go_tui.go_tui_go_run_requested({"JACA_GO_RUN": "1"}) is True
+    assert go_tui.go_tui_go_run_requested({"JACA_GO_RUN": "true"}) is True
+    assert go_tui.go_tui_go_run_requested({"JACA_GO_RUN": "0"}) is False
+
+
 def test_go_tui_install_command_is_explicit() -> None:
     assert (
         go_tui.go_tui_install_command()
@@ -139,7 +146,7 @@ def test_find_go_tui_repo_root_detects_checkout_layout(tmp_path) -> None:
     assert go_tui.find_go_tui_repo_root(package_dir / "go_tui.py") == repo_root
 
 
-def test_resolve_go_tui_launch_uses_repo_local_go_run_when_binary_missing(
+def test_resolve_go_tui_launch_uses_installed_binary_by_default_in_repo_checkout(
     tmp_path,
     monkeypatch,
 ) -> None:
@@ -163,18 +170,21 @@ def test_resolve_go_tui_launch_uses_repo_local_go_run_when_binary_missing(
         "which",
         lambda name: "/usr/bin/go" if name == "go" else None,
     )
+    monkeypatch.setattr(go_tui, "go_tui_go_run_requested", lambda: False)
 
     scripts_dir = tmp_path / "bin"
     scripts_dir.mkdir()
+    binary = scripts_dir / go_tui.GO_TUI_BINARY
+    binary.write_text("", encoding="utf-8")
     monkeypatch.setattr(go_tui.sysconfig, "get_path", lambda key: str(scripts_dir))
 
     command, cwd = go_tui.resolve_go_tui_launch()
 
-    assert command == ["go", "run", "./cmd/jaca"]
-    assert cwd == repo_root
+    assert command == [str(binary)]
+    assert cwd is None
 
 
-def test_resolve_go_tui_launch_prefers_repo_local_go_run_even_when_binary_exists(
+def test_resolve_go_tui_launch_uses_repo_local_go_run_when_explicitly_requested(
     tmp_path,
     monkeypatch,
 ) -> None:
@@ -198,6 +208,7 @@ def test_resolve_go_tui_launch_prefers_repo_local_go_run_even_when_binary_exists
         "which",
         lambda name: "/usr/bin/go" if name == "go" else None,
     )
+    monkeypatch.setattr(go_tui, "go_tui_go_run_requested", lambda: True)
 
     scripts_dir = tmp_path / "bin"
     scripts_dir.mkdir()
