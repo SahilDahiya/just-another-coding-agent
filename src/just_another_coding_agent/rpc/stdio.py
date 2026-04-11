@@ -73,10 +73,16 @@ from just_another_coding_agent.contracts.rpc import (
 )
 from just_another_coding_agent.contracts.run_events import (
     RunEvent,
+    RunFailedEvent,
+    RunSucceededEvent,
     SessionLifecycleEvent,
     SessionQueuedPromptBatchSubmittedEvent,
     SessionQueueStateEvent,
+    ToolCallFailedEvent,
+    ToolCallStartedEvent,
+    ToolCallSucceededEvent,
 )
+from just_another_coding_agent.runtime.activity import build_failed_tool_activity
 from just_another_coding_agent.contracts.tools import CANONICAL_TOOL_NAMES
 from just_another_coding_agent.provider_readiness import ProviderReadinessError
 from just_another_coding_agent.rpc.session_store import (
@@ -879,6 +885,16 @@ async def handle_rpc_json_line(
     try:
         prompt = request.payload.prompt
         while True:
+            # Track started-but-not-finalized work so we can synthesize
+            # terminal events for the TUI if the iteration exits early
+            # (cancellation, exception, or generator close) without
+            # emitting a run terminal event itself. Without this, the TUI
+            # would stay stuck on "running" forever.
+            pending_tool_calls: dict[str, ToolCallStartedEvent] = {}
+            run_terminal_emitted = False
+            current_run_id: str | None = None
+            iteration_error_message: str | None = None
+            iteration_error_type: str | None = None
             try:
                 async for event in stream_session_run_events(
                     model=model,
@@ -895,6 +911,20 @@ async def handle_rpc_json_line(
                         )
                     ),
                 ):
+                    if isinstance(event, ToolCallStartedEvent):
+                        pending_tool_calls[event.tool_call_id] = event
+                        current_run_id = event.run_id
+                    elif isinstance(
+                        event, (ToolCallSucceededEvent, ToolCallFailedEvent)
+                    ):
+                        pending_tool_calls.pop(event.tool_call_id, None)
+                    elif isinstance(
+                        event, (RunSucceededEvent, RunFailedEvent)
+                    ):
+                        run_terminal_emitted = True
+                        current_run_id = event.run_id
+                    elif hasattr(event, "run_id"):
+                        current_run_id = getattr(event, "run_id", None)
                     yield RpcEventEnvelope(
                         id=request.id,
                         event=event,
@@ -907,7 +937,20 @@ async def handle_rpc_json_line(
                 ).model_dump_json()
                 return
             except asyncio.CancelledError:
-                pass
+                iteration_error_type = "CancelledError"
+                iteration_error_message = "run cancelled"
+                # Consume the cancellation so the follow-up batch check
+                # and the terminal-event synthesis below can actually
+                # run. Without this, Python 3.11+ keeps the cancelling
+                # flag set and the very next `await` re-raises
+                # CancelledError, which is exactly the path that left
+                # the TUI stuck on "running": the iteration was
+                # cancelled, the catch ran, but everything after it
+                # (including any cleanup that would have informed the
+                # TUI) was bypassed by the re-raised cancellation.
+                current_task = asyncio.current_task()
+                if current_task is not None:
+                    current_task.uncancel()
             except ProviderReadinessError as error:
                 yield RpcErrorEnvelope(
                     id=request.id,
@@ -929,6 +972,59 @@ async def handle_rpc_json_line(
             prompt_batch = await _FOLLOW_UP_STATE.take_next_follow_up_batch(
                 request.payload.session_id
             )
+
+            # Defense in depth: if the iteration started a run / tool call
+            # but never produced a terminal event for it, AND no follow-up
+            # batch is going to continue the conversation, synthesize a
+            # terminal event so the TUI is never stuck on "running".
+            # Cancellation due to a steer/follow-up is legitimate and the
+            # follow-up batch will produce its own events; we only
+            # synthesize when there's no follow-up to take over.
+            if (
+                prompt_batch is None
+                and not run_terminal_emitted
+                and current_run_id is not None
+            ):
+                error_type = iteration_error_type or "RuntimeError"
+                message = iteration_error_message or (
+                    "run ended without a terminal event"
+                )
+                for pending in list(pending_tool_calls.values()):
+                    try:
+                        tool_failed = ToolCallFailedEvent(
+                            run_id=pending.run_id,
+                            tool_call_id=pending.tool_call_id,
+                            tool_name=pending.tool_name,
+                            error_type=error_type,
+                            message=message,
+                            activity=build_failed_tool_activity(
+                                tool_name=pending.tool_name,
+                                args=pending.args,
+                                args_valid=pending.args_valid,
+                                message=message,
+                                duration_ms=0,
+                            ),
+                        )
+                        yield RpcEventEnvelope(
+                            id=request.id,
+                            event=tool_failed,
+                        ).model_dump_json()
+                    except Exception:
+                        pass
+                pending_tool_calls.clear()
+                try:
+                    synthesized_run_failed = RunFailedEvent(
+                        run_id=current_run_id,
+                        error_type=error_type,
+                        message=message,
+                    )
+                    yield RpcEventEnvelope(
+                        id=request.id,
+                        event=synthesized_run_failed,
+                    ).model_dump_json()
+                except Exception:
+                    pass
+
             if prompt_batch is None:
                 break
             await emit_submitted_prompt_batch("later", prompt_batch)
@@ -949,9 +1045,51 @@ async def serve_rpc_stdio(
     workspace_root: Path | str,
     sessions_root: Path | str,
 ) -> None:
-    write_lock = asyncio.Lock()
     session_locks: dict[str, asyncio.Lock] = {}
     pending_tasks: set[asyncio.Task[None]] = set()
+
+    # Unbounded outbound queue + single dedicated writer task. This makes
+    # write_response non-blocking and non-yielding from the producers'
+    # point of view (the asyncio.Queue.put on an unbounded queue is
+    # synchronous internally), so producer ordering is preserved exactly
+    # as it would be with a sync write. The actual sync write happens in
+    # a worker thread so that a full or slow pipe (notably the small
+    # ~4KB Windows anonymous pipe between the python backend and the Go
+    # TUI) only blocks the writer thread, never the event loop.
+    output_queue: asyncio.Queue[str | None] = asyncio.Queue()
+
+    def _sync_drain(lines: list[str]) -> None:
+        for line in lines:
+            output_stream.write(line)
+            output_stream.write("\n")
+        output_stream.flush()
+
+    async def _output_writer() -> None:
+        while True:
+            first = await output_queue.get()
+            if first is None:
+                return
+            batch: list[str] = [first]
+            # Drain any additional ready items so we issue one
+            # bigger write rather than many tiny ones.
+            while True:
+                try:
+                    nxt = output_queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    break
+                if nxt is None:
+                    await asyncio.to_thread(_sync_drain, batch)
+                    return
+                batch.append(nxt)
+            try:
+                await asyncio.to_thread(_sync_drain, batch)
+            except Exception:
+                # Never let a broken-pipe condition kill the writer
+                # task; the rest of the backend should still drain
+                # cleanly.
+                pass
+
+    writer_task: asyncio.Task[None] = asyncio.create_task(_output_writer())
 
     async def process_line(line: str) -> None:
         session_id = _extract_session_id_for_serialization(line)
@@ -962,10 +1100,10 @@ async def serve_rpc_stdio(
         )
 
         async def write_response(response_line: str) -> None:
-            async with write_lock:
-                output_stream.write(response_line)
-                output_stream.write("\n")
-                output_stream.flush()
+            # Non-blocking enqueue. Order is preserved because put on an
+            # unbounded asyncio.Queue is synchronous and there is exactly
+            # one consumer (the writer task).
+            output_queue.put_nowait(response_line)
 
         async def emit_rpc_event(
             request_id: str,
@@ -995,17 +1133,27 @@ async def serve_rpc_stdio(
         async with session_lock:
             await stream_responses()
 
-    while True:
-        line = await asyncio.to_thread(input_stream.readline)
-        if line == "":
-            break
+    try:
+        while True:
+            line = await asyncio.to_thread(input_stream.readline)
+            if line == "":
+                break
 
-        task = asyncio.create_task(process_line(line))
-        pending_tasks.add(task)
-        task.add_done_callback(pending_tasks.discard)
+            task = asyncio.create_task(process_line(line))
+            pending_tasks.add(task)
+            task.add_done_callback(pending_tasks.discard)
 
-    if pending_tasks:
-        await asyncio.gather(*pending_tasks)
+        if pending_tasks:
+            await asyncio.gather(*pending_tasks)
+    finally:
+        # Signal the writer task to drain remaining items and exit, then
+        # await it so any final response lines reach the pipe before the
+        # backend returns.
+        output_queue.put_nowait(None)
+        try:
+            await writer_task
+        except Exception:
+            pass
 
 
 def _prune_stale_login_flows(now: float | None = None) -> None:

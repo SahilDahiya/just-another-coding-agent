@@ -323,23 +323,31 @@ async def test_serve_rpc_stdio_handles_auth_status_while_run_is_streaming(
     messages = [
         json.loads(line) for line in output_stream.getvalue().splitlines() if line
     ]
-    assert [message["type"] for message in messages] == [
-        "rpc_event",
-        "rpc_event",
-        "rpc_response",
-        "rpc_response",
+    # Run-events and the auth-status response can interleave because they
+    # come from concurrent process_line tasks; we only assert that both
+    # streams are present and individually well-ordered.
+    run_events = [
+        m for m in messages if m["id"] == "req-run" and m["type"] == "rpc_event"
     ]
-    assert messages[0]["id"] == "req-run"
-    assert messages[0]["event"]["type"] == "run_started"
-    assert messages[1]["id"] == "req-run"
-    assert messages[1]["event"]["type"] == "run_succeeded"
-    assert messages[2] == {
-        "type": "rpc_response",
-        "id": "req-run",
-        "response": {"session_id": fixed_session_id},
-    }
-    assert messages[3]["id"] == "req-auth"
-    assert messages[3]["type"] == "rpc_response"
+    run_responses = [
+        m for m in messages if m["id"] == "req-run" and m["type"] == "rpc_response"
+    ]
+    auth_responses = [
+        m for m in messages if m["id"] == "req-auth" and m["type"] == "rpc_response"
+    ]
+    assert [e["event"]["type"] for e in run_events] == [
+        "run_started",
+        "run_succeeded",
+    ]
+    assert run_responses == [
+        {
+            "type": "rpc_response",
+            "id": "req-run",
+            "response": {"session_id": fixed_session_id},
+        }
+    ]
+    assert len(auth_responses) == 1
+    assert auth_responses[0]["type"] == "rpc_response"
 
 
 async def test_headless_auth_status_responds_without_waiting_for_second_line(
