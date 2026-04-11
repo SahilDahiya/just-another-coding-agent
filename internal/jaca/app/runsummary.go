@@ -56,15 +56,17 @@ func formatRunSeparator(summary *rpc.RunTranscriptSummary) string {
 		return ""
 	}
 
-	return "-- jaca " + runSeparatorVerb(summary.ElapsedMS) + " in " + formatSummaryDuration(summary.ElapsedMS) + " --"
+	return "-- jaca " + runSeparatorVerb(summary.ElapsedMS) + " for " + formatSummaryDuration(summary.ElapsedMS) + " --"
 }
 
 var runSeparatorVerbs = [...]string{
 	"cooked",
 	"ate",
-	"snapped",
 	"locked in",
 	"crushed",
+	"worked",
+	"grinded",
+	"hustled",
 }
 
 func runSeparatorVerb(elapsedMS int) string {

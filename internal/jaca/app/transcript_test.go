@@ -1147,11 +1147,11 @@ func TestRunSucceededRendersBackendSeparatorSummary(t *testing.T) {
 	})
 
 	plain := stripANSI(transcript.Render())
-	if !strings.Contains(plain, "-- jaca ") || !strings.Contains(plain, " in 2m 59s --") {
+	if !strings.Contains(plain, "-- jaca ") || !strings.Contains(plain, " for 2m 59s --") {
 		t.Fatalf("separator missing curated verb line in %q", plain)
 	}
 	for _, verb := range runSeparatorVerbs {
-		needle := "-- jaca " + verb + " in 2m 59s --"
+		needle := "-- jaca " + verb + " for 2m 59s --"
 		if strings.Contains(plain, needle) {
 			goto foundSeparatorVerb
 		}
