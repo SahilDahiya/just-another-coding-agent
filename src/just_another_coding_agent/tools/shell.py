@@ -28,6 +28,7 @@ from just_another_coding_agent.tools.truncation import (
 )
 from just_another_coding_agent.tools.windows_search_tools import (
     build_tool_process_env,
+    ensure_windows_search_tool,
 )
 
 SHELL_MAX_LINES = 2000
@@ -197,6 +198,9 @@ async def execute_shell(
     shell_family: ShellFamily,
     timeout: int | None = None,
 ) -> dict[str, int | str]:
+    if os.name == "nt":
+        ensure_windows_search_tool("fd", silent=True)
+        ensure_windows_search_tool("rg", silent=True)
     process = await asyncio.create_subprocess_exec(
         *_shell_command_prefix(shell_family),
         command,

@@ -125,7 +125,7 @@ async def test_read_only_worker_runtime_uses_managed_tool_env(
     monkeypatch.setattr(
         runtime_module,
         "build_tool_process_env",
-        lambda: {"PATH": "managed-bin"},
+        lambda base_env=None: {"PATH": "managed-bin"},
     )
 
     runtime = ReadOnlyWorkerRuntime(command=["worker"])
@@ -146,4 +146,59 @@ async def test_read_only_worker_runtime_uses_managed_tool_env(
 
     assert isinstance(result, ReadWorkerRequest)
     assert observed["command"] == ["worker"]
+    assert observed["env"] == {"PATH": "managed-bin"}
+
+
+async def test_read_only_worker_runtime_bootstraps_rg_on_windows(
+    monkeypatch,
+) -> None:
+    observed: dict[str, object] = {}
+
+    class _FakeClient:
+        def __init__(self, command, *, env=None) -> None:
+            observed["command"] = command
+            observed["env"] = env
+
+        async def start(self):
+            return self
+
+        async def send(self, message):
+            return message
+
+        async def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(runtime_module, "ReadOnlyWorkerClient", _FakeClient)
+    monkeypatch.setattr(runtime_module.os, "name", "nt")
+    monkeypatch.setattr(
+        runtime_module,
+        "ensure_windows_search_tool",
+        lambda tool, *, silent=True: observed.setdefault("bootstrapped", []).append(
+            (tool, silent)
+        ),
+    )
+    monkeypatch.setattr(
+        runtime_module,
+        "build_tool_process_env",
+        lambda base_env=None: {"PATH": "managed-bin"},
+    )
+
+    runtime = ReadOnlyWorkerRuntime(command=["worker"])
+    try:
+        result = await runtime.send(
+            ReadWorkerRequest(
+                request_id="read-1",
+                workspace_root="/workspace",
+                path="note.txt",
+                offset=1,
+                limit=1,
+                max_lines=2000,
+                max_bytes=50 * 1024,
+            )
+        )
+    finally:
+        await runtime.close()
+
+    assert isinstance(result, ReadWorkerRequest)
+    assert observed["bootstrapped"] == [("rg", True)]
     assert observed["env"] == {"PATH": "managed-bin"}

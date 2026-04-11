@@ -379,3 +379,64 @@ async def test_execute_shell_uses_managed_tool_env(
 
     assert result == {"exit_code": 0, "output": "ok"}
     assert observed["kwargs"]["env"] == {"PATH": "managed-bin"}
+
+
+async def test_execute_shell_bootstraps_windows_search_tools(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    observed: dict[str, object] = {"bootstrapped": []}
+
+    class _FakeStdout:
+        async def read(self, _count: int) -> bytes:
+            if observed.get("read_once"):
+                return b""
+            observed["read_once"] = True
+            return b"ok"
+
+    class _FakeProcess:
+        def __init__(self) -> None:
+            self.pid = 123
+            self.returncode = 0
+            self.stdout = _FakeStdout()
+
+        async def wait(self) -> int:
+            return 0
+
+    async def fake_create_subprocess_exec(*args, **kwargs):
+        observed["kwargs"] = kwargs
+        return _FakeProcess()
+
+    monkeypatch.setattr(shell_module.os, "name", "nt")
+    monkeypatch.setattr(
+        shell_module.subprocess,
+        "CREATE_NEW_PROCESS_GROUP",
+        0,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        shell_module,
+        "ensure_windows_search_tool",
+        lambda tool, *, silent=True: observed["bootstrapped"].append((tool, silent)),
+    )
+    monkeypatch.setattr(
+        shell_module,
+        "build_tool_process_env",
+        lambda: {"PATH": "managed-bin"},
+    )
+    monkeypatch.setattr(
+        "just_another_coding_agent.tools.shell.asyncio.create_subprocess_exec",
+        fake_create_subprocess_exec,
+    )
+
+    result = await execute_shell(
+        workspace_root=workspace_root,
+        command="rg needle .",
+        shell_family="powershell",
+    )
+
+    assert result == {"exit_code": 0, "output": "ok"}
+    assert observed["bootstrapped"] == [("fd", True), ("rg", True)]
+    assert observed["kwargs"]["env"] == {"PATH": "managed-bin"}

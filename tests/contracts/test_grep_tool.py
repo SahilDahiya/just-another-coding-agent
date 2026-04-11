@@ -78,6 +78,7 @@ async def test_grep_tool_respects_global_match_limit(tmp_path) -> None:
 
 async def test_grep_tool_bootstrap_failure_is_fatal(tmp_path, monkeypatch) -> None:
     ctx = worker_ctx(tmp_path)
+    monkeypatch.setattr(grep_module.os, "name", "nt")
     monkeypatch.setattr(
         grep_module,
         "ensure_windows_search_tool",

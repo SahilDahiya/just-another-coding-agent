@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Annotated
 from uuid import uuid4
@@ -119,7 +120,8 @@ async def grep(
         limit: Maximum number of matches to return before grep's own output
             ceiling is applied.
     """
-    ensure_windows_search_tool("rg", silent=True)
+    if os.name == "nt":
+        ensure_windows_search_tool("rg", silent=True)
 
     result = await _execute_grep_async(
         read_only_worker=ctx.deps.read_only_worker,

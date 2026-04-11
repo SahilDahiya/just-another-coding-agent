@@ -55,6 +55,8 @@ def build_tool_process_env(
 ) -> dict[str, str]:
     source = os.environ if base_env is None else base_env
     env = dict(source)
+    if os.name != "nt":
+        return env
     bin_dir = str(jaca_managed_bin_dir())
     current_path = env.get("PATH", "")
     parts = [part for part in current_path.split(os.pathsep) if part]
@@ -69,6 +71,8 @@ def build_tool_process_env(
 
 
 def apply_managed_tool_path() -> None:
+    if os.name != "nt":
+        return
     os.environ["PATH"] = build_tool_process_env().get("PATH", "")
 
 

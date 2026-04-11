@@ -91,6 +91,7 @@ async def test_find_tool_respects_result_limit(tmp_path) -> None:
 
 async def test_find_tool_bootstrap_failure_is_fatal(tmp_path, monkeypatch) -> None:
     ctx = worker_ctx(tmp_path)
+    monkeypatch.setattr(find_module.os, "name", "nt")
     monkeypatch.setattr(
         find_module,
         "ensure_windows_search_tool",

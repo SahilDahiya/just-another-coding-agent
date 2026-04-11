@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from collections.abc import Sequence
 
 from just_another_coding_agent.tools.read_only_worker.client import (
@@ -15,6 +16,7 @@ from just_another_coding_agent.tools.read_only_worker.protocol import (
 )
 from just_another_coding_agent.tools.windows_search_tools import (
     build_tool_process_env,
+    ensure_windows_search_tool,
 )
 
 
@@ -53,13 +55,11 @@ class ReadOnlyWorkerRuntime:
                 if self._command is not None
                 else resolve_read_only_worker_command()
             )
+            if os.name == "nt":
+                ensure_windows_search_tool("rg", silent=True)
             client = ReadOnlyWorkerClient(
                 command,
-                env=(
-                    dict(self._env)
-                    if self._env is not None
-                    else build_tool_process_env()
-                ),
+                env=build_tool_process_env(self._env),
             )
             await client.start()
             self._client = client

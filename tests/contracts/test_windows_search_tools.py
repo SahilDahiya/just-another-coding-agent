@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from io import StringIO
 
 import pytest
@@ -10,10 +9,24 @@ from just_another_coding_agent.tools import windows_search_tools as tools
 
 def test_build_tool_process_env_prepends_managed_bin_dir(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(tools, "jaca_managed_bin_dir", lambda: tmp_path / "bin")
+    monkeypatch.setattr(tools.os, "name", "nt")
+    monkeypatch.setattr(tools.os, "pathsep", ";")
 
     env = tools.build_tool_process_env({"PATH": r"C:\Windows\System32"})
 
-    assert env["PATH"].split(os.pathsep)[0] == str(tmp_path / "bin")
+    assert env["PATH"].split(";")[0] == str(tmp_path / "bin")
+
+
+def test_build_tool_process_env_is_noop_off_windows(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setattr(tools, "jaca_managed_bin_dir", lambda: tmp_path / "bin")
+    monkeypatch.setattr(tools.os, "name", "posix")
+
+    env = tools.build_tool_process_env({"PATH": "/usr/bin:/bin"})
+
+    assert env["PATH"] == "/usr/bin:/bin"
 
 
 def test_ensure_windows_search_tool_downloads_missing_binary(
