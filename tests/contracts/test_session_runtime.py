@@ -2536,10 +2536,6 @@ async def test_stream_session_run_events_sanitize_cancelled_run_messages(
         ),
     ]
 
-    @contextmanager
-    def fake_capture_run_messages():
-        yield partial_messages
-
     async def cancellable_stream_run_events(
         *,
         agent,
@@ -2557,23 +2553,26 @@ async def test_stream_session_run_events_sanitize_cancelled_run_messages(
             instructions,
             thinking,
             deps,
-            message_history_sink,
         )
-        yield RunStartedEvent(run_id="run-1")
-        yield ToolCallStartedEvent(
-            run_id="run-1",
-            tool_call_id="call-read",
-            tool_name="read",
-            args={"path": "README.md"},
-            args_valid=True,
-        )
-        started.set()
-        await asyncio.Event().wait()
+        try:
+            yield RunStartedEvent(run_id="run-1")
+            yield ToolCallStartedEvent(
+                run_id="run-1",
+                tool_call_id="call-read",
+                tool_name="read",
+                args={"path": "README.md"},
+                args_valid=True,
+            )
+            started.set()
+            await asyncio.Event().wait()
+        finally:
+            # Mirror real stream_run_events: on any non-success termination
+            # (including cancellation) publish whatever messages pydantic-ai
+            # has accumulated so far via the sink, so the outer
+            # stream_session_run_events can persist and sanitize them.
+            if message_history_sink is not None:
+                message_history_sink(partial_messages)
 
-    monkeypatch.setattr(
-        "just_another_coding_agent.runtime.session.capture_run_messages",
-        fake_capture_run_messages,
-    )
     monkeypatch.setattr(
         "just_another_coding_agent.runtime.session.stream_run_events",
         cancellable_stream_run_events,
@@ -2640,10 +2639,6 @@ async def test_stream_session_run_events_trim_failed_correction_tail_from_histor
         *poisoned_messages,
     ]
 
-    @contextmanager
-    def fake_capture_run_messages():
-        yield captured_messages
-
     async def failed_correction_stream_run_events(
         *,
         agent,
@@ -2661,7 +2656,6 @@ async def test_stream_session_run_events_trim_failed_correction_tail_from_histor
             instructions,
             thinking,
             deps,
-            message_history_sink,
         )
         yield RunStartedEvent(run_id="run-1")
         yield ToolCallStartedEvent(
@@ -2681,16 +2675,17 @@ async def test_stream_session_run_events_trim_failed_correction_tail_from_histor
                 "message": "Unknown tool name: 'readread'. Available tools: 'read'",
             },
         )
+        # Mirror real stream_run_events: publish messages via the sink
+        # before emitting the terminal RunFailedEvent so the outer
+        # stream_session_run_events can sanitize and persist them.
+        if message_history_sink is not None:
+            message_history_sink(poisoned_messages)
         yield RunFailedEvent(
             run_id="run-1",
             error_type="ModelHTTPError",
             message="status_code: 400, invalid tool call arguments",
         )
 
-    monkeypatch.setattr(
-        "just_another_coding_agent.runtime.session.capture_run_messages",
-        fake_capture_run_messages,
-    )
     monkeypatch.setattr(
         "just_another_coding_agent.runtime.session.stream_run_events",
         failed_correction_stream_run_events,
@@ -2772,10 +2767,6 @@ async def test_stream_session_run_events_resume_after_failed_correction_is_clean
         *poisoned_messages,
     ]
 
-    @contextmanager
-    def fake_capture_run_messages():
-        yield captured_messages
-
     async def failed_correction_stream_run_events(
         *,
         agent,
@@ -2793,7 +2784,6 @@ async def test_stream_session_run_events_resume_after_failed_correction_is_clean
             instructions,
             thinking,
             deps,
-            message_history_sink,
         )
         yield RunStartedEvent(run_id="run-1")
         yield ToolCallStartedEvent(
@@ -2813,19 +2803,16 @@ async def test_stream_session_run_events_resume_after_failed_correction_is_clean
                 "message": "Unknown tool name: 'readread'. Available tools: 'read'",
             },
         )
+        if message_history_sink is not None:
+            message_history_sink(poisoned_messages)
         yield RunFailedEvent(
             run_id="run-1",
             error_type="ModelHTTPError",
             message="status_code: 400, invalid tool call arguments",
         )
 
-    original_capture_run_messages = runtime_session_module.capture_run_messages
     original_stream_run_events = runtime_session_module.stream_run_events
 
-    monkeypatch.setattr(
-        "just_another_coding_agent.runtime.session.capture_run_messages",
-        fake_capture_run_messages,
-    )
     monkeypatch.setattr(
         "just_another_coding_agent.runtime.session.stream_run_events",
         failed_correction_stream_run_events,
@@ -2861,10 +2848,6 @@ async def test_stream_session_run_events_resume_after_failed_correction_is_clean
         )
         yield "clean"
 
-    monkeypatch.setattr(
-        "just_another_coding_agent.runtime.session.capture_run_messages",
-        original_capture_run_messages,
-    )
     monkeypatch.setattr(
         "just_another_coding_agent.runtime.session.stream_run_events",
         original_stream_run_events,

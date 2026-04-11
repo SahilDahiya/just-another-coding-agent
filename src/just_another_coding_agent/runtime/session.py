@@ -1,14 +1,12 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from dataclasses import replace
 from datetime import date
 from pathlib import Path
 from typing import Any
 
-from pydantic_ai import capture_run_messages
 from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
@@ -434,198 +432,176 @@ async def stream_session_run_events(
         nonlocal authoritative_messages
         authoritative_messages = list(messages)
 
-    # Manage capture_run_messages() via ExitStack so we can swallow the
-    # ContextVar token mismatch ValueError that pydantic-ai raises when this
-    # async generator is closed from a different asyncio Context than the
-    # one its body started in. The body itself is unaffected.
-    _capture_stack = contextlib.ExitStack()
-    messages = _capture_stack.enter_context(capture_run_messages())
     try:
-        try:
-            stream_run_kwargs = dict(
-                agent=agent,
-                prompt=prompt,
-                message_history=(preexisting_history or None),
-                instructions=None,
-                thinking=resolved_thinking,
-                deps=WorkspaceDeps(
+        stream_run_kwargs = dict(
+            agent=agent,
+            prompt=prompt,
+            message_history=(preexisting_history or None),
+            instructions=None,
+            thinking=resolved_thinking,
+            deps=WorkspaceDeps(
+                workspace_root=normalized_workspace_root,
+                shell_family=shell_family,
+                session_scope=RunSessionScope(session_id=session_path.stem),
+                run_frame=RunRuntimeFrame(
+                    model=model,
+                    current_date=current_date,
+                    timezone=current_timezone,
+                    thinking=resolved_thinking,
+                ),
+            ),
+            message_history_sink=_record_message_history,
+        )
+        if (
+            activate_steer_boundary is not None
+            and submit_steer_boundary is not None
+            and deactivate_steer_boundary is not None
+        ):
+            stream_run_kwargs["activate_steer_boundary"] = (
+                activate_steer_boundary
+            )
+            stream_run_kwargs["submit_steer_boundary"] = (
+                submit_steer_boundary
+            )
+            stream_run_kwargs["deactivate_steer_boundary"] = (
+                deactivate_steer_boundary
+            )
+        async for event in stream_run_events(**stream_run_kwargs):
+            if run_appender is None:
+                active_run_id = event.run_id
+                run_turn_context = build_session_turn_context_entry(
+                    run_id=event.run_id,
+                    model=model,
+                    workspace_root=normalized_workspace_root,
+                    current_date=current_date,
+                    shell_family=shell_family,
+                    thinking=resolved_thinking,
+                )
+                run_appender = start_run_to_session(
+                    path=session_path,
                     workspace_root=normalized_workspace_root,
                     shell_family=shell_family,
-                    session_scope=RunSessionScope(session_id=session_path.stem),
-                    run_frame=RunRuntimeFrame(
-                        model=model,
-                        current_date=current_date,
-                        timezone=current_timezone,
-                        thinking=resolved_thinking,
-                    ),
-                ),
-                message_history_sink=_record_message_history,
-            )
-            if (
-                activate_steer_boundary is not None
-                and submit_steer_boundary is not None
-                and deactivate_steer_boundary is not None
-            ):
-                stream_run_kwargs["activate_steer_boundary"] = (
-                    activate_steer_boundary
+                    run_id=event.run_id,
+                    prompt=prompt,
+                    thinking=resolved_thinking,
                 )
-                stream_run_kwargs["submit_steer_boundary"] = (
-                    submit_steer_boundary
+            if isinstance(event, RunSucceededEvent):
+                finalized_messages = strip_internal_prompt_state(
+                    list(authoritative_messages or [])
                 )
-                stream_run_kwargs["deactivate_steer_boundary"] = (
-                    deactivate_steer_boundary
-                )
-            async for event in stream_run_events(**stream_run_kwargs):
-                if run_appender is None:
-                    active_run_id = event.run_id
-                    run_turn_context = build_session_turn_context_entry(
-                        run_id=event.run_id,
-                        model=model,
-                        workspace_root=normalized_workspace_root,
-                        current_date=current_date,
-                        shell_family=shell_family,
-                        thinking=resolved_thinking,
-                    )
-                    run_appender = start_run_to_session(
-                        path=session_path,
-                        workspace_root=normalized_workspace_root,
-                        shell_family=shell_family,
-                        run_id=event.run_id,
-                        prompt=prompt,
-                        thinking=resolved_thinking,
-                    )
-                if isinstance(event, RunSucceededEvent):
-                    finalized_messages = (
-                        authoritative_messages
-                        if authoritative_messages is not None
-                        else list(messages)[preexisting_history_count:]
-                    )
-                    finalized_messages = strip_internal_prompt_state(finalized_messages)
-                    event = event.model_copy(
-                        update={
-                            "next_request_context_window_used": (
-                                _estimate_next_request_context_window_used(
-                                    loaded_session=loaded_session,
-                                    model=model,
-                                    workspace_root=str(normalized_workspace_root),
-                                    current_date=current_date,
-                                    shell_family=shell_family,
-                                    thinking=resolved_thinking,
-                                    run_id=event.run_id,
-                                    prompt=prompt,
-                                    messages=finalized_messages,
-                                    turn_context=run_turn_context,
-                                )
+                event = event.model_copy(
+                    update={
+                        "next_request_context_window_used": (
+                            _estimate_next_request_context_window_used(
+                                loaded_session=loaded_session,
+                                model=model,
+                                workspace_root=str(normalized_workspace_root),
+                                current_date=current_date,
+                                shell_family=shell_family,
+                                thinking=resolved_thinking,
+                                run_id=event.run_id,
+                                prompt=prompt,
+                                messages=finalized_messages,
+                                turn_context=run_turn_context,
                             )
-                        }
-                    )
-                    event = sync_run_transcript_summary_metrics(event)
-                run_appender.append_event(event)
-                if isinstance(event, ToolCallStartedEvent):
-                    pending_tool_calls[event.tool_call_id] = event
-                elif isinstance(event, ToolCallSucceededEvent | ToolCallFailedEvent):
-                    pending_tool_calls.pop(event.tool_call_id, None)
-                elif isinstance(event, RunSucceededEvent | RunFailedEvent):
-                    if isinstance(event, RunFailedEvent):
-                        failed_terminal = True
-                    should_finalize = True
-                yield event
-        except (asyncio.CancelledError, KeyboardInterrupt) as error:
-            if run_appender is not None and active_run_id is not None:
-                error_type = type(error).__name__
-                message = str(error) or "run cancelled"
-                for pending_tool_call in pending_tool_calls.values():
-                    tool_failed_event = ToolCallFailedEvent(
-                        run_id=active_run_id,
-                        tool_call_id=pending_tool_call.tool_call_id,
-                        tool_name=pending_tool_call.tool_name,
-                        error_type=error_type,
-                        message=message,
-                        activity=build_failed_tool_activity(
-                            tool_name=pending_tool_call.tool_name,
-                            args=pending_tool_call.args,
-                            args_valid=pending_tool_call.args_valid,
-                            message=message,
-                            duration_ms=0,
-                        ),
-                    )
-                    run_appender.append_event(tool_failed_event)
-                    yield tool_failed_event
-                pending_tool_calls.clear()
-                run_failed_event = RunFailedEvent(
-                    run_id=active_run_id,
-                    error_type=error_type,
-                    message=message,
+                        )
+                    }
                 )
-                run_appender.append_event(run_failed_event)
-                yield run_failed_event
-                failed_terminal = True
+                event = sync_run_transcript_summary_metrics(event)
+            run_appender.append_event(event)
+            if isinstance(event, ToolCallStartedEvent):
+                pending_tool_calls[event.tool_call_id] = event
+            elif isinstance(event, ToolCallSucceededEvent | ToolCallFailedEvent):
+                pending_tool_calls.pop(event.tool_call_id, None)
+            elif isinstance(event, RunSucceededEvent | RunFailedEvent):
+                if isinstance(event, RunFailedEvent):
+                    failed_terminal = True
                 should_finalize = True
-            raise
-        except Exception as error:
-            # Any non-cancellation exception inside the run loop must still
-            # produce a terminal event for the LIVE consumer (e.g. the TUI)
-            # so it knows the run has ended. Without this, an unexpected
-            # exception leaves the consumer stuck on "running" forever.
-            #
-            # We deliberately do NOT call run_appender.append_event() here:
-            # the persistence contract is that incomplete runs leave the
-            # JSONL in an explicitly-broken state so load_session can detect
-            # them and refuse to resume. We honor that contract — only the
-            # in-memory event stream is finalized.
-            if active_run_id is not None:
-                error_type = type(error).__name__
-                message = str(error) or error_type
-                for pending_tool_call in pending_tool_calls.values():
-                    tool_failed_event = ToolCallFailedEvent(
-                        run_id=active_run_id,
-                        tool_call_id=pending_tool_call.tool_call_id,
-                        tool_name=pending_tool_call.tool_name,
-                        error_type=error_type,
-                        message=message,
-                        activity=build_failed_tool_activity(
-                            tool_name=pending_tool_call.tool_name,
-                            args=pending_tool_call.args,
-                            args_valid=pending_tool_call.args_valid,
-                            message=message,
-                            duration_ms=0,
-                        ),
-                    )
-                    yield tool_failed_event
-                pending_tool_calls.clear()
-                run_failed_event = RunFailedEvent(
+            yield event
+    except (asyncio.CancelledError, KeyboardInterrupt) as error:
+        if run_appender is not None and active_run_id is not None:
+            error_type = type(error).__name__
+            message = str(error) or "run cancelled"
+            for pending_tool_call in pending_tool_calls.values():
+                tool_failed_event = ToolCallFailedEvent(
                     run_id=active_run_id,
+                    tool_call_id=pending_tool_call.tool_call_id,
+                    tool_name=pending_tool_call.tool_name,
                     error_type=error_type,
                     message=message,
+                    activity=build_failed_tool_activity(
+                        tool_name=pending_tool_call.tool_name,
+                        args=pending_tool_call.args,
+                        args_valid=pending_tool_call.args_valid,
+                        message=message,
+                        duration_ms=0,
+                    ),
                 )
-                yield run_failed_event
-            raise
-        finally:
-            if run_appender is not None and should_finalize:
-                finalized_messages = (
-                    authoritative_messages
-                    if authoritative_messages is not None
-                    else list(messages)[preexisting_history_count:]
+                run_appender.append_event(tool_failed_event)
+                yield tool_failed_event
+            pending_tool_calls.clear()
+            run_failed_event = RunFailedEvent(
+                run_id=active_run_id,
+                error_type=error_type,
+                message=message,
+            )
+            run_appender.append_event(run_failed_event)
+            yield run_failed_event
+            failed_terminal = True
+            should_finalize = True
+        raise
+    except Exception as error:
+        # Any non-cancellation exception inside the run loop must still
+        # produce a terminal event for the LIVE consumer (e.g. the TUI)
+        # so it knows the run has ended. Without this, an unexpected
+        # exception leaves the consumer stuck on "running" forever.
+        #
+        # We deliberately do NOT call run_appender.append_event() here:
+        # the persistence contract is that incomplete runs leave the
+        # JSONL in an explicitly-broken state so load_session can detect
+        # them and refuse to resume. We honor that contract — only the
+        # in-memory event stream is finalized.
+        if active_run_id is not None:
+            error_type = type(error).__name__
+            message = str(error) or error_type
+            for pending_tool_call in pending_tool_calls.values():
+                tool_failed_event = ToolCallFailedEvent(
+                    run_id=active_run_id,
+                    tool_call_id=pending_tool_call.tool_call_id,
+                    tool_name=pending_tool_call.tool_name,
+                    error_type=error_type,
+                    message=message,
+                    activity=build_failed_tool_activity(
+                        tool_name=pending_tool_call.tool_name,
+                        args=pending_tool_call.args,
+                        args_valid=pending_tool_call.args_valid,
+                        message=message,
+                        duration_ms=0,
+                    ),
                 )
-                if failed_terminal:
-                    finalized_messages = _sanitize_failed_run_messages(
-                        finalized_messages
-                    )
-                finalized_messages = strip_internal_prompt_state(finalized_messages)
-                run_appender.finalize(
-                    messages=finalized_messages,
-                    turn_context=run_turn_context,
-                )
+                yield tool_failed_event
+            pending_tool_calls.clear()
+            run_failed_event = RunFailedEvent(
+                run_id=active_run_id,
+                error_type=error_type,
+                message=message,
+            )
+            yield run_failed_event
+        raise
     finally:
-        # Close capture_run_messages here, swallowing the known
-        # ContextVar token-mismatch ValueError that pydantic-ai raises when
-        # this async generator is closed from a different asyncio Context.
-        # All other ValueErrors propagate.
-        try:
-            _capture_stack.close()
-        except ValueError as exit_error:
-            if "different Context" not in str(exit_error):
-                raise
+        if run_appender is not None and should_finalize:
+            finalized_messages: list[ModelMessage] = list(
+                authoritative_messages or []
+            )
+            if failed_terminal:
+                finalized_messages = _sanitize_failed_run_messages(
+                    finalized_messages
+                )
+            finalized_messages = strip_internal_prompt_state(finalized_messages)
+            run_appender.finalize(
+                messages=finalized_messages,
+                turn_context=run_turn_context,
+            )
 
 
 __all__ = ["stream_session_run_events"]
