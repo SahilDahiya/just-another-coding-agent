@@ -902,6 +902,7 @@ async def test_stream_run_events_exposes_compact_subagent_activity(
     async def fake_stream_ephemeral_subagent_run_events(**kwargs):
         assert kwargs["spec"].name == "compaction-scan"
         assert kwargs["spec"].role == "explore"
+        assert kwargs["spec"].capability == "default"
         assert kwargs["thinking"] == "medium"
         yield RunStartedEvent(run_id="child-run-1")
         yield ToolCallStartedEvent(
@@ -918,20 +919,11 @@ async def test_stream_run_events_exposes_compact_subagent_activity(
         )
         yield RunSucceededEvent(
             run_id="child-run-1",
-            output_text=json.dumps(
-                {
-                    "direct_evidence": [
-                        "Observed reset in runtime/compaction/resume.py"
-                    ],
-                    "inference": "Found reset in runtime/compaction/resume.py",
-                    "confidence": "medium",
-                    "ambiguities": [
-                        "Did not yet confirm whether another caller clears it later."
-                    ],
-                    "recommended_followup": (
-                        "Trace the next resumed-run caller after compaction."
-                    ),
-                }
+            output_text=(
+                "Found reset in runtime/compaction/resume.py\n"
+                "Evidence:\n"
+                "- Observed reset in runtime/compaction/resume.py\n"
+                "Next: Trace the next resumed-run caller after compaction.\n"
             ),
         )
 
@@ -1006,25 +998,21 @@ async def test_stream_run_events_exposes_compact_subagent_activity(
         "ok": True,
         "name": "compaction-scan",
         "role": "explore",
-        "summary_text": (
-            "Medium confidence: Found reset in runtime/compaction/resume.py"
+        "capability": "default",
+        "summary_text": "Found reset in runtime/compaction/resume.py",
+        "output_text": (
+            "Found reset in runtime/compaction/resume.py\n"
+            "Evidence:\n"
+            "- Observed reset in runtime/compaction/resume.py\n"
+            "Next: Trace the next resumed-run caller after compaction.\n"
         ),
-        "direct_evidence": [
-            "Observed reset in runtime/compaction/resume.py",
-        ],
-        "inference": "Found reset in runtime/compaction/resume.py",
-        "confidence": "medium",
-        "ambiguities": [
-            "Did not yet confirm whether another caller clears it later."
-        ],
-        "recommended_followup": "Trace the next resumed-run caller after compaction.",
     }
     assert events[4].activity is not None
     assert events[4].activity.title == "subagent compaction-scan"
     assert events[4].activity.display_label == "Explore"
     assert (
         events[4].activity.summary
-        == "Medium confidence: Found reset in runtime/compaction/resume.py"
+        == "Found reset in runtime/compaction/resume.py"
     )
     assert events[4].activity.details is not None
     assert events[4].activity.details.model_dump(mode="python") == {
@@ -1033,7 +1021,7 @@ async def test_stream_run_events_exposes_compact_subagent_activity(
         "role": "explore",
         "preview_lines": [
             "read AGENTS.md",
-            "Medium confidence: Found reset in runtime/compaction/resume.py",
+            "Found reset in runtime/compaction/resume.py",
         ],
         "preview_terminal": True,
     }

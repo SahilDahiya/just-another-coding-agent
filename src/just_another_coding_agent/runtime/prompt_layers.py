@@ -136,9 +136,28 @@ _TOOL_GUIDANCE_BY_NAME = {
     "find": ("Use find for file discovery by glob pattern.",),
     "subagent": (
         (
-            "Use subagent for one bounded read-only side task. The child uses "
-            "the same workspace, model, and thinking, cannot edit files, and "
-            "returns one final report."
+            "Use subagent for one bounded side task when a fresh child pass "
+            "would help."
+        ),
+        (
+            "Good fits: locating relevant files or evidence, checking one "
+            "claim against repository state, or inspecting one large "
+            "artifact for the parent."
+        ),
+        (
+            "By default the child gets read, grep, find, and ls only; "
+            "request shell capability only when the child needs local "
+            "commands or scripts."
+        ),
+        (
+            "Do not use subagent for broad multi-step work or when the next "
+            "local command is already obvious."
+        ),
+        (
+            "When you spawn a child, make the task detailed enough to "
+            "succeed: state the exact goal, relevant files or artifacts, "
+            "constraints, stop condition, and desired report shape when "
+            "needed."
         ),
     ),
 }
@@ -174,9 +193,20 @@ def build_verification_policy_lines(
     resolved_tool_names = set(_dedupe_tool_names(tool_names))
     can_mutate = "write" in resolved_tool_names or "edit" in resolved_tool_names
     can_shell = "shell" in resolved_tool_names
+    if not can_mutate and not can_shell:
+        return (
+            (
+                "This run is inspection-only. Do not claim you created, "
+                "edited, or saved files."
+            ),
+        )
     if not can_mutate:
         return (
-            "This run is read-only. Do not claim you created, edited, or saved files.",
+            "You do not have write or edit tools in this run.",
+            (
+                "Do not claim file changes unless you actually changed files "
+                "through shell and verified the result with read or shell."
+            ),
         )
     verification_tools = "read or shell" if can_shell else "read"
     return (

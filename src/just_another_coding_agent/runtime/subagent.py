@@ -14,9 +14,6 @@ from just_another_coding_agent.contracts.platform import (
 )
 from just_another_coding_agent.contracts.run_events import RunEvent
 from just_another_coding_agent.contracts.session import SessionName
-from just_another_coding_agent.contracts.subagent import (
-    SUBAGENT_EVIDENCE_FIELD_NAMES,
-)
 from just_another_coding_agent.contracts.thinking import ThinkingSetting
 from just_another_coding_agent.runtime.prompt_layers import (
     PromptSection,
@@ -27,7 +24,9 @@ from just_another_coding_agent.tools._workspace import normalize_workspace_root
 from just_another_coding_agent.tools.deps import RunSessionScope, WorkspaceDeps
 
 SubagentRole = Literal["general", "explore", "verification"]
+SubagentCapability = Literal["default", "shell"]
 EPHEMERAL_SUBAGENT_TOOL_NAMES = ("read", "grep", "find", "ls")
+SHELL_CAPABLE_SUBAGENT_TOOL_NAMES = (*EPHEMERAL_SUBAGENT_TOOL_NAMES, "shell")
 _ROLE_LINES: dict[SubagentRole, tuple[str, ...]] = {
     "general": (
         (
@@ -55,40 +54,70 @@ _ROLE_LINES: dict[SubagentRole, tuple[str, ...]] = {
 class EphemeralSubagentSpec:
     name: SessionName
     role: SubagentRole
+    capability: SubagentCapability
     task: str
     parent_session_id: str
     parent_run_id: str
 
 
 def _build_subagent_output_contract_lines() -> tuple[str, ...]:
-    joined_fields = ", ".join(SUBAGENT_EVIDENCE_FIELD_NAMES)
     return (
+        "Follow any output-shape instructions in the assigned task exactly.",
         (
-            "Return only valid JSON with exactly these keys: "
-            f"{joined_fields}."
+            "If the task does not specify an output shape, return concise "
+            "plain text findings."
         ),
-        "direct_evidence must be a JSON array of concrete observed facts.",
-        "confidence must be exactly one of: low, medium, high.",
-        "Do not wrap the JSON in markdown fences or extra prose.",
+        "State concrete observations before conclusions when possible.",
+        "Do not add markdown fences unless the task asks for them.",
     )
 
 
-def build_ephemeral_subagent_instructions(*, role: SubagentRole) -> str:
+def build_ephemeral_subagent_tool_names(
+    capability: SubagentCapability,
+) -> tuple[str, ...]:
+    if capability == "shell":
+        return SHELL_CAPABLE_SUBAGENT_TOOL_NAMES
+    return EPHEMERAL_SUBAGENT_TOOL_NAMES
+
+
+def _capability_lines(
+    capability: SubagentCapability,
+) -> tuple[str, ...]:
+    if capability == "shell":
+        return (
+            (
+                "When the task needs local commands, scripts, or parsing "
+                "beyond read/grep/find/ls, use shell directly and keep the "
+                "work bounded."
+            ),
+            "You do not have write or edit tools in this run.",
+        )
+    return (
+        "You do not have write, edit, or shell in this run.",
+    )
+
+
+def build_ephemeral_subagent_instructions(
+    *,
+    role: SubagentRole,
+    capability: SubagentCapability,
+) -> str:
     return build_base_product_prompt(
-        tool_names=EPHEMERAL_SUBAGENT_TOOL_NAMES,
+        tool_names=build_ephemeral_subagent_tool_names(capability),
         extra_sections=(
             PromptSection(
                 name="subagent_scope",
                 lines=(
                     (
-                        "You are an ephemeral read-only subagent handling "
-                        "one bounded task."
+                        "You are an ephemeral child agent handling one "
+                        "bounded task."
                     ),
                     (
                         "You do not persist as a user session and you must "
                         "not claim file changes."
                     ),
                     *_ROLE_LINES[role],
+                    *_capability_lines(capability),
                     *_build_subagent_output_contract_lines(),
                 ),
             ),
@@ -101,14 +130,18 @@ def build_ephemeral_subagent_agent(
     model: Any,
     workspace_root: Path | str,
     role: SubagentRole,
+    capability: SubagentCapability,
 ) -> Any:
     from just_another_coding_agent.runtime.agent import build_canonical_agent
 
     return build_canonical_agent(
         model=model,
         workspace_root=workspace_root,
-        tool_names=EPHEMERAL_SUBAGENT_TOOL_NAMES,
-        instructions=build_ephemeral_subagent_instructions(role=role),
+        tool_names=build_ephemeral_subagent_tool_names(capability),
+        instructions=build_ephemeral_subagent_instructions(
+            role=role,
+            capability=capability,
+        ),
     )
 
 
@@ -184,6 +217,7 @@ async def stream_ephemeral_subagent_run_events(
         model=model,
         workspace_root=normalized_workspace_root,
         role=spec.role,
+        capability=spec.capability,
     )
     message_history = _build_ephemeral_subagent_message_history(
         model=model,
@@ -201,7 +235,7 @@ async def stream_ephemeral_subagent_run_events(
         thinking=thinking,
         deps=deps,
         message_history_sink=message_history_sink,
-        available_tool_names=EPHEMERAL_SUBAGENT_TOOL_NAMES,
+        available_tool_names=build_ephemeral_subagent_tool_names(spec.capability),
     ):
         yield event
 
@@ -209,9 +243,11 @@ async def stream_ephemeral_subagent_run_events(
 __all__ = [
     "EPHEMERAL_SUBAGENT_TOOL_NAMES",
     "EphemeralSubagentSpec",
+    "SubagentCapability",
     "SubagentRole",
     "build_ephemeral_subagent_agent",
     "build_ephemeral_subagent_instructions",
+    "build_ephemeral_subagent_tool_names",
     "build_ephemeral_subagent_workspace_deps",
     "stream_ephemeral_subagent_run_events",
 ]

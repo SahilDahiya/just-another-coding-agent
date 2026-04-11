@@ -289,9 +289,12 @@ def test_build_canonical_toolset_exposes_rich_model_facing_tool_descriptions(
     )
 
     assert function_tools["subagent"].description == (
-        "Run one ephemeral read-only subagent for a bounded side task. "
-        "The child uses the same workspace, model, and thinking, cannot "
-        "edit files, and returns one final report."
+        "Run one ephemeral subagent for a bounded side task. Use it for "
+        "focused investigation or verification, not broad multi-step work. "
+        "The child uses the same workspace, model, and thinking, never gets "
+        "write or edit, and returns one final report. Request capability="
+        "'shell' when the child needs local commands or scripts beyond "
+        "read, grep, find, and ls."
     )
     assert (
         function_tools["subagent"].parameters_json_schema["properties"]["name"][
@@ -303,7 +306,20 @@ def test_build_canonical_toolset_exposes_rich_model_facing_tool_descriptions(
         function_tools["subagent"].parameters_json_schema["properties"]["task"][
             "description"
         ]
-        == "Bounded task for the child run to complete."
+        == (
+            "Bounded task for the child run to complete. Include the exact "
+            "goal, relevant files or artifacts, constraints, stop condition, "
+            "and desired report shape when needed."
+        )
+    )
+    assert (
+        function_tools["subagent"].parameters_json_schema["properties"][
+            "capability"
+        ]["description"]
+        == (
+            "Child tool capability. Use 'default' for read/grep/find/ls only "
+            "or 'shell' when the child also needs shell commands."
+        )
     )
 
 

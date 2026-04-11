@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import shutil
 import sys
 from datetime import date
@@ -322,24 +321,16 @@ async def test_subagent_returns_tool_owned_activity_metadata(
     async def fake_stream_ephemeral_subagent_run_events(**kwargs):
         assert kwargs["spec"].name == "compaction-scan"
         assert kwargs["spec"].role == "explore"
+        assert kwargs["spec"].capability == "default"
         assert kwargs["spec"].task == "Find where compaction resets turn context."
         yield RunStartedEvent(run_id="sub-run-1")
         yield RunSucceededEvent(
             run_id="sub-run-1",
-            output_text=json.dumps(
-                {
-                    "direct_evidence": [
-                        "Observed reset in runtime/compaction/resume.py"
-                    ],
-                    "inference": "Found reset in runtime/compaction/resume.py",
-                    "confidence": "medium",
-                    "ambiguities": [
-                        "Did not yet confirm whether another caller clears it later."
-                    ],
-                    "recommended_followup": (
-                        "Trace the next resumed-run caller after compaction."
-                    ),
-                }
+            output_text=(
+                "Found reset in runtime/compaction/resume.py\n"
+                "Evidence:\n"
+                "- Observed reset in runtime/compaction/resume.py\n"
+                "Next: Trace the next resumed-run caller after compaction.\n"
             ),
         )
 
@@ -361,36 +352,32 @@ async def test_subagent_returns_tool_owned_activity_metadata(
         "ok": True,
         "name": "compaction-scan",
         "role": "explore",
-        "summary_text": (
-            "Medium confidence: Found reset in runtime/compaction/resume.py"
+        "capability": "default",
+        "summary_text": "Found reset in runtime/compaction/resume.py",
+        "output_text": (
+            "Found reset in runtime/compaction/resume.py\n"
+            "Evidence:\n"
+            "- Observed reset in runtime/compaction/resume.py\n"
+            "Next: Trace the next resumed-run caller after compaction.\n"
         ),
-        "direct_evidence": [
-            "Observed reset in runtime/compaction/resume.py",
-        ],
-        "inference": "Found reset in runtime/compaction/resume.py",
-        "confidence": "medium",
-        "ambiguities": [
-            "Did not yet confirm whether another caller clears it later."
-        ],
-        "recommended_followup": "Trace the next resumed-run caller after compaction.",
     }
     assert result.metadata == {
         "title": "subagent compaction-scan",
         "display_label": "Explore",
-        "summary": "Medium confidence: Found reset in runtime/compaction/resume.py",
+        "summary": "Found reset in runtime/compaction/resume.py",
         "details": {
             "kind": "subagent",
             "name": "compaction-scan",
             "role": "explore",
             "preview_lines": [
-                "Medium confidence: Found reset in runtime/compaction/resume.py"
+                "Found reset in runtime/compaction/resume.py"
             ],
             "preview_terminal": True,
         },
     }
 
 
-async def test_subagent_fails_hard_on_invalid_structured_evidence(
+async def test_subagent_fails_hard_on_empty_output(
     tmp_path,
     monkeypatch,
 ) -> None:
@@ -413,7 +400,7 @@ async def test_subagent_fails_hard_on_invalid_structured_evidence(
         yield RunStartedEvent(run_id="sub-run-1")
         yield RunSucceededEvent(
             run_id="sub-run-1",
-            output_text="not valid json",
+            output_text="   \n\n",
         )
 
     monkeypatch.setattr(
@@ -424,7 +411,7 @@ async def test_subagent_fails_hard_on_invalid_structured_evidence(
 
     with pytest.raises(
         ToolOperationalError,
-        match="returned invalid structured evidence",
+        match="Subagent returned empty output",
     ):
         await subagent(
             ctx,

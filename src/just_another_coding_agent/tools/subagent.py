@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field
 from pydantic_ai import RunContext, Tool
 
 from just_another_coding_agent.contracts.run_events import (
@@ -12,12 +12,9 @@ from just_another_coding_agent.contracts.run_events import (
     ToolCallStartedEvent,
 )
 from just_another_coding_agent.contracts.session import SessionName
-from just_another_coding_agent.contracts.subagent import (
-    SubagentEvidence,
-    SubagentEvidenceConfidence,
-)
 from just_another_coding_agent.runtime.subagent import (
     EphemeralSubagentSpec,
+    SubagentCapability,
     SubagentRole,
     stream_ephemeral_subagent_run_events,
 )
@@ -47,12 +44,9 @@ class SubagentToolResult(BaseModel):
     ok: Literal[True] = True
     name: SessionName
     role: SubagentRole
+    capability: SubagentCapability
     summary_text: str
-    direct_evidence: list[str]
-    inference: str
-    confidence: SubagentEvidenceConfidence
-    ambiguities: list[str]
-    recommended_followup: str
+    output_text: str
 
 
 def _subagent_summary(summary_text: str) -> str:
@@ -62,19 +56,21 @@ def _subagent_summary(summary_text: str) -> str:
     return truncate_activity_label(normalized, limit=88)
 
 
-def _build_subagent_summary_text(evidence: SubagentEvidence) -> str:
-    return f"{evidence.confidence.capitalize()} confidence: {evidence.inference}"
+def _normalize_subagent_output_text(output_text: str) -> str:
+    if not output_text.strip():
+        raise ToolOperationalError("Subagent returned empty output")
+    return output_text
 
 
-def _parse_subagent_evidence(output_text: str) -> SubagentEvidence:
-    try:
-        return SubagentEvidence.model_validate_json(output_text.strip())
-    except ValidationError as exc:
-        first_error = exc.errors()[0]
-        raise ToolOperationalError(
-            "Subagent returned invalid structured evidence: "
-            f"{first_error['msg']}"
-        ) from exc
+def _build_subagent_summary_text(output_text: str) -> str:
+    for line in output_text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        summary = stripped.lstrip("#*- ").strip()
+        if summary:
+            return summary
+    return "subagent completed"
 
 
 def _display_label_for_role(role: SubagentRole) -> str:
@@ -172,7 +168,14 @@ async def subagent(
     ],
     task: Annotated[
         str,
-        Field(min_length=1, description="Bounded task for the child run to complete."),
+        Field(
+            min_length=1,
+            description=(
+                "Bounded task for the child run to complete. Include the "
+                "exact goal, relevant files or artifacts, constraints, stop "
+                "condition, and desired report shape when needed."
+            ),
+        ),
     ],
     role: Annotated[
         SubagentRole,
@@ -183,14 +186,24 @@ async def subagent(
             )
         ),
     ] = "general",
+    capability: Annotated[
+        SubagentCapability,
+        Field(
+            description=(
+                "Child tool capability. Use 'default' for read/grep/find/ls "
+                "only or 'shell' when the child also needs shell commands."
+            )
+        ),
+    ] = "default",
 ) -> dict[str, object]:
-    """Run one ephemeral read-only subagent for a bounded side task.
+    """Run one ephemeral subagent for a bounded side task.
 
     Args:
         name: Short kebab-case session name for the child run.
         task: Bounded task for the child run to complete.
         role: Child role. Use explore for investigation or verification
             for explicit cross-checking.
+        capability: Child tool capability for the child run.
     """
 
     if ctx.deps.session_scope.kind != "root":
@@ -203,6 +216,7 @@ async def subagent(
     spec = EphemeralSubagentSpec(
         name=name,
         role=role,
+        capability=capability,
         task=task,
         parent_session_id="root",
         parent_run_id="root-run",
@@ -253,17 +267,14 @@ async def subagent(
     if child_terminal is None:
         raise RuntimeError("Subagent run ended without a terminal success event")
 
-    evidence = _parse_subagent_evidence(child_terminal.output_text)
-    summary_text = _build_subagent_summary_text(evidence)
+    output_text = _normalize_subagent_output_text(child_terminal.output_text)
+    summary_text = _build_subagent_summary_text(output_text)
     return_value = SubagentToolResult(
         name=name,
         role=role,
+        capability=capability,
         summary_text=summary_text,
-        direct_evidence=evidence.direct_evidence,
-        inference=evidence.inference,
-        confidence=evidence.confidence,
-        ambiguities=evidence.ambiguities,
-        recommended_followup=evidence.recommended_followup,
+        output_text=output_text,
     ).model_dump(mode="python")
     return make_tool_return(
         return_value=return_value,
@@ -287,9 +298,12 @@ SUBAGENT_TOOL = Tool(
     takes_ctx=True,
     name="subagent",
     description=(
-        "Run one ephemeral read-only subagent for a bounded side task. "
-        "The child uses the same workspace, model, and thinking, cannot "
-        "edit files, and returns one final report."
+        "Run one ephemeral subagent for a bounded side task. Use it for "
+        "focused investigation or verification, not broad multi-step work. "
+        "The child uses the same workspace, model, and thinking, never gets "
+        "write or edit, and returns one final report. Request capability="
+        "'shell' when the child needs local commands or scripts beyond "
+        "read, grep, find, and ls."
     ),
     docstring_format="google",
     require_parameter_descriptions=True,

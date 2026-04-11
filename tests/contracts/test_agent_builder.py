@@ -80,6 +80,35 @@ def test_build_canonical_instructions_include_dynamic_context(tmp_path) -> None:
     assert "Use grep for content search across files." in instructions
     assert "Use ls for bounded directory listings." in instructions
     assert "Use find for file discovery by glob pattern." in instructions
+    assert (
+        "Use subagent for one bounded side task when a fresh child pass "
+        "would help."
+        in instructions
+    )
+    assert (
+        "Good fits: locating relevant files or evidence, checking one "
+        "claim against repository state, or inspecting one large "
+        "artifact for the parent."
+        in instructions
+    )
+    assert (
+        "By default the child gets read, grep, find, and ls only; "
+        "request shell capability only when the child needs local "
+        "commands or scripts."
+        in instructions
+    )
+    assert (
+        "Do not use subagent for broad multi-step work or when the next "
+        "local command is already obvious."
+        in instructions
+    )
+    assert (
+        "When you spawn a child, make the task detailed enough to "
+        "succeed: state the exact goal, relevant files or artifacts, "
+        "constraints, stop condition, and desired report shape when "
+        "needed."
+        in instructions
+    )
     assert "Use shell for builds, commands, and verification." in instructions
     assert "Current shell family: powershell" in instructions
     assert (

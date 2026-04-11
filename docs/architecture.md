@@ -73,13 +73,19 @@ Project-doc and runtime-context messages are runtime-owned contextual history,
 not static baseline prompt text and not durable session memory.
 The first subagent slice follows the same rule. The model-visible `subagent`
 tool is only a thin frontend over the internal `runtime/subagent.py`
-run-local seam: same runtime frame, same model, same thinking, read-only
-child toolset, and no durable child-session JSONL persistence. If subagent
+run-local seam: same runtime frame, same model, same thinking, backend-owned
+child capability selection, and no durable child-session JSONL persistence. A
+child always lacks `write` and `edit`; `shell` is optional and must be
+requested explicitly through the backend-owned subagent contract. If subagent
 behavior later grows into public session or RPC semantics, that contract must
 be made explicit in Python first rather than being inferred in Go.
 The child-to-parent contract is also Python-owned: the child must return one
-strict JSON evidence object, and the tool validates that into structured
-result fields rather than handing the parent an opaque prose blob.
+plain-text report, while the backend derives only a compact summary line for
+transcript rendering. If the parent needs a stricter report shape, it must ask
+for that shape in the child task rather than relying on a global parser. That
+means the parent prompt policy, tool schema, and docs should all push the
+parent to write detailed child tasks with the exact goal, relevant artifacts,
+constraints, stop condition, and desired output shape when needed.
 The transcript slice for subagent work follows the same ownership rule:
 Python emits one compact parent activity with bounded preview lines, and Go
 only renders that typed detail block. The shell must not stream or infer child

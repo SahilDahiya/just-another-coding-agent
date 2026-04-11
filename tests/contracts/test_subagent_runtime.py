@@ -17,6 +17,7 @@ from just_another_coding_agent.runtime.subagent import (
     EphemeralSubagentSpec,
     build_ephemeral_subagent_agent,
     build_ephemeral_subagent_instructions,
+    build_ephemeral_subagent_tool_names,
     build_ephemeral_subagent_workspace_deps,
     stream_ephemeral_subagent_run_events,
 )
@@ -34,7 +35,7 @@ def _message_texts(messages) -> list[str]:
     return [message.parts[0].content for message in messages]
 
 
-def test_build_base_product_prompt_can_restrict_tool_policy_to_read_only_tools(
+def test_build_base_product_prompt_can_restrict_tool_policy_to_inspection_tools(
 ) -> None:
     prompt = build_base_product_prompt(tool_names=EPHEMERAL_SUBAGENT_TOOL_NAMES)
 
@@ -43,7 +44,8 @@ def test_build_base_product_prompt_can_restrict_tool_policy_to_read_only_tools(
     assert "Use ls for bounded directory listings." in prompt
     assert "Use find for file discovery by glob pattern." in prompt
     assert (
-        "This run is read-only. Do not claim you created, edited, or saved files."
+        "This run is inspection-only. Do not claim you created, edited, or "
+        "saved files."
         in prompt
     )
     assert "Use edit for precise surgical changes" not in prompt
@@ -56,7 +58,18 @@ def test_build_base_product_prompt_can_restrict_tool_policy_to_read_only_tools(
     )
 
 
-async def test_build_ephemeral_subagent_agent_uses_read_only_instructions(
+def test_shell_capable_subagent_tool_policy_is_not_described_as_read_only() -> None:
+    prompt = build_base_product_prompt(
+        tool_names=build_ephemeral_subagent_tool_names("shell")
+    )
+
+    assert "Use only these tools: read, grep, find, ls, shell." in prompt
+    assert "Use shell for builds, commands, and verification." in prompt
+    assert "This run is read-only." not in prompt
+    assert "You do not have write or edit tools in this run." in prompt
+
+
+async def test_build_ephemeral_subagent_agent_uses_default_capability_instructions(
     tmp_path,
 ) -> None:
     workspace_root = tmp_path / "workspace"
@@ -66,6 +79,7 @@ async def test_build_ephemeral_subagent_agent_uses_read_only_instructions(
         model=FunctionModel(stream_function=text_only_stream),
         workspace_root=workspace_root,
         role="explore",
+        capability="default",
     )
 
     with capture_run_messages() as messages:
@@ -78,16 +92,66 @@ async def test_build_ephemeral_subagent_agent_uses_read_only_instructions(
     first_request = messages[0]
     assert isinstance(first_request, ModelRequest)
     assert first_request.instructions == build_ephemeral_subagent_instructions(
-        role="explore"
+        role="explore",
+        capability="default",
     )
     assert "Use only these tools: read, grep, find, ls." in first_request.instructions
     assert (
-        "You are an ephemeral read-only subagent handling one bounded task."
+        "You are an ephemeral child agent handling one bounded task."
         in first_request.instructions
     )
     assert (
-        "Return only valid JSON with exactly these keys: direct_evidence, "
-        "inference, confidence, ambiguities, recommended_followup."
+        "Follow any output-shape instructions in the assigned task exactly."
+        in first_request.instructions
+    )
+    assert (
+        "If the task does not specify an output shape, return concise plain "
+        "text findings."
+        in first_request.instructions
+    )
+    assert (
+        "Do not add markdown fences unless the task asks for them."
+        in first_request.instructions
+    )
+
+
+async def test_shell_capable_subagent_agent_uses_shell_capable_instructions(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    agent = build_ephemeral_subagent_agent(
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        role="verification",
+        capability="shell",
+    )
+
+    with capture_run_messages() as messages:
+        async for _event in agent.run_stream_events(
+            "scan",
+            deps=WorkspaceDeps.from_workspace_root(workspace_root),
+        ):
+            pass
+
+    first_request = messages[0]
+    assert isinstance(first_request, ModelRequest)
+    assert (
+        "Use only these tools: read, grep, find, ls, shell."
+        in first_request.instructions
+    )
+    assert (
+        "Use shell for builds, commands, and verification."
+        in first_request.instructions
+    )
+    assert (
+        "When the task needs local commands, scripts, or parsing beyond "
+        "read/grep/find/ls, use shell directly and keep the work bounded."
+        in first_request.instructions
+    )
+    assert (
+        "You do not have write or edit tools in this run."
         in first_request.instructions
     )
 
@@ -101,6 +165,7 @@ def test_build_ephemeral_subagent_workspace_deps_inherits_parent_runtime_frame(
     spec = EphemeralSubagentSpec(
         name="compaction-scan",
         role="explore",
+        capability="default",
         task="Find where compaction resets turn context.",
         parent_session_id="a" * 32,
         parent_run_id="run-1",
@@ -136,6 +201,7 @@ async def test_stream_ephemeral_subagent_run_events_builds_fresh_history(
     spec = EphemeralSubagentSpec(
         name="compaction-scan",
         role="explore",
+        capability="default",
         task="Find where compaction resets turn context.",
         parent_session_id="a" * 32,
         parent_run_id="run-1",
