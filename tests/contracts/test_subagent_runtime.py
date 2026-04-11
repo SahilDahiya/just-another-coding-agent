@@ -288,7 +288,10 @@ async def test_stream_ephemeral_subagent_run_events_builds_fresh_history(
     assert captured["instructions"] is None
     assert captured["thinking"] == "medium"
     assert captured["deps"] == build_ephemeral_subagent_workspace_deps(
-        parent_deps=WorkspaceDeps.from_workspace_root(workspace_root),
+        parent_deps=WorkspaceDeps(
+            workspace_root=workspace_root,
+            shell_family="posix",
+        ),
         spec=spec,
     )
     message_texts = _message_texts(captured["message_history"])

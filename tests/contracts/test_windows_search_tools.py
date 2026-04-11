@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from io import StringIO
 
 import pytest
@@ -12,7 +13,7 @@ def test_build_tool_process_env_prepends_managed_bin_dir(monkeypatch, tmp_path) 
 
     env = tools.build_tool_process_env({"PATH": r"C:\Windows\System32"})
 
-    assert env["PATH"].split(";")[0] == str(tmp_path / "bin")
+    assert env["PATH"].split(os.pathsep)[0] == str(tmp_path / "bin")
 
 
 def test_ensure_windows_search_tool_downloads_missing_binary(

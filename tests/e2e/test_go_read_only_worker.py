@@ -30,6 +30,23 @@ from just_another_coding_agent.tools.read_only_worker.protocol import (
 )
 
 
+def _ripgrep_is_runnable() -> bool:
+    executable = shutil.which("rg")
+    if executable is None:
+        return False
+    try:
+        completed = subprocess.run(
+            [executable, "--version"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return completed.returncode == 0
+
+
 class _GoWorkerProcess:
     def __init__(self, repo_root: Path, *, go_cache_dir: Path) -> None:
         self._repo_root = repo_root
@@ -163,8 +180,8 @@ def test_go_read_only_worker_handles_handshake_read_and_ls(tmp_path: Path) -> No
 
 
 def test_go_read_only_worker_grep_returns_after_limit_hit(tmp_path: Path) -> None:
-    if shutil.which("rg") is None:
-        pytest.skip("ripgrep (rg) is required for grep worker tests")
+    if not _ripgrep_is_runnable():
+        pytest.skip("a runnable ripgrep (rg) is required for grep worker tests")
     repo_root = Path(__file__).resolve().parents[2]
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
@@ -206,8 +223,8 @@ def test_go_read_only_worker_grep_returns_after_limit_hit(tmp_path: Path) -> Non
 def test_go_read_only_worker_grep_returns_after_byte_limit_hit(
     tmp_path: Path,
 ) -> None:
-    if shutil.which("rg") is None:
-        pytest.skip("ripgrep (rg) is required for grep worker tests")
+    if not _ripgrep_is_runnable():
+        pytest.skip("a runnable ripgrep (rg) is required for grep worker tests")
     repo_root = Path(__file__).resolve().parents[2]
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
