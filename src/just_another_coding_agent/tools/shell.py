@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 import signal
 import subprocess
@@ -33,6 +34,13 @@ from just_another_coding_agent.tools.windows_search_tools import (
 
 SHELL_MAX_LINES = 2000
 SHELL_MAX_BYTES = 50 * 1024
+SHELL_READER_DRAIN_GRACE_SECONDS = 0.5
+# Minimum time between successive partial-update publications. Without
+# coalescing, every 4 KB read chunk produces a tool_call_updated event
+# carrying the FULL accumulated truncated output, which is O(N²) bytes
+# pushed through the RPC pipe and the JSONL writer. Coalescing caps that
+# at a few updates per second regardless of how fast the child writes.
+SHELL_PUBLISH_MIN_INTERVAL_SECONDS = 0.25
 
 
 class ShellExecutionContext(Protocol):
@@ -186,7 +194,17 @@ def _shell_command_prefix(shell_family: ShellFamily) -> tuple[str, ...]:
 def _shell_process_kwargs(shell_family: ShellFamily) -> dict[str, object]:
     kwargs: dict[str, object] = {}
     if shell_family == "powershell" and os.name == "nt":
-        kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+        # CREATE_NO_WINDOW: do not give the child a console. Without this,
+        # powershell.exe children inherit / try to attach to the parent's
+        # console, which serializes through conhost/csrss when several
+        # children spawn concurrently from a TUI parent and can stall a
+        # spawn for many seconds before the first byte appears.
+        # CREATE_NEW_PROCESS_GROUP: keeps Ctrl+C from the parent from
+        # propagating into the child, and lets us terminate the whole tree
+        # via taskkill /T.
+        kwargs["creationflags"] = (
+            subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
+        )
     return kwargs
 
 
@@ -205,6 +223,11 @@ async def execute_shell(
         *_shell_command_prefix(shell_family),
         command,
         cwd=str(workspace_root),
+        # Detach the child from the parent's stdin. When jaca runs in a TUI
+        # the parent's stdin is a raw-mode console handle; powershell.exe
+        # children that inherit it can stall on startup for tens of seconds
+        # before producing any output.
+        stdin=asyncio.subprocess.DEVNULL,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
         env=build_tool_process_env(),
@@ -215,43 +238,105 @@ async def execute_shell(
         raise RuntimeError("shell subprocess must expose stdout")
 
     output_chunks: list[str] = []
+    new_output_event = asyncio.Event()
 
     async def _read_output() -> None:
+        try:
+            while True:
+                chunk = await process.stdout.read(4096)
+                if not chunk:
+                    return
+                try:
+                    text = chunk.decode("utf-8")
+                except UnicodeError as error:
+                    raise ToolEncodingError(
+                        "Command output is not valid UTF-8 text"
+                    ) from error
+                output_chunks.append(text)
+                new_output_event.set()
+        finally:
+            new_output_event.set()
+
+    async def _publish_loop() -> None:
+        # Decoupled from the reader: a slow tool_update_sink must never
+        # block stdout draining or delay process completion. Successive
+        # publications are also coalesced (min interval) so a fast,
+        # high-volume child does not flood the RPC pipe and the JSONL
+        # writer with O(N²) growing payloads.
+        loop = asyncio.get_running_loop()
+        last_publish = 0.0
         while True:
-            chunk = await process.stdout.read(4096)
-            if not chunk:
+            await new_output_event.wait()
+            new_output_event.clear()
+            if reader_task.done():
                 return
-            try:
-                text = chunk.decode("utf-8")
-            except UnicodeError as error:
-                raise ToolEncodingError(
-                    "Command output is not valid UTF-8 text"
-                ) from error
-            output_chunks.append(text)
+            now = loop.time()
+            wait_for = SHELL_PUBLISH_MIN_INTERVAL_SECONDS - (now - last_publish)
+            if wait_for > 0:
+                try:
+                    await asyncio.sleep(wait_for)
+                except asyncio.CancelledError:
+                    return
+                if reader_task.done():
+                    return
             await _publish_shell_update(
                 ctx=ctx,
                 output="".join(output_chunks),
             )
+            last_publish = loop.time()
 
     reader_task = asyncio.create_task(_read_output())
+    publisher_task = asyncio.create_task(_publish_loop())
+    wait_task = asyncio.create_task(process.wait())
+
+    async def _await_process_and_drain() -> None:
+        # Wait for either the process to exit or the reader to fail.
+        done, _pending = await asyncio.wait(
+            {wait_task, reader_task},
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        # If the reader failed (e.g., decode error) before the process
+        # exited, surface that exception now.
+        if reader_task in done and reader_task.exception() is not None:
+            raise reader_task.exception()  # type: ignore[misc]
+        # Process has exited. Give the reader a brief grace period to
+        # drain any remaining buffered bytes, then stop waiting on it
+        # regardless of whether EOF actually arrived. This prevents
+        # hangs from any "pipe never EOFs" condition (e.g., a child
+        # that leaked stdout to a long-lived helper).
+        if not reader_task.done():
+            try:
+                await asyncio.wait_for(
+                    asyncio.shield(reader_task),
+                    timeout=SHELL_READER_DRAIN_GRACE_SECONDS,
+                )
+            except TimeoutError:
+                reader_task.cancel()
+                with contextlib.suppress(
+                    asyncio.CancelledError, ToolEncodingError
+                ):
+                    await reader_task
+        if reader_task.done() and not reader_task.cancelled():
+            exc = reader_task.exception()
+            if exc is not None:
+                raise exc
 
     try:
         if timeout is None:
-            await asyncio.gather(process.wait(), reader_task)
+            await _await_process_and_drain()
         else:
             try:
                 await asyncio.wait_for(
-                    asyncio.gather(process.wait(), reader_task),
-                    timeout=timeout,
+                    _await_process_and_drain(), timeout=timeout
                 )
             except TimeoutError as error:
                 await _terminate_process(process, shell_family=shell_family)
                 if not reader_task.done():
                     reader_task.cancel()
-                try:
+                with contextlib.suppress(
+                    asyncio.CancelledError, ToolEncodingError
+                ):
                     await reader_task
-                except (asyncio.CancelledError, ToolEncodingError):
-                    pass
                 output = _truncate_shell_output("".join(output_chunks))
                 raise ToolCommandError(
                     _format_shell_failure(
@@ -265,6 +350,13 @@ async def execute_shell(
     finally:
         if process.returncode is None:
             await _terminate_process(process, shell_family=shell_family)
+        if not wait_task.done():
+            with contextlib.suppress(asyncio.CancelledError):
+                await wait_task
+        if not publisher_task.done():
+            publisher_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await publisher_task
 
     output = _truncate_shell_output("".join(output_chunks))
 
