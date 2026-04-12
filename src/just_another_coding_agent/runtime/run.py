@@ -63,9 +63,25 @@ from just_another_coding_agent.runtime.models import (
     build_canonical_model_settings,
     get_model_context_window_tokens,
 )
+from just_another_coding_agent.runtime.compaction.constants import (
+    SESSION_AUTO_COMPACTION_RETAINED_TAIL_TOKENS,
+)
+from just_another_coding_agent.runtime.compaction.session_summary import (
+    summarize_compaction_source,
+)
+from just_another_coding_agent.runtime.compaction.source_builder import (
+    build_in_run_compaction_source,
+)
+from just_another_coding_agent.runtime.compaction.trigger import (
+    check_in_run_compaction_needed,
+)
 from just_another_coding_agent.runtime.recovery import should_retry_run_error
 from just_another_coding_agent.runtime.transcript_summary import (
     build_run_transcript_summary,
+)
+from just_another_coding_agent.session.replacement_history import (
+    build_compaction_replacement_messages,
+    strip_unpaired_tool_parts,
 )
 from just_another_coding_agent.tools.deps import WorkspaceDeps
 
@@ -107,6 +123,15 @@ class _QueuedRunFinished:
 @dataclass(frozen=True)
 class _RestartRunWithCorrection(Exception):
     message: str
+
+
+class _InRunCompactRequested(Exception):
+    pass
+
+
+MAX_IN_RUN_COMPACT_FAILURES = 3
+MIN_TOOL_RESULTS_BETWEEN_COMPACTIONS = 3
+IN_RUN_COMPACTION_CONTINUATION_PROMPT = "Continue from the compaction summary above."
 
 
 def _build_tool_updated_event(
@@ -234,6 +259,9 @@ async def _stream_run_events_with_steer(
     pending_tool_calls: dict[str, _PendingToolCall] = {}
     buffered_tool_updates: dict[str, list[_QueuedToolUpdate]] = {}
     completed_tool_calls: dict[str, str] = {}
+    in_run_compact_failures = 0
+    tool_results_since_compact = 0
+    has_seen_tool_activity = False
     yield RunStartedEvent(run_id=run_id)
 
     while True:
@@ -279,6 +307,24 @@ async def _stream_run_events_with_steer(
                     node = agent_run.next_node
                     while True:
                         if isinstance(node, ModelRequestNode):
+                            if (
+                                has_seen_tool_activity
+                                and tool_results_since_compact
+                                >= MIN_TOOL_RESULTS_BETWEEN_COMPACTIONS
+                                and in_run_compact_failures
+                                < MAX_IN_RUN_COMPACT_FAILURES
+                            ):
+                                live_messages = [
+                                    *current_message_history,
+                                    *list(captured_messages)[
+                                        attempt_history_count:
+                                    ],
+                                ]
+                                if check_in_run_compaction_needed(
+                                    live_messages,
+                                    model=getattr(agent, "model", None),
+                                ):
+                                    raise _InRunCompactRequested()
                             async with node.stream(agent_run.ctx) as stream:
                                 async for event in stream:
                                     saw_streamed_event = True
@@ -594,6 +640,8 @@ async def _stream_run_events_with_steer(
                                                             ),
                                                         ),
                                                     )
+                                                    has_seen_tool_activity = True
+                                                    tool_results_since_compact += 1
                                                     await _submit_if_ready()
                                                 stream_task = asyncio.create_task(
                                                     anext(stream_iterator)
@@ -647,6 +695,54 @@ async def _stream_run_events_with_steer(
                 raise RuntimeError(
                     "stream_run_events received an error after terminal success"
                 ) from error
+
+            if isinstance(error, _InRunCompactRequested):
+                live_messages = [
+                    *current_message_history,
+                    *list(captured_messages)[attempt_history_count:],
+                ]
+                try:
+                    source_text = build_in_run_compaction_source(
+                        live_messages,
+                        model=getattr(agent, "model", None),
+                    )
+                    summary_text = await summarize_compaction_source(
+                        model=getattr(agent, "model", None),
+                        source_text=source_text,
+                    )
+                    replacement = strip_unpaired_tool_parts(
+                        build_compaction_replacement_messages(
+                            model=getattr(agent, "model", None),
+                            messages=live_messages,
+                            summary_text=summary_text,
+                            token_budget=SESSION_AUTO_COMPACTION_RETAINED_TAIL_TOKENS,
+                        )
+                    )
+                except Exception:
+                    logger.warning(
+                        "In-run compaction failed: run_id=%s attempt=%s",
+                        run_id,
+                        in_run_compact_failures + 1,
+                        exc_info=True,
+                    )
+                    in_run_compact_failures += 1
+                    continue
+
+                current_message_history = replacement
+                carried_messages.clear()
+                current_prompt = IN_RUN_COMPACTION_CONTINUATION_PROMPT
+                tool_results_since_compact = 0
+                pending_tool_calls.clear()
+                completed_tool_calls.clear()
+                recovery_attempts = 0
+                logger.info(
+                    "In-run compaction completed: run_id=%s "
+                    "live_messages=%d replacement_messages=%d",
+                    run_id,
+                    len(live_messages),
+                    len(replacement),
+                )
+                continue
 
             if isinstance(error, _RestartRunWithCorrection):
                 attempt_messages = _fallback_attempt_messages(

@@ -557,3 +557,161 @@ def test_truncate_middle_used_by_select_recent_user_message_tail() -> None:
     assert len(user_msgs) == 1
     content = user_msgs[0].parts[0].content
     assert "tokens truncated" in content
+
+
+@pytest.mark.anyio
+async def test_in_run_compaction_fires_during_tool_loop(monkeypatch) -> None:
+    from collections.abc import AsyncIterator
+
+    from pydantic_ai import Agent
+    from pydantic_ai.models.function import DeltaToolCall, FunctionModel
+
+    from just_another_coding_agent.runtime import run as run_module
+    from just_another_coding_agent.runtime.run import stream_run_events
+
+    call_count = 0
+
+    async def tool_loop_stream(
+        messages: object,
+        _agent_info: object,
+    ) -> AsyncIterator[dict[int, DeltaToolCall] | str]:
+        nonlocal call_count
+        call_count += 1
+        if call_count <= 5:
+            yield {
+                0: DeltaToolCall(
+                    name="tick",
+                    json_args="{}",
+                    tool_call_id=f"call-{call_count}",
+                )
+            }
+            return
+        yield "done"
+
+    agent = Agent(
+        FunctionModel(stream_function=tool_loop_stream), output_type=str
+    )
+
+    @agent.tool_plain
+    async def tick():
+        return "ok"
+
+    compaction_triggered = False
+
+    def fake_check(messages, *, model):
+        nonlocal compaction_triggered
+        if not compaction_triggered:
+            compaction_triggered = True
+            return True
+        return False
+
+    monkeypatch.setattr(run_module, "check_in_run_compaction_needed", fake_check)
+
+    async def fake_summarize(*, model, source_text):
+        return "Primary Intent:\n- testing in-run compaction"
+
+    monkeypatch.setattr(run_module, "summarize_compaction_source", fake_summarize)
+
+    async def noop_activate(callback):
+        pass
+
+    async def noop_submit():
+        pass
+
+    async def noop_deactivate():
+        pass
+
+    events = [
+        event
+        async for event in stream_run_events(
+            agent=agent,
+            prompt="go",
+            available_tool_names=["tick"],
+            activate_steer_boundary=noop_activate,
+            submit_steer_boundary=noop_submit,
+            deactivate_steer_boundary=noop_deactivate,
+        )
+    ]
+
+    event_types = [type(e).__name__ for e in events]
+    assert event_types[0] == "RunStartedEvent"
+    assert event_types[-1] == "RunSucceededEvent", f"Got: {events[-1]}"
+    assert compaction_triggered
+
+
+@pytest.mark.anyio
+async def test_in_run_compaction_circuit_breaker_on_failure(monkeypatch) -> None:
+    from collections.abc import AsyncIterator
+
+    from pydantic_ai import Agent
+    from pydantic_ai.models.function import DeltaToolCall, FunctionModel
+
+    from just_another_coding_agent.runtime import run as run_module
+    from just_another_coding_agent.runtime.run import stream_run_events
+
+    call_count = 0
+
+    async def tool_loop_stream(
+        messages: object,
+        _agent_info: object,
+    ) -> AsyncIterator[dict[int, DeltaToolCall] | str]:
+        nonlocal call_count
+        call_count += 1
+        if call_count <= 8:
+            yield {
+                0: DeltaToolCall(
+                    name="tick",
+                    json_args="{}",
+                    tool_call_id=f"call-{call_count}",
+                )
+            }
+            return
+        yield "done"
+
+    agent = Agent(
+        FunctionModel(stream_function=tool_loop_stream), output_type=str
+    )
+
+    @agent.tool_plain
+    async def tick():
+        return "ok"
+
+    check_count = 0
+
+    def fake_check(messages, *, model):
+        nonlocal check_count
+        check_count += 1
+        return True
+
+    monkeypatch.setattr(run_module, "check_in_run_compaction_needed", fake_check)
+
+    async def failing_summarize(*, model, source_text):
+        raise RuntimeError("summarizer broke")
+
+    monkeypatch.setattr(run_module, "summarize_compaction_source", failing_summarize)
+
+    async def noop_activate(callback):
+        pass
+
+    async def noop_submit():
+        pass
+
+    async def noop_deactivate():
+        pass
+
+    events = [
+        event
+        async for event in stream_run_events(
+            agent=agent,
+            prompt="go",
+            available_tool_names=["tick"],
+            activate_steer_boundary=noop_activate,
+            submit_steer_boundary=noop_submit,
+            deactivate_steer_boundary=noop_deactivate,
+        )
+    ]
+
+    event_types = [type(e).__name__ for e in events]
+    assert event_types[0] == "RunStartedEvent"
+    assert event_types[-1] == "RunSucceededEvent", f"Got: {events[-1]}"
+    assert check_count == 3

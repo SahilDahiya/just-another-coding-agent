@@ -1,6 +1,17 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
+
+from pydantic_ai.messages import (
+    ModelMessage,
+    ModelRequest,
+    ModelResponse,
+    TextPart,
+    ToolCallPart,
+    ToolReturnPart,
+    UserPromptPart,
+)
 
 from just_another_coding_agent.contracts.compaction import (
     COMPACTION_CHARS_PER_TOKEN_HEURISTIC,
@@ -190,4 +201,49 @@ def compact_text(
     return collapsed[: max_chars - 1] + "…"
 
 
-__all__ = ["build_compaction_source", "compact_text"]
+def build_in_run_compaction_source(
+    messages: Sequence[ModelMessage],
+    *,
+    model: Any,
+) -> str:
+    max_chars = _compaction_source_char_limit(model)
+    lines: list[str] = []
+
+    for message in messages:
+        if isinstance(message, ModelRequest):
+            for part in message.parts:
+                if isinstance(part, UserPromptPart):
+                    text = part.content if isinstance(part.content, str) else str(part.content)
+                    lines.append(f"User: {compact_text(text)}")
+                elif isinstance(part, ToolReturnPart):
+                    lines.append(
+                        f"Tool result ({part.tool_name}): "
+                        f"{compact_text(str(part.content))}"
+                    )
+        elif isinstance(message, ModelResponse):
+            for part in message.parts:
+                if isinstance(part, TextPart):
+                    lines.append(f"Assistant: {compact_text(part.content)}")
+                elif isinstance(part, ToolCallPart):
+                    args_text = compact_text(str(part.args)) if part.args else ""
+                    lines.append(f"Tool call: {part.tool_name}({args_text})")
+
+    source = "\n".join(lines)
+    if len(source) > max_chars:
+        omitted = len(lines)
+        while lines and len("\n".join(lines)) > max_chars:
+            lines.pop(0)
+            omitted -= len(lines)
+        source = (
+            f"(omitted {omitted} oldest message(s) to fit context window)\n\n"
+            + "\n".join(lines)
+        )
+
+    return source
+
+
+__all__ = [
+    "build_compaction_source",
+    "build_in_run_compaction_source",
+    "compact_text",
+]
