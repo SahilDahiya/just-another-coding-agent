@@ -507,3 +507,53 @@ def test_check_in_run_compaction_needed_unknown_context_window() -> None:
         model="test:model",
         get_context_window_tokens=lambda _: None,
     )
+
+
+def test_truncate_middle_returns_text_unchanged_when_within_budget() -> None:
+    text = "hello world"
+    result = replacement_history.truncate_middle_to_token_budget(text, 100)
+    assert result == text
+
+
+def test_truncate_middle_returns_none_for_zero_budget() -> None:
+    assert replacement_history.truncate_middle_to_token_budget("hello", 0) is None
+
+
+def test_truncate_middle_preserves_head_and_tail() -> None:
+    head = "HEAD-" * 100
+    middle = "MIDDLE-" * 1000
+    tail = "TAIL-" * 100
+    text = head + middle + tail
+
+    result = replacement_history.truncate_middle_to_token_budget(text, 500)
+    assert result is not None
+    assert result.startswith("HEAD-")
+    assert result.endswith("TAIL-")
+    assert "tokens truncated" in result
+
+
+def test_truncate_middle_marker_reports_approximate_removed_tokens() -> None:
+    text = "x" * 40_000
+    result = replacement_history.truncate_middle_to_token_budget(text, 1000)
+    assert result is not None
+    assert "tokens truncated" in result
+    assert len(result) < len(text)
+
+
+def test_truncate_middle_used_by_select_recent_user_message_tail() -> None:
+    large_message = "A" * 200_000
+    messages = [ModelRequest(parts=[UserPromptPart(content=large_message)])]
+    result = replacement_history.build_compaction_replacement_messages(
+        model="test:model",
+        messages=messages,
+        summary_text="summary",
+        token_budget=1000,
+    )
+    user_msgs = [
+        m for m in result
+        if isinstance(m, ModelRequest)
+        and any(isinstance(p, UserPromptPart) for p in m.parts)
+    ]
+    assert len(user_msgs) == 1
+    content = user_msgs[0].parts[0].content
+    assert "tokens truncated" in content

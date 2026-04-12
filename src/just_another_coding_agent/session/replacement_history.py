@@ -232,12 +232,35 @@ def strip_unpaired_tool_parts(
     return sanitized
 
 
-def _truncate_text_to_token_budget(text: str, token_budget: int) -> str | None:
-    allowed_chars = token_budget * 4
-    if allowed_chars <= 0:
+CHARS_PER_TOKEN_HEURISTIC = 4
+TRUNCATION_MARKER_TEMPLATE = "\n\n[…approximately {} tokens truncated…]\n\n"
+
+
+def truncate_middle_to_token_budget(text: str, token_budget: int) -> str | None:
+    if token_budget <= 0:
         return None
-    truncated = text[:allowed_chars].rstrip()
-    return truncated or None
+
+    max_chars = token_budget * CHARS_PER_TOKEN_HEURISTIC
+    if len(text) <= max_chars:
+        return text
+
+    removed_chars = len(text) - max_chars
+    removed_tokens = (removed_chars + CHARS_PER_TOKEN_HEURISTIC - 1) // CHARS_PER_TOKEN_HEURISTIC
+    marker = TRUNCATION_MARKER_TEMPLATE.format(removed_tokens)
+
+    budget_for_content = max(max_chars - len(marker), 0)
+    left_budget = budget_for_content // 2
+    right_budget = budget_for_content - left_budget
+
+    left = text[:left_budget]
+    right = text[len(text) - right_budget :] if right_budget > 0 else ""
+
+    result = f"{left}{marker}{right}".strip()
+    return result or None
+
+
+def _truncate_text_to_token_budget(text: str, token_budget: int) -> str | None:
+    return truncate_middle_to_token_budget(text, token_budget)
 
 
 __all__ = [
@@ -248,5 +271,6 @@ __all__ = [
     "is_compaction_summary_message",
     "strip_internal_prompt_state",
     "strip_unpaired_tool_parts",
+    "truncate_middle_to_token_budget",
     "validate_compaction_replacement_messages",
 ]
