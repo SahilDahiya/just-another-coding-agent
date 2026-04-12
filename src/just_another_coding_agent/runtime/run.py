@@ -259,6 +259,7 @@ async def _stream_run_events_with_steer(
     completed_tool_calls: dict[str, str] = {}
     in_run_compact_failures = 0
     last_response_usage: LastResponseUsageSnapshot | None = None
+    synthetic_prompt_texts: set[str] = set()
     yield RunStartedEvent(run_id=run_id)
 
     while True:
@@ -319,6 +320,7 @@ async def _stream_run_events_with_steer(
                                     live_messages,
                                     model=getattr(agent, "model", None),
                                     last_response_usage=last_response_usage,
+                                    pending_prompt=current_prompt,
                                 ):
                                     raise _InRunCompactRequested()
                             async with node.stream(agent_run.ctx) as stream:
@@ -722,6 +724,7 @@ async def _stream_run_events_with_steer(
                         messages=live_messages,
                         model=compact_model,
                         token_budget=SESSION_AUTO_COMPACTION_RETAINED_TAIL_TOKENS,
+                        synthetic_prompt_texts=frozenset(synthetic_prompt_texts),
                     )
                     initial_context: list[ModelMessage] = []
                     if isinstance(deps, WorkspaceDeps):
@@ -758,6 +761,7 @@ async def _stream_run_events_with_steer(
                 current_message_history = replacement
                 carried_messages.clear()
                 current_prompt = IN_RUN_COMPACTION_CONTINUATION_PROMPT
+                synthetic_prompt_texts.add(IN_RUN_COMPACTION_CONTINUATION_PROMPT)
                 pending_tool_calls.clear()
                 completed_tool_calls.clear()
                 recovery_attempts = 0
@@ -788,6 +792,7 @@ async def _stream_run_events_with_steer(
                     *carried_messages[len(current_message_history) :],
                 ]
                 current_prompt = error.message
+                synthetic_prompt_texts.add(error.message)
                 correction_attempts += 1
                 pending_tool_calls.clear()
                 completed_tool_calls.clear()

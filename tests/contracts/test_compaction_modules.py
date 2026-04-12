@@ -495,6 +495,43 @@ def test_check_in_run_compaction_needed_triggers_over_budget() -> None:
     )
 
 
+def test_check_in_run_compaction_needed_counts_pending_prompt() -> None:
+    # Small history alone would not trigger compaction, but adding a huge
+    # pending_prompt (the next turn's user message) should push it over the
+    # threshold. This mirrors the runtime wiring where agent.iter() is called
+    # with a separate prompt argument that becomes a new UserPromptPart.
+    small_messages = [ModelRequest(parts=[UserPromptPart(content="short")])]
+    large_prompt = "hello world! " * 40_000
+
+    assert not trigger.check_in_run_compaction_needed(
+        small_messages,
+        model="test:model",
+        get_context_window_tokens=lambda _: 100_000,
+    )
+    assert trigger.check_in_run_compaction_needed(
+        small_messages,
+        model="test:model",
+        pending_prompt=large_prompt,
+        get_context_window_tokens=lambda _: 100_000,
+    )
+
+
+def test_check_in_run_compaction_needed_pending_prompt_not_double_counted() -> None:
+    # When the history already contains the pending prompt (e.g. pydantic-ai
+    # already appended it to captured_messages before our check ran), we
+    # should not count it twice.
+    prompt_text = "hello world! " * 20_000
+    messages = [ModelRequest(parts=[UserPromptPart(content=prompt_text)])]
+
+    without_pp = trigger.estimate_next_request_input_tokens(
+        messages, model="test:model"
+    )
+    with_pp = trigger.estimate_next_request_input_tokens(
+        messages, model="test:model", pending_prompt=prompt_text
+    )
+    assert with_pp == without_pp
+
+
 def test_check_in_run_compaction_needed_within_budget() -> None:
     messages = [ModelRequest(parts=[UserPromptPart(content="short")])]
     assert not trigger.check_in_run_compaction_needed(
@@ -603,7 +640,7 @@ async def test_in_run_compaction_fires_during_tool_loop(monkeypatch) -> None:
 
     compaction_triggered = False
 
-    def fake_check(messages, *, model, last_response_usage=None):
+    def fake_check(messages, *, model, last_response_usage=None, pending_prompt=None):
         nonlocal compaction_triggered
         has_tool_return = any(
             isinstance(p, ToolReturnPart)
@@ -683,7 +720,7 @@ async def test_in_run_compaction_does_not_require_tool_activity(
         FunctionModel(stream_function=single_response_stream), output_type=str
     )
 
-    def fake_check(messages, *, model, last_response_usage=None):
+    def fake_check(messages, *, model, last_response_usage=None, pending_prompt=None):
         del messages, model
         nonlocal check_call_count
         check_call_count += 1
@@ -771,7 +808,7 @@ async def test_in_run_compaction_circuit_breaker_on_failure(monkeypatch) -> None
 
     check_count = 0
 
-    def fake_check(messages, *, model, last_response_usage=None):
+    def fake_check(messages, *, model, last_response_usage=None, pending_prompt=None):
         nonlocal check_count
         check_count += 1
         return True
@@ -852,7 +889,7 @@ async def test_in_run_compaction_message_history_sink_fires_once(
 
     compaction_triggered = False
 
-    def fake_check(messages, *, model, last_response_usage=None):
+    def fake_check(messages, *, model, last_response_usage=None, pending_prompt=None):
         nonlocal compaction_triggered
         if not compaction_triggered:
             compaction_triggered = True
@@ -933,7 +970,7 @@ async def test_in_run_compaction_rechecks_next_request_without_tool_hysteresis(
 
     check_call_count = 0
 
-    def fake_check(messages, *, model, last_response_usage=None):
+    def fake_check(messages, *, model, last_response_usage=None, pending_prompt=None):
         del messages, model
         nonlocal check_call_count
         check_call_count += 1
@@ -1187,5 +1224,66 @@ def test_build_in_run_truncated_history_preserves_mid_run_user_steer() -> None:
     ]
     assert "initial task" in user_texts
     assert "now please check file X" in user_texts
+
+
+def test_is_real_user_prompt_message_excludes_synthetic_prompts() -> None:
+    from just_another_coding_agent.session.replacement_history import (
+        _is_real_user_prompt_message,
+    )
+
+    synthetic_text = "Continue the task. Earlier turns..."
+    synthetic_set = frozenset({synthetic_text})
+
+    real = ModelRequest(parts=[UserPromptPart(content="solve this task")])
+    synthetic = ModelRequest(parts=[UserPromptPart(content=synthetic_text)])
+
+    assert _is_real_user_prompt_message(real)
+    assert _is_real_user_prompt_message(
+        real, synthetic_prompt_texts=synthetic_set
+    )
+    # Without the set, synthetic looks like a user prompt
+    assert _is_real_user_prompt_message(synthetic)
+    # With the set, it's excluded
+    assert not _is_real_user_prompt_message(
+        synthetic, synthetic_prompt_texts=synthetic_set
+    )
+
+
+def test_build_in_run_truncated_history_does_not_anchor_synthetic_prompts() -> None:
+    # A synthetic continuation prompt must not be preserved as an anchor, so
+    # it can be truncated away when budget is tight while the real user
+    # prompt stays.
+    from just_another_coding_agent.session.replacement_history import (
+        build_in_run_truncated_history,
+        _is_real_user_prompt_message,
+    )
+
+    synthetic_text = "Continue the task. Earlier turns..."
+    messages = [
+        ModelRequest(parts=[UserPromptPart(content="original task")]),
+        ModelResponse(parts=[TextPart(content="a" * 10_000)], model_name="x"),
+        ModelRequest(parts=[UserPromptPart(content=synthetic_text)]),
+        ModelResponse(parts=[TextPart(content="c" * 10_000)], model_name="x"),
+    ]
+    result = build_in_run_truncated_history(
+        messages=messages,
+        model="test:model",
+        token_budget=800,
+        synthetic_prompt_texts=frozenset({synthetic_text}),
+    )
+    user_texts = [
+        p.content
+        for m in result
+        if isinstance(m, ModelRequest)
+        for p in m.parts
+        if isinstance(p, UserPromptPart)
+    ]
+    # Real user prompt is unconditionally anchored.
+    assert "original task" in user_texts
+    # With the synthetic set, the helper correctly classifies the synthetic
+    # prompt as non-anchor.
+    assert not _is_real_user_prompt_message(
+        messages[2], synthetic_prompt_texts=frozenset({synthetic_text})
+    )
 
 

@@ -7,7 +7,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from pydantic_ai.messages import ModelMessage
+from pydantic_ai.messages import ModelMessage, ModelRequest, UserPromptPart
 
 from just_another_coding_agent.contracts.compaction import CompactionBudgetReport
 from just_another_coding_agent.contracts.platform import ShellFamily
@@ -30,6 +30,7 @@ from just_another_coding_agent.runtime.compaction.resume import (
 )
 from just_another_coding_agent.runtime.compaction.token_counting import (
     count_message_tokens,
+    count_text_tokens,
 )
 from just_another_coding_agent.runtime.models import get_model_context_window_tokens
 from just_another_coding_agent.runtime.token_estimation import estimate_messages_tokens
@@ -58,6 +59,23 @@ class LastResponseUsageSnapshot:
 
 
 STATIC_PROVIDER_OVERHEAD_TOKENS = 2_000
+_PENDING_PROMPT_FRAMING_TOKENS = 4
+
+
+def _messages_tail_already_holds_prompt(
+    messages: Sequence[ModelMessage], prompt: str
+) -> bool:
+    if not messages:
+        return False
+    last = messages[-1]
+    if not isinstance(last, ModelRequest):
+        return False
+    for part in last.parts:
+        if isinstance(part, UserPromptPart):
+            content = part.content
+            if isinstance(content, str) and content == prompt:
+                return True
+    return False
 
 
 def should_auto_compact_session(
@@ -290,19 +308,31 @@ def estimate_next_request_input_tokens(
     *,
     model: Any,
     last_response_usage: LastResponseUsageSnapshot | None = None,
+    pending_prompt: str | None = None,
 ) -> int:
     if last_response_usage is None:
-        return (
+        base = (
             count_message_tokens(messages, model=model)
             + STATIC_PROVIDER_OVERHEAD_TOKENS
         )
-    delta_messages = messages[last_response_usage.messages_prefix_count :]
-    delta_tokens = count_message_tokens(delta_messages, model=model)
-    return (
-        last_response_usage.input_tokens
-        + last_response_usage.output_tokens
-        + delta_tokens
-    )
+    else:
+        delta_messages = messages[last_response_usage.messages_prefix_count :]
+        delta_tokens = count_message_tokens(delta_messages, model=model)
+        base = (
+            last_response_usage.input_tokens
+            + last_response_usage.output_tokens
+            + delta_tokens
+        )
+
+    if pending_prompt and not _messages_tail_already_holds_prompt(
+        messages, pending_prompt
+    ):
+        base += (
+            count_text_tokens(model=model, text=pending_prompt)
+            + _PENDING_PROMPT_FRAMING_TOKENS
+        )
+
+    return base
 
 
 def check_in_run_compaction_needed(
@@ -310,6 +340,7 @@ def check_in_run_compaction_needed(
     *,
     model: Any,
     last_response_usage: LastResponseUsageSnapshot | None = None,
+    pending_prompt: str | None = None,
     get_context_window_tokens: Callable[[Any], int | None] = (
         get_model_context_window_tokens
     ),
@@ -333,6 +364,7 @@ def check_in_run_compaction_needed(
         messages,
         model=model,
         last_response_usage=last_response_usage,
+        pending_prompt=pending_prompt,
     )
 
     return estimated_tokens >= trigger_budget_tokens
