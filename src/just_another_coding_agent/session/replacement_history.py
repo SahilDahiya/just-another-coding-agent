@@ -294,6 +294,19 @@ def _message_text_for_budget(message: ModelMessage) -> str:
     return "\n".join(fragments)
 
 
+def _is_anchor_message(message: ModelMessage) -> bool:
+    if _is_real_user_prompt_message(message):
+        return True
+    if is_compaction_summary_message(message):
+        return True
+    return False
+
+
+def _estimate_message_tokens(message: ModelMessage, *, model) -> int:
+    text = _message_text_for_budget(message)
+    return estimate_text_tokens(model=model, text=text).estimated_tokens
+
+
 def build_in_run_truncated_history(
     *,
     messages: Sequence[ModelMessage],
@@ -301,35 +314,56 @@ def build_in_run_truncated_history(
     token_budget: int,
 ) -> list[ModelMessage]:
     sanitized = strip_thinking_parts(messages)
+    if not sanitized:
+        return []
 
-    prefix_messages: list[ModelMessage] = []
-    body_start_index = 0
+    # Phase 1: identify anchor indices that must always be preserved.
+    #
+    # Anchors:
+    # - Real user prompts (original task and any mid-run steers) — the model
+    #   needs these to understand intent.
+    # - Durable compaction summary messages — carried across prior compactions
+    #   and must not be dropped on a subsequent in-run compaction.
+    #
+    # Anchors may appear anywhere in the history, not just as leading messages,
+    # because prior in-run compactions can put injected context (project docs,
+    # runtime frame) ahead of the original user turn.
+    anchor_indices: set[int] = set()
     for idx, message in enumerate(sanitized):
-        if _is_real_user_prompt_message(message) and not is_compaction_summary_message(
-            message
-        ):
-            prefix_messages.append(message)
-            body_start_index = idx + 1
+        if _is_anchor_message(message):
+            anchor_indices.add(idx)
+
+    selected: set[int] = set(anchor_indices)
+    budget_used = sum(
+        _estimate_message_tokens(sanitized[i], model=model) for i in anchor_indices
+    )
+
+    # Phase 2: walk from newest to oldest, filling remaining budget with
+    # recent tool rounds / assistant text. Always keep at least one non-anchor
+    # message so the model has current state to continue from (unless there
+    # are no non-anchor messages to choose).
+    non_anchor_kept = 0
+    for idx in range(len(sanitized) - 1, -1, -1):
+        if idx in selected:
             continue
-        break
-
-    body_messages = list(sanitized[body_start_index:])
-
-    if token_budget <= 0 or not body_messages:
-        return strip_unpaired_tool_parts(prefix_messages)
-
-    selected_tail: list[ModelMessage] = []
-    remaining = token_budget
-    for message in reversed(body_messages):
-        text = _message_text_for_budget(message)
-        estimate = estimate_text_tokens(model=model, text=text)
-        if estimate.estimated_tokens > remaining and selected_tail:
+        cost = _estimate_message_tokens(sanitized[idx], model=model)
+        if (
+            token_budget > 0
+            and budget_used + cost > token_budget
+            and non_anchor_kept > 0
+        ):
             break
-        selected_tail.append(message)
-        remaining = max(remaining - estimate.estimated_tokens, 0)
+        selected.add(idx)
+        budget_used += cost
+        non_anchor_kept += 1
 
-    selected_tail.reverse()
-    return strip_unpaired_tool_parts([*prefix_messages, *selected_tail])
+    # Guarantee at least one message survives so callers always get a
+    # non-empty history.
+    if not selected:
+        selected.add(len(sanitized) - 1)
+
+    result = [sanitized[i] for i in sorted(selected)]
+    return strip_unpaired_tool_parts(result)
 
 
 CHARS_PER_TOKEN_HEURISTIC = 4

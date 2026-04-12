@@ -1073,3 +1073,119 @@ def test_build_in_run_truncated_history_drops_tail_under_tight_budget() -> None:
     assert any(isinstance(p, UserPromptPart) for p in result[0].parts)
 
 
+def test_build_in_run_truncated_history_preserves_user_turn_not_at_leading_edge() -> None:
+    # Simulates a history that's already been compacted once, so the leading
+    # messages are rebuilt initial_context (ModelResponse project docs) rather
+    # than a user prompt. The real user task sits in the middle of the list.
+    from just_another_coding_agent.session.replacement_history import (
+        build_in_run_truncated_history,
+    )
+
+    messages = [
+        ModelResponse(
+            parts=[TextPart(content="Project instructions for this workspace: ...")],
+            model_name="jaca-project-docs",
+        ),
+        ModelResponse(
+            parts=[TextPart(content="Runtime context for this turn: date=...")],
+            model_name="jaca-runtime-context",
+        ),
+        ModelRequest(parts=[UserPromptPart(content="the original task description")]),
+        ModelResponse(parts=[TextPart(content="working on it")], model_name="x"),
+        ModelResponse(
+            parts=[ToolCallPart(tool_name="read", args={"path": "a"}, tool_call_id="c1")],
+            model_name="x",
+        ),
+        ModelRequest(parts=[ToolReturnPart(tool_name="read", content="A", tool_call_id="c1")]),
+        ModelResponse(parts=[TextPart(content="x" * 20_000)], model_name="x"),
+        ModelResponse(parts=[TextPart(content="y" * 20_000)], model_name="x"),
+        ModelResponse(parts=[TextPart(content="z" * 20_000)], model_name="x"),
+    ]
+    result = build_in_run_truncated_history(
+        messages=messages, model="test:model", token_budget=2_000
+    )
+    # The user prompt must be preserved even though it's not at the leading edge
+    user_msgs = [
+        m for m in result
+        if isinstance(m, ModelRequest)
+        and any(isinstance(p, UserPromptPart) for p in m.parts)
+    ]
+    assert len(user_msgs) == 1
+    assert user_msgs[0].parts[0].content == "the original task description"
+
+
+def test_build_in_run_truncated_history_preserves_prior_compaction_summary() -> None:
+    # A resumed or multi-compacted history can start with a durable compaction
+    # summary ModelResponse. That summary must survive subsequent in-run
+    # compactions even when the budget forces tail truncation.
+    from just_another_coding_agent.session.replacement_history import (
+        build_compaction_summary_message,
+        build_in_run_truncated_history,
+    )
+
+    summary = build_compaction_summary_message("Primary Intent: previously summarized work")
+    messages = [
+        summary,
+        ModelRequest(parts=[UserPromptPart(content="continue the work")]),
+        ModelResponse(parts=[TextPart(content="a" * 15_000)], model_name="x"),
+        ModelResponse(parts=[TextPart(content="b" * 15_000)], model_name="x"),
+        ModelResponse(parts=[TextPart(content="c" * 15_000)], model_name="x"),
+    ]
+    result = build_in_run_truncated_history(
+        messages=messages, model="test:model", token_budget=1_500
+    )
+    # The prior summary must still be present in the result
+    summary_found = False
+    for m in result:
+        if isinstance(m, ModelResponse):
+            for p in m.parts:
+                if isinstance(p, TextPart) and "previously summarized work" in p.content:
+                    summary_found = True
+    assert summary_found
+    # And the user prompt must also be preserved
+    user_msgs = [
+        m for m in result
+        if isinstance(m, ModelRequest)
+        and any(isinstance(p, UserPromptPart) for p in m.parts)
+    ]
+    assert len(user_msgs) == 1
+
+
+def test_build_in_run_truncated_history_preserves_mid_run_user_steer() -> None:
+    # When a user steers mid-run with a new prompt, that prompt motivates
+    # subsequent tool calls. Keeping the recent tool rounds without the
+    # steering user message leaves the model with evidence but no instruction.
+    from just_another_coding_agent.session.replacement_history import (
+        build_in_run_truncated_history,
+    )
+
+    messages = [
+        ModelRequest(parts=[UserPromptPart(content="initial task")]),
+        ModelResponse(
+            parts=[ToolCallPart(tool_name="read", args={"path": "a"}, tool_call_id="c1")],
+            model_name="x",
+        ),
+        ModelRequest(parts=[ToolReturnPart(tool_name="read", content="A", tool_call_id="c1")]),
+        ModelResponse(parts=[TextPart(content="padding " * 3000)], model_name="x"),
+        ModelRequest(parts=[UserPromptPart(content="now please check file X")]),
+        ModelResponse(
+            parts=[ToolCallPart(tool_name="read", args={"path": "X"}, tool_call_id="c2")],
+            model_name="x",
+        ),
+        ModelRequest(parts=[ToolReturnPart(tool_name="read", content="X content", tool_call_id="c2")]),
+    ]
+    result = build_in_run_truncated_history(
+        messages=messages, model="test:model", token_budget=500
+    )
+    # Both user prompts must survive
+    user_texts = [
+        p.content
+        for m in result
+        if isinstance(m, ModelRequest)
+        for p in m.parts
+        if isinstance(p, UserPromptPart)
+    ]
+    assert "initial task" in user_texts
+    assert "now please check file X" in user_texts
+
+
