@@ -7,8 +7,10 @@ from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
     ModelResponse,
+    RetryPromptPart,
     SystemPromptPart,
     TextPart,
+    ThinkingPart,
     ToolCallPart,
     ToolReturnPart,
     UserContent,
@@ -232,6 +234,104 @@ def strip_unpaired_tool_parts(
     return sanitized
 
 
+def strip_thinking_parts(
+    messages: Sequence[ModelMessage],
+) -> list[ModelMessage]:
+    sanitized: list[ModelMessage] = []
+    for message in messages:
+        if not isinstance(message, ModelResponse):
+            sanitized.append(message)
+            continue
+        kept_parts = [
+            part for part in message.parts if not isinstance(part, ThinkingPart)
+        ]
+        if len(kept_parts) == len(message.parts):
+            sanitized.append(message)
+            continue
+        if not kept_parts:
+            continue
+        sanitized.append(replace(message, parts=kept_parts))
+    return sanitized
+
+
+def _is_real_user_prompt_message(message: ModelMessage) -> bool:
+    if not isinstance(message, ModelRequest):
+        return False
+    return any(isinstance(part, UserPromptPart) for part in message.parts)
+
+
+def _message_text_for_budget(message: ModelMessage) -> str:
+    fragments: list[str] = []
+    for part in message.parts:
+        if isinstance(part, UserPromptPart):
+            content = part.content
+            if isinstance(content, str):
+                fragments.append(content)
+            else:
+                for item in content:
+                    if isinstance(item, str):
+                        fragments.append(item)
+        elif isinstance(part, TextPart):
+            fragments.append(part.content)
+        elif isinstance(part, ToolCallPart):
+            fragments.append(part.tool_name)
+            args = part.args
+            if isinstance(args, str):
+                fragments.append(args)
+            elif args is not None:
+                import json as _json
+                fragments.append(_json.dumps(args, ensure_ascii=False))
+        elif isinstance(part, ToolReturnPart):
+            fragments.append(part.tool_name)
+            content = part.content
+            if isinstance(content, str):
+                fragments.append(content)
+            elif content is not None:
+                import json as _json
+                fragments.append(_json.dumps(content, ensure_ascii=False))
+        elif isinstance(part, RetryPromptPart):
+            fragments.append(str(part.content))
+    return "\n".join(fragments)
+
+
+def build_in_run_truncated_history(
+    *,
+    messages: Sequence[ModelMessage],
+    model,
+    token_budget: int,
+) -> list[ModelMessage]:
+    sanitized = strip_thinking_parts(messages)
+
+    prefix_messages: list[ModelMessage] = []
+    body_start_index = 0
+    for idx, message in enumerate(sanitized):
+        if _is_real_user_prompt_message(message) and not is_compaction_summary_message(
+            message
+        ):
+            prefix_messages.append(message)
+            body_start_index = idx + 1
+            continue
+        break
+
+    body_messages = list(sanitized[body_start_index:])
+
+    if token_budget <= 0 or not body_messages:
+        return strip_unpaired_tool_parts(prefix_messages)
+
+    selected_tail: list[ModelMessage] = []
+    remaining = token_budget
+    for message in reversed(body_messages):
+        text = _message_text_for_budget(message)
+        estimate = estimate_text_tokens(model=model, text=text)
+        if estimate.estimated_tokens > remaining and selected_tail:
+            break
+        selected_tail.append(message)
+        remaining = max(remaining - estimate.estimated_tokens, 0)
+
+    selected_tail.reverse()
+    return strip_unpaired_tool_parts([*prefix_messages, *selected_tail])
+
+
 CHARS_PER_TOKEN_HEURISTIC = 4
 TRUNCATION_MARKER_TEMPLATE = "\n\n[…approximately {} tokens truncated…]\n\n"
 
@@ -267,9 +367,11 @@ __all__ = [
     "COMPACTION_SUMMARY_HEADER",
     "build_compaction_replacement_messages",
     "build_compaction_summary_message",
+    "build_in_run_truncated_history",
     "extract_compaction_summary_text",
     "is_compaction_summary_message",
     "strip_internal_prompt_state",
+    "strip_thinking_parts",
     "strip_unpaired_tool_parts",
     "truncate_middle_to_token_budget",
     "validate_compaction_replacement_messages",

@@ -605,17 +605,17 @@ async def test_in_run_compaction_fires_during_tool_loop(monkeypatch) -> None:
 
     def fake_check(messages, *, model):
         nonlocal compaction_triggered
-        if not compaction_triggered:
+        has_tool_return = any(
+            isinstance(p, ToolReturnPart)
+            for m in messages
+            for p in getattr(m, "parts", [])
+        )
+        if has_tool_return and not compaction_triggered:
             compaction_triggered = True
             return True
         return False
 
     monkeypatch.setattr(run_module, "check_in_run_compaction_needed", fake_check)
-
-    async def fake_summarize(*, model, source_text):
-        return "Primary Intent:\n- testing in-run compaction"
-
-    monkeypatch.setattr(run_module, "summarize_compaction_source", fake_summarize)
 
     async def noop_activate(callback):
         pass
@@ -651,7 +651,7 @@ async def test_in_run_compaction_fires_during_tool_loop(monkeypatch) -> None:
         e for e in events if isinstance(e, InRunCompactionCompletedEvent)
     ]
     assert len(compaction_events) == 1
-    assert compaction_events[0].live_message_count >= 0
+    assert compaction_events[0].live_message_count > 0
     assert compaction_events[0].replacement_message_count > 0
 
 
@@ -691,12 +691,6 @@ async def test_in_run_compaction_does_not_require_tool_activity(
 
     monkeypatch.setattr(run_module, "check_in_run_compaction_needed", fake_check)
 
-    async def fake_summarize(*, model, source_text):
-        del model, source_text
-        return "Primary Intent:\n- testing compaction without tools"
-
-    monkeypatch.setattr(run_module, "summarize_compaction_source", fake_summarize)
-
     async def noop_activate(callback):
         del callback
 
@@ -706,11 +700,16 @@ async def test_in_run_compaction_does_not_require_tool_activity(
     async def noop_deactivate():
         return None
 
+    seed_history = [
+        ModelRequest(parts=[UserPromptPart(content="earlier user turn")]),
+        ModelResponse(parts=[TextPart(content="earlier assistant text")], model_name="x"),
+    ]
     events = [
         event
         async for event in stream_run_events(
             agent=agent,
             prompt="go",
+            message_history=seed_history,
             available_tool_names=[],
             activate_steer_boundary=noop_activate,
             submit_steer_boundary=noop_submit,
@@ -779,10 +778,10 @@ async def test_in_run_compaction_circuit_breaker_on_failure(monkeypatch) -> None
 
     monkeypatch.setattr(run_module, "check_in_run_compaction_needed", fake_check)
 
-    async def failing_summarize(*, model, source_text):
-        raise RuntimeError("summarizer broke")
+    def failing_build(*, messages, model, token_budget):
+        raise RuntimeError("truncation broke")
 
-    monkeypatch.setattr(run_module, "summarize_compaction_source", failing_summarize)
+    monkeypatch.setattr(run_module, "build_in_run_truncated_history", failing_build)
 
     async def noop_activate(callback):
         pass
@@ -861,11 +860,6 @@ async def test_in_run_compaction_message_history_sink_fires_once(
         return False
 
     monkeypatch.setattr(run_module, "check_in_run_compaction_needed", fake_check)
-
-    async def fake_summarize(*, model, source_text):
-        return "Primary Intent:\n- testing sink"
-
-    monkeypatch.setattr(run_module, "summarize_compaction_source", fake_summarize)
 
     sink_calls: list[Sequence[ModelMessage]] = []
 
@@ -947,12 +941,6 @@ async def test_in_run_compaction_rechecks_next_request_without_tool_hysteresis(
 
     monkeypatch.setattr(run_module, "check_in_run_compaction_needed", fake_check)
 
-    async def fake_summarize(*, model, source_text):
-        del model, source_text
-        return "Primary Intent:\n- testing immediate recheck"
-
-    monkeypatch.setattr(run_module, "summarize_compaction_source", fake_summarize)
-
     async def noop_activate(callback):
         pass
 
@@ -1022,22 +1010,66 @@ def test_strip_unpaired_tool_parts_after_tail_selection_drops_orphaned_return() 
                 assert call_ids == return_ids
 
 
-def test_in_run_compaction_source_omitted_counter_is_correct() -> None:
-    from just_another_coding_agent.runtime.compaction.source_builder import (
-        build_in_run_compaction_source,
+def test_build_in_run_truncated_history_keeps_user_prefix_and_recent_tail() -> None:
+    from pydantic_ai.messages import ThinkingPart
+
+    from just_another_coding_agent.session.replacement_history import (
+        build_in_run_truncated_history,
     )
 
     messages = [
-        ModelRequest(parts=[UserPromptPart(content="x" * 5000)])
-        for _ in range(50)
+        ModelRequest(parts=[UserPromptPart(content="solve this task")]),
+        ModelResponse(
+            parts=[
+                ThinkingPart(content="", signature="opaque-1"),
+                ToolCallPart(tool_name="read", args={"path": "a"}, tool_call_id="c1"),
+            ],
+            model_name="x",
+        ),
+        ModelRequest(parts=[ToolReturnPart(tool_name="read", content="file a", tool_call_id="c1")]),
+        ModelResponse(
+            parts=[
+                ThinkingPart(content="", signature="opaque-2"),
+                TextPart(content="looking at b next"),
+                ToolCallPart(tool_name="read", args={"path": "b"}, tool_call_id="c2"),
+            ],
+            model_name="x",
+        ),
+        ModelRequest(parts=[ToolReturnPart(tool_name="read", content="file b", tool_call_id="c2")]),
     ]
-    source = build_in_run_compaction_source(
-        messages, model="test:model"
+    result = build_in_run_truncated_history(
+        messages=messages, model="test:model", token_budget=100_000
     )
-    if "(omitted" in source:
-        import re
-        match = re.search(r"\(omitted (\d+) oldest", source)
-        assert match is not None
-        omitted_count = int(match.group(1))
-        assert omitted_count > 0
-        assert omitted_count < 50
+    # Prefix: user prompt kept
+    assert isinstance(result[0], ModelRequest)
+    assert any(isinstance(p, UserPromptPart) for p in result[0].parts)
+    # ThinkingPart stripped everywhere
+    for m in result:
+        assert not any(isinstance(p, ThinkingPart) for p in m.parts)
+    # Tool pairing intact
+    call_ids = {p.tool_call_id for m in result for p in m.parts if isinstance(p, ToolCallPart)}
+    return_ids = {p.tool_call_id for m in result for p in m.parts if isinstance(p, ToolReturnPart)}
+    assert call_ids == return_ids
+    assert call_ids == {"c1", "c2"}
+
+
+def test_build_in_run_truncated_history_drops_tail_under_tight_budget() -> None:
+    from just_another_coding_agent.session.replacement_history import (
+        build_in_run_truncated_history,
+    )
+
+    messages = [
+        ModelRequest(parts=[UserPromptPart(content="solve this task")]),
+        ModelResponse(parts=[TextPart(content="a" * 10_000)], model_name="x"),
+        ModelResponse(parts=[TextPart(content="b" * 10_000)], model_name="x"),
+        ModelResponse(parts=[TextPart(content="c" * 10_000)], model_name="x"),
+    ]
+    result = build_in_run_truncated_history(
+        messages=messages, model="test:model", token_budget=1_500
+    )
+    # Prefix kept, body truncated: should have fewer messages than input
+    assert len(result) < len(messages)
+    assert isinstance(result[0], ModelRequest)
+    assert any(isinstance(p, UserPromptPart) for p in result[0].parts)
+
+

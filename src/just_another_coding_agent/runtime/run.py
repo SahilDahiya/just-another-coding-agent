@@ -63,12 +63,6 @@ from just_another_coding_agent.runtime.agent import (
 from just_another_coding_agent.runtime.compaction.constants import (
     SESSION_AUTO_COMPACTION_RETAINED_TAIL_TOKENS,
 )
-from just_another_coding_agent.runtime.compaction.session_summary import (
-    summarize_compaction_source,
-)
-from just_another_coding_agent.runtime.compaction.source_builder import (
-    build_in_run_compaction_source,
-)
 from just_another_coding_agent.runtime.compaction.trigger import (
     check_in_run_compaction_needed,
 )
@@ -82,8 +76,7 @@ from just_another_coding_agent.runtime.transcript_summary import (
     build_run_transcript_summary,
 )
 from just_another_coding_agent.session.replacement_history import (
-    build_compaction_replacement_messages,
-    strip_unpaired_tool_parts,
+    build_in_run_truncated_history,
 )
 from just_another_coding_agent.tools.deps import WorkspaceDeps
 
@@ -132,7 +125,10 @@ class _InRunCompactRequested(Exception):
 
 
 MAX_IN_RUN_COMPACT_FAILURES = 3
-IN_RUN_COMPACTION_CONTINUATION_PROMPT = "Continue from the compaction summary above."
+IN_RUN_COMPACTION_CONTINUATION_PROMPT = (
+    "Continue the task. Earlier turns were truncated to fit the context window; "
+    "the recent turns and your original instructions are preserved above."
+)
 
 
 def _build_tool_updated_event(
@@ -317,7 +313,7 @@ async def _stream_run_events_with_steer(
                                         attempt_history_count:
                                     ],
                                 ]
-                                if check_in_run_compaction_needed(
+                                if live_messages and check_in_run_compaction_needed(
                                     live_messages,
                                     model=getattr(agent, "model", None),
                                 ):
@@ -697,22 +693,11 @@ async def _stream_run_events_with_steer(
                     *list(captured_messages)[attempt_history_count:],
                 ]
                 try:
-                    source_text = build_in_run_compaction_source(
-                        live_messages,
-                        model=getattr(agent, "model", None),
-                    )
-                    summary_text = await summarize_compaction_source(
-                        model=getattr(agent, "model", None),
-                        source_text=source_text,
-                    )
                     compact_model = getattr(agent, "model", None)
-                    replacement_tail = strip_unpaired_tool_parts(
-                        build_compaction_replacement_messages(
-                            model=compact_model,
-                            messages=live_messages,
-                            summary_text=summary_text,
-                            token_budget=SESSION_AUTO_COMPACTION_RETAINED_TAIL_TOKENS,
-                        )
+                    replacement_tail = build_in_run_truncated_history(
+                        messages=live_messages,
+                        model=compact_model,
+                        token_budget=SESSION_AUTO_COMPACTION_RETAINED_TAIL_TOKENS,
                     )
                     initial_context: list[ModelMessage] = []
                     if isinstance(deps, WorkspaceDeps):
