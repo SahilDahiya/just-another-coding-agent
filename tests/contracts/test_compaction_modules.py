@@ -478,3 +478,32 @@ def test_strip_unpaired_tool_parts_drops_empty_messages() -> None:
     ]
     result = replacement_history.strip_unpaired_tool_parts(messages)
     assert len(result) == 0
+
+
+def test_check_in_run_compaction_needed_triggers_over_budget() -> None:
+    large_content = "x" * 400_000
+    messages = [ModelRequest(parts=[UserPromptPart(content=large_content)])]
+    assert trigger.check_in_run_compaction_needed(
+        messages,
+        model="test:model",
+        get_context_window_tokens=lambda _: 100_000,
+    )
+
+
+def test_check_in_run_compaction_needed_within_budget() -> None:
+    messages = [ModelRequest(parts=[UserPromptPart(content="short")])]
+    assert not trigger.check_in_run_compaction_needed(
+        messages,
+        model="test:model",
+        get_context_window_tokens=lambda _: 100_000,
+    )
+
+
+def test_check_in_run_compaction_needed_unknown_context_window() -> None:
+    large_content = "x" * 400_000
+    messages = [ModelRequest(parts=[UserPromptPart(content=large_content)])]
+    assert not trigger.check_in_run_compaction_needed(
+        messages,
+        model="test:model",
+        get_context_window_tokens=lambda _: None,
+    )

@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Any
+
+from pydantic_ai.messages import ModelMessage
 
 from just_another_coding_agent.contracts.compaction import CompactionBudgetReport
 from just_another_coding_agent.contracts.platform import ShellFamily
@@ -270,7 +272,39 @@ def _estimate_resume_history_budget_components(
     )
 
 
+def check_in_run_compaction_needed(
+    messages: Sequence[ModelMessage],
+    *,
+    model: Any,
+    get_context_window_tokens: Callable[[Any], int | None] = (
+        get_model_context_window_tokens
+    ),
+) -> bool:
+    context_window_tokens = get_context_window_tokens(model)
+    if context_window_tokens is None:
+        return False
+
+    effective_context_window_tokens = build_effective_compaction_context_window_tokens(
+        context_window_tokens
+    )
+    trigger_budget_tokens = math.floor(
+        (
+            effective_context_window_tokens
+            * SESSION_AUTO_COMPACTION_CONTEXT_WINDOW_UTILIZATION
+        )
+        + 1e-6
+    )
+
+    message_estimate = estimate_messages_tokens(model=model, messages=messages)
+    estimated_tokens = (
+        message_estimate.estimated_tokens + SESSION_AUTO_COMPACTION_PROMPT_RESERVE_TOKENS
+    )
+
+    return estimated_tokens >= trigger_budget_tokens
+
+
 __all__ = [
     "build_auto_compact_session_budget_report",
+    "check_in_run_compaction_needed",
     "should_auto_compact_session",
 ]
