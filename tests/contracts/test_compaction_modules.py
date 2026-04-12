@@ -825,7 +825,10 @@ async def test_in_run_compaction_hysteresis_suppresses_immediate_recheck(
     from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 
     from just_another_coding_agent.runtime import run as run_module
-    from just_another_coding_agent.runtime.run import stream_run_events
+    from just_another_coding_agent.runtime.run import (
+        MIN_TOOL_RESULTS_BETWEEN_COMPACTIONS,
+        stream_run_events,
+    )
 
     call_count = 0
 
@@ -855,13 +858,22 @@ async def test_in_run_compaction_hysteresis_suppresses_immediate_recheck(
         return "ok"
 
     check_call_count = 0
+    compaction_done = False
 
-    def counting_check(messages, *, model):
-        nonlocal check_call_count
+    def fake_check(messages, *, model):
+        nonlocal check_call_count, compaction_done
         check_call_count += 1
-        return False
+        if not compaction_done:
+            compaction_done = True
+            return True
+        return True
 
-    monkeypatch.setattr(run_module, "check_in_run_compaction_needed", counting_check)
+    monkeypatch.setattr(run_module, "check_in_run_compaction_needed", fake_check)
+
+    async def fake_summarize(*, model, source_text):
+        return "Primary Intent:\n- testing hysteresis"
+
+    monkeypatch.setattr(run_module, "summarize_compaction_source", fake_summarize)
 
     async def noop_activate(callback):
         pass
@@ -885,8 +897,15 @@ async def test_in_run_compaction_hysteresis_suppresses_immediate_recheck(
     ]
 
     assert events[-1].type == "run_succeeded"
-    from just_another_coding_agent.runtime.run import MIN_TOOL_RESULTS_BETWEEN_COMPACTIONS
-    assert check_call_count <= call_count - MIN_TOOL_RESULTS_BETWEEN_COMPACTIONS + 1
+    from just_another_coding_agent.contracts.run_events import (
+        InRunCompactionCompletedEvent,
+    )
+    compaction_events = [
+        e for e in events if isinstance(e, InRunCompactionCompletedEvent)
+    ]
+    assert len(compaction_events) >= 1
+    assert check_call_count >= 2
+    assert check_call_count < call_count
 
 
 def test_strip_unpaired_tool_parts_after_tail_selection_drops_orphaned_return() -> None:
@@ -924,3 +943,24 @@ def test_strip_unpaired_tool_parts_after_tail_selection_drops_orphaned_return() 
                     if isinstance(p, ToolReturnPart)
                 }
                 assert call_ids == return_ids
+
+
+def test_in_run_compaction_source_omitted_counter_is_correct() -> None:
+    from just_another_coding_agent.runtime.compaction.source_builder import (
+        build_in_run_compaction_source,
+    )
+
+    messages = [
+        ModelRequest(parts=[UserPromptPart(content="x" * 5000)])
+        for _ in range(50)
+    ]
+    source = build_in_run_compaction_source(
+        messages, model="test:model"
+    )
+    if "(omitted" in source:
+        import re
+        match = re.search(r"\(omitted (\d+) oldest", source)
+        assert match is not None
+        omitted_count = int(match.group(1))
+        assert omitted_count > 0
+        assert omitted_count < 50

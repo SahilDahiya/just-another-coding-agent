@@ -67,6 +67,7 @@ from just_another_coding_agent.runtime.models import (
 from just_another_coding_agent.runtime.compaction.constants import (
     SESSION_AUTO_COMPACTION_RETAINED_TAIL_TOKENS,
 )
+from just_another_coding_agent.runtime.prompt_layers import build_prompt_context_layers
 from just_another_coding_agent.runtime.compaction.session_summary import (
     summarize_compaction_source,
 )
@@ -261,7 +262,7 @@ async def _stream_run_events_with_steer(
     buffered_tool_updates: dict[str, list[_QueuedToolUpdate]] = {}
     completed_tool_calls: dict[str, str] = {}
     in_run_compact_failures = 0
-    tool_results_since_compact = 0
+    tool_results_since_compact = MIN_TOOL_RESULTS_BETWEEN_COMPACTIONS
     has_seen_tool_activity = False
     yield RunStartedEvent(run_id=run_id)
 
@@ -712,14 +713,25 @@ async def _stream_run_events_with_steer(
                         model=getattr(agent, "model", None),
                         source_text=source_text,
                     )
-                    replacement = strip_unpaired_tool_parts(
+                    compact_model = getattr(agent, "model", None)
+                    replacement_tail = strip_unpaired_tool_parts(
                         build_compaction_replacement_messages(
-                            model=getattr(agent, "model", None),
+                            model=compact_model,
                             messages=live_messages,
                             summary_text=summary_text,
                             token_budget=SESSION_AUTO_COMPACTION_RETAINED_TAIL_TOKENS,
                         )
                     )
+                    initial_context: list[ModelMessage] = []
+                    if isinstance(deps, WorkspaceDeps):
+                        prompt_context = build_prompt_context_layers(
+                            model=compact_model,
+                            workspace_root=deps.workspace_root,
+                        )
+                        initial_context = [
+                            *prompt_context.before_history_messages,
+                        ]
+                    replacement = [*initial_context, *replacement_tail]
                 except Exception:
                     logger.warning(
                         "In-run compaction failed: run_id=%s attempt=%s",

@@ -230,10 +230,10 @@ def build_in_run_compaction_source(
 
     source = "\n".join(lines)
     if len(source) > max_chars:
-        omitted = len(lines)
+        original_count = len(lines)
         while lines and len("\n".join(lines)) > max_chars:
             lines.pop(0)
-            omitted -= len(lines)
+        omitted = original_count - len(lines)
         source = (
             f"(omitted {omitted} oldest message(s) to fit context window)\n\n"
             + "\n".join(lines)
