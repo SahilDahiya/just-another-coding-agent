@@ -47,6 +47,7 @@ Optional:
 ```bash
 export OPENAI_BASE_URL=...
 export JUST_ANOTHER_CODING_AGENT_THINKING=high
+export JACA_SESSION_AUTO_COMPACTION_CONTEXT_WINDOW_UTILIZATION=0.1
 export LOGFIRE_SERVICE_NAME=jaca-harbor
 ```
 
@@ -153,6 +154,7 @@ Notes:
 - keep `--n-concurrent 1` for first smoke runs
 - keep the backend model string unchanged
 - export `JUST_ANOTHER_CODING_AGENT_THINKING=high` when you want submission-style `thinking=high` runs through the checked-in Harbor adapter
+- export `JACA_SESSION_AUTO_COMPACTION_CONTEXT_WINDOW_UTILIZATION=<value>` when you want to probe in-run compaction at a lower threshold without editing backend code
 - use downloaded session artifacts when you need to inspect a failed run
 
 ## Simple Harness
@@ -452,6 +454,20 @@ Important diagnostic note:
   `exec-prompt-rpc-transcript.jsonl` before assuming the backend never started
 
 If you do not request `/tmp/just-another-coding-agent-sessions` as a Harbor artifact, those session files remain container-local and are discarded with the environment.
+
+For live probing while the task is still running, inspect the same transcript in
+the running container instead of waiting for artifact flush:
+
+```bash
+uv run python -m evaluations.harbor.probe_in_run_compaction \
+  --match log-summary-date-ranges__
+```
+
+Useful flags:
+
+- `--watch` to poll until interrupted
+- `--event-name in_run_compaction_completed` to count in-run compaction events
+- `--transcript-path /tmp/just-another-coding-agent-sessions/exec-prompt-rpc-transcript.jsonl` to override the default transcript path
 
 ## Troubleshooting
 

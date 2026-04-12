@@ -82,6 +82,10 @@ def test_harbor_agent_supports_current_base_installed_agent_api(
     _install_fake_harbor_modules()
     monkeypatch.setenv("OPENAI_API_KEY", "openai-secret")
     monkeypatch.setenv("JUST_ANOTHER_CODING_AGENT_THINKING", "high")
+    monkeypatch.setenv(
+        "JACA_SESSION_AUTO_COMPACTION_CONTEXT_WINDOW_UTILIZATION",
+        "0.1",
+    )
     monkeypatch.setenv("LOGFIRE_TOKEN", "logfire-secret")
 
     module = importlib.import_module("evaluations.harbor.agent")
@@ -100,6 +104,7 @@ def test_harbor_agent_supports_current_base_installed_agent_api(
     assert commands[0].env == {
         "OPENAI_API_KEY": "openai-secret",
         "JUST_ANOTHER_CODING_AGENT_THINKING": "high",
+        "JACA_SESSION_AUTO_COMPACTION_CONTEXT_WINDOW_UTILIZATION": "0.1",
         "JACA_TRACE_MODE": "logfire",
         "LOGFIRE_SERVICE_NAME": "jaca-harbor",
         "LOGFIRE_TOKEN": "logfire-secret",

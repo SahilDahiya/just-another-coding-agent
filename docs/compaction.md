@@ -111,6 +111,10 @@ Operational rules:
   streaming request path
 - after three consecutive automatic compaction failures, the runtime blocks
   further automatic attempts for that session and fails hard
+- for local or Harbor debugging, the in-run threshold can be overridden at
+  process start with
+  `JACA_SESSION_AUTO_COMPACTION_CONTEXT_WINDOW_UTILIZATION=<float in (0,1]>`
+  instead of editing backend constants
 
 ## Compaction Source
 

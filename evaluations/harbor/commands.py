@@ -15,7 +15,10 @@ from just_another_coding_agent.auth import (
 from just_another_coding_agent.oauth_store import OAUTH_FILE_PATH
 from just_another_coding_agent.secret_store import AUTH_FILE_PATH
 
-_COMMON_ENV_KEYS = ("JUST_ANOTHER_CODING_AGENT_THINKING",)
+_COMMON_ENV_KEYS = (
+    "JUST_ANOTHER_CODING_AGENT_THINKING",
+    "JACA_SESSION_AUTO_COMPACTION_CONTEXT_WINDOW_UTILIZATION",
+)
 _OPENAI_ENV_KEYS = ("OPENAI_API_KEY", "OPENAI_BASE_URL")
 _ANTHROPIC_ENV_KEYS = ("ANTHROPIC_API_KEY",)
 _OPENAI_CODEX_OAUTH_ENV_KEYS = (

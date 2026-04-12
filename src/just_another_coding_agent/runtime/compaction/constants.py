@@ -1,6 +1,38 @@
 from __future__ import annotations
 
-SESSION_AUTO_COMPACTION_CONTEXT_WINDOW_UTILIZATION = 0.7
+import os
+
+SESSION_AUTO_COMPACTION_CONTEXT_WINDOW_UTILIZATION_ENV = (
+    "JACA_SESSION_AUTO_COMPACTION_CONTEXT_WINDOW_UTILIZATION"
+)
+
+
+def _load_context_window_utilization() -> float:
+    raw_value = os.environ.get(
+        SESSION_AUTO_COMPACTION_CONTEXT_WINDOW_UTILIZATION_ENV
+    )
+    if raw_value is None:
+        return 0.7
+    try:
+        utilization = float(raw_value)
+    except ValueError as error:
+        raise ValueError(
+            "Invalid "
+            f"{SESSION_AUTO_COMPACTION_CONTEXT_WINDOW_UTILIZATION_ENV}: "
+            f"expected a float in the interval (0, 1], got {raw_value!r}"
+        ) from error
+    if not (0.0 < utilization <= 1.0):
+        raise ValueError(
+            "Invalid "
+            f"{SESSION_AUTO_COMPACTION_CONTEXT_WINDOW_UTILIZATION_ENV}: "
+            f"expected a float in the interval (0, 1], got {raw_value!r}"
+        )
+    return utilization
+
+
+SESSION_AUTO_COMPACTION_CONTEXT_WINDOW_UTILIZATION = (
+    _load_context_window_utilization()
+)
 SESSION_AUTO_COMPACTION_PROMPT_RESERVE_TOKENS = 24_000
 SESSION_AUTO_COMPACTION_RETAINED_TAIL_TOKENS = 20_000
 SESSION_COMPACTION_CONTEXT_WINDOW_UTILIZATION = 0.8
@@ -14,6 +46,7 @@ __all__ = [
     "DEFAULT_SESSION_COMPACTION_SOURCE_CHAR_LIMIT",
     "MAX_COMPACTION_TEXT_FIELD_CHARS",
     "MAX_COMPACTION_TOOL_ACTIVITY_LINES",
+    "SESSION_AUTO_COMPACTION_CONTEXT_WINDOW_UTILIZATION_ENV",
     "SESSION_AUTO_COMPACTION_CONTEXT_WINDOW_UTILIZATION",
     "SESSION_AUTO_COMPACTION_PROMPT_RESERVE_TOKENS",
     "SESSION_AUTO_COMPACTION_RETAINED_TAIL_TOKENS",

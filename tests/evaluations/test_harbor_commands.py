@@ -16,6 +16,7 @@ def test_build_provider_env_filters_to_openai_provider_env() -> None:
             "OLLAMA_API_KEY": "ollama-secret",
             "ANTHROPIC_API_KEY": "anthropic-secret",
             "JUST_ANOTHER_CODING_AGENT_THINKING": "high",
+            "JACA_SESSION_AUTO_COMPACTION_CONTEXT_WINDOW_UTILIZATION": "0.1",
             "UNRELATED": "ignored",
         },
     )
@@ -24,6 +25,7 @@ def test_build_provider_env_filters_to_openai_provider_env() -> None:
         "OPENAI_API_KEY": "secret",
         "OPENAI_BASE_URL": "https://example.test/v1",
         "JUST_ANOTHER_CODING_AGENT_THINKING": "high",
+        "JACA_SESSION_AUTO_COMPACTION_CONTEXT_WINDOW_UTILIZATION": "0.1",
         "JACA_TRACE_MODE": "logfire",
         "LOGFIRE_SERVICE_NAME": "jaca-harbor",
         "LOGFIRE_TOKEN": "logfire-secret",
