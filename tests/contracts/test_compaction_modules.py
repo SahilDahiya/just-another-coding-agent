@@ -3,6 +3,8 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserPromptPart
 
 from just_another_coding_agent.contracts.run_events import (
@@ -43,6 +45,50 @@ def test_compaction_public_api_is_split_across_submodules() -> None:
         is summarize_and_append_compaction_to_session
     )
     assert session_summary.should_auto_compact_session is should_auto_compact_session
+
+
+def test_summarize_compaction_source_is_exported_through_package() -> None:
+    from just_another_coding_agent.runtime.compaction import summarize_compaction_source
+
+    assert (
+        session_summary.summarize_compaction_source
+        is summarize_compaction_source
+    )
+
+
+@pytest.mark.anyio
+async def test_summarize_session_delegates_through_summarize_compaction_source(
+    monkeypatch,
+) -> None:
+    captured_source: list[str] = []
+
+    async def fake_summarize_compaction_source(*, model, source_text):
+        captured_source.append(source_text)
+        return "Primary Intent:\n- test intent"
+
+    monkeypatch.setattr(
+        session_summary,
+        "summarize_compaction_source",
+        fake_summarize_compaction_source,
+    )
+
+    loaded_session = SimpleNamespace(
+        runs=[SimpleNamespace(run_id="run-1")],
+    )
+
+    monkeypatch.setattr(
+        session_summary,
+        "_build_compaction_source",
+        lambda loaded, *, model: "fake source text",
+    )
+
+    result = await session_summary.summarize_session_for_compaction(
+        model="test:model",
+        loaded_session=loaded_session,
+    )
+
+    assert result == "Primary Intent:\n- test intent"
+    assert captured_source == ["fake source text"]
 
 
 def test_compaction_summary_instructions_focus_on_supported_sections() -> None:

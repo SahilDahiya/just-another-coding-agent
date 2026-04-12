@@ -63,14 +63,11 @@ COMPACTION_SUMMARY_INSTRUCTIONS = "\n".join(
 )
 
 
-async def summarize_session_for_compaction(
+async def summarize_compaction_source(
     *,
     model: Any,
-    loaded_session: LoadedSession,
+    source_text: str,
 ) -> str:
-    if not loaded_session.runs:
-        raise SessionFormatError("Cannot compact a session with no completed runs")
-
     resolved_model = resolve_canonical_model(model)
     summarizer = Agent(
         resolved_model,
@@ -78,7 +75,7 @@ async def summarize_session_for_compaction(
         instructions=COMPACTION_SUMMARY_INSTRUCTIONS,
     )
     async with summarizer.run_stream(
-        _build_compaction_source(loaded_session, model=model),
+        source_text,
         model_settings=build_canonical_model_settings(model=resolved_model),
     ) as result:
         summary_text = await result.get_output()
@@ -89,6 +86,20 @@ async def summarize_session_for_compaction(
             "objective, fact, path, question, or unresolved task."
         )
     return normalized
+
+
+async def summarize_session_for_compaction(
+    *,
+    model: Any,
+    loaded_session: LoadedSession,
+) -> str:
+    if not loaded_session.runs:
+        raise SessionFormatError("Cannot compact a session with no completed runs")
+
+    return await summarize_compaction_source(
+        model=model,
+        source_text=_build_compaction_source(loaded_session, model=model),
+    )
 
 
 async def summarize_and_append_compaction_to_session(
@@ -188,5 +199,6 @@ __all__ = [
     "COMPACTION_SUMMARY_INSTRUCTIONS",
     "should_auto_compact_session",
     "summarize_and_append_compaction_to_session",
+    "summarize_compaction_source",
     "summarize_session_for_compaction",
 ]
