@@ -4,11 +4,13 @@ import subprocess
 
 import pytest
 
+import evaluations.harbor.probe_in_run_compaction as probe
 from evaluations.harbor.probe_in_run_compaction import (
     DEFAULT_EVENT_NAME,
     build_probe_snapshot,
     collect_matching_lines,
     format_snapshot,
+    main,
     resolve_container_name,
 )
 
@@ -92,6 +94,29 @@ def test_collect_matching_lines_counts_and_limits_tail() -> None:
     )
 
 
+def test_collect_matching_lines_ignores_substring_inside_other_payload_text() -> None:
+    transcript = "\n".join(
+        [
+            '{"type":"rpc_event","payload":{"event":{"type":"tool_call_succeeded"},"result":"{\\"type\\":\\"in_run_compaction_completed\\"}"}}',
+            '{"type":"rpc_event","payload":{"event":{"type":"in_run_compaction_completed"}}}',
+        ]
+    )
+
+    total_matches, matching_lines = collect_matching_lines(
+        transcript,
+        event_name=DEFAULT_EVENT_NAME,
+        tail_matches=5,
+    )
+
+    assert total_matches == 1
+    assert matching_lines == (
+        (
+            2,
+            '{"type":"rpc_event","payload":{"event":{"type":"in_run_compaction_completed"}}}',
+        ),
+    )
+
+
 def test_build_probe_snapshot_reads_container_transcript() -> None:
     def fake_run(command, *, capture_output, text, check):
         del capture_output, text, check
@@ -148,3 +173,37 @@ def test_format_snapshot_renders_recent_matches() -> None:
     assert "total_matches: 1" in rendered
     assert "recent_matches:" in rendered
     assert 'L1: {"event":"in_run_compaction_completed","count":1}' in rendered
+
+
+def test_main_renders_clean_subprocess_error(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(
+        probe,
+        "resolve_container_name",
+        lambda **_: "task-a-main-1",
+    )
+
+    def fake_build_probe_snapshot(**_: object) -> object:
+        raise subprocess.CalledProcessError(
+            1,
+            ["docker", "exec", "task-a-main-1", "cat", "/tmp/transcript.jsonl"],
+            output="",
+            stderr="cat: /tmp/transcript.jsonl: No such file or directory\n",
+        )
+
+    monkeypatch.setattr(
+        probe,
+        "build_probe_snapshot",
+        fake_build_probe_snapshot,
+    )
+
+    exit_code = main(["--container", "task-a-main-1"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert (
+        captured.out.strip()
+        == "cat: /tmp/transcript.jsonl: No such file or directory"
+    )

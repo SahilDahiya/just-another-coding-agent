@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import subprocess
 import time
 from collections.abc import Callable, Sequence
@@ -52,7 +53,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--event-name",
         default=DEFAULT_EVENT_NAME,
-        help="Event name substring to count in the transcript.",
+        help="Exact event name to count in the transcript.",
     )
     parser.add_argument(
         "--tail-matches",
@@ -137,11 +138,41 @@ def collect_matching_lines(
             transcript_text.splitlines(),
             start=1,
         )
-        if event_name in line
+        if _extract_event_name(line) == event_name
     )
     if tail_matches <= 0:
         return len(matching_lines), ()
     return len(matching_lines), matching_lines[-tail_matches:]
+
+
+def _extract_event_name(line: str) -> str | None:
+    try:
+        payload = json.loads(line)
+    except json.JSONDecodeError:
+        return None
+
+    if not isinstance(payload, dict):
+        return None
+
+    event = payload.get("event")
+    if isinstance(event, str):
+        return event
+    if isinstance(event, dict):
+        event_type = event.get("type")
+        return event_type if isinstance(event_type, str) else None
+
+    nested_payload = payload.get("payload")
+    if not isinstance(nested_payload, dict):
+        return None
+
+    nested_event = nested_payload.get("event")
+    if isinstance(nested_event, str):
+        return nested_event
+    if not isinstance(nested_event, dict):
+        return None
+
+    event_type = nested_event.get("type")
+    return event_type if isinstance(event_type, str) else None
 
 
 def build_probe_snapshot(
@@ -190,18 +221,26 @@ def main(argv: list[str] | None = None) -> int:
     if args.watch:
         return _watch(args)
 
-    container = resolve_container_name(
-        container=args.container,
-        match=args.match,
-    )
-    snapshot = build_probe_snapshot(
-        container=container,
-        transcript_path=args.transcript_path,
-        event_name=args.event_name,
-        tail_matches=args.tail_matches,
-    )
-    print(format_snapshot(snapshot))
-    return 0
+    try:
+        container = resolve_container_name(
+            container=args.container,
+            match=args.match,
+        )
+        snapshot = build_probe_snapshot(
+            container=container,
+            transcript_path=args.transcript_path,
+            event_name=args.event_name,
+            tail_matches=args.tail_matches,
+        )
+    except ValueError as error:
+        print(str(error))
+        return 1
+    except subprocess.CalledProcessError as error:
+        print(_render_subprocess_error(error))
+        return 1
+    else:
+        print(format_snapshot(snapshot))
+        return 0
 
 
 def _watch(args: argparse.Namespace) -> int:
