@@ -5,6 +5,7 @@ import subprocess
 import pytest
 
 import evaluations.harbor.probe_in_run_compaction as probe
+from evaluations.harbor.commands import DEFAULT_HARBOR_SESSIONS_ROOT
 from evaluations.harbor.probe_in_run_compaction import (
     DEFAULT_EVENT_NAME,
     build_probe_snapshot,
@@ -188,9 +189,19 @@ def test_main_renders_clean_subprocess_error(
     def fake_build_probe_snapshot(**_: object) -> object:
         raise subprocess.CalledProcessError(
             1,
-            ["docker", "exec", "task-a-main-1", "cat", "/tmp/transcript.jsonl"],
+            [
+                "docker",
+                "exec",
+                "task-a-main-1",
+                "cat",
+                f"{DEFAULT_HARBOR_SESSIONS_ROOT}/exec-prompt-rpc-transcript.jsonl",
+            ],
             output="",
-            stderr="cat: /tmp/transcript.jsonl: No such file or directory\n",
+            stderr=(
+                "cat: "
+                f"{DEFAULT_HARBOR_SESSIONS_ROOT}/exec-prompt-rpc-transcript.jsonl: "
+                "No such file or directory\n"
+            ),
         )
 
     monkeypatch.setattr(
@@ -205,5 +216,9 @@ def test_main_renders_clean_subprocess_error(
     assert exit_code == 1
     assert (
         captured.out.strip()
-        == "cat: /tmp/transcript.jsonl: No such file or directory"
+        == (
+            "cat: "
+            f"{DEFAULT_HARBOR_SESSIONS_ROOT}/exec-prompt-rpc-transcript.jsonl: "
+            "No such file or directory"
+        )
     )

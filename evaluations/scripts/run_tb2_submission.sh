@@ -26,6 +26,7 @@ SUBMISSION_ID="${SUBMISSION_ID:-submission-high}"
 SUBMISSION_BUNDLE_DIR="${SUBMISSION_BUNDLE_DIR:-$JOBS_DIR/submission-bundles/$SUBMISSION_ID}"
 COMPLETED_JOBS_PATH="$SUBMISSION_BUNDLE_DIR/completed-jobs.txt"
 BUNDLE_CONFIG_PATH="$SUBMISSION_BUNDLE_DIR/bundle-config.env"
+HARBOR_SESSIONS_ROOT="${JACA_HARBOR_SESSIONS_ROOT:-/tmp/.jaca/harbor-sessions}"
 
 mkdir -p "$JOBS_DIR"
 mkdir -p "$SUBMISSION_BUNDLE_DIR"
@@ -143,7 +144,7 @@ run_pass() {
     --n-concurrent "$N_CONCURRENT" \
     --n-attempts 1 \
     --artifact /logs/agent/just-another-coding-agent.txt \
-    --artifact /tmp/just-another-coding-agent-sessions
+    --artifact "$HARBOR_SESSIONS_ROOT"
   status=$?
   set -e
 

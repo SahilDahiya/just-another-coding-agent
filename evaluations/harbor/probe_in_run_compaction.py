@@ -7,8 +7,10 @@ import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
+from evaluations.harbor.commands import DEFAULT_HARBOR_SESSIONS_ROOT
+
 DEFAULT_RPC_TRANSCRIPT_PATH = (
-    "/tmp/just-another-coding-agent-sessions/exec-prompt-rpc-transcript.jsonl"
+    f"{DEFAULT_HARBOR_SESSIONS_ROOT}/exec-prompt-rpc-transcript.jsonl"
 )
 DEFAULT_EVENT_NAME = "in_run_compaction_completed"
 DEFAULT_TAIL_MATCHES = 5

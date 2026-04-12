@@ -29,6 +29,8 @@ _OPENAI_CODEX_OAUTH_ENV_KEYS = (
 )
 _DEFAULT_HARBOR_LOGFIRE_SERVICE_NAME = "jaca-harbor"
 _LOCAL_HOSTNAMES = frozenset({"localhost", "127.0.0.1", "::1"})
+_HARBOR_SESSIONS_ROOT_ENV_KEY = "JACA_HARBOR_SESSIONS_ROOT"
+DEFAULT_HARBOR_SESSIONS_ROOT = "/tmp/.jaca/harbor-sessions"
 
 
 def _provider_env_keys_for_model(model: str) -> tuple[str, ...]:
@@ -180,6 +182,22 @@ def _resolve_home_dir(source: Mapping[str, str]) -> Path:
     return Path.home()
 
 
+def resolve_harbor_sessions_root(
+    *,
+    environ: Mapping[str, str] | None = None,
+) -> str:
+    source = os.environ if environ is None else environ
+    candidate = source.get(_HARBOR_SESSIONS_ROOT_ENV_KEY, "").strip()
+    if not candidate:
+        return DEFAULT_HARBOR_SESSIONS_ROOT
+    if not Path(candidate).is_absolute():
+        raise ValueError(
+            f"{_HARBOR_SESSIONS_ROOT_ENV_KEY} must be an absolute path inside "
+            f"the Harbor task container: {candidate}"
+        )
+    return candidate
+
+
 def _is_openai_codex_model(model: str) -> bool:
     if not model.startswith("openai-responses:"):
         return False
@@ -206,20 +224,28 @@ def build_harbor_exec_command(
     model: str,
     thinking: str | None = None,
     workspace_root: str = ".",
-    sessions_root: str = "/tmp/just-another-coding-agent-sessions",
+    sessions_root: str | None = None,
 ) -> str:
     prompt_b64 = base64.b64encode(instruction.encode("utf-8")).decode("ascii")
     python_executable = "/installed-agent/just-another-coding-agent/.venv/bin/python"
     thinking_arg = (
         f"--thinking {shlex.quote(thinking)} " if thinking is not None else ""
     )
+    resolved_sessions_root = (
+        resolve_harbor_sessions_root() if sessions_root is None else sessions_root
+    )
+    if not Path(resolved_sessions_root).is_absolute():
+        raise ValueError(
+            "Harbor sessions root must be an absolute path inside the Harbor "
+            f"task container: {resolved_sessions_root}"
+        )
     return (
         f"printf %s {shlex.quote(prompt_b64)} | base64 -d | "
         f"{shlex.quote(python_executable)} -m "
         "evaluations.bench.exec_prompt "
         f"--model {shlex.quote(model)} "
         f"{thinking_arg}"
-        f"--sessions-root {shlex.quote(sessions_root)} "
+        f"--sessions-root {shlex.quote(resolved_sessions_root)} "
         f"-C {shlex.quote(workspace_root)} - "
         "2>&1 | stdbuf -oL tee /logs/agent/just-another-coding-agent.txt"
     )

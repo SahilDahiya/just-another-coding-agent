@@ -1,7 +1,9 @@
 from evaluations.harbor.commands import (
+    DEFAULT_HARBOR_SESSIONS_ROOT,
     build_harbor_exec_command,
     build_provider_env,
     harbor_auth_file_uploads,
+    resolve_harbor_sessions_root,
 )
 
 
@@ -251,7 +253,7 @@ def test_build_harbor_exec_command_preserves_exact_model_string() -> None:
     assert "printf %s " in command
     assert " base64 -d | " in command
     assert "/installed-agent/just-another-coding-agent/.venv/bin/python -m " in command
-    assert " --sessions-root /tmp/just-another-coding-agent-sessions " in command
+    assert f" --sessions-root {DEFAULT_HARBOR_SESSIONS_ROOT} " in command
     assert " -C . -" in command
 
 
@@ -263,3 +265,27 @@ def test_build_harbor_exec_command_forwards_thinking_when_requested() -> None:
     )
 
     assert " --thinking high " in command
+
+
+def test_resolve_harbor_sessions_root_uses_hidden_tmp_default() -> None:
+    assert resolve_harbor_sessions_root(environ={}) == DEFAULT_HARBOR_SESSIONS_ROOT
+
+
+def test_resolve_harbor_sessions_root_uses_absolute_override() -> None:
+    assert resolve_harbor_sessions_root(
+        environ={"JACA_HARBOR_SESSIONS_ROOT": "/var/tmp/jaca-harbor-sessions"}
+    ) == "/var/tmp/jaca-harbor-sessions"
+
+
+def test_resolve_harbor_sessions_root_rejects_relative_override() -> None:
+    try:
+        resolve_harbor_sessions_root(
+            environ={"JACA_HARBOR_SESSIONS_ROOT": "tmp/jaca-harbor-sessions"}
+        )
+    except ValueError as error:
+        assert str(error) == (
+            "JACA_HARBOR_SESSIONS_ROOT must be an absolute path inside the "
+            "Harbor task container: tmp/jaca-harbor-sessions"
+        )
+    else:  # pragma: no cover - defensive
+        raise AssertionError("Expected relative Harbor sessions root to fail")

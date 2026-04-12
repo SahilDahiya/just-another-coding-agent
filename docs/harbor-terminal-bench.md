@@ -48,6 +48,7 @@ Optional:
 export OPENAI_BASE_URL=...
 export JUST_ANOTHER_CODING_AGENT_THINKING=high
 export JACA_SESSION_AUTO_COMPACTION_CONTEXT_WINDOW_UTILIZATION=0.1
+export JACA_HARBOR_SESSIONS_ROOT=/tmp/.jaca/harbor-sessions
 export LOGFIRE_SERVICE_NAME=jaca-harbor
 ```
 
@@ -88,7 +89,7 @@ export JUST_ANOTHER_CODING_AGENT_THINKING=high
 Current adapter behavior inside the task container:
 
 - workspace root: `.` relative to the task working directory
-- sessions root: `/tmp/just-another-coding-agent-sessions`
+- sessions root: `/tmp/.jaca/harbor-sessions`
 - adapter log stream: `/logs/agent/just-another-coding-agent.txt`
 
 Important implications:
@@ -97,7 +98,12 @@ Important implications:
 - sessions are ephemeral unless you explicitly download them as Harbor artifacts
 - `/logs/agent/just-another-coding-agent.txt` is a liveness stream, not the full transcript
   - it should show early `exec_prompt` status markers such as `subprocess started`, `session created`, `run.start sent`, and the first observed RPC/tool/assistant activity
-  - the detailed canonical RPC transcript still lives under `/tmp/just-another-coding-agent-sessions`
+  - the detailed canonical RPC transcript still lives under `/tmp/.jaca/harbor-sessions`
+
+If you want a different container-local sessions root, export
+`JACA_HARBOR_SESSIONS_ROOT=/abs/path/in/container` before `harbor run`. The
+adapter rejects relative paths so it never creates the session bundle under the
+task workspace by accident.
 
 ## Local Harbor Run
 
@@ -111,7 +117,7 @@ PYTHONPATH=$PWD/src:$PWD harbor run \
   --n-concurrent 1 \
   --job-name just-another-coding-agent-local-smoke \
   --artifact /logs/agent/just-another-coding-agent.txt \
-  --artifact /tmp/just-another-coding-agent-sessions
+  --artifact /tmp/.jaca/harbor-sessions
 ```
 
 What this does:
@@ -145,7 +151,7 @@ PYTHONPATH=$PWD/src:$PWD harbor run \
   --n-concurrent 1 \
   --job-name just-another-coding-agent-<task-name> \
   --artifact /logs/agent/just-another-coding-agent.txt \
-  --artifact /tmp/just-another-coding-agent-sessions
+  --artifact /tmp/.jaca/harbor-sessions
 ```
 
 Notes:
@@ -437,7 +443,7 @@ Useful artifacts for this adapter path:
 
 - `/logs/agent/just-another-coding-agent.txt`
   - combined one-shot wrapper output from inside the container
-- `/tmp/just-another-coding-agent-sessions`
+- `/tmp/.jaca/harbor-sessions`
   - backend session JSONL files for the run
   - `exec-prompt-phases.json` with wrapper-side phase timestamps
   - `exec-prompt-rpc-transcript.jsonl` with the raw stdio RPC exchange
@@ -453,7 +459,8 @@ Important diagnostic note:
 - for timeout investigations, check `exec-prompt-phases.json` and
   `exec-prompt-rpc-transcript.jsonl` before assuming the backend never started
 
-If you do not request `/tmp/just-another-coding-agent-sessions` as a Harbor artifact, those session files remain container-local and are discarded with the environment.
+If you do not request `/tmp/.jaca/harbor-sessions` as a Harbor artifact, those
+session files remain container-local and are discarded with the environment.
 
 For live probing while the task is still running, inspect the same transcript in
 the running container instead of waiting for artifact flush:
@@ -467,7 +474,7 @@ Useful flags:
 
 - `--watch` to poll until interrupted
 - `--event-name in_run_compaction_completed` to count in-run compaction events
-- `--transcript-path /tmp/just-another-coding-agent-sessions/exec-prompt-rpc-transcript.jsonl` to override the default transcript path
+- `--transcript-path /tmp/.jaca/harbor-sessions/exec-prompt-rpc-transcript.jsonl` to override the default transcript path
 
 ## Troubleshooting
 
@@ -478,7 +485,7 @@ Useful flags:
 - provider auth missing in the container
   - export `OPENAI_API_KEY` in the Harbor host process before `harbor run`
 - missing session artifacts after a run
-  - add `--artifact /tmp/just-another-coding-agent-sessions`
+  - add `--artifact /tmp/.jaca/harbor-sessions`
 - timed out run shows only a session header
   - inspect `exec-prompt-phases.json` and `exec-prompt-rpc-transcript.jsonl`
     first; the run may have progressed into a long blocking tool call before

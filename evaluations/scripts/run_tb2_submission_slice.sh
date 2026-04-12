@@ -23,6 +23,7 @@ TARGET_TRIALS="${TARGET_TRIALS:-5}"
 PASSES_PER_RUN="${PASSES_PER_RUN:-1}"
 ACTION="${ACTION:-run}"
 SUBMISSION_ID="${SUBMISSION_ID:-submission-high}"
+HARBOR_SESSIONS_ROOT="${JACA_HARBOR_SESSIONS_ROOT:-/tmp/.jaca/harbor-sessions}"
 TASK_FILE="${TASK_FILE:?Set TASK_FILE to a newline-delimited task list.}"
 SLICE_NAME="${SLICE_NAME:-$(basename "${TASK_FILE%.*}")}"
 SLICE_BUNDLE_DIR="${JOBS_DIR}/submission-bundles/${SUBMISSION_ID}/slices/${SLICE_NAME}"
@@ -169,7 +170,7 @@ run_pass() {
     --n-concurrent "$N_CONCURRENT"
     --n-attempts 1
     --artifact /logs/agent/just-another-coding-agent.txt
-    --artifact /tmp/just-another-coding-agent-sessions
+    --artifact "$HARBOR_SESSIONS_ROOT"
   )
   for task_name in "${SLICE_TASKS[@]}"; do
     harbor_args+=(--task-name "$task_name")
