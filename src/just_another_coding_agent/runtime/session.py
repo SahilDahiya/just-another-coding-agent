@@ -66,6 +66,7 @@ from just_another_coding_agent.session.jsonl import (
 )
 from just_another_coding_agent.session.replacement_history import (
     strip_internal_prompt_state,
+    strip_unpaired_tool_parts,
 )
 from just_another_coding_agent.tools._workspace import normalize_workspace_root
 from just_another_coding_agent.tools.deps import (
@@ -170,36 +171,7 @@ def _estimate_next_request_context_window_used(
 def _strip_unresolved_tool_calls_from_messages(
     messages: Sequence[ModelMessage],
 ) -> list[ModelMessage]:
-    pending_tool_call_ids: set[str] = set()
-
-    for message in messages:
-        for part in message.parts:
-            if isinstance(part, ToolCallPart):
-                pending_tool_call_ids.add(part.tool_call_id)
-            elif isinstance(part, ToolReturnPart):
-                pending_tool_call_ids.discard(part.tool_call_id)
-
-    if not pending_tool_call_ids:
-        return list(messages)
-
-    sanitized: list[ModelMessage] = []
-    for message in messages:
-        kept_parts = [
-            part
-            for part in message.parts
-            if not (
-                isinstance(part, (ToolCallPart, ToolReturnPart))
-                and part.tool_call_id in pending_tool_call_ids
-            )
-        ]
-        if not kept_parts:
-            continue
-        if len(kept_parts) == len(message.parts):
-            sanitized.append(message)
-            continue
-        sanitized.append(replace(message, parts=kept_parts))
-
-    return sanitized
+    return strip_unpaired_tool_parts(messages)
 
 
 def _strip_failed_correction_tail_from_messages(

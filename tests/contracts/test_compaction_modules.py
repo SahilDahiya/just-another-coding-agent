@@ -5,7 +5,14 @@ from types import SimpleNamespace
 
 import pytest
 
-from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserPromptPart
+from pydantic_ai.messages import (
+    ModelRequest,
+    ModelResponse,
+    TextPart,
+    ToolCallPart,
+    ToolReturnPart,
+    UserPromptPart,
+)
 
 from just_another_coding_agent.contracts.run_events import (
     RunStartedEvent,
@@ -26,6 +33,7 @@ from just_another_coding_agent.runtime.compaction.budget import (
 from just_another_coding_agent.session import (
     append_compaction_to_session,
     append_run_to_session,
+    replacement_history,
     load_session,
 )
 from just_another_coding_agent.session.replacement_history import (
@@ -397,3 +405,76 @@ def test_build_auto_compaction_budget_report_explains_no_new_work(
     assert report.should_compact is False
     assert report.reason == "no_new_work"
     assert report.runs_since_latest_compaction == 0
+
+
+def test_strip_unpaired_tool_parts_passes_through_paired_messages() -> None:
+    messages = [
+        ModelResponse(
+            parts=[ToolCallPart(tool_name="bash", args="ls", tool_call_id="c1")],
+            model_name="test",
+        ),
+        ModelRequest(
+            parts=[ToolReturnPart(tool_name="bash", content="ok", tool_call_id="c1")]
+        ),
+    ]
+    result = replacement_history.strip_unpaired_tool_parts(messages)
+    assert len(result) == 2
+    assert result[0].parts[0].tool_call_id == "c1"
+    assert result[1].parts[0].tool_call_id == "c1"
+
+
+def test_strip_unpaired_tool_parts_removes_orphaned_call() -> None:
+    messages = [
+        ModelResponse(
+            parts=[ToolCallPart(tool_name="bash", args="ls", tool_call_id="c1")],
+            model_name="test",
+        ),
+        ModelRequest(parts=[UserPromptPart(content="hello")]),
+    ]
+    result = replacement_history.strip_unpaired_tool_parts(messages)
+    assert len(result) == 1
+    assert isinstance(result[0], ModelRequest)
+
+
+def test_strip_unpaired_tool_parts_removes_orphaned_return() -> None:
+    messages = [
+        ModelRequest(
+            parts=[ToolReturnPart(tool_name="bash", content="ok", tool_call_id="c1")]
+        ),
+        ModelResponse(parts=[TextPart(content="done")], model_name="test"),
+    ]
+    result = replacement_history.strip_unpaired_tool_parts(messages)
+    assert len(result) == 1
+    assert isinstance(result[0], ModelResponse)
+
+
+def test_strip_unpaired_tool_parts_handles_mixed_paired_and_orphaned() -> None:
+    messages = [
+        ModelResponse(
+            parts=[
+                ToolCallPart(tool_name="bash", args="ls", tool_call_id="c1"),
+                ToolCallPart(tool_name="read", args="f.py", tool_call_id="c2"),
+            ],
+            model_name="test",
+        ),
+        ModelRequest(
+            parts=[
+                ToolReturnPart(tool_name="bash", content="ok", tool_call_id="c1"),
+            ]
+        ),
+    ]
+    result = replacement_history.strip_unpaired_tool_parts(messages)
+    assert len(result) == 2
+    assert len(result[0].parts) == 1
+    assert result[0].parts[0].tool_call_id == "c1"
+    assert result[1].parts[0].tool_call_id == "c1"
+
+
+def test_strip_unpaired_tool_parts_drops_empty_messages() -> None:
+    messages = [
+        ModelRequest(
+            parts=[ToolReturnPart(tool_name="bash", content="ok", tool_call_id="orphan")]
+        ),
+    ]
+    result = replacement_history.strip_unpaired_tool_parts(messages)
+    assert len(result) == 0

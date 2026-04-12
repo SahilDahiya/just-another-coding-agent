@@ -9,6 +9,8 @@ from pydantic_ai.messages import (
     ModelResponse,
     SystemPromptPart,
     TextPart,
+    ToolCallPart,
+    ToolReturnPart,
     UserContent,
     UserPromptPart,
 )
@@ -193,6 +195,43 @@ def _normalize_user_prompt_text(content: str | Sequence[UserContent]) -> str | N
     return "\n".join(text_parts)
 
 
+def strip_unpaired_tool_parts(
+    messages: Sequence[ModelMessage],
+) -> list[ModelMessage]:
+    call_ids: set[str] = set()
+    return_ids: set[str] = set()
+
+    for message in messages:
+        for part in message.parts:
+            if isinstance(part, ToolCallPart):
+                call_ids.add(part.tool_call_id)
+            elif isinstance(part, ToolReturnPart):
+                return_ids.add(part.tool_call_id)
+
+    unpaired_ids = (call_ids - return_ids) | (return_ids - call_ids)
+    if not unpaired_ids:
+        return list(messages)
+
+    sanitized: list[ModelMessage] = []
+    for message in messages:
+        kept_parts = [
+            part
+            for part in message.parts
+            if not (
+                isinstance(part, (ToolCallPart, ToolReturnPart))
+                and part.tool_call_id in unpaired_ids
+            )
+        ]
+        if not kept_parts:
+            continue
+        if len(kept_parts) == len(message.parts):
+            sanitized.append(message)
+            continue
+        sanitized.append(replace(message, parts=kept_parts))
+
+    return sanitized
+
+
 def _truncate_text_to_token_budget(text: str, token_budget: int) -> str | None:
     allowed_chars = token_budget * 4
     if allowed_chars <= 0:
@@ -208,5 +247,6 @@ __all__ = [
     "extract_compaction_summary_text",
     "is_compaction_summary_message",
     "strip_internal_prompt_state",
+    "strip_unpaired_tool_parts",
     "validate_compaction_replacement_messages",
 ]
