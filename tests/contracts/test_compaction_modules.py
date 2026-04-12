@@ -726,3 +726,201 @@ async def test_in_run_compaction_circuit_breaker_on_failure(monkeypatch) -> None
     assert event_types[0] == "RunStartedEvent"
     assert event_types[-1] == "RunSucceededEvent", f"Got: {events[-1]}"
     assert check_count == 3
+
+
+@pytest.mark.anyio
+async def test_in_run_compaction_message_history_sink_fires_once(
+    monkeypatch,
+) -> None:
+    from collections.abc import AsyncIterator, Sequence
+
+    from pydantic_ai import Agent
+    from pydantic_ai.messages import ModelMessage
+    from pydantic_ai.models.function import DeltaToolCall, FunctionModel
+
+    from just_another_coding_agent.runtime import run as run_module
+    from just_another_coding_agent.runtime.run import stream_run_events
+
+    call_count = 0
+
+    async def tool_loop_stream(
+        messages: object,
+        _agent_info: object,
+    ) -> AsyncIterator[dict[int, DeltaToolCall] | str]:
+        nonlocal call_count
+        call_count += 1
+        if call_count <= 5:
+            yield {
+                0: DeltaToolCall(
+                    name="tick",
+                    json_args="{}",
+                    tool_call_id=f"call-{call_count}",
+                )
+            }
+            return
+        yield "done"
+
+    agent = Agent(
+        FunctionModel(stream_function=tool_loop_stream), output_type=str
+    )
+
+    @agent.tool_plain
+    async def tick():
+        return "ok"
+
+    compaction_triggered = False
+
+    def fake_check(messages, *, model):
+        nonlocal compaction_triggered
+        if not compaction_triggered:
+            compaction_triggered = True
+            return True
+        return False
+
+    monkeypatch.setattr(run_module, "check_in_run_compaction_needed", fake_check)
+
+    async def fake_summarize(*, model, source_text):
+        return "Primary Intent:\n- testing sink"
+
+    monkeypatch.setattr(run_module, "summarize_compaction_source", fake_summarize)
+
+    sink_calls: list[Sequence[ModelMessage]] = []
+
+    def recording_sink(messages: Sequence[ModelMessage]) -> None:
+        sink_calls.append(messages)
+
+    async def noop_activate(callback):
+        pass
+
+    async def noop_submit():
+        pass
+
+    async def noop_deactivate():
+        pass
+
+    events = [
+        event
+        async for event in stream_run_events(
+            agent=agent,
+            prompt="go",
+            available_tool_names=["tick"],
+            message_history_sink=recording_sink,
+            activate_steer_boundary=noop_activate,
+            submit_steer_boundary=noop_submit,
+            deactivate_steer_boundary=noop_deactivate,
+        )
+    ]
+
+    assert events[-1].type == "run_succeeded"
+    assert len(sink_calls) == 1
+
+
+@pytest.mark.anyio
+async def test_in_run_compaction_hysteresis_suppresses_immediate_recheck(
+    monkeypatch,
+) -> None:
+    from collections.abc import AsyncIterator
+
+    from pydantic_ai import Agent
+    from pydantic_ai.models.function import DeltaToolCall, FunctionModel
+
+    from just_another_coding_agent.runtime import run as run_module
+    from just_another_coding_agent.runtime.run import stream_run_events
+
+    call_count = 0
+
+    async def tool_loop_stream(
+        messages: object,
+        _agent_info: object,
+    ) -> AsyncIterator[dict[int, DeltaToolCall] | str]:
+        nonlocal call_count
+        call_count += 1
+        if call_count <= 8:
+            yield {
+                0: DeltaToolCall(
+                    name="tick",
+                    json_args="{}",
+                    tool_call_id=f"call-{call_count}",
+                )
+            }
+            return
+        yield "done"
+
+    agent = Agent(
+        FunctionModel(stream_function=tool_loop_stream), output_type=str
+    )
+
+    @agent.tool_plain
+    async def tick():
+        return "ok"
+
+    check_call_count = 0
+
+    def counting_check(messages, *, model):
+        nonlocal check_call_count
+        check_call_count += 1
+        return False
+
+    monkeypatch.setattr(run_module, "check_in_run_compaction_needed", counting_check)
+
+    async def noop_activate(callback):
+        pass
+
+    async def noop_submit():
+        pass
+
+    async def noop_deactivate():
+        pass
+
+    events = [
+        event
+        async for event in stream_run_events(
+            agent=agent,
+            prompt="go",
+            available_tool_names=["tick"],
+            activate_steer_boundary=noop_activate,
+            submit_steer_boundary=noop_submit,
+            deactivate_steer_boundary=noop_deactivate,
+        )
+    ]
+
+    assert events[-1].type == "run_succeeded"
+    from just_another_coding_agent.runtime.run import MIN_TOOL_RESULTS_BETWEEN_COMPACTIONS
+    assert check_call_count <= call_count - MIN_TOOL_RESULTS_BETWEEN_COMPACTIONS + 1
+
+
+def test_strip_unpaired_tool_parts_after_tail_selection_drops_orphaned_return() -> None:
+    messages = [
+        ModelResponse(
+            parts=[ToolCallPart(tool_name="bash", args="ls", tool_call_id="c1")],
+            model_name="test",
+        ),
+        ModelRequest(
+            parts=[ToolReturnPart(tool_name="bash", content="ok", tool_call_id="c1")]
+        ),
+        ModelResponse(
+            parts=[ToolCallPart(tool_name="read", args="f.py", tool_call_id="c2")],
+            model_name="test",
+        ),
+        ModelRequest(
+            parts=[ToolReturnPart(tool_name="read", content="data", tool_call_id="c2")]
+        ),
+    ]
+    tail_only = messages[2:]
+    result = replacement_history.strip_unpaired_tool_parts(tail_only)
+    for msg in result:
+        for part in msg.parts:
+            if isinstance(part, (ToolCallPart, ToolReturnPart)):
+                call_ids = {
+                    p.tool_call_id
+                    for m in result
+                    for p in m.parts
+                    if isinstance(p, ToolCallPart)
+                }
+                return_ids = {
+                    p.tool_call_id
+                    for m in result
+                    for p in m.parts
+                    if isinstance(p, ToolReturnPart)
+                }
+                assert call_ids == return_ids

@@ -268,6 +268,7 @@ async def _stream_run_events_with_steer(
     while True:
         saw_streamed_event = False
         terminal_emitted = False
+        compaction_restarting = False
         attempt_history_count = len(current_message_history)
         queue: asyncio.Queue[object] = asyncio.Queue()
         queued_deps = deps
@@ -727,6 +728,7 @@ async def _stream_run_events_with_steer(
                         exc_info=True,
                     )
                     in_run_compact_failures += 1
+                    compaction_restarting = True
                     continue
 
                 current_message_history = replacement
@@ -748,6 +750,7 @@ async def _stream_run_events_with_steer(
                     live_message_count=len(live_messages),
                     replacement_message_count=len(replacement),
                 )
+                compaction_restarting = True
                 continue
 
             if isinstance(error, _RestartRunWithCorrection):
@@ -815,6 +818,7 @@ async def _stream_run_events_with_steer(
         finally:
             if (
                 not terminal_emitted
+                and not compaction_restarting
                 and message_history_sink is not None
             ):
                 # Cancellation (or any other BaseException) propagates through
