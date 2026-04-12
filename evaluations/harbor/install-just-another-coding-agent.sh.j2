@@ -45,6 +45,10 @@ if ! "$BOOTSTRAP_PYTHON" -m venv "$VENV_PATH"; then
   "$BOOTSTRAP_PYTHON" -m venv "$VENV_PATH"
 fi
 
+if ! command -v rg >/dev/null 2>&1; then
+  ensure_apt_package ripgrep
+fi
+
 "$VENV_PYTHON" -m pip install --upgrade pip
 export JACA_PREBUILT_READ_ONLY_WORKER="$PREBUILT_READ_ONLY_WORKER"
 "$VENV_PYTHON" -m pip install "$PACKAGE_ROOT"

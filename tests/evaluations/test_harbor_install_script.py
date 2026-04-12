@@ -57,3 +57,19 @@ def test_install_script_bootstraps_python_312_with_uv_when_system_python_is_too_
     assert "curl -LsSf https://astral.sh/uv/install.sh | sh" in script
     assert "uv python install 3.12" in script
     assert 'BOOTSTRAP_PYTHON="$(uv python find 3.12)"' in script
+
+
+def test_install_script_installs_ripgrep_before_agent_boot_checks() -> None:
+    script = (
+        Path(__file__)
+        .resolve()
+        .parents[2]
+        .joinpath("evaluations/harbor/install-just-another-coding-agent.sh.j2")
+        .read_text()
+    )
+
+    assert 'if ! command -v rg >/dev/null 2>&1; then' in script
+    assert "ensure_apt_package ripgrep" in script
+    assert script.index("ensure_apt_package ripgrep") < script.index(
+        '"$VENV_PYTHON" -m just_another_coding_agent --help >/dev/null'
+    )
