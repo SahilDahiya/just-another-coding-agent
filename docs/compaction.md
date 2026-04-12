@@ -109,6 +109,8 @@ Operational rules:
 - it requires at least one completed run after `compacted_through_run_id`
 - summary generation uses the canonical model resolution/settings seam and the
   streaming request path
+- in-run compaction is checked at model-request boundaries against the live
+  message budget only; it is not gated on tool activity or tool-result churn
 - after three consecutive automatic compaction failures, the runtime blocks
   further automatic attempts for that session and fails hard
 - for local or Harbor debugging, the in-run threshold can be overridden at

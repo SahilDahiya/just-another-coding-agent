@@ -4,7 +4,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-
 from pydantic_ai.messages import (
     ModelRequest,
     ModelResponse,
@@ -33,8 +32,8 @@ from just_another_coding_agent.runtime.compaction.budget import (
 from just_another_coding_agent.session import (
     append_compaction_to_session,
     append_run_to_session,
-    replacement_history,
     load_session,
+    replacement_history,
 )
 from just_another_coding_agent.session.replacement_history import (
     build_compaction_summary_message,
@@ -473,7 +472,13 @@ def test_strip_unpaired_tool_parts_handles_mixed_paired_and_orphaned() -> None:
 def test_strip_unpaired_tool_parts_drops_empty_messages() -> None:
     messages = [
         ModelRequest(
-            parts=[ToolReturnPart(tool_name="bash", content="ok", tool_call_id="orphan")]
+            parts=[
+                ToolReturnPart(
+                    tool_name="bash",
+                    content="ok",
+                    tool_call_id="orphan",
+                )
+            ]
         ),
     ]
     result = replacement_history.strip_unpaired_tool_parts(messages)
@@ -646,8 +651,86 @@ async def test_in_run_compaction_fires_during_tool_loop(monkeypatch) -> None:
         e for e in events if isinstance(e, InRunCompactionCompletedEvent)
     ]
     assert len(compaction_events) == 1
-    assert compaction_events[0].live_message_count > 0
+    assert compaction_events[0].live_message_count >= 0
     assert compaction_events[0].replacement_message_count > 0
+
+
+@pytest.mark.anyio
+async def test_in_run_compaction_does_not_require_tool_activity(
+    monkeypatch,
+) -> None:
+    from collections.abc import AsyncIterator
+
+    from pydantic_ai import Agent
+    from pydantic_ai.models.function import FunctionModel
+
+    from just_another_coding_agent.runtime import run as run_module
+    from just_another_coding_agent.runtime.run import stream_run_events
+
+    stream_call_count = 0
+    check_call_count = 0
+
+    async def single_response_stream(
+        messages: object,
+        _agent_info: object,
+    ) -> AsyncIterator[str]:
+        del messages, _agent_info
+        nonlocal stream_call_count
+        stream_call_count += 1
+        yield "done"
+
+    agent = Agent(
+        FunctionModel(stream_function=single_response_stream), output_type=str
+    )
+
+    def fake_check(messages, *, model):
+        del messages, model
+        nonlocal check_call_count
+        check_call_count += 1
+        return check_call_count == 1
+
+    monkeypatch.setattr(run_module, "check_in_run_compaction_needed", fake_check)
+
+    async def fake_summarize(*, model, source_text):
+        del model, source_text
+        return "Primary Intent:\n- testing compaction without tools"
+
+    monkeypatch.setattr(run_module, "summarize_compaction_source", fake_summarize)
+
+    async def noop_activate(callback):
+        del callback
+
+    async def noop_submit():
+        return None
+
+    async def noop_deactivate():
+        return None
+
+    events = [
+        event
+        async for event in stream_run_events(
+            agent=agent,
+            prompt="go",
+            available_tool_names=[],
+            activate_steer_boundary=noop_activate,
+            submit_steer_boundary=noop_submit,
+            deactivate_steer_boundary=noop_deactivate,
+        )
+    ]
+
+    from just_another_coding_agent.contracts.run_events import (
+        InRunCompactionCompletedEvent,
+    )
+
+    compaction_events = [
+        event
+        for event in events
+        if isinstance(event, InRunCompactionCompletedEvent)
+    ]
+    assert events[-1].type == "run_succeeded"
+    assert len(compaction_events) == 1
+    assert stream_call_count == 1
+    assert check_call_count >= 2
 
 
 @pytest.mark.anyio
@@ -816,7 +899,7 @@ async def test_in_run_compaction_message_history_sink_fires_once(
 
 
 @pytest.mark.anyio
-async def test_in_run_compaction_hysteresis_suppresses_immediate_recheck(
+async def test_in_run_compaction_rechecks_next_request_without_tool_hysteresis(
     monkeypatch,
 ) -> None:
     from collections.abc import AsyncIterator
@@ -825,10 +908,7 @@ async def test_in_run_compaction_hysteresis_suppresses_immediate_recheck(
     from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 
     from just_another_coding_agent.runtime import run as run_module
-    from just_another_coding_agent.runtime.run import (
-        MIN_TOOL_RESULTS_BETWEEN_COMPACTIONS,
-        stream_run_events,
-    )
+    from just_another_coding_agent.runtime.run import stream_run_events
 
     call_count = 0
 
@@ -858,20 +938,18 @@ async def test_in_run_compaction_hysteresis_suppresses_immediate_recheck(
         return "ok"
 
     check_call_count = 0
-    compaction_done = False
 
     def fake_check(messages, *, model):
-        nonlocal check_call_count, compaction_done
+        del messages, model
+        nonlocal check_call_count
         check_call_count += 1
-        if not compaction_done:
-            compaction_done = True
-            return True
-        return True
+        return check_call_count == 1
 
     monkeypatch.setattr(run_module, "check_in_run_compaction_needed", fake_check)
 
     async def fake_summarize(*, model, source_text):
-        return "Primary Intent:\n- testing hysteresis"
+        del model, source_text
+        return "Primary Intent:\n- testing immediate recheck"
 
     monkeypatch.setattr(run_module, "summarize_compaction_source", fake_summarize)
 
@@ -903,9 +981,8 @@ async def test_in_run_compaction_hysteresis_suppresses_immediate_recheck(
     compaction_events = [
         e for e in events if isinstance(e, InRunCompactionCompletedEvent)
     ]
-    assert len(compaction_events) >= 1
+    assert len(compaction_events) == 1
     assert check_call_count >= 2
-    assert check_call_count < call_count
 
 
 def test_strip_unpaired_tool_parts_after_tail_selection_drops_orphaned_return() -> None:

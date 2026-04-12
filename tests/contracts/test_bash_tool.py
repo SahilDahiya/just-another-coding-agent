@@ -423,6 +423,12 @@ async def test_execute_shell_bootstraps_windows_search_tools(
         raising=False,
     )
     monkeypatch.setattr(
+        shell_module.subprocess,
+        "CREATE_NO_WINDOW",
+        0,
+        raising=False,
+    )
+    monkeypatch.setattr(
         shell_module,
         "ensure_windows_search_tool",
         lambda tool, *, silent=True: observed["bootstrapped"].append((tool, silent)),
@@ -473,7 +479,11 @@ def _burst_output_command(lines: int, bytes_per_line: int) -> str:
     )
     # Use the running Python interpreter so the test is deterministic and
     # does not depend on `python3` being on PATH.
-    python = sys.executable.replace("\\", "/") if sys.platform == "win32" else sys.executable
+    python = (
+        sys.executable.replace("\\", "/")
+        if sys.platform == "win32"
+        else sys.executable
+    )
     if detect_default_shell_family() == "powershell":
         # Pass the script via -c (PowerShell executes arg-0 as the program
         # path, so we just invoke python.exe directly with -c).

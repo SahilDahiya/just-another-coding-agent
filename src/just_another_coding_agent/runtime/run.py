@@ -60,14 +60,9 @@ from just_another_coding_agent.runtime.activity import (
 from just_another_coding_agent.runtime.agent import (
     CANONICAL_AGENT_TOOL_CORRECTION_RETRIES,
 )
-from just_another_coding_agent.runtime.models import (
-    build_canonical_model_settings,
-    get_model_context_window_tokens,
-)
 from just_another_coding_agent.runtime.compaction.constants import (
     SESSION_AUTO_COMPACTION_RETAINED_TAIL_TOKENS,
 )
-from just_another_coding_agent.runtime.prompt_layers import build_prompt_context_layers
 from just_another_coding_agent.runtime.compaction.session_summary import (
     summarize_compaction_source,
 )
@@ -77,6 +72,11 @@ from just_another_coding_agent.runtime.compaction.source_builder import (
 from just_another_coding_agent.runtime.compaction.trigger import (
     check_in_run_compaction_needed,
 )
+from just_another_coding_agent.runtime.models import (
+    build_canonical_model_settings,
+    get_model_context_window_tokens,
+)
+from just_another_coding_agent.runtime.prompt_layers import build_prompt_context_layers
 from just_another_coding_agent.runtime.recovery import should_retry_run_error
 from just_another_coding_agent.runtime.transcript_summary import (
     build_run_transcript_summary,
@@ -132,7 +132,6 @@ class _InRunCompactRequested(Exception):
 
 
 MAX_IN_RUN_COMPACT_FAILURES = 3
-MIN_TOOL_RESULTS_BETWEEN_COMPACTIONS = 3
 IN_RUN_COMPACTION_CONTINUATION_PROMPT = "Continue from the compaction summary above."
 
 
@@ -262,8 +261,6 @@ async def _stream_run_events_with_steer(
     buffered_tool_updates: dict[str, list[_QueuedToolUpdate]] = {}
     completed_tool_calls: dict[str, str] = {}
     in_run_compact_failures = 0
-    tool_results_since_compact = MIN_TOOL_RESULTS_BETWEEN_COMPACTIONS
-    has_seen_tool_activity = False
     yield RunStartedEvent(run_id=run_id)
 
     while True:
@@ -311,10 +308,7 @@ async def _stream_run_events_with_steer(
                     while True:
                         if isinstance(node, ModelRequestNode):
                             if (
-                                has_seen_tool_activity
-                                and tool_results_since_compact
-                                >= MIN_TOOL_RESULTS_BETWEEN_COMPACTIONS
-                                and in_run_compact_failures
+                                in_run_compact_failures
                                 < MAX_IN_RUN_COMPACT_FAILURES
                             ):
                                 live_messages = [
@@ -643,8 +637,6 @@ async def _stream_run_events_with_steer(
                                                             ),
                                                         ),
                                                     )
-                                                    has_seen_tool_activity = True
-                                                    tool_results_since_compact += 1
                                                     await _submit_if_ready()
                                                 stream_task = asyncio.create_task(
                                                     anext(stream_iterator)
@@ -757,7 +749,6 @@ async def _stream_run_events_with_steer(
                 current_message_history = replacement
                 carried_messages.clear()
                 current_prompt = IN_RUN_COMPACTION_CONTINUATION_PROMPT
-                tool_results_since_compact = 0
                 pending_tool_calls.clear()
                 completed_tool_calls.clear()
                 recovery_attempts = 0
