@@ -7,7 +7,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from pydantic_ai.messages import ModelMessage, ModelRequest, UserPromptPart
+from pydantic_ai.messages import ModelMessage
 
 from just_another_coding_agent.contracts.compaction import CompactionBudgetReport
 from just_another_coding_agent.contracts.platform import ShellFamily
@@ -60,22 +60,6 @@ class LastResponseUsageSnapshot:
 
 STATIC_PROVIDER_OVERHEAD_TOKENS = 2_000
 _PENDING_PROMPT_FRAMING_TOKENS = 4
-
-
-def _messages_tail_already_holds_prompt(
-    messages: Sequence[ModelMessage], prompt: str
-) -> bool:
-    if not messages:
-        return False
-    last = messages[-1]
-    if not isinstance(last, ModelRequest):
-        return False
-    for part in last.parts:
-        if isinstance(part, UserPromptPart):
-            content = part.content
-            if isinstance(content, str) and content == prompt:
-                return True
-    return False
 
 
 def should_auto_compact_session(
@@ -324,9 +308,7 @@ def estimate_next_request_input_tokens(
             + delta_tokens
         )
 
-    if pending_prompt and not _messages_tail_already_holds_prompt(
-        messages, pending_prompt
-    ):
+    if pending_prompt:
         base += (
             count_text_tokens(model=model, text=pending_prompt)
             + _PENDING_PROMPT_FRAMING_TOKENS

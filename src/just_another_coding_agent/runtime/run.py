@@ -259,7 +259,7 @@ async def _stream_run_events_with_steer(
     completed_tool_calls: dict[str, str] = {}
     in_run_compact_failures = 0
     last_response_usage: LastResponseUsageSnapshot | None = None
-    synthetic_prompt_texts: set[str] = set()
+    synthetic_prompt_counts: dict[str, int] = {}
     yield RunStartedEvent(run_id=run_id)
 
     while True:
@@ -310,17 +310,31 @@ async def _stream_run_events_with_steer(
                                 in_run_compact_failures
                                 < MAX_IN_RUN_COMPACT_FAILURES
                             ):
+                                captured_now = list(captured_messages)
                                 live_messages = [
                                     *current_message_history,
-                                    *list(captured_messages)[
-                                        attempt_history_count:
-                                    ],
+                                    *captured_now[attempt_history_count:],
                                 ]
+                                # pending_prompt is only the pending user turn
+                                # on the FIRST model request of this agent.iter
+                                # call. After any stream has run, pydantic-ai
+                                # has already appended the prompt to
+                                # captured_messages and subsequent requests
+                                # build their input from tool results, not
+                                # from current_prompt.
+                                is_first_request_of_iter = (
+                                    len(captured_now) == attempt_history_count
+                                )
+                                pending_prompt_for_check = (
+                                    current_prompt
+                                    if is_first_request_of_iter
+                                    else None
+                                )
                                 if live_messages and check_in_run_compaction_needed(
                                     live_messages,
                                     model=getattr(agent, "model", None),
                                     last_response_usage=last_response_usage,
-                                    pending_prompt=current_prompt,
+                                    pending_prompt=pending_prompt_for_check,
                                 ):
                                     raise _InRunCompactRequested()
                             async with node.stream(agent_run.ctx) as stream:
@@ -724,7 +738,7 @@ async def _stream_run_events_with_steer(
                         messages=live_messages,
                         model=compact_model,
                         token_budget=SESSION_AUTO_COMPACTION_RETAINED_TAIL_TOKENS,
-                        synthetic_prompt_texts=frozenset(synthetic_prompt_texts),
+                        synthetic_prompt_counts=synthetic_prompt_counts,
                     )
                     initial_context: list[ModelMessage] = []
                     if isinstance(deps, WorkspaceDeps):
@@ -761,7 +775,12 @@ async def _stream_run_events_with_steer(
                 current_message_history = replacement
                 carried_messages.clear()
                 current_prompt = IN_RUN_COMPACTION_CONTINUATION_PROMPT
-                synthetic_prompt_texts.add(IN_RUN_COMPACTION_CONTINUATION_PROMPT)
+                synthetic_prompt_counts[IN_RUN_COMPACTION_CONTINUATION_PROMPT] = (
+                    synthetic_prompt_counts.get(
+                        IN_RUN_COMPACTION_CONTINUATION_PROMPT, 0
+                    )
+                    + 1
+                )
                 pending_tool_calls.clear()
                 completed_tool_calls.clear()
                 recovery_attempts = 0
@@ -792,7 +811,9 @@ async def _stream_run_events_with_steer(
                     *carried_messages[len(current_message_history) :],
                 ]
                 current_prompt = error.message
-                synthetic_prompt_texts.add(error.message)
+                synthetic_prompt_counts[error.message] = (
+                    synthetic_prompt_counts.get(error.message, 0) + 1
+                )
                 correction_attempts += 1
                 pending_tool_calls.clear()
                 completed_tool_calls.clear()

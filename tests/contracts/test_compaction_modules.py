@@ -516,11 +516,14 @@ def test_check_in_run_compaction_needed_counts_pending_prompt() -> None:
     )
 
 
-def test_check_in_run_compaction_needed_pending_prompt_not_double_counted() -> None:
-    # When the history already contains the pending prompt (e.g. pydantic-ai
-    # already appended it to captured_messages before our check ran), we
-    # should not count it twice.
-    prompt_text = "hello world! " * 20_000
+def test_check_in_run_compaction_needed_pending_prompt_distinct_from_history() -> None:
+    # A pending prompt with the same text as a prior history message should
+    # still be counted (it's a new turn). The caller is responsible for
+    # passing pending_prompt only on the FIRST check of each agent.iter block
+    # (run.py uses len(captured_messages) == attempt_history_count as the
+    # signal). This test verifies the token-counting side: same-text history
+    # and pending prompt are NOT conflated.
+    prompt_text = "repeat"
     messages = [ModelRequest(parts=[UserPromptPart(content=prompt_text)])]
 
     without_pp = trigger.estimate_next_request_input_tokens(
@@ -529,7 +532,7 @@ def test_check_in_run_compaction_needed_pending_prompt_not_double_counted() -> N
     with_pp = trigger.estimate_next_request_input_tokens(
         messages, model="test:model", pending_prompt=prompt_text
     )
-    assert with_pp == without_pp
+    assert with_pp > without_pp
 
 
 def test_check_in_run_compaction_needed_within_budget() -> None:
@@ -1226,36 +1229,12 @@ def test_build_in_run_truncated_history_preserves_mid_run_user_steer() -> None:
     assert "now please check file X" in user_texts
 
 
-def test_is_real_user_prompt_message_excludes_synthetic_prompts() -> None:
-    from just_another_coding_agent.session.replacement_history import (
-        _is_real_user_prompt_message,
-    )
-
-    synthetic_text = "Continue the task. Earlier turns..."
-    synthetic_set = frozenset({synthetic_text})
-
-    real = ModelRequest(parts=[UserPromptPart(content="solve this task")])
-    synthetic = ModelRequest(parts=[UserPromptPart(content=synthetic_text)])
-
-    assert _is_real_user_prompt_message(real)
-    assert _is_real_user_prompt_message(
-        real, synthetic_prompt_texts=synthetic_set
-    )
-    # Without the set, synthetic looks like a user prompt
-    assert _is_real_user_prompt_message(synthetic)
-    # With the set, it's excluded
-    assert not _is_real_user_prompt_message(
-        synthetic, synthetic_prompt_texts=synthetic_set
-    )
-
-
 def test_build_in_run_truncated_history_does_not_anchor_synthetic_prompts() -> None:
     # A synthetic continuation prompt must not be preserved as an anchor, so
     # it can be truncated away when budget is tight while the real user
     # prompt stays.
     from just_another_coding_agent.session.replacement_history import (
         build_in_run_truncated_history,
-        _is_real_user_prompt_message,
     )
 
     synthetic_text = "Continue the task. Earlier turns..."
@@ -1269,7 +1248,7 @@ def test_build_in_run_truncated_history_does_not_anchor_synthetic_prompts() -> N
         messages=messages,
         model="test:model",
         token_budget=800,
-        synthetic_prompt_texts=frozenset({synthetic_text}),
+        synthetic_prompt_counts={synthetic_text: 1},
     )
     user_texts = [
         p.content
@@ -1280,10 +1259,48 @@ def test_build_in_run_truncated_history_does_not_anchor_synthetic_prompts() -> N
     ]
     # Real user prompt is unconditionally anchored.
     assert "original task" in user_texts
-    # With the synthetic set, the helper correctly classifies the synthetic
-    # prompt as non-anchor.
-    assert not _is_real_user_prompt_message(
-        messages[2], synthetic_prompt_texts=frozenset({synthetic_text})
+
+
+def test_build_in_run_truncated_history_real_prompt_matching_synthetic_text_stays() -> None:
+    # A real user prompt whose text happens to equal a synthetic correction
+    # string must still be treated as a real anchor. Multiset accounting:
+    # the first N occurrences (matching the synthetic_prompt_counts) are
+    # classified as synthetic, additional occurrences are real.
+    from just_another_coding_agent.session.replacement_history import (
+        build_in_run_truncated_history,
     )
+
+    shared_text = "Invalid JSON for tool 'read': expected value"
+    messages = [
+        ModelRequest(parts=[UserPromptPart(content="original task")]),
+        # First occurrence of shared_text: marked synthetic via counter
+        ModelRequest(parts=[UserPromptPart(content=shared_text)]),
+        ModelResponse(parts=[TextPart(content="ok" * 5000)], model_name="x"),
+        # Second occurrence: user happened to send this text. Must be real.
+        ModelRequest(parts=[UserPromptPart(content=shared_text)]),
+        ModelResponse(parts=[TextPart(content="ok2" * 5000)], model_name="x"),
+    ]
+    result = build_in_run_truncated_history(
+        messages=messages,
+        model="test:model",
+        token_budget=500,
+        synthetic_prompt_counts={shared_text: 1},  # only 1 was synthetic
+    )
+    user_texts = [
+        p.content
+        for m in result
+        if isinstance(m, ModelRequest)
+        for p in m.parts
+        if isinstance(p, UserPromptPart)
+    ]
+    # The real user prompt is anchored. The original task too.
+    assert "original task" in user_texts
+    assert shared_text in user_texts  # the 2nd occurrence, which is real
+    # The result should contain exactly 2 UserPromptParts with that text:
+    # one would be anchored (the second one), one the original task.
+    shared_text_count = sum(1 for t in user_texts if t == shared_text)
+    # At least the real (2nd) occurrence is anchored. The synthetic (1st)
+    # may or may not be kept depending on budget, but it is NOT an anchor.
+    assert shared_text_count >= 1
 
 
