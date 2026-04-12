@@ -33,6 +33,25 @@ def test_resolve_container_name_returns_unique_substring_match() -> None:
     assert resolved == "task-b-main-1"
 
 
+def test_resolve_container_name_matches_case_insensitively() -> None:
+    def fake_run(command, *, capture_output, text, check):
+        del capture_output, text, check
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout="log-summary-date-ranges__paybjrk-main-1\n",
+            stderr="",
+        )
+
+    resolved = resolve_container_name(
+        container=None,
+        match="log-summary-date-ranges__pAYBJRk",
+        runner=fake_run,
+    )
+
+    assert resolved == "log-summary-date-ranges__paybjrk-main-1"
+
+
 def test_resolve_container_name_rejects_ambiguous_match() -> None:
     def fake_run(command, *, capture_output, text, check):
         del capture_output, text, check

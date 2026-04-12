@@ -96,8 +96,11 @@ def resolve_container_name(
         return container
     if match is None:
         raise ValueError("Either container or match must be provided")
+    normalized_match = match.lower()
     matches = [
-        name for name in list_running_containers(runner=runner) if match in name
+        name
+        for name in list_running_containers(runner=runner)
+        if normalized_match in name.lower()
     ]
     if not matches:
         raise ValueError(f"No running Docker container matches {match!r}")
