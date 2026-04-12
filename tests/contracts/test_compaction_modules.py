@@ -486,7 +486,7 @@ def test_strip_unpaired_tool_parts_drops_empty_messages() -> None:
 
 
 def test_check_in_run_compaction_needed_triggers_over_budget() -> None:
-    large_content = "x" * 400_000
+    large_content = "hello world! " * 40_000
     messages = [ModelRequest(parts=[UserPromptPart(content=large_content)])]
     assert trigger.check_in_run_compaction_needed(
         messages,
@@ -603,7 +603,7 @@ async def test_in_run_compaction_fires_during_tool_loop(monkeypatch) -> None:
 
     compaction_triggered = False
 
-    def fake_check(messages, *, model):
+    def fake_check(messages, *, model, last_response_usage=None):
         nonlocal compaction_triggered
         has_tool_return = any(
             isinstance(p, ToolReturnPart)
@@ -683,7 +683,7 @@ async def test_in_run_compaction_does_not_require_tool_activity(
         FunctionModel(stream_function=single_response_stream), output_type=str
     )
 
-    def fake_check(messages, *, model):
+    def fake_check(messages, *, model, last_response_usage=None):
         del messages, model
         nonlocal check_call_count
         check_call_count += 1
@@ -771,7 +771,7 @@ async def test_in_run_compaction_circuit_breaker_on_failure(monkeypatch) -> None
 
     check_count = 0
 
-    def fake_check(messages, *, model):
+    def fake_check(messages, *, model, last_response_usage=None):
         nonlocal check_count
         check_count += 1
         return True
@@ -852,7 +852,7 @@ async def test_in_run_compaction_message_history_sink_fires_once(
 
     compaction_triggered = False
 
-    def fake_check(messages, *, model):
+    def fake_check(messages, *, model, last_response_usage=None):
         nonlocal compaction_triggered
         if not compaction_triggered:
             compaction_triggered = True
@@ -933,7 +933,7 @@ async def test_in_run_compaction_rechecks_next_request_without_tool_hysteresis(
 
     check_call_count = 0
 
-    def fake_check(messages, *, model):
+    def fake_check(messages, *, model, last_response_usage=None):
         del messages, model
         nonlocal check_call_count
         check_call_count += 1

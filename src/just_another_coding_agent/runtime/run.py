@@ -64,6 +64,7 @@ from just_another_coding_agent.runtime.compaction.constants import (
     SESSION_AUTO_COMPACTION_RETAINED_TAIL_TOKENS,
 )
 from just_another_coding_agent.runtime.compaction.trigger import (
+    LastResponseUsageSnapshot,
     check_in_run_compaction_needed,
 )
 from just_another_coding_agent.runtime.models import (
@@ -257,6 +258,7 @@ async def _stream_run_events_with_steer(
     buffered_tool_updates: dict[str, list[_QueuedToolUpdate]] = {}
     completed_tool_calls: dict[str, str] = {}
     in_run_compact_failures = 0
+    last_response_usage: LastResponseUsageSnapshot | None = None
     yield RunStartedEvent(run_id=run_id)
 
     while True:
@@ -316,6 +318,7 @@ async def _stream_run_events_with_steer(
                                 if live_messages and check_in_run_compaction_needed(
                                     live_messages,
                                     model=getattr(agent, "model", None),
+                                    last_response_usage=last_response_usage,
                                 ):
                                     raise _InRunCompactRequested()
                             async with node.stream(agent_run.ctx) as stream:
@@ -327,6 +330,27 @@ async def _stream_run_events_with_steer(
                                             run_id=run_id,
                                             delta=text_delta,
                                         )
+                            captured_now = list(captured_messages)
+                            if captured_now and isinstance(
+                                captured_now[-1], ModelResponse
+                            ):
+                                last_resp = captured_now[-1]
+                                usage = getattr(last_resp, "usage", None)
+                                input_tokens = (
+                                    getattr(usage, "input_tokens", 0) if usage else 0
+                                )
+                                output_tokens = (
+                                    getattr(usage, "output_tokens", 0) if usage else 0
+                                )
+                                if input_tokens:
+                                    last_response_usage = LastResponseUsageSnapshot(
+                                        input_tokens=input_tokens,
+                                        output_tokens=output_tokens,
+                                        messages_prefix_count=(
+                                            len(current_message_history)
+                                            + len(captured_now)
+                                        ),
+                                    )
                             node = await agent_run.next(node)
                         elif isinstance(node, CallToolsNode):
                             steer_boundary_active = False
@@ -737,6 +761,7 @@ async def _stream_run_events_with_steer(
                 pending_tool_calls.clear()
                 completed_tool_calls.clear()
                 recovery_attempts = 0
+                last_response_usage = None
                 logger.info(
                     "In-run compaction completed: run_id=%s "
                     "live_messages=%d replacement_messages=%d",

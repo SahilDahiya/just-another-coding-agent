@@ -28,6 +28,9 @@ from just_another_coding_agent.runtime.compaction.resume import (
     build_resume_message_history,
     build_runtime_framed_resume_message_history,
 )
+from just_another_coding_agent.runtime.compaction.token_counting import (
+    count_message_tokens,
+)
 from just_another_coding_agent.runtime.models import get_model_context_window_tokens
 from just_another_coding_agent.runtime.token_estimation import estimate_messages_tokens
 from just_another_coding_agent.runtime.turn_context import (
@@ -45,6 +48,16 @@ class _ResumeHistoryBudgetEstimate:
     estimated_resume_message_tokens: int
     estimated_replacement_messages_tokens: int
     estimated_replacement_summary_tokens: int
+
+
+@dataclass(frozen=True)
+class LastResponseUsageSnapshot:
+    input_tokens: int
+    output_tokens: int
+    messages_prefix_count: int
+
+
+STATIC_PROVIDER_OVERHEAD_TOKENS = 2_000
 
 
 def should_auto_compact_session(
@@ -272,10 +285,31 @@ def _estimate_resume_history_budget_components(
     )
 
 
+def estimate_next_request_input_tokens(
+    messages: Sequence[ModelMessage],
+    *,
+    model: Any,
+    last_response_usage: LastResponseUsageSnapshot | None = None,
+) -> int:
+    if last_response_usage is None:
+        return (
+            count_message_tokens(messages, model=model)
+            + STATIC_PROVIDER_OVERHEAD_TOKENS
+        )
+    delta_messages = messages[last_response_usage.messages_prefix_count :]
+    delta_tokens = count_message_tokens(delta_messages, model=model)
+    return (
+        last_response_usage.input_tokens
+        + last_response_usage.output_tokens
+        + delta_tokens
+    )
+
+
 def check_in_run_compaction_needed(
     messages: Sequence[ModelMessage],
     *,
     model: Any,
+    last_response_usage: LastResponseUsageSnapshot | None = None,
     get_context_window_tokens: Callable[[Any], int | None] = (
         get_model_context_window_tokens
     ),
@@ -295,16 +329,20 @@ def check_in_run_compaction_needed(
         + 1e-6
     )
 
-    message_estimate = estimate_messages_tokens(model=model, messages=messages)
-    estimated_tokens = (
-        message_estimate.estimated_tokens + SESSION_AUTO_COMPACTION_PROMPT_RESERVE_TOKENS
+    estimated_tokens = estimate_next_request_input_tokens(
+        messages,
+        model=model,
+        last_response_usage=last_response_usage,
     )
 
     return estimated_tokens >= trigger_budget_tokens
 
 
 __all__ = [
+    "LastResponseUsageSnapshot",
+    "STATIC_PROVIDER_OVERHEAD_TOKENS",
     "build_auto_compact_session_budget_report",
     "check_in_run_compaction_needed",
+    "estimate_next_request_input_tokens",
     "should_auto_compact_session",
 ]
