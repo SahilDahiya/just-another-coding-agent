@@ -1,5 +1,8 @@
+import asyncio
 import re
 import shutil
+import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -9,7 +12,10 @@ from just_another_coding_agent.contracts.platform import detect_default_shell_fa
 from just_another_coding_agent.tools import shell as shell_module
 from just_another_coding_agent.tools.deps import WorkspaceDeps
 from just_another_coding_agent.tools.errors import ToolCommandError, ToolEncodingError
-from just_another_coding_agent.tools.shell import execute_shell
+from just_another_coding_agent.tools.shell import (
+    SHELL_PUBLISH_MIN_INTERVAL_SECONDS,
+    execute_shell,
+)
 
 
 @dataclass(frozen=True)
@@ -440,3 +446,179 @@ async def test_execute_shell_bootstraps_windows_search_tools(
     assert result == {"exit_code": 0, "output": "ok"}
     assert observed["bootstrapped"] == [("fd", True), ("rg", True)]
     assert observed["kwargs"]["env"] == {"PATH": "managed-bin"}
+
+
+# Regression tests for the "git show --unified=40 on a multi-file commit
+# wedged the TUI on Windows" class of bug. See commits 7c31d24, 38e60ca, and
+# the project memory project_jaca_rpc_writer_pipe_backpressure.md for the
+# full debugging write-up. These tests target the underlying mechanisms the
+# wedge depended on (publisher coalescing and reader/publisher decoupling)
+# rather than the specific git command, because (a) the command's output
+# size depends on repo state and (b) the bug was never really about git.
+
+
+def _burst_output_command(lines: int, bytes_per_line: int) -> str:
+    """A posix/powershell command that emits `lines` lines as fast as possible.
+
+    Used to exercise the shell tool's reader/publisher pipeline under a
+    high-rate child. Each line is plain ASCII of the given size, followed
+    by a newline.
+    """
+    payload = "x" * bytes_per_line
+    python_script = (
+        f"import sys\n"
+        f"for _ in range({lines}):\n"
+        f"    sys.stdout.write('{payload}\\n')\n"
+        f"sys.stdout.flush()\n"
+    )
+    # Use the running Python interpreter so the test is deterministic and
+    # does not depend on `python3` being on PATH.
+    python = sys.executable.replace("\\", "/") if sys.platform == "win32" else sys.executable
+    if detect_default_shell_family() == "powershell":
+        # Pass the script via -c (PowerShell executes arg-0 as the program
+        # path, so we just invoke python.exe directly with -c).
+        escaped = python_script.replace('"', '`"').replace("'", "`'")
+        return f'& "{python}" -c "{escaped}"'
+    escaped = python_script.replace('"', '\\"')
+    return f'{python} -c "{escaped}"'
+
+
+async def test_execute_shell_coalesces_partial_updates_at_min_interval(
+    tmp_path,
+) -> None:
+    """The publisher loop must throttle partial updates to at most one per
+    SHELL_PUBLISH_MIN_INTERVAL_SECONDS regardless of how fast the child
+    process writes. This is the O(N²) payload growth fix — without it, a
+    fast multi-chunk child would emit one partial update per read chunk,
+    saturating the RPC pipe with (cumulatively) megabytes of JSON for a
+    50 KB output.
+    """
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    publish_times: list[float] = []
+
+    async def recording_sink(
+        tool_call_id: str,
+        tool_name: str,
+        payload: object | None,
+    ) -> None:
+        del tool_call_id, tool_name, payload
+        publish_times.append(time.monotonic())
+
+    ctx = _FakeRunContext(
+        deps=WorkspaceDeps(
+            workspace_root=workspace_root,
+            shell_family=_test_shell_family(),
+            tool_update_sink=recording_sink,
+        ),
+        tool_call_id="call-shell",
+        tool_name="shell",
+    )
+
+    # 200 lines × 512 bytes = ~100 KB, which far exceeds SHELL_MAX_BYTES
+    # and will be truncated. The key property is the output is produced
+    # across many 4 KB reader chunks — if the publisher did not coalesce,
+    # we'd expect ~25 publish calls. With coalescing at 250 ms and a run
+    # that takes well under a second, we expect at most a handful.
+    start = time.monotonic()
+    result = await execute_shell(
+        ctx=ctx,
+        workspace_root=workspace_root,
+        command=_burst_output_command(lines=200, bytes_per_line=512),
+        shell_family=_test_shell_family(),
+        timeout=30,
+    )
+    elapsed = time.monotonic() - start
+
+    assert result["exit_code"] == 0, result
+    assert len(publish_times) >= 1, "publisher should emit at least one update"
+
+    # Verify gap between successive publications is at least the configured
+    # minimum interval (with a small tolerance for scheduling jitter).
+    min_interval_with_slack = SHELL_PUBLISH_MIN_INTERVAL_SECONDS - 0.05
+    gaps = [
+        publish_times[i] - publish_times[i - 1]
+        for i in range(1, len(publish_times))
+    ]
+    for gap in gaps:
+        assert gap >= min_interval_with_slack, (
+            f"publisher fired within {gap:.3f}s of the previous update, "
+            f"expected >= {min_interval_with_slack:.3f}s. All gaps: {gaps}"
+        )
+
+    # Sanity-check that coalescing actually reduced the publish count
+    # below the chunk count. A ~100 KB output read in 4 KB chunks gives
+    # ~25 reader wake-ups; with coalescing at 250 ms we expect at most
+    # ceil(elapsed / 250 ms) + 1 publications.
+    max_expected = int(elapsed / SHELL_PUBLISH_MIN_INTERVAL_SECONDS) + 2
+    assert len(publish_times) <= max_expected, (
+        f"publisher emitted {len(publish_times)} updates over {elapsed:.2f}s, "
+        f"expected at most {max_expected} with coalescing interval "
+        f"{SHELL_PUBLISH_MIN_INTERVAL_SECONDS}s"
+    )
+
+
+async def test_execute_shell_completes_when_tool_update_sink_is_slow(
+    tmp_path,
+) -> None:
+    """A slow tool_update_sink must NOT delay execute_shell's completion.
+    The publisher task is decoupled from the reader task via asyncio.Event,
+    so even if every sink call blocks for a long time, the reader keeps
+    draining stdout, the process exits, and execute_shell returns with the
+    full result. The in-flight publisher call is cancelled in the finally
+    block.
+
+    This is the regression guard for the "slow tool_update_sink wedges the
+    reader" bug that was one of the early theories about the wedge.
+    """
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    sink_call_count = 0
+
+    async def slow_sink(
+        tool_call_id: str,
+        tool_name: str,
+        payload: object | None,
+    ) -> None:
+        del tool_call_id, tool_name, payload
+        nonlocal sink_call_count
+        sink_call_count += 1
+        # Simulate a TUI queue / event sink that blocks for a long time
+        # (in real life: because it is parked trying to render a huge
+        # partial update, or because its downstream consumer is slow).
+        await asyncio.sleep(5)
+
+    ctx = _FakeRunContext(
+        deps=WorkspaceDeps(
+            workspace_root=workspace_root,
+            shell_family=_test_shell_family(),
+            tool_update_sink=slow_sink,
+        ),
+        tool_call_id="call-shell",
+        tool_name="shell",
+    )
+
+    start = time.monotonic()
+    result = await execute_shell(
+        ctx=ctx,
+        workspace_root=workspace_root,
+        command=_burst_output_command(lines=50, bytes_per_line=256),
+        shell_family=_test_shell_family(),
+        timeout=30,
+    )
+    elapsed = time.monotonic() - start
+
+    # execute_shell must complete in well under the 5-second sink-sleep,
+    # proving the reader was not waiting on the publisher. Generous upper
+    # bound to tolerate CI scheduler jitter.
+    assert result["exit_code"] == 0, result
+    assert elapsed < 3.0, (
+        f"execute_shell took {elapsed:.2f}s despite a decoupled publisher; "
+        f"the reader may be waiting on the publisher/sink (sink_call_count="
+        f"{sink_call_count})"
+    )
+    # The output must be the full, complete result — decoupling the
+    # publisher from the reader must not drop bytes.
+    assert "xxxxxxxxxx" in str(result["output"])

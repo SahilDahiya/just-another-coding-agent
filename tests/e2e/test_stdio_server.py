@@ -3,6 +3,7 @@ import io
 import json
 import re
 import sys
+import time
 from collections.abc import AsyncIterator
 from types import SimpleNamespace
 
@@ -1358,3 +1359,139 @@ def test_main_exits_cleanly_on_keyboard_interrupt(
     )
 
     assert exit_code == 130
+
+
+async def test_serve_rpc_stdio_keeps_event_loop_live_under_slow_output_stream(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """Regression guard for commit 38e60ca ("Move RPC writes off the event
+    loop and synthesize terminal events on early exit").
+
+    The original bug was that `serve_rpc_stdio` wrote RPC envelopes to
+    `output_stream` synchronously from an asyncio task. When the consumer
+    (notably the small ~4 KB Windows anonymous pipe to the Go TUI) was
+    slow to drain, the sync write blocked the entire event loop, which
+    in turn deadlocked pydantic-ai's internal `asyncio.Event.wait()`
+    ping-pong in `_streaming_handler` / `_do_run` because those
+    primitives depend on the outer loop making progress.
+
+    The fix routes all writes through an unbounded `asyncio.Queue` + a
+    single dedicated writer task that hands the actual sync pipe write
+    off to `asyncio.to_thread(...)`. A full or slow pipe can only block
+    the writer thread, never the event loop.
+
+    This test proves the loop stays live by running a tiny 10 ms-tick
+    liveness counter concurrently with a `serve_rpc_stdio` call whose
+    output stream deliberately sleeps 80 ms in each `write`. If the
+    writes ever move back onto the event loop, the counter will advance
+    far less than expected and the assertion will fail.
+    """
+    fixed_session_id = "0" * 32
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    monkeypatch.setattr(
+        "just_another_coding_agent.rpc.session_store.uuid4",
+        lambda: SimpleNamespace(hex=fixed_session_id),
+    )
+
+    class SlowOutputStream:
+        """TextIO-like that sleeps for 80 ms per write call.
+
+        The writer task calls `output_stream.write(...)` + `.flush()`
+        inside `asyncio.to_thread(...)`, so the sleep runs in the
+        default executor thread pool, not the asyncio event loop. The
+        event loop is therefore free to run other tasks during the
+        sleep — which is exactly what this test verifies via the
+        liveness counter.
+        """
+
+        def __init__(self) -> None:
+            self._buffer = io.StringIO()
+
+        def write(self, data: str) -> int:
+            time.sleep(0.08)
+            self._buffer.write(data)
+            return len(data)
+
+        def flush(self) -> None:
+            pass
+
+        def getvalue(self) -> str:
+            return self._buffer.getvalue()
+
+    output_stream = SlowOutputStream()
+
+    input_stream = io.StringIO(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "id": "req-create",
+                        "command": "session.create",
+                        "payload": {},
+                    }
+                ),
+                json.dumps(
+                    {
+                        "id": "req-run",
+                        "command": "run.start",
+                        "payload": {
+                            "session_id": fixed_session_id,
+                            "prompt": "create note",
+                        },
+                    }
+                ),
+            ]
+        )
+        + "\n"
+    )
+
+    liveness_counter = {"count": 0}
+    stop_flag = asyncio.Event()
+
+    async def liveness_task() -> None:
+        while not stop_flag.is_set():
+            try:
+                await asyncio.wait_for(stop_flag.wait(), timeout=0.01)
+            except asyncio.TimeoutError:
+                pass
+            liveness_counter["count"] += 1
+
+    counter = asyncio.create_task(liveness_task())
+
+    try:
+        await serve_rpc_stdio(
+            input_stream=input_stream,
+            output_stream=output_stream,
+            model=FunctionModel(stream_function=resume_or_compaction_stream),
+            workspace_root=workspace_root,
+            sessions_root=sessions_root,
+        )
+    finally:
+        stop_flag.set()
+        await counter
+
+    # Sanity check: the slow writer actually produced output for both
+    # requests, i.e. the pipeline ran end-to-end.
+    output_value = output_stream.getvalue()
+    assert "req-create" in output_value
+    assert "req-run" in output_value
+
+    # The liveness counter must have advanced significantly during
+    # serve_rpc_stdio. The run emits several RPC envelopes, each of
+    # which costs ~80 ms of blocking write time in the worker thread.
+    # With a 10 ms-tick liveness counter, even a modest number of
+    # writes (~5) should leave the counter with dozens of ticks.
+    #
+    # If the writer task ever moves back to synchronous writes on the
+    # event loop, the counter will barely advance (it only gets to
+    # run between writes, which is essentially zero time), and this
+    # assertion will fail. 10 is a conservative floor that survives
+    # heavy CI scheduler jitter.
+    assert liveness_counter["count"] >= 10, (
+        f"event loop advanced only {liveness_counter['count']} ticks during "
+        f"serve_rpc_stdio with a slow output stream; the RPC writer may be "
+        f"blocking the event loop instead of offloading to a worker thread"
+    )
