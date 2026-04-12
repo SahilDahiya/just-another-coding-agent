@@ -724,9 +724,20 @@ async def _stream_run_events_with_steer(
                     )
                     initial_context: list[ModelMessage] = []
                     if isinstance(deps, WorkspaceDeps):
+                        run_frame = deps.run_frame
                         prompt_context = build_prompt_context_layers(
                             model=compact_model,
                             workspace_root=deps.workspace_root,
+                            shell_family=deps.shell_family,
+                            current_date=(
+                                run_frame.current_date if run_frame else None
+                            ),
+                            timezone=(
+                                run_frame.timezone if run_frame else None
+                            ),
+                            thinking=(
+                                run_frame.thinking if run_frame else thinking
+                            ),
                         )
                         initial_context = [
                             *prompt_context.before_history_messages,
