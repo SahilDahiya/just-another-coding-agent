@@ -266,6 +266,8 @@ type RunEvent struct {
 	LaterPrompts           []string              `json:"later_prompts,omitempty"`
 	Prompts                []string              `json:"prompts,omitempty"`
 	Mode                   string                `json:"mode,omitempty"`
+	LiveMessageCount        *int                  `json:"live_message_count,omitempty"`
+	ReplacementMessageCount *int                  `json:"replacement_message_count,omitempty"`
 	Activity               *ToolActivity         `json:"activity,omitempty"`
 	TranscriptSummary      *RunTranscriptSummary `json:"transcript_summary,omitempty"`
 }

@@ -348,6 +348,13 @@ func (t *Transcript) WriteCompactionCompleted() {
 	t.WriteNote("compacted", nil)
 }
 
+func (t *Transcript) WriteInRunCompactionCompleted() {
+	t.endToolGroup()
+	t.endLiveAssistant()
+	t.ensureBlockGap()
+	t.WriteNote("compacted (in-run)", nil)
+}
+
 func (t *Transcript) WriteCompactionWarning(message string) {
 	t.endToolGroup()
 	t.endLiveAssistant()
@@ -384,6 +391,8 @@ func (t *Transcript) ApplyRunEvent(event rpc.RunEvent) {
 	switch event.Type {
 	case "session_compaction_completed":
 		t.WriteCompactionCompleted()
+	case "in_run_compaction_completed":
+		t.WriteInRunCompactionCompleted()
 	case "session_compaction_warning":
 		t.WriteCompactionWarning(event.Message)
 	case "session_queued_prompt_batch_submitted":

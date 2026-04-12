@@ -638,6 +638,17 @@ async def test_in_run_compaction_fires_during_tool_loop(monkeypatch) -> None:
     assert event_types[-1] == "RunSucceededEvent", f"Got: {events[-1]}"
     assert compaction_triggered
 
+    from just_another_coding_agent.contracts.run_events import (
+        InRunCompactionCompletedEvent,
+    )
+
+    compaction_events = [
+        e for e in events if isinstance(e, InRunCompactionCompletedEvent)
+    ]
+    assert len(compaction_events) == 1
+    assert compaction_events[0].live_message_count > 0
+    assert compaction_events[0].replacement_message_count > 0
+
 
 @pytest.mark.anyio
 async def test_in_run_compaction_circuit_breaker_on_failure(monkeypatch) -> None:

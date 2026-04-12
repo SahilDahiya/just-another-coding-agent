@@ -38,6 +38,7 @@ from pydantic_graph import End
 
 from just_another_coding_agent.contracts.run_events import (
     AssistantTextDeltaEvent,
+    InRunCompactionCompletedEvent,
     JsonValue,
     RunEvent,
     RunFailedEvent,
@@ -741,6 +742,11 @@ async def _stream_run_events_with_steer(
                     run_id,
                     len(live_messages),
                     len(replacement),
+                )
+                yield InRunCompactionCompletedEvent(
+                    run_id=run_id,
+                    live_message_count=len(live_messages),
+                    replacement_message_count=len(replacement),
                 )
                 continue
 

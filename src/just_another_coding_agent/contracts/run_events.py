@@ -213,6 +213,12 @@ class RunFailedEvent(_RunEventBase):
     message: str
 
 
+class InRunCompactionCompletedEvent(_RunEventBase):
+    type: Literal["in_run_compaction_completed"] = "in_run_compaction_completed"
+    live_message_count: int
+    replacement_message_count: int
+
+
 class SessionCompactionStartedEvent(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -276,6 +282,7 @@ RunEvent = Annotated[
     | ToolCallUpdatedEvent
     | ToolCallSucceededEvent
     | ToolCallFailedEvent
+    | InRunCompactionCompletedEvent
     | RunSucceededEvent
     | RunFailedEvent,
     Field(discriminator="type"),
@@ -288,6 +295,7 @@ __all__ = [
     "EditActivityDetails",
     "FindActivityDetails",
     "GrepActivityDetails",
+    "InRunCompactionCompletedEvent",
     "JsonValue",
     "LsActivityDetails",
     "ReadActivityDetails",
