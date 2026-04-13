@@ -46,65 +46,6 @@ def test_explicit_update_command_detects_uv_tool_install(monkeypatch, tmp_path) 
     ]
 
 
-def test_explicit_update_command_detects_pipx_install(monkeypatch, tmp_path) -> None:
-    scripts_dir = tmp_path / ".local" / "share" / "pipx" / "venvs" / "jaca" / "bin"
-    scripts_dir.mkdir(parents=True)
-    monkeypatch.setattr(
-        install_repair.sysconfig, "get_path", lambda key: str(scripts_dir)
-    )
-    monkeypatch.setattr(install_repair, "package_installer", lambda: "pip")
-
-    assert go_tui.explicit_update_command() == [
-        "pipx",
-        "upgrade",
-        "just-another-coding-agent",
-    ]
-
-
-def test_explicit_update_command_detects_generic_pip_install(
-    monkeypatch, tmp_path
-) -> None:
-    import sys as _sys
-
-    scripts_dir = tmp_path / ".venv" / "bin"
-    scripts_dir.mkdir(parents=True)
-    monkeypatch.setattr(
-        install_repair.sysconfig, "get_path", lambda key: str(scripts_dir)
-    )
-    monkeypatch.setattr(install_repair, "package_installer", lambda: "pip")
-
-    assert go_tui.explicit_update_command() == [
-        _sys.executable,
-        "-m",
-        "pip",
-        "install",
-        "--upgrade",
-        "just-another-coding-agent",
-    ]
-
-
-def test_explicit_update_command_pip_never_returns_bare_python(
-    monkeypatch, tmp_path
-) -> None:
-    """Regression: bare `python` in the command array can resolve to a
-    different interpreter (Windows Store shim, a different venv, etc.).
-    The upgrade command must always anchor to the launcher's sys.executable.
-    """
-    scripts_dir = tmp_path / ".venv" / "bin"
-    scripts_dir.mkdir(parents=True)
-    monkeypatch.setattr(
-        install_repair.sysconfig, "get_path", lambda key: str(scripts_dir)
-    )
-    monkeypatch.setattr(install_repair, "package_installer", lambda: "pip")
-
-    command = go_tui.explicit_update_command()
-    assert command is not None
-    assert command[0] != "python"
-    # sys.executable is typically an absolute path; at minimum it should
-    # not be the bare token that would rely on PATH.
-    assert "/" in command[0] or "\\" in command[0] or command[0].endswith(".exe")
-
-
 def test_explicit_update_command_is_disabled_in_repo_checkout(
     monkeypatch, tmp_path
 ) -> None:
@@ -118,7 +59,7 @@ def test_explicit_update_command_is_disabled_in_repo_checkout(
     assert go_tui.explicit_update_command(repo_root=tmp_path / "repo") is None
 
 
-def test_explicit_update_command_is_disabled_outside_uv_tool_layout(
+def test_explicit_update_command_is_disabled_outside_uv_tool_install(
     monkeypatch, tmp_path
 ) -> None:
     scripts_dir = tmp_path / ".venv" / "bin"
@@ -147,25 +88,9 @@ def test_go_tui_install_command_uses_uv_tool_repair_for_uv_tool_installs(
     )
 
 
-def test_go_tui_install_command_uses_pipx_repair_for_pipx_installs(
+def test_go_tui_install_command_falls_back_to_uv_tool_reinstall(
     monkeypatch, tmp_path
 ) -> None:
-    scripts_dir = tmp_path / ".local" / "share" / "pipx" / "venvs" / "jaca" / "bin"
-    scripts_dir.mkdir(parents=True)
-    monkeypatch.setattr(
-        install_repair.sysconfig, "get_path", lambda key: str(scripts_dir)
-    )
-    monkeypatch.setattr(install_repair, "package_installer", lambda: "pip")
-
-    assert go_tui.go_tui_install_command() == "pipx reinstall just-another-coding-agent"
-
-
-def test_go_tui_install_command_falls_back_to_pip_force_reinstall(
-    monkeypatch, tmp_path
-) -> None:
-    import shlex as _shlex
-    import sys as _sys
-
     scripts_dir = tmp_path / ".venv" / "bin"
     scripts_dir.mkdir(parents=True)
     monkeypatch.setattr(
@@ -173,11 +98,10 @@ def test_go_tui_install_command_falls_back_to_pip_force_reinstall(
     )
     monkeypatch.setattr(install_repair, "package_installer", lambda: "")
 
-    expected = (
-        f"{_shlex.quote(_sys.executable)} -m pip install "
-        f"--force-reinstall just-another-coding-agent"
+    assert (
+        go_tui.go_tui_install_command()
+        == "uv tool install --reinstall just-another-coding-agent"
     )
-    assert go_tui.go_tui_install_command() == expected
 
 
 def test_available_installed_update_returns_notice_for_newer_release(
@@ -416,7 +340,7 @@ def test_resolve_go_tui_binary_reports_explicit_recovery_step(
 
     with pytest.raises(
         RuntimeError,
-        match="-m pip install --force-reinstall just-another-coding-agent",
+        match="uv tool install --reinstall just-another-coding-agent",
     ):
         go_tui.resolve_go_tui_binary()
 

@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import importlib.metadata
-import shlex
-import sys
 import sysconfig
 from pathlib import Path
 
@@ -48,11 +46,6 @@ def is_uv_tool_scripts_dir(path: Path) -> bool:
     return False
 
 
-def is_pipx_scripts_dir(path: Path) -> bool:
-    parts = {part.lower() for part in path.parts}
-    return "pipx" in parts and "venvs" in parts
-
-
 def explicit_update_command(*, repo_root: Path | None = None) -> list[str] | None:
     if repo_root is not None:
         return None
@@ -61,18 +54,12 @@ def explicit_update_command(*, repo_root: Path | None = None) -> list[str] | Non
     installer = package_installer()
     scripts_path = Path(scripts_dir) if scripts_dir else None
 
-    if scripts_path is not None:
-        if installer == "uv" and is_uv_tool_scripts_dir(scripts_path):
-            return ["uv", "tool", "upgrade", PACKAGE_NAME]
-        if is_pipx_scripts_dir(scripts_path):
-            return ["pipx", "upgrade", PACKAGE_NAME]
-
-    if installer == "pip":
-        # Use the launcher interpreter explicitly so the upgrade lands in
-        # the same environment as the running process. A bare "python"
-        # would resolve through PATH and can hit a different interpreter
-        # or (on Windows) the Microsoft Store shim.
-        return [sys.executable, "-m", "pip", "install", "--upgrade", PACKAGE_NAME]
+    if (
+        scripts_path is not None
+        and installer == "uv"
+        and is_uv_tool_scripts_dir(scripts_path)
+    ):
+        return ["uv", "tool", "upgrade", PACKAGE_NAME]
 
     return None
 
@@ -85,24 +72,20 @@ def repair_install_command(*, repo_root: Path | None, build_tui: bool) -> str:
     scripts_path = Path(scripts_dir) if scripts_dir else None
     installer = package_installer()
 
-    if scripts_path is not None:
-        if installer == "uv" and is_uv_tool_scripts_dir(scripts_path):
-            return f"uv tool upgrade {PACKAGE_NAME} --reinstall"
-        if is_pipx_scripts_dir(scripts_path):
-            return f"pipx reinstall {PACKAGE_NAME}"
+    if (
+        scripts_path is not None
+        and installer == "uv"
+        and is_uv_tool_scripts_dir(scripts_path)
+    ):
+        return f"uv tool upgrade {PACKAGE_NAME} --reinstall"
 
-    # Display the exact interpreter so copy-paste points at the same venv.
-    return (
-        f"{shlex.quote(sys.executable)} -m pip install "
-        f"--force-reinstall {PACKAGE_NAME}"
-    )
+    return f"uv tool install --reinstall {PACKAGE_NAME}"
 
 
 __all__ = [
     "PACKAGE_NAME",
     "explicit_update_command",
     "find_repo_root",
-    "is_pipx_scripts_dir",
     "is_uv_tool_scripts_dir",
     "package_installer",
     "repair_install_command",

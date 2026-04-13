@@ -2,7 +2,7 @@
 
 read_when: you are working on install, packaging, release, or cross-language distribution behavior
 
-JACA has three distinct distribution lanes. They should stay explicit.
+JACA has two supported distribution lanes. They should stay explicit.
 
 ## Published Install
 
@@ -69,5 +69,5 @@ Current supported packaged targets are:
 - Keep repair commands context-aware:
   - repo checkout: rebuild with `uv sync`
   - isolated uv tool install: repair with `uv tool upgrade --reinstall`
-  - generic environment: reinstall the package explicitly
+- Any other install layout is unsupported. Point users back to `uv tool install --reinstall`.
 - Keep PyPI-facing docs aligned with the actual command surface. Outdated slash commands on the package page are a distribution bug.

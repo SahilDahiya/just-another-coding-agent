@@ -810,7 +810,7 @@ def test_main_fails_fast_when_go_binary_is_missing(
         "resolve_go_tui_launch",
         lambda: (_ for _ in ()).throw(
             RuntimeError(
-                "Installed Go TUI binary is missing. Build it explicitly with "
+                "Installed Go TUI binary is missing. Restore it explicitly with "
                 "`JACA_BUILD_TUI=1 uv sync --reinstall-package "
                 f"just-another-coding-agent --extra dev --extra test`: {missing}"
             )

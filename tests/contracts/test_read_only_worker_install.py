@@ -49,7 +49,7 @@ def test_resolve_read_only_worker_command_reports_explicit_recovery_step(
 
     with pytest.raises(
         RuntimeError,
-        match="python -m pip install --force-reinstall just-another-coding-agent",
+        match="uv tool install --reinstall just-another-coding-agent",
     ):
         launcher.resolve_read_only_worker_command()
 

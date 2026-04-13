@@ -273,7 +273,7 @@ def resolve_go_tui_binary() -> Path:
     if not binary.is_file():
         repo_root = find_go_tui_repo_root()
         raise RuntimeError(
-            "Installed Go TUI binary is missing. Build it explicitly with "
+            "Installed Go TUI binary is missing. Restore it explicitly with "
             f"`{go_tui_install_command(repo_root=repo_root)}`: {binary}"
         )
     return binary

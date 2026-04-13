@@ -5,6 +5,15 @@ read_when: you need environment setup, commands, CI, or test workflow
 This document is for repo contributors. For end-user install and update paths,
 see [../README.md](../README.md).
 
+JACA supports exactly two install lanes:
+
+- published install: `uv tool install just-another-coding-agent`
+- repo checkout: `uv sync --extra dev --extra test`
+
+`pip`, `pipx`, and other ad hoc Python install layouts are not supported as
+first-class JACA distribution paths. Do not add update prompts, repair
+commands, or docs that treat them as supported lanes.
+
 ## Runtime
 
 - Python `3.12`

@@ -38,8 +38,7 @@ It is intentionally narrow: coding-agent backend first, a thin first-party termi
 
 ## Install
 
-For normal use outside a repo checkout, prefer one of these published-package
-paths:
+For normal use outside a repo checkout, use the published `uv` tool path:
 
 ```bash
 uv tool install just-another-coding-agent
@@ -48,12 +47,6 @@ jaca
 
 ```bash
 uvx --from just-another-coding-agent jaca
-```
-
-If you already use `pipx`, that isolated tool path works too:
-
-```bash
-pipx install just-another-coding-agent
 ```
 
 - `uv tool install` is the persistent daily-use path
@@ -73,7 +66,7 @@ refreshes that cache in the background for the next launch so startup stays
 fast. You can update immediately, snooze the notice for a day, or skip that
 exact version until something newer is published. `/version` prints the
 installed version, the newer published version when one is known, and the
-exact upgrade command for your install lane.
+exact `uv tool` upgrade command when the current install supports it.
 
 ## Repo Setup
 
