@@ -277,6 +277,12 @@ def test_resolve_harbor_sessions_root_uses_absolute_override() -> None:
     ) == "/var/tmp/jaca-harbor-sessions"
 
 
+def test_resolve_harbor_sessions_root_accepts_posix_container_path() -> None:
+    assert resolve_harbor_sessions_root(
+        environ={"JACA_HARBOR_SESSIONS_ROOT": "/tmp/.jaca/harbor-sessions"}
+    ) == "/tmp/.jaca/harbor-sessions"
+
+
 def test_resolve_harbor_sessions_root_rejects_relative_override() -> None:
     try:
         resolve_harbor_sessions_root(

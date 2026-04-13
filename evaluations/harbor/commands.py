@@ -5,7 +5,7 @@ import os
 import shlex
 import tomllib
 from collections.abc import Mapping
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from urllib.parse import urlparse
 
 from just_another_coding_agent.auth import (
@@ -31,6 +31,10 @@ _DEFAULT_HARBOR_LOGFIRE_SERVICE_NAME = "jaca-harbor"
 _LOCAL_HOSTNAMES = frozenset({"localhost", "127.0.0.1", "::1"})
 _HARBOR_SESSIONS_ROOT_ENV_KEY = "JACA_HARBOR_SESSIONS_ROOT"
 DEFAULT_HARBOR_SESSIONS_ROOT = "/tmp/.jaca/harbor-sessions"
+
+
+def _is_absolute_harbor_container_path(value: str) -> bool:
+    return PurePosixPath(value).is_absolute()
 
 
 def _provider_env_keys_for_model(model: str) -> tuple[str, ...]:
@@ -190,7 +194,7 @@ def resolve_harbor_sessions_root(
     candidate = source.get(_HARBOR_SESSIONS_ROOT_ENV_KEY, "").strip()
     if not candidate:
         return DEFAULT_HARBOR_SESSIONS_ROOT
-    if not Path(candidate).is_absolute():
+    if not _is_absolute_harbor_container_path(candidate):
         raise ValueError(
             f"{_HARBOR_SESSIONS_ROOT_ENV_KEY} must be an absolute path inside "
             f"the Harbor task container: {candidate}"
@@ -234,7 +238,7 @@ def build_harbor_exec_command(
     resolved_sessions_root = (
         resolve_harbor_sessions_root() if sessions_root is None else sessions_root
     )
-    if not Path(resolved_sessions_root).is_absolute():
+    if not _is_absolute_harbor_container_path(resolved_sessions_root):
         raise ValueError(
             "Harbor sessions root must be an absolute path inside the Harbor "
             f"task container: {resolved_sessions_root}"
