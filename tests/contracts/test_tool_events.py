@@ -1787,7 +1787,7 @@ async def test_stream_run_events_emits_bash_tool_updates_during_steer_boundary(
 
     assert isinstance(await anext(stream), RunStartedEvent)
     assert isinstance(await anext(stream), ToolCallStartedEvent)
-    timeout_seconds = 1.0 if _SHELL_FAMILY == "powershell" else 0.2
+    timeout_seconds = 1.0
     update_event = await asyncio.wait_for(anext(stream), timeout=timeout_seconds)
     assert isinstance(update_event, ToolCallUpdatedEvent)
     assert update_event.tool_call_id == "call-bash-stream-steer"

@@ -612,7 +612,7 @@ func executeFind(ctx context.Context, req findRequest) (findResult, errorRespons
 }
 
 func normalizeFindMatchPath(path string) string {
-	normalized := filepath.ToSlash(path)
+	normalized := strings.ReplaceAll(path, "\\", "/")
 	return strings.TrimPrefix(normalized, "./")
 }
 
