@@ -17,6 +17,10 @@ type Cell interface {
 	IsMarkdown() bool
 }
 
+type widthAwareCell interface {
+	RenderWidth(width int) string
+}
+
 // rawCell holds pre-computed plain and rendered text (banners, notes, user turns, errors, gaps).
 type rawCell struct {
 	plain    string
@@ -54,6 +58,19 @@ func (c *assistantCell) Render() string {
 }
 func (c *assistantCell) IsMarkdown() bool { return true }
 
+type userTurnCell struct {
+	prompt string
+}
+
+func (c *userTurnCell) Plain() string { return formatUserTurnPlain(c.prompt) }
+func (c *userTurnCell) Render() string {
+	return renderUserTurn(c.prompt, 0)
+}
+func (c *userTurnCell) RenderWidth(width int) string {
+	return renderUserTurn(c.prompt, width)
+}
+func (c *userTurnCell) IsMarkdown() bool { return false }
+
 // toolGroupCell holds pre-computed committed tool group text.
 type toolGroupCell struct {
 	plain    string
@@ -77,6 +94,7 @@ type Transcript struct {
 	renderedCache    string
 	renderOffsets    []int
 	dirtyFrom        int
+	renderWidth      int
 	Width            int
 	MotionTick       int
 }
@@ -99,13 +117,15 @@ func NewTranscript() *Transcript {
 
 func (t *Transcript) Render() string {
 	if t.dirtyFrom == -1 {
-		return t.renderedCache
+		if t.renderWidth == t.Width {
+			return t.renderedCache
+		}
 	}
 
 	startIndex := t.dirtyFrom
 	prefix := ""
 	offsets := make([]int, len(t.blocks)+1)
-	if startIndex > 0 && len(t.renderOffsets) > startIndex {
+	if startIndex > 0 && t.renderWidth == t.Width && len(t.renderOffsets) > startIndex {
 		prefix = t.renderedCache[:t.renderOffsets[startIndex]]
 		copy(offsets[:startIndex+1], t.renderOffsets[:startIndex+1])
 	} else {
@@ -119,7 +139,9 @@ func (t *Transcript) Render() string {
 	for i := startIndex; i < len(t.blocks); i++ {
 		offsets[i] = currentOffset
 		blockRendered := t.blocks[i].Render()
-		if t.Width > 0 {
+		if widthAware, ok := t.blocks[i].(widthAwareCell); ok {
+			blockRendered = widthAware.RenderWidth(t.Width)
+		} else if t.Width > 0 {
 			blockRendered = wrapLines(blockRendered, t.Width)
 		}
 		rendered.WriteString(blockRendered)
@@ -136,6 +158,7 @@ func (t *Transcript) Render() string {
 
 	t.renderedCache = rendered.String()
 	t.renderOffsets = offsets
+	t.renderWidth = t.Width
 	t.dirtyFrom = -1
 	t.discardImmutableRenderedBlocks()
 	return t.renderedCache
@@ -285,10 +308,7 @@ func (t *Transcript) WriteUserTurn(prompt string) {
 	t.endToolGroup()
 	t.endLiveAssistant()
 	t.ensureBlockGap()
-	index := t.appendBlock(&rawCell{
-		plain:    formatUserTurnPlain(prompt),
-		rendered: renderUserTurn(prompt),
-	})
+	index := t.appendBlock(&userTurnCell{prompt: prompt})
 	if t.currentRunStart == -1 {
 		t.currentRunStart = index
 	}
@@ -313,20 +333,59 @@ func formatUserTurnPlain(prompt string) string {
 	return strings.Join(userTurnLines(prompt), "\n") + "\n"
 }
 
-func renderUserTurn(prompt string) string {
+func renderUserTurn(prompt string, width int) string {
 	markerStyle := lipgloss.NewStyle().Foreground(defaultTheme.accentSoft).Bold(true)
-	textStyle := lipgloss.NewStyle().Foreground(defaultTheme.text).Bold(true)
-	lines := userTurnLines(prompt)
+	textStyle := lipgloss.NewStyle().
+		Foreground(defaultTheme.text).
+		Background(defaultTheme.userFill).
+		Bold(true)
+	lines := wrapUserTurnLines(prompt, width)
+	contentWidth := visibleWidthForUserTurn(width)
 	for i, line := range lines {
 		content := markerStyle.Render("│")
-		if line == "│" {
+		if contentWidth > 0 {
+			lines[i] = content + markerStyle.Render(" ") + textStyle.Width(contentWidth).Render(line)
+			continue
+		}
+		if line == "" {
 			lines[i] = content
 			continue
 		}
-		content += markerStyle.Render(" ") + textStyle.Render(strings.TrimPrefix(line, "│ "))
+		content += markerStyle.Render(" ") + textStyle.Render(line)
 		lines[i] = content
 	}
 	return strings.Join(lines, "\n") + "\n"
+}
+
+func visibleWidthForUserTurn(width int) int {
+	if width <= 2 {
+		return 0
+	}
+	return width - 2
+}
+
+func wrapUserTurnLines(prompt string, width int) []string {
+	lines := strings.Split(strings.TrimRight(prompt, "\n"), "\n")
+	if len(lines) == 0 {
+		return []string{""}
+	}
+	contentWidth := visibleWidthForUserTurn(width)
+	if contentWidth <= 0 {
+		return lines
+	}
+	wrapped := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			wrapped = append(wrapped, "")
+			continue
+		}
+		segments := strings.Split(wrapLines(line, contentWidth), "\n")
+		wrapped = append(wrapped, segments...)
+	}
+	if len(wrapped) == 0 {
+		return []string{""}
+	}
+	return wrapped
 }
 
 func (t *Transcript) WriteLine(line string) {

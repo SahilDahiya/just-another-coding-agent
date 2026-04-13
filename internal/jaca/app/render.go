@@ -15,6 +15,7 @@ import (
 type theme struct {
 	background  lipgloss.TerminalColor
 	border      lipgloss.TerminalColor
+	userFill    lipgloss.TerminalColor
 	text        lipgloss.TerminalColor
 	textSoft    lipgloss.TerminalColor
 	textMuted   lipgloss.TerminalColor
@@ -36,6 +37,7 @@ type usageSnapshot struct {
 var defaultTheme = theme{
 	background:  themeColor("#0f1115", "233", "0"),
 	border:      themeColor("#2a313c", "238", "8"),
+	userFill:    themeColor("#171b22", "235", "8"),
 	text:        themeColor("#f1ede4", "255", "15"),
 	textSoft:    themeColor("#ddd7cb", "252", "7"),
 	textMuted:   themeColor("#a7a39a", "246", "8"),
@@ -56,8 +58,9 @@ func themeColor(trueColor string, ansi256 string, ansi string) lipgloss.Terminal
 }
 
 // The Go TUI keeps one global terminal background shade across the whole app.
-// Structure comes from borders, spacing, and text hierarchy rather than
-// per-zone background fills or panel/card chrome.
+// Structure comes from borders, spacing, and text hierarchy, with one small
+// exception: user turns get a subtle shaded band so they read as distinct
+// transcript blocks without turning the whole interface into card chrome.
 
 type viewModel struct {
 	Phase               Phase

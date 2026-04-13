@@ -54,7 +54,12 @@ func TestWriteStartupBannerDoesNotGuessCredentialStateFromEnvironment(t *testing
 }
 
 func TestWriteUserTurnUsesSpeakerRail(t *testing.T) {
+	original := lipgloss.ColorProfile()
+	defer lipgloss.SetColorProfile(original)
+	lipgloss.SetColorProfile(termenv.TrueColor)
+
 	transcript := NewTranscript()
+	transcript.Width = 40
 	transcript.WriteUserTurn("review changes\nthen run tests")
 
 	rendered := transcript.Render()
@@ -67,8 +72,27 @@ func TestWriteUserTurnUsesSpeakerRail(t *testing.T) {
 			t.Fatalf("user turn missing %q in %q", want, plain)
 		}
 	}
-	if strings.Contains(rendered, "[48;") {
-		t.Fatalf("user turn should not use background fill: %q", rendered)
+	if !strings.Contains(rendered, "[48;") {
+		t.Fatalf("user turn should use subtle background fill: %q", rendered)
+	}
+}
+
+func TestRenderReflowsWhenWidthChanges(t *testing.T) {
+	transcript := NewTranscript()
+	transcript.Width = 24
+	transcript.WriteUserTurn("review deeply nested changes and then run targeted tests")
+
+	narrow := transcript.Render()
+	transcript.Width = 52
+	wide := transcript.Render()
+
+	if narrow == wide {
+		t.Fatalf("Render() did not update after width change: %q", narrow)
+	}
+	for i, line := range strings.Split(wide, "\n") {
+		if visibleLen(line) > 52 {
+			t.Fatalf("Render() line %d exceeds width 52 after resize: %q (visible=%d)", i, line, visibleLen(line))
+		}
 	}
 }
 
