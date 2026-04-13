@@ -15,6 +15,7 @@ read_when: start here, onboarding, or you need to find the right doc quickly
 - Canonical public contract: [contracts.md](contracts.md)
 - PydanticAI grounding sources: [grounding.md](grounding.md)
 - Development workflow and commands: [development.md](development.md)
+- Distribution, install lanes, and release behavior: [distribution.md](distribution.md)
 - Compaction architecture and invariants: [compaction.md](compaction.md)
 - Internal read-only worker contract: [read-only-worker.md](read-only-worker.md)
 - Stateful orchestration boundary and plan: [stateful-orchestration.md](stateful-orchestration.md)
@@ -37,6 +38,7 @@ read_when: start here, onboarding, or you need to find the right doc quickly
 - [contracts.md](contracts.md) - canonical coding-agent contract
 - [grounding.md](grounding.md) - official PydanticAI grounding sources
 - [development.md](development.md) - environment, commands, CI, and test workflow
+- [distribution.md](distribution.md) - published install path, repo checkout path, and release packaging rules
 - [compaction.md](compaction.md) - durable session compaction architecture and invariants
 - [read-only-worker.md](read-only-worker.md) - internal protocol and boundary for the shipped persistent read-only worker
 - [stateful-orchestration.md](stateful-orchestration.md) - boundary between PydanticAI seams and our own session/orchestration contract

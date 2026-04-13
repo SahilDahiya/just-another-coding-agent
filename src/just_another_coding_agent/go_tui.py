@@ -11,10 +11,18 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
+from just_another_coding_agent.install_repair import (
+    PACKAGE_NAME,
+    find_repo_root,
+    repair_install_command,
+)
+from just_another_coding_agent.install_repair import (
+    explicit_update_command as resolve_explicit_update_command,
+)
+
 GO_TUI_BINARY = "jaca-go.exe" if os.name == "nt" else "jaca-go"
 GO_TUI_BUILD_ENV = "JACA_BUILD_TUI"
 GO_TUI_GO_RUN_ENV = "JACA_GO_RUN"
-PACKAGE_NAME = "just-another-coding-agent"
 UPDATE_CHECK_URL = "https://pypi.org/pypi/just-another-coding-agent/json"
 UPDATE_CHECK_TIMEOUT = 5.0
 
@@ -43,12 +51,8 @@ def go_tui_go_run_requested(env: Mapping[str, str] | None = None) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
-def go_tui_install_command() -> str:
-    return (
-        f"{GO_TUI_BUILD_ENV}=1 uv sync "
-        "--reinstall-package just-another-coding-agent "
-        "--extra dev --extra test"
-    )
+def go_tui_install_command(*, repo_root: Path | None = None) -> str:
+    return repair_install_command(repo_root=repo_root, build_tui=True)
 
 
 def package_version() -> str:
@@ -56,15 +60,7 @@ def package_version() -> str:
 
 
 def explicit_update_command(*, repo_root: Path | None = None) -> list[str] | None:
-    if repo_root is not None:
-        return None
-    installer = _package_installer()
-    scripts_dir = sysconfig.get_path("scripts")
-    if installer != "uv" or not scripts_dir:
-        return None
-    if not _is_uv_tool_scripts_dir(Path(scripts_dir)):
-        return None
-    return ["uv", "tool", "upgrade", PACKAGE_NAME]
+    return resolve_explicit_update_command(repo_root=repo_root)
 
 
 def available_installed_update(
@@ -133,50 +129,33 @@ def parse_release_version(raw: str) -> tuple[int, int, int] | None:
     if major < 0 or minor < 0 or patch < 0:
         return None
     return major, minor, patch
-
-
-def _package_installer() -> str:
-    distribution = importlib.metadata.distribution(PACKAGE_NAME)
-    installer = distribution.read_text("INSTALLER") or ""
-    return installer.strip().lower()
-
-
-def _is_uv_tool_scripts_dir(path: Path) -> bool:
-    parts = [part.lower() for part in path.parts]
-    for index in range(len(parts) - 1):
-        if parts[index] == "uv" and parts[index + 1] == "tools":
-            return True
-    return False
-
-
 def resolve_go_tui_binary() -> Path:
     scripts_dir = sysconfig.get_path("scripts")
     if not scripts_dir:
         raise RuntimeError("Python scripts directory is unavailable")
     binary = Path(scripts_dir) / GO_TUI_BINARY
     if not binary.is_file():
+        repo_root = find_go_tui_repo_root()
         raise RuntimeError(
             "Installed Go TUI binary is missing. Build it explicitly with "
-            f"`{go_tui_install_command()}`: {binary}"
+            f"`{go_tui_install_command(repo_root=repo_root)}`: {binary}"
         )
     return binary
 
 
 def find_go_tui_repo_root(start: Path | None = None) -> Path | None:
-    current = Path(__file__).resolve() if start is None else start.resolve()
-    for candidate in (current, *current.parents):
-        if (
-            (candidate / "pyproject.toml").is_file()
-            and (candidate / "go.mod").is_file()
-            and (candidate / "cmd" / "jaca" / "main.go").is_file()
-        ):
-            return candidate
-    return None
+    return find_repo_root(Path(__file__).resolve() if start is None else start)
 
 
 def resolve_go_tui_launch() -> tuple[list[str], Path | None]:
     repo_root = find_go_tui_repo_root()
-    if repo_root is not None and go_tui_go_run_requested() and shutil.which("go"):
+    go_executable = shutil.which("go")
+    if repo_root is not None and go_tui_go_run_requested() and go_executable:
         return ["go", "run", "./cmd/jaca"], repo_root
-    binary = resolve_go_tui_binary()
+    try:
+        binary = resolve_go_tui_binary()
+    except RuntimeError:
+        if repo_root is not None and go_executable:
+            return ["go", "run", "./cmd/jaca"], repo_root
+        raise
     return [str(binary)], None

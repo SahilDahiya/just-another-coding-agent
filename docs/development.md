@@ -42,7 +42,7 @@ canonical Python headless backend.
 - The default Python install path now includes the internal `jaca-read-only-worker` helper because the canonical `read`, `ls`, `find`, and `grep` tools depend on it
 - `uv sync --extra dev --extra test` builds and installs the platform-native `jaca-read-only-worker` binary for the current environment
 - `JACA_BUILD_TUI=1 uv sync --reinstall-package just-another-coding-agent --extra dev --extra test` builds and installs the platform-native `jaca-go` binary for the current environment
-- In a live repo checkout, `uv run jaca` now prefers the installed `jaca-go` binary by default
+- In a live repo checkout, `uv run jaca` prefers the installed `jaca-go` binary when present and falls back to `go run ./cmd/jaca` when the bundled binary is missing but `go` is available
 - Set `JACA_GO_RUN=1` to opt into `go run ./cmd/jaca` when you explicitly want the TUI to track the current Go source tree
 - Outside a repo checkout, `uv run jaca` launches the installed `jaca-go` binary
 - The Go client requires an explicit backend command and the canonical launcher passes `["<python>", "-m", "just_another_coding_agent"]`

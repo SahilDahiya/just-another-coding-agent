@@ -50,8 +50,16 @@ jaca
 uvx --from just-another-coding-agent jaca
 ```
 
+If you already use `pipx`, that isolated tool path works too:
+
+```bash
+pipx install just-another-coding-agent
+```
+
 - `uv tool install` is the persistent daily-use path
 - `uvx` is the ephemeral no-install path
+- published wheels already bundle `jaca-go` and `jaca-read-only-worker`, so
+  normal installs do not require a local Go toolchain
 - installed builds update explicitly with:
 
 ```bash
@@ -81,10 +89,11 @@ make lint
 ```
 
 That default `uv sync --extra dev --extra test` path is for the Python backend,
-Harbor, and headless evaluation flows. It stays Go-free.
+Terminal Bench flows, and headless evaluation work. It builds the persistent
+`jaca-read-only-worker`, but it does not build the packaged `jaca-go` binary.
 
-If you want the interactive TUI too, rebuild the package explicitly with Go
-enabled:
+If you want to exercise the packaged TUI binary from a repo checkout, rebuild
+the package explicitly with Go enabled:
 
 ```bash
 JACA_BUILD_TUI=1 uv sync --reinstall-package just-another-coding-agent --extra dev --extra test
@@ -112,13 +121,16 @@ uv run jaca
 In a repo checkout, `uv run jaca` is the canonical development launcher. The
 interactive launcher talks to the Python backend over stdio RPC.
 
-In a live repo checkout, `uv run jaca` prefers `go run ./cmd/jaca` when `go`
-is available so the TUI always reflects current source.
+In a live repo checkout, `uv run jaca` prefers the installed `jaca-go` binary
+when it is present, and otherwise falls back to `go run ./cmd/jaca` when `go`
+is available. That keeps normal development unblocked even if the packaged TUI
+binary has not been rebuilt yet.
 
 Outside a repo checkout, the installed `jaca` command launches the installed
 `jaca-go` binary.
 
-If `uv run jaca` says the Go TUI binary is missing, rebuild the environment with:
+If `uv run jaca` says the Go TUI binary is missing and `go` is not available in
+the repo checkout, rebuild the environment with:
 
 ```bash
 JACA_BUILD_TUI=1 uv sync --reinstall-package just-another-coding-agent --extra dev --extra test
@@ -133,35 +145,37 @@ default. When keychain storage is unavailable, JACA stores them in
 `~/.jaca/auth.json` instead and explains why in the auth panel.
 Environment variables remain the explicit override for headless, CI, and
 evaluation flows.
-On Linux/WSL, interactive `/auth` requires a supported OS keychain backend
+On Linux/WSL, interactive `/login` requires a supported OS keychain backend
 such as Secret Service via `gnome-keyring`.
 
-On first launch without a saved provider, JACA opens a centered chooser panel
-with the shipped provider choices before chat. Ollama is split explicitly:
+On first launch without a usable saved login lane, JACA opens a centered chooser
+panel before chat. The supported login lanes are:
 
-- local Ollama: use `/model ollama:<local-model>` with no key
-- shipped Ollama cloud path: use `/provider ollama`, which starts masked auth if needed
+- ChatGPT subscription via `/login openai-codex`
+- OpenAI API key via `/login openai`
+- Anthropic API key via `/login anthropic`
 
 If a saved cloud-provider selection is still missing credentials, JACA starts
 masked auth immediately at startup instead of waiting for the first
-`/provider` or `/model` command.
+`/login` or `/model` command.
 When auth starts, JACA opens a centered secure setup panel: provider-specific
 labeling, masked input, no transcript/history capture for the secret, and
 backend-owned storage on save.
 On first run, the prompt footer also tells the user to press `Tab` to choose a
-provider directly from the prompt zone.
+login lane or model directly from the prompt zone.
 
 Inside `jaca`:
 
-- `/provider openai` selects OpenAI and starts masked auth if no OpenAI key is configured
-- `/provider anthropic` selects Anthropic and starts masked auth if no Anthropic key is configured
-- `/provider google` selects Google Gemini and starts masked auth if no Google key is configured
-- `/model ollama:<local-model>` uses local Ollama at the default localhost endpoint with no key
-- `/provider ollama` selects the shipped Ollama cloud catalog and starts masked auth if needed
-- `/auth ollama`, `/auth openai`, `/auth anthropic`, and `/auth google` store secrets without echoing them into the transcript
-- `/auth status` shows whether each provider is configured from env, keychain, local file, or neither, and whether interactive local secret storage is available at all
-- `/auth clear <provider>` removes the stored local secret for that provider from both keychain and local file storage
-- `/model <provider:model>` switches the active model and aligns provider state to that model
+- `/login openai-codex` starts ChatGPT subscription login
+- `/login openai` and `/login anthropic` prepare `~/.jaca/auth.json` if needed
+  and show the exact JSON snippet to paste
+- `/login status` shows whether each login lane is ready and where the current
+  secret came from
+- `/login clear <provider>` removes the stored local secret for that provider
+- `/model` shows runnable models first, marks ready rows with a check, and
+  uses public-style labels such as `gpt-5.4 | api` and `gpt-5.4 | oauth`
+- `/model <provider:model>` switches the active model and aligns provider state
+  to that model
 - `/name <text>` assigns a durable backend-normalized session name such as `auth-store-cleanup` and keeps it unique within the current workspace
 - `/session` shows the current durable session name, opaque session id, and any direct fork parent
 - `/trace off` disables tracing
@@ -206,7 +220,7 @@ uv run logfire auth
 uv run logfire projects use <project>
 ```
 
-If interactive auth starts on a machine without a supported OS keychain
+If interactive login starts on a machine without a supported OS keychain
 backend, JACA goes directly to the local secret file flow and explains that it
 is doing so because keychain storage is unavailable.
 

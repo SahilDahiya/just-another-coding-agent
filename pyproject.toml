@@ -8,6 +8,15 @@ version = "0.1.11"
 description = "Terminal coding agent with a PydanticAI backend and first-party Go TUI"
 readme = "README.md"
 requires-python = ">=3.12"
+classifiers = [
+  "Environment :: Console",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "Operating System :: POSIX :: Linux",
+  "Operating System :: Microsoft :: Windows",
+  "Operating System :: MacOS",
+  "Topic :: Software Development",
+]
 dependencies = [
   "keyring>=25.6.0",
   "logfire>=4.31.0",
@@ -15,6 +24,11 @@ dependencies = [
   "pydantic-evals>=1.73.0,<2.0",
   "tiktoken>=0.12.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/SahilDahiya/just-another-coding-agent"
+Repository = "https://github.com/SahilDahiya/just-another-coding-agent"
+Issues = "https://github.com/SahilDahiya/just-another-coding-agent/issues"
 
 [project.optional-dependencies]
 dev = [
