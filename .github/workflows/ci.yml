@@ -68,3 +68,6 @@ jobs:
 
       - name: Verify bundled wheel contents
         run: python scripts/verify_bundled_wheel.py dist/*.whl
+
+      - name: Smoke test uv tool install lane
+        run: python scripts/smoke_uv_tool_install.py dist/*.whl

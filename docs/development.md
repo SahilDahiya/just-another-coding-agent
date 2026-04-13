@@ -73,6 +73,7 @@ canonical Python headless backend.
   - `jaca-go`
   - `jaca-read-only-worker`
 - CI now verifies that built wheel artifacts contain those bundled binaries and are not `none-any` pure-Python wheels
+- CI also installs each built wheel into an isolated `uv tool` home and smoke-tests that the installed update and repair commands resolve correctly
 - Release CI now verifies the full publish manifest before upload:
   - Linux `amd64` wheel
   - macOS `amd64` wheel
