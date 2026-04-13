@@ -289,6 +289,47 @@ def test_is_newer_release_version_handles_equal_and_invalid_versions() -> None:
     assert go_tui.is_newer_release_version("dev", "0.1.1") == (False, False)
 
 
+def test_is_newer_release_version_accepts_pep440_formats() -> None:
+    # The previous hand-rolled parser rejected anything that wasn't
+    # exactly three integer parts. PyPI serves plenty of valid PEP 440
+    # versions that aren't strict semver; the upgrade prompt must not
+    # silently disappear just because a hotfix was published as a
+    # post-release or a 4-part version.
+    assert go_tui.is_newer_release_version("0.1.18", "0.1.18.post1") == (True, True)
+    assert go_tui.is_newer_release_version("0.1.18.post1", "0.1.19") == (True, True)
+    assert go_tui.is_newer_release_version("0.1.18a1", "0.1.18") == (True, True)
+    assert go_tui.is_newer_release_version("1.0", "1.0.1") == (True, True)
+    assert go_tui.is_newer_release_version("2024.1.1", "2024.2.0") == (True, True)
+    assert go_tui.is_newer_release_version("v0.1.18", "v0.1.19") == (True, True)
+
+
+def test_explicit_update_command_first_element_is_always_uv(
+    monkeypatch, tmp_path
+) -> None:
+    # uv-only invariant: the upgrade command is either None (no prompt)
+    # or a literal ["uv", ...] list with no shell metacharacters in any
+    # element. Encoding this as a regression test means any future lane
+    # that would inject a path-with-spaces (sys.executable, an absolute
+    # pipx venv path, etc.) would have to reopen the display-quoting
+    # discussion deliberately rather than by accident.
+    scripts_dir = tmp_path / ".local" / "share" / "uv" / "tools" / "pkg" / "bin"
+    scripts_dir.mkdir(parents=True)
+    monkeypatch.setattr(
+        install_repair.sysconfig, "get_path", lambda key: str(scripts_dir)
+    )
+    monkeypatch.setattr(install_repair, "package_installer", lambda: "uv")
+
+    command = go_tui.explicit_update_command()
+    assert command is not None
+    assert command[0] == "uv"
+    for part in command:
+        assert part == part.strip(), f"element {part!r} has surrounding whitespace"
+        assert " " not in part, f"element {part!r} contains a space"
+        assert "\t" not in part, f"element {part!r} contains a tab"
+        assert "'" not in part, f"element {part!r} contains a single quote"
+        assert '"' not in part, f"element {part!r} contains a double quote"
+
+
 def test_refresh_cached_release_version_swallows_cache_write_failure(
     monkeypatch,
 ) -> None:

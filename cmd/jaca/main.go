@@ -227,12 +227,34 @@ func runExternalAction(action *app.ExternalAction) error {
 			action.CurrentVersion,
 			action.LatestVersion,
 		)
+		// Pre-flight: if the upgrade tool has moved off PATH since the
+		// Python launcher detected it, fail fast with a copy-pastable
+		// command so the user has a recovery path.
+		if _, lookErr := exec.LookPath(action.Command[0]); lookErr != nil {
+			fmt.Fprintf(
+				os.Stderr,
+				"Upgrade tool %q not found on PATH.\n"+
+					"Once it is available, upgrade JACA with:\n\n    %s\n\n",
+				action.Command[0],
+				cmdline,
+			)
+			return fmt.Errorf("upgrade tool missing: %w", lookErr)
+		}
 		fmt.Printf("Running `%s`...\n\n", cmdline)
 		cmd := exec.Command(action.Command[0], action.Command[1:]...)
 		cmd.Stdin = os.Stdin
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		if err := cmd.Run(); err != nil {
+			// Surface a copy-paste fallback so the user always has a
+			// recovery path even when the automatic upgrade fails.
+			fmt.Fprintf(
+				os.Stderr,
+				"\nAutomatic upgrade failed: %v\n"+
+					"You can upgrade JACA manually by running:\n\n    %s\n\n",
+				err,
+				cmdline,
+			)
 			return fmt.Errorf("external update failed: %w", err)
 		}
 		fmt.Println("\nUpdate ran successfully. Restart JACA.")

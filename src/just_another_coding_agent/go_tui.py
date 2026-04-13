@@ -13,6 +13,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from packaging.version import InvalidVersion, Version
+
 from just_another_coding_agent.install_repair import (
     PACKAGE_NAME,
     find_repo_root,
@@ -238,31 +240,23 @@ def fetch_latest_release_version() -> str | None:
 
 
 def is_newer_release_version(current: str, latest: str) -> tuple[bool, bool]:
-    current_parts = parse_release_version(current)
-    if current_parts is None:
+    current_version = parse_release_version(current)
+    if current_version is None:
         return False, False
-    latest_parts = parse_release_version(latest)
-    if latest_parts is None:
+    latest_version = parse_release_version(latest)
+    if latest_version is None:
         return False, False
-    if latest_parts > current_parts:
-        return True, True
-    return False, True
+    return latest_version > current_version, True
 
 
-def parse_release_version(raw: str) -> tuple[int, int, int] | None:
+def parse_release_version(raw: str) -> Version | None:
     clean = raw.strip().removeprefix("v")
-    if not clean or "-" in clean or "+" in clean:
-        return None
-    chunks = clean.split(".")
-    if len(chunks) != 3:
+    if not clean:
         return None
     try:
-        major, minor, patch = (int(chunk) for chunk in chunks)
-    except ValueError:
+        return Version(clean)
+    except InvalidVersion:
         return None
-    if major < 0 or minor < 0 or patch < 0:
-        return None
-    return major, minor, patch
 
 
 def resolve_go_tui_binary() -> Path:
