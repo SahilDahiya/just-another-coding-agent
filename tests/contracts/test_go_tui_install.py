@@ -303,6 +303,34 @@ def test_is_newer_release_version_accepts_pep440_formats() -> None:
     assert go_tui.is_newer_release_version("v0.1.18", "v0.1.19") == (True, True)
 
 
+def test_packaging_is_declared_as_direct_dependency() -> None:
+    """Regression: go_tui.py imports packaging.version.Version at module
+    load time. Earlier that import happened to work because
+    opentelemetry-instrumentation pulled packaging in transitively via
+    logfire — a fragile chain that would silently break any future
+    install if the upstream graph changed.
+
+    Read pyproject.toml directly (not installed metadata) so the test
+    reflects source of truth even when the editable install hasn't been
+    re-synced.
+    """
+    import tomllib
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parents[2]
+    pyproject = tomllib.loads((repo_root / "pyproject.toml").read_text())
+    direct_deps = pyproject["project"]["dependencies"]
+    direct_names = [
+        dep.split(";", 1)[0].split("[", 1)[0].split(">=", 1)[0].split("==", 1)[0]
+        .split(">", 1)[0].split("<", 1)[0].split("!=", 1)[0].strip().lower()
+        for dep in direct_deps
+    ]
+    assert "packaging" in direct_names, (
+        f"packaging must be a direct dependency in pyproject.toml; "
+        f"currently: {direct_deps}"
+    )
+
+
 def test_explicit_update_command_first_element_is_always_uv(
     monkeypatch, tmp_path
 ) -> None:
