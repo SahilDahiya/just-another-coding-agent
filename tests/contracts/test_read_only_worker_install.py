@@ -18,13 +18,7 @@ def test_read_only_worker_install_command_uses_repo_rebuild_in_repo_checkout(
 
 def test_read_only_worker_install_command_uses_uv_tool_repair(
     monkeypatch,
-    tmp_path,
 ) -> None:
-    scripts_dir = tmp_path / ".local" / "share" / "uv" / "tools" / "pkg" / "bin"
-    scripts_dir.mkdir(parents=True)
-    monkeypatch.setattr(
-        install_repair.sysconfig, "get_path", lambda key: str(scripts_dir)
-    )
     monkeypatch.setattr(install_repair, "package_installer", lambda: "uv")
 
     assert (
@@ -41,7 +35,7 @@ def test_resolve_read_only_worker_command_reports_explicit_recovery_step(
     scripts_dir.mkdir()
     monkeypatch.setattr(launcher, "__file__", str(tmp_path / "outside" / "launcher.py"))
     monkeypatch.setattr(
-        install_repair.sysconfig,
+        launcher.sysconfig,
         "get_path",
         lambda key: str(scripts_dir),
     )
