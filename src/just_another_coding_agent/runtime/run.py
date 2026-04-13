@@ -781,7 +781,13 @@ async def _stream_run_events_with_steer(
                 synthetic_prompt_counts = reconcile_synthetic_prompt_counts(
                     synthetic_prompt_counts, current_message_history
                 )
-                carried_messages.clear()
+                # Preserve the invariant carried_messages == current_message_history
+                # that the terminal sink relies on. result.new_messages() from
+                # the next agent.iter() only returns messages created *within*
+                # that iter, not the passed message_history, so carried_messages
+                # must hold the compacted history for the sink output to be
+                # complete.
+                carried_messages[:] = list(current_message_history)
                 current_prompt = IN_RUN_COMPACTION_CONTINUATION_PROMPT
                 synthetic_prompt_counts[IN_RUN_COMPACTION_CONTINUATION_PROMPT] = (
                     synthetic_prompt_counts.get(

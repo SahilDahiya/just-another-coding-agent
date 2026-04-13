@@ -1429,3 +1429,337 @@ def test_build_in_run_truncated_history_real_prompt_matching_synthetic_text_stay
     assert shared_text_count >= 1
 
 
+@pytest.mark.anyio
+async def test_in_run_compaction_multi_round_integration_stress(
+    tmp_path, monkeypatch
+) -> None:
+    """Stress-test multiple in-run compactions in a single run.
+
+    Forces compaction to fire ~3 times within one agent.iter by providing a
+    fake trigger that returns True every 4th check. Verifies that after
+    multiple compactions:
+
+    - All compaction events are emitted as InRunCompactionCompletedEvent
+    - The run succeeds
+    - The original user prompt survives every compaction
+    - Tool-call and tool-return pairing stays balanced across compactions
+    - message_history_sink fires exactly once at the terminal
+    - The final history is non-empty and coherent
+    - Synthetic continuation prompts don't accumulate unboundedly across
+      compactions (reconcile is working)
+    """
+    import json
+    from collections.abc import AsyncIterator, Sequence
+
+    from pydantic_ai import Agent
+    from pydantic_ai.messages import ModelMessage
+    from pydantic_ai.models.function import DeltaToolCall, FunctionModel
+
+    from just_another_coding_agent.runtime import run as run_module
+    from just_another_coding_agent.runtime.run import (
+        IN_RUN_COMPACTION_CONTINUATION_PROMPT,
+        stream_run_events,
+    )
+    from just_another_coding_agent.tools.deps import WorkspaceDeps
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "AGENTS.md").write_text(
+        "# Test project\n\nSome stable project instructions."
+    )
+
+    total_tool_rounds = 16  # enough to survive 3 compactions with tail budget
+    tool_call_count = 0
+
+    async def stream_fn(
+        messages: list[ModelMessage], _info: object
+    ) -> AsyncIterator[dict[int, DeltaToolCall] | str]:
+        nonlocal tool_call_count
+        if tool_call_count < total_tool_rounds:
+            tool_call_count += 1
+            yield {
+                0: DeltaToolCall(
+                    name="grow",
+                    json_args=json.dumps({"index": tool_call_count}),
+                    tool_call_id=f"call-{tool_call_count}",
+                )
+            }
+            return
+        yield "done"
+
+    agent = Agent(
+        FunctionModel(stream_function=stream_fn), output_type=str
+    )
+
+    @agent.tool_plain
+    async def grow(index: int) -> str:
+        return f"result-{index}: " + ("lorem ipsum dolor sit amet " * 200)
+
+    # Deterministic fake trigger: fire compaction every 4 checks, up to 3
+    # compactions. This lets us stress the compaction-restart path without
+    # depending on exact token math.
+    check_count = 0
+    compactions_fired = 0
+    MAX_FORCED_COMPACTIONS = 3
+
+    def fake_check(
+        messages,
+        *,
+        model,
+        last_response_usage=None,
+        pending_prompt=None,
+    ):
+        nonlocal check_count, compactions_fired
+        check_count += 1
+        if (
+            compactions_fired < MAX_FORCED_COMPACTIONS
+            and check_count % 4 == 0
+            and any(
+                isinstance(p, ToolReturnPart)
+                for m in messages
+                for p in getattr(m, "parts", [])
+            )
+        ):
+            compactions_fired += 1
+            return True
+        return False
+
+    monkeypatch.setattr(
+        run_module, "check_in_run_compaction_needed", fake_check
+    )
+
+    sink_calls: list[list[ModelMessage]] = []
+
+    def recording_sink(messages: Sequence[ModelMessage]) -> None:
+        sink_calls.append(list(messages))
+
+    async def noop_activate(callback):
+        pass
+
+    async def noop_submit():
+        pass
+
+    async def noop_deactivate():
+        pass
+
+    events = [
+        event
+        async for event in stream_run_events(
+            agent=agent,
+            prompt="the original user task description",
+            deps=WorkspaceDeps.from_workspace_root(workspace),
+            message_history_sink=recording_sink,
+            available_tool_names=["grow"],
+            activate_steer_boundary=noop_activate,
+            submit_steer_boundary=noop_submit,
+            deactivate_steer_boundary=noop_deactivate,
+        )
+    ]
+
+    from just_another_coding_agent.contracts.run_events import (
+        InRunCompactionCompletedEvent,
+    )
+
+    # --- Invariant 1: Multiple compactions fired end-to-end ------------------
+    compaction_events = [
+        e for e in events if isinstance(e, InRunCompactionCompletedEvent)
+    ]
+    assert len(compaction_events) >= 2, (
+        f"Expected at least 2 compactions, got {len(compaction_events)}; "
+        f"events: {[e.type for e in events]}"
+    )
+    # Each compaction_event should have live_message_count > 0 and
+    # replacement_message_count > 0.
+    for e in compaction_events:
+        assert e.live_message_count > 0
+        assert e.replacement_message_count > 0
+
+    # --- Invariant 2: Run terminated successfully ----------------------------
+    assert events[0].type == "run_started"
+    assert events[-1].type == "run_succeeded", (
+        f"Final event: {events[-1]}"
+    )
+
+    # --- Invariant 3: Sink fired exactly once at terminal --------------------
+    assert len(sink_calls) == 1, (
+        f"Expected sink to fire once, fired {len(sink_calls)} times"
+    )
+    authoritative = sink_calls[0]
+    assert len(authoritative) > 0
+
+    # --- Invariant 4: Original user prompt survived all compactions ----------
+    user_texts = [
+        p.content
+        for m in authoritative
+        if isinstance(m, ModelRequest)
+        for p in m.parts
+        if isinstance(p, UserPromptPart) and isinstance(p.content, str)
+    ]
+    assert any(
+        "the original user task description" in t for t in user_texts
+    ), (
+        f"Original user prompt lost after compaction; user texts in final "
+        f"history: {user_texts}"
+    )
+
+    # --- Invariant 5: Tool-call / tool-return pairing is balanced ------------
+    call_ids = {
+        p.tool_call_id
+        for m in authoritative
+        for p in getattr(m, "parts", [])
+        if isinstance(p, ToolCallPart)
+    }
+    return_ids = {
+        p.tool_call_id
+        for m in authoritative
+        for p in getattr(m, "parts", [])
+        if isinstance(p, ToolReturnPart)
+    }
+    assert call_ids == return_ids, (
+        f"tool call/return pairing broken: calls={call_ids} returns={return_ids}"
+    )
+
+    # --- Invariant 6: Continuation prompts don't unboundedly accumulate ------
+    # Synthetic continuation prompt may appear 0..N times in the final history
+    # where N == number of compactions fired. If the reconcile step is broken,
+    # we might see explosive duplication. Assert a soft upper bound.
+    continuation_occurrences = sum(
+        1
+        for m in authoritative
+        if isinstance(m, ModelRequest)
+        for p in m.parts
+        if isinstance(p, UserPromptPart)
+        and isinstance(p.content, str)
+        and p.content == IN_RUN_COMPACTION_CONTINUATION_PROMPT
+    )
+    assert continuation_occurrences <= len(compaction_events), (
+        f"Continuation prompt duplicated: found {continuation_occurrences} "
+        f"in final history after {len(compaction_events)} compactions"
+    )
+
+    # --- Invariant 7: Total tool call count reaches termination --------------
+    # The mock stream was supposed to run up to total_tool_rounds before
+    # saying "done". Verify at least some tool calls fired (not all may
+    # survive in the final history due to truncation).
+    assert tool_call_count >= total_tool_rounds
+
+
+@pytest.mark.anyio
+async def test_in_run_compaction_sink_includes_compacted_history(
+    monkeypatch,
+) -> None:
+    """Regression: after in-run compaction, message_history_sink must
+    receive the COMPACTED history as part of its output, not just the
+    latest agent.iter's new_messages().
+
+    This catches the pre-existing bug where the sink formula
+    [*carried_messages, *result.new_messages()] only worked when
+    carried_messages == current_message_history, which was violated by the
+    compaction path that cleared carried while setting current_message_history
+    to the replacement.
+    """
+    from collections.abc import AsyncIterator, Sequence
+
+    from pydantic_ai import Agent
+    from pydantic_ai.messages import ModelMessage
+    from pydantic_ai.models.function import DeltaToolCall, FunctionModel
+
+    from just_another_coding_agent.runtime import run as run_module
+    from just_another_coding_agent.runtime.run import stream_run_events
+
+    call_count = 0
+
+    async def tool_loop_stream(
+        messages,
+        _info,
+    ) -> AsyncIterator[dict[int, DeltaToolCall] | str]:
+        nonlocal call_count
+        call_count += 1
+        if call_count <= 4:
+            yield {
+                0: DeltaToolCall(
+                    name="tick",
+                    json_args="{}",
+                    tool_call_id=f"call-{call_count}",
+                )
+            }
+            return
+        yield "done"
+
+    agent = Agent(
+        FunctionModel(stream_function=tool_loop_stream), output_type=str
+    )
+
+    @agent.tool_plain
+    async def tick():
+        return "ok"
+
+    compaction_triggered = False
+
+    def fake_check(
+        messages,
+        *,
+        model,
+        last_response_usage=None,
+        pending_prompt=None,
+    ):
+        nonlocal compaction_triggered
+        has_tool_return = any(
+            isinstance(p, ToolReturnPart)
+            for m in messages
+            for p in getattr(m, "parts", [])
+        )
+        if has_tool_return and not compaction_triggered:
+            compaction_triggered = True
+            return True
+        return False
+
+    monkeypatch.setattr(run_module, "check_in_run_compaction_needed", fake_check)
+
+    sink_calls: list[list[ModelMessage]] = []
+
+    def recording_sink(messages: Sequence[ModelMessage]) -> None:
+        sink_calls.append(list(messages))
+
+    async def noop_activate(callback):
+        pass
+
+    async def noop_submit():
+        pass
+
+    async def noop_deactivate():
+        pass
+
+    events = [
+        event
+        async for event in stream_run_events(
+            agent=agent,
+            prompt="UNIQUE_ORIGINAL_TASK_MARKER",
+            available_tool_names=["tick"],
+            message_history_sink=recording_sink,
+            activate_steer_boundary=noop_activate,
+            submit_steer_boundary=noop_submit,
+            deactivate_steer_boundary=noop_deactivate,
+        )
+    ]
+
+    assert events[-1].type == "run_succeeded"
+    assert compaction_triggered
+    assert len(sink_calls) == 1
+
+    # The original user prompt marker must appear somewhere in the sink
+    # output even though compaction restarted the agent.iter after it.
+    sink_messages = sink_calls[0]
+    user_texts = [
+        p.content
+        for m in sink_messages
+        if isinstance(m, ModelRequest)
+        for p in m.parts
+        if isinstance(p, UserPromptPart) and isinstance(p.content, str)
+    ]
+    assert "UNIQUE_ORIGINAL_TASK_MARKER" in user_texts, (
+        f"Sink lost original prompt after compaction. "
+        f"User texts in sink: {user_texts}"
+    )
+
+
