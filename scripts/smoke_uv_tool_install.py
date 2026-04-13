@@ -93,10 +93,20 @@ def main() -> int:
 # back via a transitive-dependency rearrangement upstream.
 import packaging.version  # noqa: F401
 from just_another_coding_agent.go_tui import explicit_update_command, package_version
-from just_another_coding_agent.tools.read_only_worker.launcher import read_only_worker_install_command
+from just_another_coding_agent.tools.read_only_worker.launcher import (
+    read_only_worker_install_command,
+)
 assert package_version()
-assert explicit_update_command(repo_root=None) == ["uv", "tool", "upgrade", "just-another-coding-agent"]
-assert read_only_worker_install_command(repo_root=None) == "uv tool upgrade just-another-coding-agent --reinstall"
+assert explicit_update_command(repo_root=None) == [
+    "uv",
+    "tool",
+    "upgrade",
+    "just-another-coding-agent",
+]
+assert (
+    read_only_worker_install_command(repo_root=None)
+    == "uv tool upgrade just-another-coding-agent --reinstall"
+)
 """
         run([str(python_path), "-c", probe], env=env)
     return 0
