@@ -25,6 +25,9 @@ func main() {
 }
 
 func run() error {
+	if err := configureConsoleEncoding(); err != nil {
+		return err
+	}
 	cfg, err := config.Load()
 	if err != nil {
 		return err

@@ -67,6 +67,12 @@ func TestRunFailsFastOnCorruptConfigJSON(t *testing.T) {
 	}
 }
 
+func TestConfigureConsoleEncoding(t *testing.T) {
+	if err := configureConsoleEncoding(); err != nil {
+		t.Fatalf("configureConsoleEncoding() error = %v", err)
+	}
+}
+
 func TestResolveDefaultModelPrefersConfigWhenEnvUnset(t *testing.T) {
 	t.Setenv("JACA_MODEL", "")
 
