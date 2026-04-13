@@ -45,10 +45,15 @@ async def test_wait_for_openai_codex_callback_returns_promptly_after_callback(
         ).encode("ascii")
     )
     await writer.drain()
-    await reader.read()
+    response = await reader.read()
     browser_done = time.monotonic()
     writer.close()
     await writer.wait_closed()
+
+    body = response.decode("utf-8", errors="replace")
+    assert "Login complete" in body
+    assert "Copy code" in body
+    assert "code-123" in body
 
     credentials = await asyncio.wait_for(wait_task, timeout=1.0)
     assert credentials.account_id == "acct-123"

@@ -87,8 +87,7 @@ ensure_slice_config() {
       exit 1
     fi
     if [[ "$TARGET_TRIALS" != "$SLICE_TARGET_TRIALS" ]]; then
-      echo "Slice bundle target trial mismatch: expected $SLICE_TARGET_TRIALS, got $TARGET_TRIALS." >&2
-      exit 1
+      echo "Slice bundle target trial: was $SLICE_TARGET_TRIALS, now $TARGET_TRIALS (extra passes allowed)." >&2
     fi
     if [[ "$DATASET" != "$SLICE_DATASET" ]]; then
       echo "Slice bundle dataset mismatch: expected $SLICE_DATASET, got $DATASET." >&2
@@ -225,15 +224,10 @@ fi
 
 completed_passes="$(count_completed_passes)"
 if (( completed_passes >= TARGET_TRIALS )); then
-  echo "Submission slice already has $completed_passes completed passes. Nothing left to run."
-  exit 0
+  echo "Submission slice already has $completed_passes completed passes (target $TARGET_TRIALS); running additional passes anyway."
 fi
 
 passes_this_run="$PASSES_PER_RUN"
-remaining_passes=$((TARGET_TRIALS - completed_passes))
-if (( passes_this_run > remaining_passes )); then
-  passes_this_run="$remaining_passes"
-fi
 
 for ((i = 0; i < passes_this_run; i += 1)); do
   pass_number=$((completed_passes + i + 1))

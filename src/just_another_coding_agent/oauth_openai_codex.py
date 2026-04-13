@@ -65,8 +65,8 @@ def start_openai_codex_login() -> tuple[OpenAICodexLoginFlow, OpenAICodexLoginSt
         flow_id=flow_id,
         auth_url=auth_url,
         instructions=(
-            "Complete login in your browser, then paste the final redirect URL "
-            "or authorization code here."
+            "Complete login in your browser. If JACA does not finish "
+            "automatically, paste the one-time code shown in the browser here."
         ),
     )
 
@@ -223,7 +223,7 @@ async def wait_for_openai_codex_callback(
             await _write_http_response(
                 writer,
                 200,
-                _oauth_page("Login complete. Return to JACA."),
+                _oauth_success_page(code),
             )
         except Exception as error:
             if not result.done():
@@ -383,6 +383,107 @@ def _oauth_page(message: str) -> str:
         f"<p>{html.escape(message)}</p>"
         "</body></html>"
     )
+
+
+def _oauth_success_page(code: str) -> str:
+    escaped_code = html.escape(code, quote=True)
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>JACA login complete</title>
+  <style>
+    body {{
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, sans-serif;
+      background: #0b1020;
+      color: #e8edf5;
+    }}
+    main {{
+      max-width: 42rem;
+      margin: 4rem auto;
+      padding: 0 1.25rem;
+    }}
+    h1 {{
+      margin: 0 0 0.75rem;
+      font-size: 1.75rem;
+    }}
+    p {{
+      margin: 0 0 1rem;
+      color: #b7c3d9;
+      line-height: 1.5;
+    }}
+    .row {{
+      display: flex;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+      margin: 1.5rem 0 0.75rem;
+    }}
+    input {{
+      flex: 1 1 20rem;
+      min-width: 0;
+      padding: 0.8rem 0.9rem;
+      border: 1px solid #31405f;
+      border-radius: 0.75rem;
+      background: #11182c;
+      color: #f7fafc;
+      font-size: 1rem;
+    }}
+    button {{
+      padding: 0.8rem 1rem;
+      border: 0;
+      border-radius: 0.75rem;
+      background: #8be28b;
+      color: #09210c;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+    }}
+    .status {{
+      min-height: 1.2rem;
+      font-size: 0.95rem;
+      color: #8be28b;
+    }}
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Login complete</h1>
+    <p>JACA should finish automatically.</p>
+    <p>If it does not, copy this one-time code and paste it into JACA.</p>
+    <div class="row">
+      <input id="oauth-code" readonly value="{escaped_code}">
+      <button id="copy-button" type="button">Copy code</button>
+    </div>
+    <div class="status" id="copy-status"></div>
+  </main>
+  <script>
+    const input = document.getElementById("oauth-code");
+    const button = document.getElementById("copy-button");
+    const status = document.getElementById("copy-status");
+
+    function selectCode() {{
+      input.focus();
+      input.select();
+      input.setSelectionRange(0, input.value.length);
+    }}
+
+    async function copyCode() {{
+      selectCode();
+      try {{
+        await navigator.clipboard.writeText(input.value);
+        status.textContent = "Code copied.";
+      }} catch (_error) {{
+        status.textContent = "Code selected. Copy it with Ctrl+C or Cmd+C.";
+      }}
+    }}
+
+    button.addEventListener("click", copyCode);
+    selectCode();
+  </script>
+</body>
+</html>"""
 
 
 def _extract_account_id(access_token: str) -> str:

@@ -347,7 +347,7 @@ func renderLoginOverlay(vm viewModel) string {
 		panelWidth = min(76, max(52, vm.Width-8))
 	}
 	titleText := "ChatGPT Login"
-	subtitleText := "Browser callback auto-completes. Paste only if it does not return."
+	subtitleText := "Finish login in the browser. Paste the browser code here only if needed."
 	title := lipgloss.NewStyle().
 		Foreground(defaultTheme.accentSoft).
 		Bold(true).

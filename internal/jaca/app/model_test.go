@@ -26,6 +26,7 @@ type stubBackend struct {
 	modelCatalogErr    error
 	authStatuses       map[string]rpc.AuthProviderStatus
 	oauthStatuses      map[string]rpc.OAuthProviderStatus
+	logfireStatus      rpc.TraceLogfireStatusResponse
 	oauthWaitDone      bool
 	oauthWaitDoneFn    func() bool
 	waitOpenAICodexFn  func(context.Context, string) (rpc.AuthLoginOpenAICodexWaitResponse, error)
@@ -59,6 +60,10 @@ func newStubBackend() *stubBackend {
 			},
 		},
 		authStatusAfterSet: map[string]rpc.AuthProviderStatus{},
+		logfireStatus: rpc.TraceLogfireStatusResponse{
+			Installed:             true,
+			CredentialsConfigured: true,
+		},
 		localSecretStore: rpc.LocalSecretStoreStatus{
 			Available:     true,
 			FileStorePath: filepath.Join(os.TempDir(), "jaca-auth.json"),
@@ -158,11 +163,15 @@ func (b *stubBackend) AuthStatus(_ context.Context) (rpc.AuthStatusResponse, err
 	}, nil
 }
 
+func (b *stubBackend) TraceLogfireStatus(_ context.Context) (rpc.TraceLogfireStatusResponse, error) {
+	return b.logfireStatus, nil
+}
+
 func (b *stubBackend) StartOpenAICodexLogin(_ context.Context) (rpc.AuthLoginOpenAICodexStartResponse, error) {
 	return rpc.AuthLoginOpenAICodexStartResponse{
 		FlowID:       "flow-1",
 		AuthURL:      "https://auth.example.test/login",
-		Instructions: "Open the URL, finish login, then paste the redirect URL or code here.",
+		Instructions: "If JACA does not finish automatically, paste the one-time code shown in the browser here.",
 	}, nil
 }
 
@@ -1999,6 +2008,13 @@ func TestLoginSlashStartsBackgroundOpenAICodexLogin(t *testing.T) {
 	if !strings.Contains(rendered, "Open login link (auth.example.test)") {
 		t.Fatalf("view missing shortened login link note: %q", rendered)
 	}
+	if strings.Contains(rendered, "Waiting for browser callback on http://localhost:1455/auth/callback") {
+		t.Fatalf("view should not show the localhost callback note: %q", rendered)
+	}
+	if !strings.Contains(rendered, "paste the one-time code shown in the") ||
+		!strings.Contains(rendered, "browser here.") {
+		t.Fatalf("view missing browser code guidance: %q", rendered)
+	}
 }
 
 func TestPromptSubmissionBlockedWhileExplicitOAuthLoginStarting(t *testing.T) {
@@ -2303,7 +2319,7 @@ func TestWaitOpenAICodexLoginUsesLongInteractiveTimeout(t *testing.T) {
 	}
 }
 
-func TestPromptSubmissionBlockedWhileOAuthLoginPendingForModel(t *testing.T) {
+func TestPromptSubmissionCanPasteOAuthCodeWhileLoginIsWaiting(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
@@ -2315,19 +2331,28 @@ func TestPromptSubmissionBlockedWhileOAuthLoginPendingForModel(t *testing.T) {
 		Waiting:      true,
 		PendingModel: "openai-responses:gpt-5.4-chatgpt",
 	}
-	m.textInput.SetValue("hello")
+	m.textInput.SetValue("code-123")
 
-	updated, _ := m.handleEnter()
+	updated, cmd := m.handleEnter()
+	m = updated.(*model)
+	if cmd == nil {
+		t.Fatal("expected raw pasted code to submit login completion")
+	}
+	updated, _ = m.Update(cmd())
 	m = updated.(*model)
 
 	if m.streaming {
 		t.Fatal("prompt should not start while oauth login is pending")
 	}
-	if got := m.textInput.Value(); got != "hello" {
-		t.Fatalf("textInput.Value() = %q, want preserved prompt", got)
+	if got := m.textInput.Value(); got != "" {
+		t.Fatalf("textInput.Value() = %q, want cleared input", got)
 	}
-	if got := m.currentPromptFooter(); got != "login in progress; wait for completion or press Esc to cancel" {
-		t.Fatalf("currentPromptFooter() = %q", got)
+	if m.login.Waiting || m.login.FlowID != "" {
+		t.Fatalf("login state should clear after manual completion: %#v", m.login)
+	}
+	rendered := stripANSI(m.transcript.Render())
+	if !strings.Contains(rendered, "ChatGPT subscription login complete") {
+		t.Fatalf("transcript missing manual login confirmation: %q", rendered)
 	}
 }
 
@@ -2371,6 +2396,95 @@ func TestTraceCommandPersistsMode(t *testing.T) {
 	}
 	if !strings.Contains(string(data), `"trace_mode": "local"`) {
 		t.Fatalf("config.json missing trace mode: %q", string(data))
+	}
+}
+
+func TestTraceCommandBlocksLogfireUntilSetupIsReady(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	backend := newStubBackend()
+	backend.logfireStatus = rpc.TraceLogfireStatusResponse{
+		Installed:             false,
+		CredentialsConfigured: false,
+	}
+	m := newTestModelWithBackend(backend)
+
+	_ = sendKey(sendRunes(m, "/trace logfire"), tea.KeyMsg{Type: tea.KeyEnter})
+
+	rendered := stripANSI(m.transcript.Render())
+	for _, want := range []string{
+		"Logfire tracing is not ready yet.",
+		"Install Logfire first so the `logfire` command is available.",
+		"Install it with: pip install logfire",
+		"Then run: logfire auth",
+		"Then run: logfire projects use <project>",
+		"Retry: /trace logfire",
+		"Until then, use: /trace local",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("trace instructions missing %q in %q", want, rendered)
+		}
+	}
+
+	data, err := os.ReadFile(home + "/.jaca/config.json")
+	if err == nil && strings.Contains(string(data), `"trace_mode": "logfire"`) {
+		t.Fatalf("config.json unexpectedly persisted broken logfire mode: %q", string(data))
+	}
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatalf("ReadFile() returned unexpected error: %v", err)
+	}
+}
+
+func TestTraceCommandPersistsLogfireWhenSetupIsReady(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	backend := newStubBackend()
+	backend.logfireStatus = rpc.TraceLogfireStatusResponse{
+		Installed:             true,
+		CredentialsConfigured: true,
+	}
+	m := newTestModelWithBackend(backend)
+
+	_ = sendKey(sendRunes(m, "/trace logfire"), tea.KeyMsg{Type: tea.KeyEnter})
+
+	data, err := os.ReadFile(home + "/.jaca/config.json")
+	if err != nil {
+		t.Fatalf("ReadFile() returned error: %v", err)
+	}
+	if !strings.Contains(string(data), `"trace_mode": "logfire"`) {
+		t.Fatalf("config.json missing trace mode: %q", string(data))
+	}
+}
+
+func TestTraceCommandShowsAuthStepsWhenLogfireNeedsLogin(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	backend := newStubBackend()
+	backend.logfireStatus = rpc.TraceLogfireStatusResponse{
+		Installed:             true,
+		CredentialsConfigured: false,
+	}
+	m := newTestModelWithBackend(backend)
+
+	_ = sendKey(sendRunes(m, "/trace logfire"), tea.KeyMsg{Type: tea.KeyEnter})
+
+	rendered := stripANSI(m.transcript.Render())
+	for _, want := range []string{
+		"Logfire tracing is not ready yet.",
+		"Authenticate with Logfire: logfire auth",
+		"Select a Logfire project: logfire projects use <project>",
+		"Retry: /trace logfire",
+		"Until then, use: /trace local",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("trace auth instructions missing %q in %q", want, rendered)
+		}
+	}
+	if strings.Contains(rendered, "Install it with: pip install logfire") {
+		t.Fatalf("did not expect install instructions when logfire is already installed: %q", rendered)
 	}
 }
 

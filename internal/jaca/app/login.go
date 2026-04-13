@@ -73,14 +73,7 @@ func (m *model) handleLoginEnter() (tea.Model, tea.Cmd) {
 	if value == "" {
 		return m, nil
 	}
-	if m.login.FlowID == "" {
-		m.transcript.WriteError("login flow not ready yet")
-		m.refreshViewport()
-		return m, nil
-	}
-	m.textInput.SetValue("")
-	m.refreshViewport()
-	return m, completeOpenAICodexLogin(m.options.Backend, m.login.FlowID, value)
+	return m.submitOpenAICodexLoginCompletion(value)
 }
 
 func (m *model) handleLoginCommand(arg string) (tea.Model, tea.Cmd) {
@@ -124,15 +117,22 @@ func (m *model) handleLoginCommand(arg string) (tea.Model, tea.Cmd) {
 			m.refreshViewport()
 			return m, nil
 		}
-		return m, completeOpenAICodexLogin(
-			m.options.Backend,
-			m.login.FlowID,
-			callbackOrCode,
-		)
+		return m.submitOpenAICodexLoginCompletion(callbackOrCode)
 	}
 	m.transcript.WriteNote("login", loginUsageLines())
 	m.refreshViewport()
 	return m, nil
+}
+
+func (m *model) submitOpenAICodexLoginCompletion(callbackOrCode string) (tea.Model, tea.Cmd) {
+	if m.login.FlowID == "" {
+		m.transcript.WriteError("login flow not ready yet")
+		m.refreshViewport()
+		return m, nil
+	}
+	m.textInput.SetValue("")
+	m.refreshViewport()
+	return m, completeOpenAICodexLogin(m.options.Backend, m.login.FlowID, callbackOrCode)
 }
 
 func loginUsageLines() []string {

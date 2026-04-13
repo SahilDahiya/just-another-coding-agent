@@ -302,7 +302,7 @@ func TestRenderLoginOverlayUsesProviderSpecificCopyForChatGPT(t *testing.T) {
 			Active:       true,
 			Provider:     "openai-codex",
 			AuthURL:      "https://auth.openai.com/oauth/authorize",
-			Instructions: "Paste only if it does not return automatically.",
+			Instructions: "If JACA does not finish automatically, paste the one-time code shown in the browser here.",
 			InputValue:   " ",
 		},
 	}))
@@ -310,7 +310,7 @@ func TestRenderLoginOverlayUsesProviderSpecificCopyForChatGPT(t *testing.T) {
 	if !strings.Contains(rendered, "ChatGPT Login") {
 		t.Fatalf("renderLoginOverlay() missing ChatGPT title: %q", rendered)
 	}
-	if !strings.Contains(rendered, "Browser callback auto-completes") {
+	if !strings.Contains(rendered, "Finish login in the browser") {
 		t.Fatalf("renderLoginOverlay() missing ChatGPT subtitle: %q", rendered)
 	}
 }

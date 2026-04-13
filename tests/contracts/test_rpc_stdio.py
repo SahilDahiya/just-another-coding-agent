@@ -2,6 +2,7 @@ import asyncio
 import json
 import time
 from collections.abc import AsyncIterator
+from types import SimpleNamespace
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -748,6 +749,41 @@ async def test_handle_rpc_json_line_returns_auth_status(
     ]
 
 
+async def test_handle_rpc_json_line_returns_logfire_trace_status(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    monkeypatch.setattr(
+        "just_another_coding_agent.rpc.stdio.logfire_setup_status",
+        lambda: SimpleNamespace(installed=False, credentials_configured=False),
+    )
+
+    messages = await _rpc_messages(
+        request_payload={
+            "id": "req-trace-logfire-status",
+            "command": "trace.logfire_status",
+            "payload": {},
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    assert messages == [
+        {
+            "type": "rpc_response",
+            "id": "req-trace-logfire-status",
+            "response": {
+                "installed": False,
+                "credentials_configured": False,
+            },
+        }
+    ]
+
+
 async def test_handle_rpc_json_line_starts_openai_codex_login(
     tmp_path,
     monkeypatch,
@@ -762,7 +798,10 @@ async def test_handle_rpc_json_line_starts_openai_codex_login(
             OpenAICodexLoginFlow(flow_id="flow-1", verifier="v", state="s"),
             "flow-1",
             "https://auth.example.test/login",
-            "Paste the redirect URL or authorization code.",
+            (
+                "If JACA does not finish automatically, paste the one-time code "
+                "shown in the browser here."
+            ),
         ),
     )
 
@@ -784,7 +823,10 @@ async def test_handle_rpc_json_line_starts_openai_codex_login(
             "response": {
                 "flow_id": "flow-1",
                 "auth_url": "https://auth.example.test/login",
-                "instructions": "Paste the redirect URL or authorization code.",
+                "instructions": (
+                    "If JACA does not finish automatically, paste the one-time "
+                    "code shown in the browser here."
+                ),
             },
         }
     ]

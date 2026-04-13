@@ -498,17 +498,17 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.login.Instructions = msg.Response.Instructions
 		m.login.Active = false
 		m.login.Waiting = true
-		m.transcript.WriteRenderedNote("login", []string{
+		rawLines := []string{
 			"Open this URL in your browser:",
 			msg.Response.AuthURL,
-			"Waiting for browser callback on http://localhost:1455/auth/callback",
-			"If auto-return fails, finish with /login openai-codex <redirect-url-or-code>",
-		}, []string{
+			msg.Response.Instructions,
+		}
+		renderedLines := []string{
 			"Open this URL in your browser:",
 			renderHyperlink(msg.Response.AuthURL, loginLinkLabel(msg.Response.AuthURL)),
-			"Waiting for browser callback on http://localhost:1455/auth/callback",
-			"If auto-return fails, finish with /login openai-codex <redirect-url-or-code>",
-		})
+			msg.Response.Instructions,
+		}
+		m.transcript.WriteRenderedNote("login", rawLines, renderedLines)
 		if err := bestEffortOpenBrowser(msg.Response.AuthURL); err != nil {
 			m.transcript.WriteLine("browser did not open automatically")
 			m.transcript.WriteLine(err.Error())
@@ -704,7 +704,7 @@ func (m *model) currentPromptFooter() string {
 		return ""
 	}
 	if m.waitingOAuthLoginBlocksInput() {
-		return "login in progress; wait for completion or press Esc to cancel"
+		return m.waitingOAuthLoginFooter()
 	}
 	if m.shouldShowFirstRunPromptAssist() {
 		return "first-time setup: tab to connect ChatGPT, OpenAI, or Anthropic"
@@ -714,6 +714,13 @@ func (m *model) currentPromptFooter() string {
 
 func (m *model) waitingOAuthLoginBlocksInput() bool {
 	return m.login.Provider != "" || m.login.Waiting || m.login.Active || m.login.FlowID != ""
+}
+
+func (m *model) waitingOAuthLoginFooter() string {
+	if m.login.Provider == "openai-codex" && m.login.Waiting && m.login.FlowID != "" {
+		return "login in progress; paste the browser code here or press Esc to cancel"
+	}
+	return "login in progress; wait for completion or press Esc to cancel"
 }
 
 func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -907,7 +914,10 @@ func (m *model) handleEnter() (tea.Model, tea.Cmd) {
 		if strings.HasPrefix(prompt, "/login") {
 			return m.submitSlashCommand(prompt, false)
 		}
-		m.promptFooterNotice = "login in progress; wait for completion or press Esc to cancel"
+		if m.login.Provider == "openai-codex" && m.login.Waiting && m.login.FlowID != "" {
+			return m.submitOpenAICodexLoginCompletion(prompt)
+		}
+		m.promptFooterNotice = m.waitingOAuthLoginFooter()
 		m.refreshViewport()
 		return m, nil
 	}
