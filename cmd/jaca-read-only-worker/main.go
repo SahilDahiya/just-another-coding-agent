@@ -580,8 +580,7 @@ func executeFind(ctx context.Context, req findRequest) (findResult, errorRespons
 			if line == "" {
 				continue
 			}
-			normalized := strings.TrimPrefix(line, "./")
-			matches = append(matches, filepath.ToSlash(normalized))
+			matches = append(matches, normalizeFindMatchPath(line))
 		}
 	}
 	sort.Slice(matches, func(i, j int) bool {
@@ -610,6 +609,11 @@ func executeFind(ctx context.Context, req findRequest) (findResult, errorRespons
 	}
 
 	return result, errorResponse{}, true
+}
+
+func normalizeFindMatchPath(path string) string {
+	normalized := filepath.ToSlash(path)
+	return strings.TrimPrefix(normalized, "./")
 }
 
 func truncateMatchText(text string, maxChars int) (string, bool) {

@@ -166,6 +166,27 @@ func TestFormatMatchPath(t *testing.T) {
 	})
 }
 
+func TestNormalizeFindMatchPath(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{name: "plain relative", input: "alpha.py", want: "alpha.py"},
+		{name: "posix dot prefix", input: "./nested/gamma.py", want: "nested/gamma.py"},
+		{name: "windows dot prefix", input: ".\\nested\\gamma.py", want: "nested/gamma.py"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := normalizeFindMatchPath(tt.input)
+			if got != tt.want {
+				t.Fatalf("normalizeFindMatchPath(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestMaxInt(t *testing.T) {
 	if maxInt(3, 5) != 5 {
 		t.Error("maxInt(3, 5) should be 5")
