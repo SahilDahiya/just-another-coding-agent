@@ -1,7 +1,6 @@
 import asyncio
 import json
 from collections.abc import AsyncIterator
-from contextlib import contextmanager
 from datetime import date
 
 import pytest
@@ -54,7 +53,6 @@ from just_another_coding_agent.runtime.turn_context import (
     RUNTIME_CONTEXT_UPDATE_MESSAGE_HEADER,
     build_runtime_context_injection_plan,
     build_runtime_context_message,
-    build_runtime_context_text,
     build_runtime_context_update_message,
     build_runtime_context_update_text,
     build_session_turn_context_entry,
@@ -2664,13 +2662,6 @@ async def test_stream_session_run_events_trim_failed_correction_tail_from_histor
             ]
         ),
     ]
-    captured_messages = [
-        build_runtime_context_message(
-            build_runtime_context_text(workspace_root=workspace_root)
-        ),
-        *poisoned_messages,
-    ]
-
     async def failed_correction_stream_run_events(
         *,
         agent,
@@ -2792,13 +2783,6 @@ async def test_stream_session_run_events_resume_after_failed_correction_is_clean
             ]
         ),
     ]
-    captured_messages = [
-        build_runtime_context_message(
-            build_runtime_context_text(workspace_root=workspace_root)
-        ),
-        *poisoned_messages,
-    ]
-
     async def failed_correction_stream_run_events(
         *,
         agent,

@@ -60,23 +60,23 @@ func TestModelSuggestionsIncludeConfiguredAPIKeyAndOAuthModels(t *testing.T) {
 	rows := modelSuggestions(*testModelCatalog(), status)
 
 	want := map[string]string{
-		"openai-responses:gpt-5.4":                    "[api-key]",
-		"openai-responses:gpt-5.4-mini":               "[api-key]",
-		"openai-responses:gpt-5.3-codex":              "[api-key]",
-		"openai-responses:gpt-5-codex":                "[oauth]",
-		"openai-responses:gpt-5-chatgpt":              "[oauth]",
-		"openai-responses:gpt-5-mini-chatgpt":         "[oauth]",
-		"openai-responses:gpt-5.1-chatgpt":            "[oauth]",
-		"openai-responses:gpt-5.1-codex-chatgpt":      "[oauth]",
-		"openai-responses:gpt-5.1-codex-mini-chatgpt": "[oauth]",
-		"openai-responses:gpt-5.1-codex-max-chatgpt":  "[oauth]",
-		"openai-responses:gpt-5.2-chatgpt":            "[oauth]",
-		"openai-responses:gpt-5.2-codex-chatgpt":      "[oauth]",
-		"openai-responses:gpt-5.3-codex-chatgpt":      "[oauth]",
-		"openai-responses:gpt-5.4-chatgpt":            "[oauth]",
-		"openai-responses:gpt-5.4-mini-chatgpt":       "[oauth]",
-		"anthropic:claude-sonnet-4-5":                 "[api-key]",
-		"anthropic:claude-opus-4-1":                   "[api-key]",
+		"openai-responses:gpt-5.4":                    "[✓]",
+		"openai-responses:gpt-5.4-mini":               "[✓]",
+		"openai-responses:gpt-5.3-codex":              "[✓]",
+		"openai-responses:gpt-5-codex":                "[✓]",
+		"openai-responses:gpt-5-chatgpt":              "[✓]",
+		"openai-responses:gpt-5-mini-chatgpt":         "[✓]",
+		"openai-responses:gpt-5.1-chatgpt":            "[✓]",
+		"openai-responses:gpt-5.1-codex-chatgpt":      "[✓]",
+		"openai-responses:gpt-5.1-codex-mini-chatgpt": "[✓]",
+		"openai-responses:gpt-5.1-codex-max-chatgpt":  "[✓]",
+		"openai-responses:gpt-5.2-chatgpt":            "[✓]",
+		"openai-responses:gpt-5.2-codex-chatgpt":      "[✓]",
+		"openai-responses:gpt-5.3-codex-chatgpt":      "[✓]",
+		"openai-responses:gpt-5.4-chatgpt":            "[✓]",
+		"openai-responses:gpt-5.4-mini-chatgpt":       "[✓]",
+		"anthropic:claude-sonnet-4-5":                 "[✓]",
+		"anthropic:claude-opus-4-1":                   "[✓]",
 	}
 
 	for _, row := range rows {
@@ -86,6 +86,9 @@ func TestModelSuggestionsIncludeConfiguredAPIKeyAndOAuthModels(t *testing.T) {
 		}
 		if !strings.Contains(row.Description, label) {
 			t.Fatalf("row %q missing label %q in %q", row.Value, label, row.Description)
+		}
+		if strings.TrimSpace(row.DisplayValue) == "" {
+			t.Fatalf("row %q missing display value", row.Value)
 		}
 		delete(want, row.Value)
 	}
@@ -121,5 +124,69 @@ func TestModelSuggestionsHideUnavailableModels(t *testing.T) {
 	}
 	if len(rows) == 0 {
 		t.Fatal("expected non-empty model suggestions")
+	}
+}
+
+func TestModelSuggestionsPreferAvailableOAuthRowsOverUnavailableAPIRows(t *testing.T) {
+	status := &rpc.AuthStatusResponse{
+		Providers: []rpc.AuthProviderStatus{
+			{Provider: "openai", Configured: false},
+			{Provider: "anthropic", Configured: true},
+		},
+		OAuthProviders: []rpc.OAuthProviderStatus{
+			{Provider: "openai-codex", LoggedIn: true},
+		},
+	}
+
+	rows := modelSuggestions(*testModelCatalog(), status)
+	if len(rows) == 0 {
+		t.Fatal("expected non-empty model suggestions")
+	}
+	if got := rows[0].Value; got != "openai-responses:gpt-5-codex" {
+		t.Fatalf("rows[0].Value = %q, want first available oauth model", got)
+	}
+	if got := rows[0].DisplayValue; got != "gpt-5-codex | oauth" {
+		t.Fatalf("rows[0].DisplayValue = %q, want oauth display label", got)
+	}
+	if !strings.Contains(rows[0].Description, "[✓]") {
+		t.Fatalf("rows[0].Description = %q, want oauth checkmark", rows[0].Description)
+	}
+
+	var sawUnavailableAPI bool
+	for _, row := range rows {
+		if row.Value == "openai-responses:gpt-5.4" {
+			sawUnavailableAPI = true
+			if !strings.Contains(row.Description, "[api-key required]") {
+				t.Fatalf("api default row missing unavailable label in %q", row.Description)
+			}
+		}
+	}
+	if !sawUnavailableAPI {
+		t.Fatal("expected unavailable api default model to remain visible")
+	}
+}
+
+func TestLoginSuggestionsMarkConfiguredLanesWithCheckmark(t *testing.T) {
+	status := &rpc.AuthStatusResponse{
+		Providers: []rpc.AuthProviderStatus{
+			{Provider: "openai", Configured: true},
+		},
+		OAuthProviders: []rpc.OAuthProviderStatus{
+			{Provider: "openai-codex", LoggedIn: true},
+		},
+	}
+
+	rows := loginSuggestions(status)
+	if len(rows) != 3 {
+		t.Fatalf("len(rows) = %d, want 3", len(rows))
+	}
+	if !strings.Contains(rows[0].Description, "[✓]") {
+		t.Fatalf("openai-codex description = %q, want checkmark", rows[0].Description)
+	}
+	if !strings.Contains(rows[1].Description, "[✓]") {
+		t.Fatalf("openai description = %q, want checkmark", rows[1].Description)
+	}
+	if strings.Contains(rows[2].Description, "[✓]") {
+		t.Fatalf("anthropic description = %q, want no checkmark", rows[2].Description)
 	}
 }

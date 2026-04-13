@@ -87,10 +87,25 @@ func (m *model) handleLoginCommand(arg string) (tea.Model, tea.Cmd) {
 	value := strings.TrimSpace(arg)
 	lowered := strings.ToLower(value)
 	if lowered == "" {
-		m.transcript.WriteNote("login", []string{
-			"Choose a login lane:",
-			"  /login openai-codex       ChatGPT subscription",
-		})
+		m.transcript.WriteNote("login", loginUsageLines())
+		m.refreshViewport()
+		return m, nil
+	}
+	if lowered == "openai" || lowered == "anthropic" {
+		if err := m.startCredentialSetup(lowered, "", "", "", ""); err != nil {
+			m.transcript.WriteNote("login", nil)
+			m.transcript.WriteError(err.Error())
+		}
+		m.refreshViewport()
+		return m, nil
+	}
+	if lowered == "status" {
+		m.writeAuthStatus()
+		m.refreshViewport()
+		return m, nil
+	}
+	if provider, ok := parseClearAuthProvider(value); ok {
+		m.clearProviderSecret(provider)
 		m.refreshViewport()
 		return m, nil
 	}
@@ -100,10 +115,7 @@ func (m *model) handleLoginCommand(arg string) (tea.Model, tea.Cmd) {
 	if strings.HasPrefix(lowered, "openai-codex ") {
 		callbackOrCode := strings.TrimSpace(value[len("openai-codex "):])
 		if callbackOrCode == "" {
-			m.transcript.WriteNote("login", nil)
-			m.transcript.WriteLine(
-				"usage: /login openai-codex [redirect-url-or-code]",
-			)
+			m.transcript.WriteNote("login", loginUsageLines())
 			m.refreshViewport()
 			return m, nil
 		}
@@ -118,17 +130,21 @@ func (m *model) handleLoginCommand(arg string) (tea.Model, tea.Cmd) {
 			callbackOrCode,
 		)
 	}
-	m.transcript.WriteNote("login", nil)
-	m.transcript.WriteError(
-		"usage: /login openai-codex [redirect-url-or-code]",
-	)
+	m.transcript.WriteNote("login", loginUsageLines())
 	m.refreshViewport()
 	return m, nil
 }
 
-func openAICodexLoginSuggestions() []slashSuggestion {
-	return []slashSuggestion{
-		{Value: "openai-codex", Description: "ChatGPT subscription"},
+func loginUsageLines() []string {
+	return []string{
+		"Choose a login lane:",
+		"  /login openai-codex       ChatGPT subscription",
+		"  /login openai             OpenAI API key",
+		"  /login anthropic          Anthropic API key",
+		"",
+		"Other login commands:",
+		"  /login status             show provider readiness",
+		"  /login clear <provider>   clear stored auth.json secret",
 	}
 }
 

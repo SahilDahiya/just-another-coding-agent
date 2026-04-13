@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
 
@@ -35,11 +34,7 @@ def build_compaction_summary_message(summary_text: str) -> ModelResponse:
     if not normalized_summary:
         raise ValueError("Compaction summary text must be non-empty")
     return ModelResponse(
-        parts=[
-            TextPart(
-                content=f"{COMPACTION_SUMMARY_HEADER}{normalized_summary}"
-            )
-        ]
+        parts=[TextPart(content=f"{COMPACTION_SUMMARY_HEADER}{normalized_summary}")]
     )
 
 
@@ -187,8 +182,7 @@ def _normalize_user_prompt_text(content: str | Sequence[UserContent]) -> str | N
     for item in content:
         if not isinstance(item, str):
             raise ValueError(
-                "Compaction replacement history supports only text user "
-                "prompt content"
+                "Compaction replacement history supports only text user prompt content"
             )
         stripped = item.strip()
         if stripped:
@@ -322,6 +316,7 @@ def _message_text_for_budget(message: ModelMessage) -> str:
                 fragments.append(args)
             elif args is not None:
                 import json as _json
+
                 fragments.append(_json.dumps(args, ensure_ascii=False))
         elif isinstance(part, ToolReturnPart):
             fragments.append(part.tool_name)
@@ -330,6 +325,7 @@ def _message_text_for_budget(message: ModelMessage) -> str:
                 fragments.append(content)
             elif content is not None:
                 import json as _json
+
                 fragments.append(_json.dumps(content, ensure_ascii=False))
         elif isinstance(part, RetryPromptPart):
             fragments.append(str(part.content))
@@ -454,7 +450,9 @@ def truncate_middle_to_token_budget(text: str, token_budget: int) -> str | None:
         return text
 
     removed_chars = len(text) - max_chars
-    removed_tokens = (removed_chars + CHARS_PER_TOKEN_HEURISTIC - 1) // CHARS_PER_TOKEN_HEURISTIC
+    removed_tokens = (
+        removed_chars + CHARS_PER_TOKEN_HEURISTIC - 1
+    ) // CHARS_PER_TOKEN_HEURISTIC
     marker = TRUNCATION_MARKER_TEMPLATE.format(removed_tokens)
 
     budget_for_content = max(max_chars - len(marker), 0)

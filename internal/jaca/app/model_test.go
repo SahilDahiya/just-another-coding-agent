@@ -1239,8 +1239,54 @@ func TestEnterOnModelArgumentSuggestionExecutesSelection(t *testing.T) {
 		t.Fatalf("options.Model = %q, want %q", got, "openai-responses:gpt-5.4")
 	}
 	rendered := stripANSI(m.transcript.Render())
-	if !strings.Contains(rendered, "model set to openai-responses:gpt-5.4") {
+	if !strings.Contains(rendered, "model set to gpt-5.4 | api") {
 		t.Fatalf("transcript missing executed model change: %q", rendered)
+	}
+}
+
+func TestTabOnModelSuggestionCommitsDisplayLabel(t *testing.T) {
+	backend := newStubBackend()
+	status, err := backend.AuthStatus(context.Background())
+	if err != nil {
+		t.Fatalf("AuthStatus() returned error: %v", err)
+	}
+	m := newTestModel()
+
+	m = sendRunes(m, "/model gpt-5")
+	updated, _ := m.Update(authStatusLoadedMsg{Status: status})
+	m = updated.(*model)
+	if !m.slashMenuVisible() {
+		t.Fatal("expected /model suggestions to be visible")
+	}
+
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyTab})
+
+	if got := m.textInput.Value(); got != "/model gpt-5.4 | api" {
+		t.Fatalf("textInput.Value() = %q, want %q", got, "/model gpt-5.4 | api")
+	}
+}
+
+func TestModelCommandAcceptsDisplayLabel(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("OPENAI_API_KEY", "test-key")
+
+	backend := newStubBackend()
+	status, err := backend.AuthStatus(context.Background())
+	if err != nil {
+		t.Fatalf("AuthStatus() returned error: %v", err)
+	}
+	m := newTestModel()
+	m.options.Backend = backend
+
+	updated, _ := m.Update(authStatusLoadedMsg{Status: status})
+	m = updated.(*model)
+
+	updated, _ = m.submitSlashCommand("/model gpt-5.4 | api", false)
+	m = updated.(*model)
+
+	if got := m.options.Model; got != "openai-responses:gpt-5.4" {
+		t.Fatalf("options.Model = %q, want %q", got, "openai-responses:gpt-5.4")
 	}
 }
 
@@ -1260,17 +1306,20 @@ func TestEnterOnHelpSuggestionExecutesCommand(t *testing.T) {
 	}
 }
 
-func TestAuthSlashSuggestionsIncludeSupportedProviders(t *testing.T) {
+func TestLoginSlashSuggestionsIncludeSupportedLanes(t *testing.T) {
 	m := newTestModel()
 
-	m = sendRunes(m, "/auth ")
+	m = sendRunes(m, "/login ")
 
 	rendered := stripANSI(m.View())
+	if !strings.Contains(rendered, "openai-codex") {
+		t.Fatalf("view missing openai-codex login suggestion in %q", rendered)
+	}
 	if !strings.Contains(rendered, "openai") {
-		t.Fatalf("view missing openai auth suggestion in %q", rendered)
+		t.Fatalf("view missing openai login suggestion in %q", rendered)
 	}
 	if !strings.Contains(rendered, "anthropic") {
-		t.Fatalf("view missing anthropic auth suggestion in %q", rendered)
+		t.Fatalf("view missing anthropic login suggestion in %q", rendered)
 	}
 }
 
@@ -1294,8 +1343,41 @@ func TestAuthStatusLoadRefreshesModelSlashSuggestions(t *testing.T) {
 		t.Fatal("expected /model slash suggestions to appear after auth status loads")
 	}
 	rendered := stripANSI(m.View())
-	if !strings.Contains(rendered, "openai-responses:gpt-5.4") {
+	if !strings.Contains(rendered, "gpt-5.4 | api") {
 		t.Fatalf("view missing model suggestions after auth status load in %q", rendered)
+	}
+}
+
+func TestAuthStatusLoadMakesAvailableOAuthModelTheDefaultModelSuggestion(t *testing.T) {
+	m := newTestModel()
+	backend := newStubBackend()
+	backend.authStatuses["openai"] = rpc.AuthProviderStatus{
+		Provider:   "openai",
+		Configured: false,
+		Source:     "none",
+	}
+	backend.oauthStatuses["openai-codex"] = rpc.OAuthProviderStatus{
+		Provider: "openai-codex",
+		LoggedIn: true,
+	}
+	status, err := backend.AuthStatus(context.Background())
+	if err != nil {
+		t.Fatalf("AuthStatus() returned error: %v", err)
+	}
+
+	m = sendRunes(m, "/model ")
+
+	updated, _ := m.Update(authStatusLoadedMsg{Status: status})
+	m = updated.(*model)
+
+	if !m.slashMenuVisible() {
+		t.Fatal("expected /model slash suggestions to appear after auth status loads")
+	}
+	if len(m.slashMenu.Rows) == 0 {
+		t.Fatal("expected non-empty /model slash suggestions")
+	}
+	if got := m.slashMenu.Rows[m.slashMenu.Selected].Value; got != "openai-responses:gpt-5-codex" {
+		t.Fatalf("selected /model row = %q, want first available oauth model", got)
 	}
 }
 
@@ -1321,7 +1403,7 @@ func TestDownArrowMovesSlashSelection(t *testing.T) {
 	m = sendKey(m, tea.KeyMsg{Type: tea.KeyDown})
 
 	rendered := stripANSI(m.View())
-	if !strings.Contains(rendered, "> /auth") {
+	if !strings.Contains(rendered, "> /model") {
 		t.Fatalf("expected down arrow to move active slash selection in %q", rendered)
 	}
 }
@@ -1453,7 +1535,7 @@ func TestFirstRunChooserDoesNotDependOnAuthStatus(t *testing.T) {
 	}
 }
 
-func TestMaybeStartOnboardingStartsOpenAICodexLoginCommandForOAuthModel(t *testing.T) {
+func TestMaybeStartOnboardingStartsOpenAICodexLoginCommandForOAuthModelWhenAnotherLaneIsAvailable(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	if err := os.MkdirAll(filepath.Join(home, ".jaca"), 0o755); err != nil {
@@ -1468,6 +1550,12 @@ func TestMaybeStartOnboardingStartsOpenAICodexLoginCommandForOAuthModel(t *testi
 	}
 
 	backend := newStubBackend()
+	backend.authStatuses["openai"] = rpc.AuthProviderStatus{
+		Provider:   "openai",
+		Configured: true,
+		Source:     "file",
+		EnvKey:     "OPENAI_API_KEY",
+	}
 	status, err := backend.AuthStatus(context.Background())
 	if err != nil {
 		t.Fatalf("AuthStatus() returned error: %v", err)
@@ -1609,7 +1697,7 @@ func TestFirstRunChoosingConfiguredAnthropicSkipsAuth(t *testing.T) {
 	}
 }
 
-func TestStartupAuthStatusWritesAuthFileNoteForPersistedProviderWithoutCredentials(t *testing.T) {
+func TestStartupAuthStatusShowsChooserForPersistedProviderWithoutAnyAvailableLane(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("OPENAI_API_KEY", "")
@@ -1634,12 +1722,19 @@ func TestStartupAuthStatusWritesAuthFileNoteForPersistedProviderWithoutCredentia
 	updated, _ := m.Update(authStatusLoadedMsg{Status: status})
 	m = updated.(*model)
 
-	if m.auth.Active {
-		t.Fatalf("startup auth should not open auth overlay: %#v", m.auth)
+	if !m.onboarding.Active {
+		t.Fatal("startup should reopen chooser when no login lane is available")
 	}
-	rendered := stripANSI(m.transcript.Render())
-	if !strings.Contains(rendered, "Add your OpenAI API key to:") {
-		t.Fatalf("startup transcript missing auth-file note: %q", rendered)
+	rendered := stripANSI(m.View())
+	for _, want := range []string{
+		"Connect JACA",
+		"1. ChatGPT subscription",
+		"2. OpenAI API key",
+		"3. Anthropic API key",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("startup chooser missing %q in %q", want, rendered)
+		}
 	}
 }
 
@@ -1892,6 +1987,41 @@ func TestOpenAICodexWaitSuccessShowsConfirmationInVisibleViewWithoutExtraInput(t
 	}
 }
 
+func TestPlainOpenAICodexLoginSelectsDefaultOAuthModelOnSuccess(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	m := newTestModel()
+	m.options.Backend = newStubBackend()
+
+	m = sendRunes(m, "/login openai-codex")
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(*model)
+	if cmd == nil {
+		t.Fatal("expected login start command")
+	}
+	updated, _ = m.Update(cmd())
+	m = updated.(*model)
+
+	updated, _ = m.Update(waitOpenAICodexLoginMsg{
+		Response: rpc.AuthLoginOpenAICodexWaitResponse{
+			Status: rpc.OAuthProviderStatus{
+				Provider: "openai-codex",
+				LoggedIn: true,
+			},
+		},
+	})
+	m = updated.(*model)
+
+	if got := m.options.Model; got != "openai-responses:gpt-5-codex" {
+		t.Fatalf("options.Model = %q, want %q", got, "openai-responses:gpt-5-codex")
+	}
+	rendered := stripANSI(m.transcript.Render())
+	if !strings.Contains(rendered, "model set to gpt-5-codex | oauth") {
+		t.Fatalf("transcript missing oauth default model selection: %q", rendered)
+	}
+}
+
 func TestOpenAICodexWaitSuccessForcesViewportToBottom(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -2067,7 +2197,7 @@ func TestTraceCommandPersistsMode(t *testing.T) {
 	}
 }
 
-func TestAuthCommandShowsAuthFileInstructions(t *testing.T) {
+func TestLoginOpenAIShowsAuthFileInstructions(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("OPENAI_API_KEY", "")
@@ -2076,7 +2206,7 @@ func TestAuthCommandShowsAuthFileInstructions(t *testing.T) {
 	m := newTestModel()
 	m.options.Backend = newStubBackend()
 
-	m = sendRunes(m, "/auth openai")
+	m = sendRunes(m, "/login openai")
 	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
 
 	rendered := stripANSI(m.transcript.Render())
@@ -2096,7 +2226,7 @@ func TestAuthCommandShowsAuthFileInstructions(t *testing.T) {
 	}
 }
 
-func TestAuthAnthropicShowsAuthFileInstructions(t *testing.T) {
+func TestLoginAnthropicShowsAuthFileInstructions(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("ANTHROPIC_API_KEY", "")
@@ -2109,7 +2239,7 @@ func TestAuthAnthropicShowsAuthFileInstructions(t *testing.T) {
 	m := newTestModel()
 	m.options.Backend = backend
 
-	m = sendRunes(m, "/auth anthropic")
+	m = sendRunes(m, "/login anthropic")
 	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
 
 	rendered := stripANSI(m.transcript.Render())
@@ -2164,7 +2294,7 @@ func TestModelWithoutCredentialsShowsAuthFileNote(t *testing.T) {
 	}
 }
 
-func TestAuthStatusCommandRendersProviderSources(t *testing.T) {
+func TestLoginStatusCommandRendersProviderSources(t *testing.T) {
 	backend := newStubBackend()
 	accountID := "acct-test"
 	backend.authStatuses["anthropic"] = rpc.AuthProviderStatus{
@@ -2182,7 +2312,7 @@ func TestAuthStatusCommandRendersProviderSources(t *testing.T) {
 	m := newTestModel()
 	m.options.Backend = backend
 
-	m = sendRunes(m, "/auth status")
+	m = sendRunes(m, "/login status")
 	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
 
 	rendered := stripANSI(m.transcript.Render())
@@ -2197,7 +2327,7 @@ func TestAuthStatusCommandRendersProviderSources(t *testing.T) {
 	}
 }
 
-func TestAuthClearCommandCallsBackend(t *testing.T) {
+func TestLoginClearCommandCallsBackend(t *testing.T) {
 	backend := newStubBackend()
 	backend.authStatuses["openai"] = rpc.AuthProviderStatus{
 		Provider:   "openai",
@@ -2209,7 +2339,7 @@ func TestAuthClearCommandCallsBackend(t *testing.T) {
 	m := newTestModel()
 	m.options.Backend = backend
 
-	m = sendRunes(m, "/auth clear openai")
+	m = sendRunes(m, "/login clear openai")
 	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
 
 	if backend.lastCleared != "openai" {
@@ -2310,7 +2440,7 @@ func TestNameCommandWithoutActiveSessionFailsHard(t *testing.T) {
 	}
 }
 
-func TestProviderSelectionDoesNotHandleAPIKeysInTUI(t *testing.T) {
+func TestLoginSelectionDoesNotHandleAPIKeysInTUI(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("OPENAI_API_KEY", "")
@@ -2319,7 +2449,7 @@ func TestProviderSelectionDoesNotHandleAPIKeysInTUI(t *testing.T) {
 	m := newTestModel()
 	m.options.Backend = backend
 
-	m = sendRunes(m, "/auth openai")
+	m = sendRunes(m, "/login openai")
 	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
 
 	transcript := stripANSI(m.transcript.Render())

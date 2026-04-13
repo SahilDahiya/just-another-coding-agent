@@ -32,6 +32,11 @@ func (m *model) maybeStartOnboarding() tea.Cmd {
 	if statuses == nil {
 		return nil
 	}
+	if !hasAvailableLoginLane(*statuses) {
+		m.startupOnboardingSet = true
+		m.onboarding = onboardingState{Active: true, Kind: "provider", Selected: 0}
+		return nil
+	}
 
 	selectedModel := strings.TrimSpace(cfg["default_model"])
 	if selectedModel == "" {
@@ -70,14 +75,6 @@ func (m *model) shouldShowFirstRunPromptAssist() bool {
 	return strings.TrimSpace(cfg["default_provider"]) == ""
 }
 
-func firstRunOptionLines() []string {
-	return []string{
-		"1. ChatGPT subscription",
-		"2. OpenAI API key",
-		"3. Anthropic API key",
-	}
-}
-
 func onboardingSelectionForProvider(provider string) int {
 	switch provider {
 	case "openai":
@@ -94,15 +91,85 @@ func (m *model) onboardingTitle() string {
 }
 
 func (m *model) onboardingOptionLines() []string {
-	return firstRunOptionLines()
+	return []string{
+		onboardingOptionLine(
+			"1. ChatGPT subscription",
+			"browser login",
+			m.onboardingOAuthStatus("openai-codex"),
+		),
+		onboardingOptionLine(
+			"2. OpenAI API key",
+			"API key",
+			m.onboardingProviderStatus("openai"),
+		),
+		onboardingOptionLine(
+			"3. Anthropic API key",
+			"API key",
+			m.onboardingProviderStatus("anthropic"),
+		),
+	}
 }
 
 func (m *model) onboardingHelpLines() []string {
 	return []string{
-		"Choose one of the supported access paths.",
+		"Each lane shows setup and readiness.",
 		"API-key setup prepares ~/.jaca/auth.json for you.",
-		"Enter selects. Esc closes this panel.",
+		"Enter selects. Esc closes.",
 	}
+}
+
+func hasAvailableLoginLane(statuses rpc.AuthStatusResponse) bool {
+	if oauthProviderLoggedIn(statuses, "openai-codex") {
+		return true
+	}
+	return providerConfigured(statuses, "openai") || providerConfigured(statuses, "anthropic")
+}
+
+func onboardingOptionLine(title string, setup string, status string) string {
+	details := make([]string, 0, 2)
+	if strings.TrimSpace(setup) != "" {
+		details = append(details, setup)
+	}
+	if strings.TrimSpace(status) != "" {
+		details = append(details, status)
+	}
+	if len(details) == 0 {
+		return title
+	}
+	return title + "\n   " + strings.Join(details, " · ")
+}
+
+func (m *model) onboardingProviderStatus(provider string) string {
+	if m.authStatus == nil {
+		return "status loading"
+	}
+	for _, status := range m.authStatus.Providers {
+		if status.Provider != provider {
+			continue
+		}
+		if !status.Configured {
+			return "needs API key"
+		}
+		switch status.Source {
+		case "env":
+			return "ready from env"
+		case "file":
+			return "ready from auth file"
+		default:
+			return "ready"
+		}
+	}
+	return "status loading"
+}
+
+func (m *model) onboardingOAuthStatus(provider string) string {
+	if m.authStatus == nil {
+		return "status loading"
+	}
+	if oauthProviderLoggedIn(*m.authStatus, provider) {
+		return "logged in"
+	}
+	return "needs login"
 }
 
 func providerConfigured(statuses rpc.AuthStatusResponse, provider string) bool {

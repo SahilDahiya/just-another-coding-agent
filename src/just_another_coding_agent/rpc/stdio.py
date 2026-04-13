@@ -82,13 +82,13 @@ from just_another_coding_agent.contracts.run_events import (
     ToolCallStartedEvent,
     ToolCallSucceededEvent,
 )
-from just_another_coding_agent.runtime.activity import build_failed_tool_activity
 from just_another_coding_agent.contracts.tools import CANONICAL_TOOL_NAMES
 from just_another_coding_agent.provider_readiness import ProviderReadinessError
 from just_another_coding_agent.rpc.session_store import (
     create_session,
     session_path_for_id,
 )
+from just_another_coding_agent.runtime.activity import build_failed_tool_activity
 from just_another_coding_agent.runtime.compaction import (
     summarize_and_append_compaction_to_session,
 )

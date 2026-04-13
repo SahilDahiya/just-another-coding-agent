@@ -53,12 +53,12 @@ func modelMatchesProvider(model string, provider string) bool {
 }
 
 func (m *model) handleModelCommand(arg string) (tea.Model, tea.Cmd) {
-	value := strings.TrimSpace(arg)
+	value := resolveModelSelection(strings.TrimSpace(arg), m.modelCatalog)
 
 	m.transcript.WriteNote("model", nil)
 	cmd := m.requestModelCatalog()
 	if value == "" {
-		m.transcript.WriteLine(fmt.Sprintf("model: %s", m.options.Model))
+		m.transcript.WriteLine(fmt.Sprintf("model: %s", displayModelName(m.options.Model)))
 		m.refreshViewport()
 		return m, cmd
 	}
@@ -144,35 +144,6 @@ func (m *model) handleTraceCommand(arg string) {
 	}
 }
 
-func (m *model) handleAuthCommand(arg string) {
-	value := strings.TrimSpace(arg)
-	if value == "" {
-		m.transcript.WriteNote("auth", nil)
-		m.transcript.WriteError("usage: /auth <provider>|status|clear <provider>")
-		return
-	}
-	if strings.EqualFold(value, "status") {
-		m.writeAuthStatus()
-		return
-	}
-	if provider, ok := parseClearAuthProvider(value); ok {
-		m.clearProviderSecret(provider)
-		return
-	}
-
-	provider := canonicalProviderName(value)
-	switch provider {
-	case "openai", "anthropic":
-		if err := m.startCredentialSetup(provider, "", "", "", ""); err != nil {
-			m.transcript.WriteNote("auth", nil)
-			m.transcript.WriteError(err.Error())
-		}
-	default:
-		m.transcript.WriteNote("auth", nil)
-		m.transcript.WriteError("usage: /auth <provider>|status|clear <provider>")
-	}
-}
-
 func (m *model) applyProviderSelection(provider string) ([]string, bool, error) {
 	if err := config.SaveDefaultProvider(provider); err != nil {
 		return nil, false, err
@@ -191,7 +162,7 @@ func (m *model) applyProviderSelection(provider string) ([]string, bool, error) 
 		if m.options.Backend != nil {
 			m.options.Backend.SetModel(nextModel)
 		}
-		lines = append(lines, fmt.Sprintf("model set to %s", nextModel))
+		lines = append(lines, fmt.Sprintf("model set to %s", displayModelName(nextModel)))
 	}
 	return lines, true, nil
 }
@@ -229,7 +200,7 @@ func (m *model) applyModelSelection(model string, provider string) ([]string, bo
 	if m.options.Backend != nil {
 		m.options.Backend.SetModel(model)
 	}
-	lines = append(lines, fmt.Sprintf("model set to %s", model))
+	lines = append(lines, fmt.Sprintf("model set to %s", displayModelName(model)))
 	return lines, true, nil
 }
 
@@ -311,7 +282,7 @@ func (m *model) startCredentialSetup(
 	if err != nil {
 		return err
 	}
-	m.transcript.WriteNote("auth", authFileSetupNoteLines(prepared))
+	m.transcript.WriteNote("login", authFileSetupNoteLines(prepared))
 	m.auth.PendingProvider = pendingProvider
 	m.auth.PendingModel = pendingModel
 	m.auth.PendingPrompt = pendingPrompt
@@ -340,7 +311,7 @@ func (m *model) availableAuthStatus() (rpc.AuthStatusResponse, error) {
 }
 
 func (m *model) writeAuthStatus() {
-	m.transcript.WriteNote("auth", nil)
+	m.transcript.WriteNote("login", nil)
 	statuses, err := m.fetchAuthStatus()
 	if err != nil {
 		m.transcript.WriteError(err.Error())
@@ -375,7 +346,7 @@ func (m *model) writeAuthStatus() {
 }
 
 func (m *model) clearProviderSecret(provider string) {
-	m.transcript.WriteNote("auth", nil)
+	m.transcript.WriteNote("login", nil)
 	if m.options.Backend == nil {
 		m.transcript.WriteError("backend unavailable")
 		return

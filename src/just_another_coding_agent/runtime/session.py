@@ -13,7 +13,6 @@ from pydantic_ai.messages import (
     ModelResponse,
     RetryPromptPart,
     ToolCallPart,
-    ToolReturnPart,
 )
 
 from just_another_coding_agent.contracts.platform import detect_default_shell_family
@@ -383,8 +382,6 @@ async def stream_session_run_events(
         shell_family=shell_family,
         thinking=resolved_thinking,
     )
-    preexisting_history_count = len(preexisting_history)
-
     agent = build_canonical_agent(
         model=model,
         workspace_root=normalized_workspace_root,

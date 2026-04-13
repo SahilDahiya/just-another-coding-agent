@@ -103,6 +103,12 @@ The core architectural risk is semantic drift between the Go shell and the Pytho
 - `/model` suggestions should show the shipped model catalog even when a model
   is not currently usable, and label missing access explicitly instead of
   silently hiding those choices.
+- `/model` suggestions should mark immediately runnable rows with a check and
+  float those runnable rows ahead of unavailable ones so the default selection
+  lands on something the user can actually run.
+- `/model` should display public-style names such as `gpt-5.4 | api` and
+  `gpt-5.4 | oauth` so the same model reads as one model with two access
+  lanes, not as two different products with backend-only ids.
 - `/name <text>` should stay thin and backend-owned: the shell forwards raw
   text, the backend persists the normalized session name, and `/session`
   renders the returned durable name plus the opaque session id.
@@ -113,9 +119,12 @@ The core architectural risk is semantic drift between the Go shell and the Pytho
   recent-history preview in the transcript instead of inventing a separate
   resume or fork UX inside Go.
 - Startup should surface a calm first-run chooser panel when no provider has
-  been selected yet, and saved cloud-provider selections missing auth should
-  enter masked auth immediately instead of failing later in the first real
-  prompt.
+  been selected yet or when no saved login lane is currently usable, and saved
+  cloud-provider selections missing auth should only skip that chooser when
+  some other login lane is already available.
+- The first-run chooser should keep lane, setup type, and readiness in the
+  same compact read so users do not have to stitch setup state
+  together from the chooser, transcript, and slash help.
 - First-run setup should also be actionable from the prompt zone itself:
   show a prompt-footer hint and let `Tab` on an empty prompt open provider
   suggestions directly.

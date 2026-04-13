@@ -190,11 +190,11 @@ func (t *Transcript) WriteStartupBanner(appVersion string, model string, workspa
 	innerRendered = append(innerRendered, titleStyle.Render(title), "")
 
 	innerLines = append(innerLines,
-		fmt.Sprintf("model:     %s    /model to change", model),
+		fmt.Sprintf("model:     %s    /model to change", displayModelName(model)),
 		fmt.Sprintf("directory: %s", displayPath(workspaceRoot)),
 	)
 	innerRendered = append(innerRendered,
-		labelStyle.Render("model:     ")+valueStyle.Render(model)+"    "+hintStyle.Render("/model to change"),
+		labelStyle.Render("model:     ")+valueStyle.Render(displayModelName(model))+"    "+hintStyle.Render("/model to change"),
 		labelStyle.Render("directory: ")+valueStyle.Render(displayPath(workspaceRoot)),
 	)
 	if thinking != "" {
@@ -221,7 +221,7 @@ func (t *Transcript) WriteStartupBanner(appVersion string, model string, workspa
 func (t *Transcript) WriteHelp() {
 	t.WriteNote("commands", []string{
 		"  /help              show this help",
-		"  /login <service>   set up ChatGPT subscription login",
+		"  /login <lane>      connect ChatGPT or API-key access",
 		"  /model <name>      switch model",
 		"  /trace <mode>      set tracing mode",
 		"  /thinking <level>  set thinking level",
@@ -241,13 +241,12 @@ func (t *Transcript) WriteHelp() {
 		"",
 		"connect",
 		"  /login openai-codex                  connect ChatGPT subscription",
-		"  /model openai-responses:<model>-chatgpt use ChatGPT subscription models",
-		"",
-		"advanced",
-		"  /auth openai                         prepare OpenAI auth.json setup",
-		"  /auth anthropic                      prepare Anthropic auth.json setup",
-		"  /auth status                         show auth source per provider",
-		"  /auth clear <provider>               clear stored auth.json secret",
+		"  /login openai                        prepare OpenAI auth.json setup",
+		"  /login anthropic                     prepare Anthropic auth.json setup",
+		"  /login status                        show auth source per provider",
+		"  /login clear <provider>              clear stored auth.json secret",
+		"  /model gpt-5.4 | api                 use the API-key path",
+		"  /model gpt-5.4 | oauth               use the ChatGPT path",
 		"",
 		"tracing",
 		"  /trace off                           disable tracing",

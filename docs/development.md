@@ -107,13 +107,15 @@ OAuth lanes are also available for:
 
 Inside the TUI:
 
-- `/auth <provider>` prepares `~/.jaca/auth.json` if needed and shows the raw
-  file path plus the exact JSON snippet to paste for that provider
 - `/login openai-codex` starts ChatGPT subscription login
-- `/auth status` reports backend-owned provider readiness per provider,
+- `/login openai` and `/login anthropic` prepare `~/.jaca/auth.json` if
+  needed and show the raw file path plus the exact JSON snippet to paste
+- `/model` displays public-style labels such as `gpt-5.4 | api` and
+  `gpt-5.4 | oauth`, while still persisting the canonical backend model id
+- `/login status` reports backend-owned provider readiness per provider,
   including whether the current effective path requires a secret and where any
   discovered secret came from
-- `/auth clear <provider>` removes the stored local secret from `~/.jaca/auth.json`
+- `/login clear <provider>` removes the stored local secret from `~/.jaca/auth.json`
 
 `~/.jaca/config.json` stores only non-secret preferences such as
 `default_provider`, `default_model`, and `trace_mode`.

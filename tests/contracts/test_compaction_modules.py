@@ -57,10 +57,7 @@ def test_compaction_public_api_is_split_across_submodules() -> None:
 def test_summarize_compaction_source_is_exported_through_package() -> None:
     from just_another_coding_agent.runtime.compaction import summarize_compaction_source
 
-    assert (
-        session_summary.summarize_compaction_source
-        is summarize_compaction_source
-    )
+    assert session_summary.summarize_compaction_source is summarize_compaction_source
 
 
 @pytest.mark.anyio
@@ -158,7 +155,7 @@ def test_estimate_resume_history_budget_components_use_replacement_history(
                     ModelRequest(parts=[UserPromptPart(content="user")]),
                     build_compaction_summary_message("summary"),
                 ]
-            )
+            ),
         ),
         model="test:model",
     )
@@ -595,7 +592,8 @@ def test_truncate_middle_used_by_select_recent_user_message_tail() -> None:
         token_budget=1000,
     )
     user_msgs = [
-        m for m in result
+        m
+        for m in result
         if isinstance(m, ModelRequest)
         and any(isinstance(p, UserPromptPart) for p in m.parts)
     ]
@@ -633,9 +631,7 @@ async def test_in_run_compaction_fires_during_tool_loop(monkeypatch) -> None:
             return
         yield "done"
 
-    agent = Agent(
-        FunctionModel(stream_function=tool_loop_stream), output_type=str
-    )
+    agent = Agent(FunctionModel(stream_function=tool_loop_stream), output_type=str)
 
     @agent.tool_plain
     async def tick():
@@ -742,7 +738,9 @@ async def test_in_run_compaction_does_not_require_tool_activity(
 
     seed_history = [
         ModelRequest(parts=[UserPromptPart(content="earlier user turn")]),
-        ModelResponse(parts=[TextPart(content="earlier assistant text")], model_name="x"),
+        ModelResponse(
+            parts=[TextPart(content="earlier assistant text")], model_name="x"
+        ),
     ]
     events = [
         event
@@ -762,9 +760,7 @@ async def test_in_run_compaction_does_not_require_tool_activity(
     )
 
     compaction_events = [
-        event
-        for event in events
-        if isinstance(event, InRunCompactionCompletedEvent)
+        event for event in events if isinstance(event, InRunCompactionCompletedEvent)
     ]
     assert events[-1].type == "run_succeeded"
     assert len(compaction_events) == 1
@@ -801,9 +797,7 @@ async def test_in_run_compaction_circuit_breaker_on_failure(monkeypatch) -> None
             return
         yield "done"
 
-    agent = Agent(
-        FunctionModel(stream_function=tool_loop_stream), output_type=str
-    )
+    agent = Agent(FunctionModel(stream_function=tool_loop_stream), output_type=str)
 
     @agent.tool_plain
     async def tick():
@@ -882,9 +876,7 @@ async def test_in_run_compaction_message_history_sink_fires_once(
             return
         yield "done"
 
-    agent = Agent(
-        FunctionModel(stream_function=tool_loop_stream), output_type=str
-    )
+    agent = Agent(FunctionModel(stream_function=tool_loop_stream), output_type=str)
 
     @agent.tool_plain
     async def tick():
@@ -963,9 +955,7 @@ async def test_in_run_compaction_rechecks_next_request_without_tool_hysteresis(
             return
         yield "done"
 
-    agent = Agent(
-        FunctionModel(stream_function=tool_loop_stream), output_type=str
-    )
+    agent = Agent(FunctionModel(stream_function=tool_loop_stream), output_type=str)
 
     @agent.tool_plain
     async def tick():
@@ -1006,6 +996,7 @@ async def test_in_run_compaction_rechecks_next_request_without_tool_hysteresis(
     from just_another_coding_agent.contracts.run_events import (
         InRunCompactionCompletedEvent,
     )
+
     compaction_events = [
         e for e in events if isinstance(e, InRunCompactionCompletedEvent)
     ]
@@ -1066,7 +1057,11 @@ def test_build_in_run_truncated_history_keeps_user_prefix_and_recent_tail() -> N
             ],
             model_name="x",
         ),
-        ModelRequest(parts=[ToolReturnPart(tool_name="read", content="file a", tool_call_id="c1")]),
+        ModelRequest(
+            parts=[
+                ToolReturnPart(tool_name="read", content="file a", tool_call_id="c1")
+            ]
+        ),
         ModelResponse(
             parts=[
                 ThinkingPart(content="", signature="opaque-2"),
@@ -1075,7 +1070,11 @@ def test_build_in_run_truncated_history_keeps_user_prefix_and_recent_tail() -> N
             ],
             model_name="x",
         ),
-        ModelRequest(parts=[ToolReturnPart(tool_name="read", content="file b", tool_call_id="c2")]),
+        ModelRequest(
+            parts=[
+                ToolReturnPart(tool_name="read", content="file b", tool_call_id="c2")
+            ]
+        ),
     ]
     result = build_in_run_truncated_history(
         messages=messages, model="test:model", token_budget=100_000
@@ -1087,8 +1086,12 @@ def test_build_in_run_truncated_history_keeps_user_prefix_and_recent_tail() -> N
     for m in result:
         assert not any(isinstance(p, ThinkingPart) for p in m.parts)
     # Tool pairing intact
-    call_ids = {p.tool_call_id for m in result for p in m.parts if isinstance(p, ToolCallPart)}
-    return_ids = {p.tool_call_id for m in result for p in m.parts if isinstance(p, ToolReturnPart)}
+    call_ids = {
+        p.tool_call_id for m in result for p in m.parts if isinstance(p, ToolCallPart)
+    }
+    return_ids = {
+        p.tool_call_id for m in result for p in m.parts if isinstance(p, ToolReturnPart)
+    }
     assert call_ids == return_ids
     assert call_ids == {"c1", "c2"}
 
@@ -1113,7 +1116,9 @@ def test_build_in_run_truncated_history_drops_tail_under_tight_budget() -> None:
     assert any(isinstance(p, UserPromptPart) for p in result[0].parts)
 
 
-def test_build_in_run_truncated_history_preserves_user_turn_not_at_leading_edge() -> None:
+def test_build_in_run_truncated_history_preserves_user_turn_not_at_leading_edge() -> (
+    None
+):
     # Simulates a history that's already been compacted once, so the leading
     # messages are rebuilt initial_context (ModelResponse project docs) rather
     # than a user prompt. The real user task sits in the middle of the list.
@@ -1133,10 +1138,14 @@ def test_build_in_run_truncated_history_preserves_user_turn_not_at_leading_edge(
         ModelRequest(parts=[UserPromptPart(content="the original task description")]),
         ModelResponse(parts=[TextPart(content="working on it")], model_name="x"),
         ModelResponse(
-            parts=[ToolCallPart(tool_name="read", args={"path": "a"}, tool_call_id="c1")],
+            parts=[
+                ToolCallPart(tool_name="read", args={"path": "a"}, tool_call_id="c1")
+            ],
             model_name="x",
         ),
-        ModelRequest(parts=[ToolReturnPart(tool_name="read", content="A", tool_call_id="c1")]),
+        ModelRequest(
+            parts=[ToolReturnPart(tool_name="read", content="A", tool_call_id="c1")]
+        ),
         ModelResponse(parts=[TextPart(content="x" * 20_000)], model_name="x"),
         ModelResponse(parts=[TextPart(content="y" * 20_000)], model_name="x"),
         ModelResponse(parts=[TextPart(content="z" * 20_000)], model_name="x"),
@@ -1146,7 +1155,8 @@ def test_build_in_run_truncated_history_preserves_user_turn_not_at_leading_edge(
     )
     # The user prompt must be preserved even though it's not at the leading edge
     user_msgs = [
-        m for m in result
+        m
+        for m in result
         if isinstance(m, ModelRequest)
         and any(isinstance(p, UserPromptPart) for p in m.parts)
     ]
@@ -1163,7 +1173,9 @@ def test_build_in_run_truncated_history_preserves_prior_compaction_summary() -> 
         build_in_run_truncated_history,
     )
 
-    summary = build_compaction_summary_message("Primary Intent: previously summarized work")
+    summary = build_compaction_summary_message(
+        "Primary Intent: previously summarized work"
+    )
     messages = [
         summary,
         ModelRequest(parts=[UserPromptPart(content="continue the work")]),
@@ -1179,12 +1191,16 @@ def test_build_in_run_truncated_history_preserves_prior_compaction_summary() -> 
     for m in result:
         if isinstance(m, ModelResponse):
             for p in m.parts:
-                if isinstance(p, TextPart) and "previously summarized work" in p.content:
+                if (
+                    isinstance(p, TextPart)
+                    and "previously summarized work" in p.content
+                ):
                     summary_found = True
     assert summary_found
     # And the user prompt must also be preserved
     user_msgs = [
-        m for m in result
+        m
+        for m in result
         if isinstance(m, ModelRequest)
         and any(isinstance(p, UserPromptPart) for p in m.parts)
     ]
@@ -1202,17 +1218,27 @@ def test_build_in_run_truncated_history_preserves_mid_run_user_steer() -> None:
     messages = [
         ModelRequest(parts=[UserPromptPart(content="initial task")]),
         ModelResponse(
-            parts=[ToolCallPart(tool_name="read", args={"path": "a"}, tool_call_id="c1")],
+            parts=[
+                ToolCallPart(tool_name="read", args={"path": "a"}, tool_call_id="c1")
+            ],
             model_name="x",
         ),
-        ModelRequest(parts=[ToolReturnPart(tool_name="read", content="A", tool_call_id="c1")]),
+        ModelRequest(
+            parts=[ToolReturnPart(tool_name="read", content="A", tool_call_id="c1")]
+        ),
         ModelResponse(parts=[TextPart(content="padding " * 3000)], model_name="x"),
         ModelRequest(parts=[UserPromptPart(content="now please check file X")]),
         ModelResponse(
-            parts=[ToolCallPart(tool_name="read", args={"path": "X"}, tool_call_id="c2")],
+            parts=[
+                ToolCallPart(tool_name="read", args={"path": "X"}, tool_call_id="c2")
+            ],
             model_name="x",
         ),
-        ModelRequest(parts=[ToolReturnPart(tool_name="read", content="X content", tool_call_id="c2")]),
+        ModelRequest(
+            parts=[
+                ToolReturnPart(tool_name="read", content="X content", tool_call_id="c2")
+            ]
+        ),
     ]
     result = build_in_run_truncated_history(
         messages=messages, model="test:model", token_budget=500
@@ -1326,19 +1352,11 @@ def test_build_in_run_truncated_history_stale_synthetic_count_after_reconcile() 
         ModelResponse(parts=[TextPart(content="ok" * 10_000)], model_name="x"),
     ]
     stale_counts = {synthetic_text: 1}
-    reconciled = reconcile_synthetic_prompt_counts(
-        stale_counts, history_after_truncation
-    )
+    reconcile_synthetic_prompt_counts(stale_counts, history_after_truncation)
     # One live occurrence, tracked 1 → reconciled == {synthetic_text: 1}.
     # That's still wrong for our scenario, so the test here is to verify the
     # "no live occurrence" path.
 
-    history_no_synthetic = [
-        ModelRequest(parts=[UserPromptPart(content="original task")]),
-        ModelResponse(parts=[TextPart(content="padding " * 1000)], model_name="x"),
-        ModelRequest(parts=[UserPromptPart(content=synthetic_text)]),
-        ModelResponse(parts=[TextPart(content="ok " * 1000)], model_name="x"),
-    ]
     # Stale counts say "1 synthetic", but that's from an older run that's
     # since been compacted away. Live history has 1 occurrence, which is
     # actually a real user prompt the user just sent.
@@ -1386,7 +1404,9 @@ def test_build_in_run_truncated_history_stale_synthetic_count_after_reconcile() 
     assert "original task" in user_texts
 
 
-def test_build_in_run_truncated_history_real_prompt_matching_synthetic_text_stays() -> None:
+def test_build_in_run_truncated_history_real_prompt_matching_synthetic_text_stays() -> (
+    None
+):
     # A real user prompt whose text happens to equal a synthetic correction
     # string must still be treated as a real anchor. Multiset accounting:
     # the first N occurrences (matching the synthetic_prompt_counts) are
@@ -1487,9 +1507,7 @@ async def test_in_run_compaction_multi_round_integration_stress(
             return
         yield "done"
 
-    agent = Agent(
-        FunctionModel(stream_function=stream_fn), output_type=str
-    )
+    agent = Agent(FunctionModel(stream_function=stream_fn), output_type=str)
 
     @agent.tool_plain
     async def grow(index: int) -> str:
@@ -1524,9 +1542,7 @@ async def test_in_run_compaction_multi_round_integration_stress(
             return True
         return False
 
-    monkeypatch.setattr(
-        run_module, "check_in_run_compaction_needed", fake_check
-    )
+    monkeypatch.setattr(run_module, "check_in_run_compaction_needed", fake_check)
 
     sink_calls: list[list[ModelMessage]] = []
 
@@ -1576,9 +1592,7 @@ async def test_in_run_compaction_multi_round_integration_stress(
 
     # --- Invariant 2: Run terminated successfully ----------------------------
     assert events[0].type == "run_started"
-    assert events[-1].type == "run_succeeded", (
-        f"Final event: {events[-1]}"
-    )
+    assert events[-1].type == "run_succeeded", f"Final event: {events[-1]}"
 
     # --- Invariant 3: Sink fired exactly once at terminal --------------------
     assert len(sink_calls) == 1, (
@@ -1595,9 +1609,7 @@ async def test_in_run_compaction_multi_round_integration_stress(
         for p in m.parts
         if isinstance(p, UserPromptPart) and isinstance(p.content, str)
     ]
-    assert any(
-        "the original user task description" in t for t in user_texts
-    ), (
+    assert any("the original user task description" in t for t in user_texts), (
         f"Original user prompt lost after compaction; user texts in final "
         f"history: {user_texts}"
     )
@@ -1686,9 +1698,7 @@ async def test_in_run_compaction_sink_includes_compacted_history(
             return
         yield "done"
 
-    agent = Agent(
-        FunctionModel(stream_function=tool_loop_stream), output_type=str
-    )
+    agent = Agent(FunctionModel(stream_function=tool_loop_stream), output_type=str)
 
     @agent.tool_plain
     async def tick():
@@ -1758,8 +1768,5 @@ async def test_in_run_compaction_sink_includes_compacted_history(
         if isinstance(p, UserPromptPart) and isinstance(p.content, str)
     ]
     assert "UNIQUE_ORIGINAL_TASK_MARKER" in user_texts, (
-        f"Sink lost original prompt after compaction. "
-        f"User texts in sink: {user_texts}"
+        f"Sink lost original prompt after compaction. User texts in sink: {user_texts}"
     )
-
-

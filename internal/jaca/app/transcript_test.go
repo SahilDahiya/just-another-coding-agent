@@ -35,7 +35,7 @@ func TestWriteStartupBannerIncludesModelInPlainText(t *testing.T) {
 	if !strings.Contains(plain, ">_ jaca (v0.1.0)") {
 		t.Fatalf("plain banner missing title: %q", plain)
 	}
-	if !strings.Contains(plain, "model:     openai-responses:gpt-5.4") {
+	if !strings.Contains(plain, "model:     gpt-5.4 | api") {
 		t.Fatalf("plain banner missing model: %q", plain)
 	}
 	if !strings.Contains(plain, "directory: "+displayPath(workspaceRoot)) {

@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -21,9 +22,10 @@ const (
 )
 
 type slashSuggestion struct {
-	Value       string
-	Description string
-	AcceptsArgs bool
+	Value        string
+	DisplayValue string
+	Description  string
+	AcceptsArgs  bool
 }
 
 type slashMenuState struct {
@@ -42,8 +44,7 @@ type slashCommandSpec struct {
 }
 
 var slashCommands = []slashCommandSpec{
-	{Value: "/login", Description: "Set up ChatGPT subscription login", AcceptsArgs: true, ArgSuggestions: (*model).loginSlashSuggestions, Execute: (*model).executeLoginSlash},
-	{Value: "/auth", Description: "Advanced: prepare auth.json for API-key setup", AcceptsArgs: true, ArgSuggestions: (*model).authSlashSuggestions, Execute: (*model).executeAuthSlash},
+	{Value: "/login", Description: "Connect ChatGPT or API-key access", AcceptsArgs: true, ArgSuggestions: (*model).loginSlashSuggestions, Execute: (*model).executeLoginSlash},
 	{Value: "/model", Description: "Switch active model", AcceptsArgs: true, ArgSuggestions: (*model).modelSlashSuggestions, Execute: (*model).executeModelSlash},
 	{Value: "/trace", Description: "Set tracing mode", AcceptsArgs: true, ArgSuggestions: (*model).traceSlashSuggestions, Execute: (*model).executeTraceSlash},
 	{Value: "/thinking", Description: "Set thinking effort", AcceptsArgs: true, Execute: (*model).executeThinkingSlash},
@@ -130,7 +131,11 @@ func (m *model) commitSlashSuggestion() {
 		m.textInput.CursorEnd()
 		m.syncSlashMenu()
 	case slashMenuArguments:
-		m.textInput.SetValue(fmt.Sprintf("%s %s", m.slashMenu.Command, active.Value))
+		value := active.Value
+		if m.slashMenu.Command == "/model" && strings.TrimSpace(active.DisplayValue) != "" {
+			value = active.DisplayValue
+		}
+		m.textInput.SetValue(fmt.Sprintf("%s %s", m.slashMenu.Command, value))
 		m.textInput.CursorEnd()
 		m.syncSlashMenu()
 	}
@@ -212,8 +217,13 @@ func buildSlashMenuState(input string, m *model) slashMenuState {
 		return slashMenuState{}
 	}
 	rows := filterSuggestions(spec.ArgSuggestions(m), rawArg)
-	if len(rows) == 1 && strings.EqualFold(rawArg, rows[0].Value) && !hasTrailingSpace {
-		return slashMenuState{}
+	if len(rows) == 1 && !hasTrailingSpace {
+		exactValue := strings.EqualFold(rawArg, rows[0].Value)
+		exactDisplay := strings.TrimSpace(rows[0].DisplayValue) != "" &&
+			normalizeModelSelectionLabel(rawArg) == normalizeModelSelectionLabel(rows[0].DisplayValue)
+		if exactValue || exactDisplay {
+			return slashMenuState{}
+		}
 	}
 	return slashMenuState{
 		Mode:     slashMenuArguments,
@@ -235,13 +245,6 @@ func slashCommandSuggestions() []slashSuggestion {
 	return rows
 }
 
-func authSuggestions() []slashSuggestion {
-	return []slashSuggestion{
-		{Value: "openai", Description: "Prepare auth.json setup for OpenAI"},
-		{Value: "anthropic", Description: "Prepare auth.json setup for Anthropic"},
-	}
-}
-
 func traceSuggestions() []slashSuggestion {
 	return []slashSuggestion{
 		{Value: "off", Description: "Disable tracing"},
@@ -259,16 +262,12 @@ func lookupSlashCommand(name string) (slashCommandSpec, bool) {
 	return slashCommandSpec{}, false
 }
 
-func (m *model) authSlashSuggestions() []slashSuggestion {
-	return authSuggestions()
-}
-
 func (m *model) modelSlashSuggestions() []slashSuggestion {
 	return m.catalogModelSuggestions()
 }
 
 func (m *model) loginSlashSuggestions() []slashSuggestion {
-	return openAICodexLoginSuggestions()
+	return loginSuggestions(m.authStatus)
 }
 
 func (m *model) traceSlashSuggestions() []slashSuggestion {
@@ -379,12 +378,6 @@ func (m *model) executeNameSlash(arg string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m *model) executeAuthSlash(arg string) (tea.Model, tea.Cmd) {
-	m.handleAuthCommand(strings.TrimSpace(arg))
-	m.refreshViewport()
-	return m, nil
-}
-
 func (m *model) executeLoginSlash(arg string) (tea.Model, tea.Cmd) {
 	return m.handleLoginCommand(strings.TrimSpace(arg))
 }
@@ -445,42 +438,89 @@ func modelSuggestions(
 	if authStatus == nil {
 		return nil
 	}
-	rows := make([]slashSuggestion, 0)
+	type candidate struct {
+		row       slashSuggestion
+		available bool
+	}
+	rows := make([]candidate, 0)
 	for _, providerCatalog := range catalog.Providers {
 		for _, model := range providerCatalog.Models {
-			accessLabel := modelAccessLabel(
+			accessState := modelAccessState(
 				model.ModelID,
 				providerCatalog.Provider,
 				authStatus,
 			)
 			description := model.Description
-			if accessLabel != "" {
-				description = fmt.Sprintf("%s [%s]", description, accessLabel)
+			if accessState.Label != "" {
+				description = fmt.Sprintf("%s [%s]", description, accessState.Label)
 			}
-			rows = append(rows, slashSuggestion{
-				Value:       model.ModelID,
-				Description: description,
+			rows = append(rows, candidate{
+				row: slashSuggestion{
+					Value:        model.ModelID,
+					DisplayValue: displayModelName(model.ModelID),
+					Description:  description,
+				},
+				available: accessState.Available,
 			})
 		}
 	}
-	return rows
+	sort.SliceStable(rows, func(i int, j int) bool {
+		if rows[i].available == rows[j].available {
+			return false
+		}
+		return rows[i].available && !rows[j].available
+	})
+	suggestions := make([]slashSuggestion, 0, len(rows))
+	for _, row := range rows {
+		suggestions = append(suggestions, row.row)
+	}
+	return suggestions
 }
 
-func modelAccessLabel(
+type modelAccess struct {
+	Label     string
+	Available bool
+}
+
+func modelAccessState(
 	modelID string,
 	provider string,
 	authStatus *rpc.AuthStatusResponse,
-) string {
+) modelAccess {
 	if isOpenAICodexOAuthModel(modelID) {
 		if oauthLoggedIn(authStatus, "openai-codex") {
-			return "oauth"
+			return modelAccess{Label: "✓", Available: true}
 		}
-		return "oauth login required"
+		return modelAccess{Label: "oauth login required"}
 	}
 	if providerConfiguredForSuggestions(authStatus, provider) {
-		return "api-key"
+		return modelAccess{Label: "✓", Available: true}
 	}
-	return "api-key required"
+	return modelAccess{Label: "api-key required"}
+}
+
+func loginSuggestions(statuses *rpc.AuthStatusResponse) []slashSuggestion {
+	return []slashSuggestion{
+		{
+			Value:       "openai-codex",
+			Description: readyBadgeDescription("ChatGPT subscription", oauthLoggedIn(statuses, "openai-codex")),
+		},
+		{
+			Value:       "openai",
+			Description: readyBadgeDescription("OpenAI API key", providerConfiguredForSuggestions(statuses, "openai")),
+		},
+		{
+			Value:       "anthropic",
+			Description: readyBadgeDescription("Anthropic API key", providerConfiguredForSuggestions(statuses, "anthropic")),
+		},
+	}
+}
+
+func readyBadgeDescription(label string, ready bool) string {
+	if !ready {
+		return label
+	}
+	return label + " [✓]"
 }
 
 func oauthLoggedIn(statuses *rpc.AuthStatusResponse, provider string) bool {
@@ -515,12 +555,45 @@ func filterSuggestions(rows []slashSuggestion, query string) []slashSuggestion {
 	if query == "" {
 		return rows
 	}
-	filtered := make([]slashSuggestion, 0, len(rows))
+	normalizedQuery := normalizeModelSelectionLabel(query)
+	type candidate struct {
+		row   slashSuggestion
+		exact bool
+	}
+	filtered := make([]candidate, 0, len(rows))
 	for _, row := range rows {
 		value := strings.ToLower(row.Value)
-		if strings.HasPrefix(value, query) {
-			filtered = append(filtered, row)
+		displayValue := strings.ToLower(strings.TrimSpace(row.DisplayValue))
+		normalizedDisplayValue := normalizeModelSelectionLabel(displayValue)
+		if strings.HasPrefix(value, query) ||
+			(displayValue != "" && strings.HasPrefix(displayValue, query)) ||
+			(normalizedDisplayValue != "" && strings.HasPrefix(normalizedDisplayValue, normalizedQuery)) {
+			filtered = append(filtered, candidate{
+				row: row,
+				exact: value == query ||
+					displayValue == query ||
+					(normalizedDisplayValue != "" && normalizedDisplayValue == normalizedQuery),
+			})
 		}
 	}
-	return filtered
+	exactRows := make([]slashSuggestion, 0, len(filtered))
+	for _, row := range filtered {
+		if row.exact {
+			exactRows = append(exactRows, row.row)
+		}
+	}
+	if len(exactRows) > 0 {
+		return exactRows
+	}
+	sort.SliceStable(filtered, func(i int, j int) bool {
+		if filtered[i].exact == filtered[j].exact {
+			return false
+		}
+		return filtered[i].exact && !filtered[j].exact
+	})
+	result := make([]slashSuggestion, 0, len(filtered))
+	for _, row := range filtered {
+		result = append(result, row.row)
+	}
+	return result
 }

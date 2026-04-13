@@ -36,7 +36,7 @@ func TestBuildStatusTextIncludesTruncatedSessionAndThinking(t *testing.T) {
 		MotionTick:    1,
 	})
 
-	want := "streaming.. | openai-responses:gpt-5.4 | " + displayPath(workspaceRoot) + " | thinking=high | session=12345678"
+	want := "streaming.. | gpt-5.4 | api | " + displayPath(workspaceRoot) + " | thinking=high | session=12345678"
 	if got != want {
 		t.Fatalf("buildStatusText() = %q, want %q", got, want)
 	}
@@ -49,7 +49,7 @@ func TestBuildPromptFooterTextShowsModelAndThinkingWhenStreaming(t *testing.T) {
 		Thinking: "medium",
 	})
 
-	if !strings.Contains(got, "openai:gpt-5") {
+	if !strings.Contains(got, "gpt-5 | api") {
 		t.Fatalf("streaming footer missing model: %q", got)
 	}
 	if !strings.Contains(got, "thinking=medium") {
@@ -67,7 +67,7 @@ func TestBuildPromptFooterTextShowsModelAndWorkspaceWhenIdle(t *testing.T) {
 		WorkspaceRoot: "/workspace",
 	})
 
-	if !strings.Contains(got, "openai-responses:gpt-5-codex") {
+	if !strings.Contains(got, "gpt-5-codex | oauth") {
 		t.Fatalf("idle footer missing model: %q", got)
 	}
 	if !strings.Contains(got, "/workspace") {
@@ -387,7 +387,7 @@ func TestBuildPromptFooterTextShowsCompactUsageWhenIdle(t *testing.T) {
 		},
 	})
 
-	for _, want := range []string{"openai-responses:gpt-5.4-chatgpt", "/workspace", "59% left"} {
+	for _, want := range []string{"gpt-5.4 | oauth", "/workspace", "59% left"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("buildPromptFooterText() missing %q in %q", want, got)
 		}

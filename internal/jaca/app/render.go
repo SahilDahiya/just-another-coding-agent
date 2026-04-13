@@ -631,6 +631,7 @@ func renderWordWave(frame string, motionTick int) string {
 
 func renderSlashMenu(state slashMenuState) string {
 	rows := visibleSlashMenuRows(state)
+	valueWidth := slashMenuValueWidth(rows)
 	lines := make([]string, 0, len(rows))
 	selectedStart := max(0, state.Selected-(maxSlashMenuRows/2))
 	if selectedStart+len(rows) > len(state.Rows) {
@@ -651,12 +652,41 @@ func renderSlashMenu(state slashMenuState) string {
 				lipgloss.Left,
 				lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render(prefix),
 				" ",
-				lipgloss.NewStyle().Foreground(valueColor).Render(padRight(row.Value, 16)),
-				lipgloss.NewStyle().Foreground(descColor).Render(row.Description),
+				lipgloss.NewStyle().Foreground(valueColor).Render(padRight(slashDisplayValue(row), valueWidth)),
+				renderSlashDescription(row.Description, descColor),
 			),
 		)
 	}
 	return lipgloss.JoinVertical(lipgloss.Left, lines...)
+}
+
+func slashMenuValueWidth(rows []slashSuggestion) int {
+	width := 16
+	for _, row := range rows {
+		width = max(width, lipgloss.Width(slashDisplayValue(row)))
+	}
+	return min(width, 28)
+}
+
+func slashDisplayValue(row slashSuggestion) string {
+	if strings.TrimSpace(row.DisplayValue) != "" {
+		return row.DisplayValue
+	}
+	return row.Value
+}
+
+func renderSlashDescription(description string, descColor lipgloss.TerminalColor) string {
+	const readyBadge = "[✓]"
+	if !strings.Contains(description, readyBadge) {
+		return lipgloss.NewStyle().Foreground(descColor).Render(description)
+	}
+	parts := strings.SplitN(description, readyBadge, 2)
+	badge := lipgloss.NewStyle().Foreground(defaultTheme.successSoft).Render(readyBadge)
+	rendered := lipgloss.NewStyle().Foreground(descColor).Render(parts[0]) + badge
+	if len(parts) == 2 && parts[1] != "" {
+		rendered += lipgloss.NewStyle().Foreground(descColor).Render(parts[1])
+	}
+	return rendered
 }
 
 func visibleSlashMenuRows(state slashMenuState) []slashSuggestion {
@@ -707,7 +737,7 @@ func buildPromptFooterText(vm viewModel) string {
 	}
 	switch vm.Phase {
 	case PhaseStreaming, PhaseCompacting:
-		parts := []string{vm.Model}
+		parts := []string{displayModelName(vm.Model)}
 		if vm.Thinking != "" {
 			parts = append(parts, fmt.Sprintf("thinking=%s", vm.Thinking))
 		}
@@ -814,7 +844,7 @@ func minInt(a int, b int) int {
 
 func buildIdleFooterText(vm viewModel) string {
 	parts := []string{
-		vm.Model,
+		displayModelName(vm.Model),
 		displayPath(vm.WorkspaceRoot),
 	}
 	if vm.Thinking != "" {
@@ -872,7 +902,7 @@ func joinFooterParts(parts ...string) string {
 func buildStatusText(vm viewModel) string {
 	parts := []string{
 		buildPhaseLabel(vm.Phase, vm.MotionTick),
-		vm.Model,
+		displayModelName(vm.Model),
 		displayPath(vm.WorkspaceRoot),
 	}
 	if vm.Thinking != "" {

@@ -550,9 +550,13 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *model) finishLoginSuccess(lines []string) (tea.Model, tea.Cmd) {
 	pendingModel := m.login.PendingModel
 	pendingPrompt := m.login.PendingPrompt
+	loginProvider := m.login.Provider
 	var cmds []tea.Cmd
 	m.endLoginFlow()
 	m.transcript.WriteNote("login", lines)
+	if pendingModel == "" && loginProvider == "openai-codex" {
+		pendingModel = m.defaultOAuthLoginModel()
+	}
 	if pendingModel != "" {
 		selectedLines, restart, err := m.applyModelSelection(
 			pendingModel,
@@ -579,6 +583,26 @@ func (m *model) finishLoginSuccess(lines []string) (tea.Model, tea.Cmd) {
 	m.refreshViewport()
 	m.viewport.GotoBottom()
 	return m, tea.Batch(cmds...)
+}
+
+func (m *model) defaultOAuthLoginModel() string {
+	if isOpenAICodexOAuthModel(m.options.Model) {
+		return m.options.Model
+	}
+	if m.modelCatalog == nil {
+		return ""
+	}
+	for _, providerCatalog := range m.modelCatalog.Providers {
+		if providerCatalog.Provider != "openai" {
+			continue
+		}
+		for _, model := range providerCatalog.Models {
+			if isOpenAICodexOAuthModel(model.ModelID) {
+				return model.ModelID
+			}
+		}
+	}
+	return ""
 }
 
 func (m *model) View() string {
