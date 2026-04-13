@@ -78,6 +78,7 @@ from just_another_coding_agent.runtime.transcript_summary import (
 )
 from just_another_coding_agent.session.replacement_history import (
     build_in_run_truncated_history,
+    reconcile_synthetic_prompt_counts,
 )
 from just_another_coding_agent.tools.deps import WorkspaceDeps
 
@@ -773,6 +774,13 @@ async def _stream_run_events_with_steer(
                     continue
 
                 current_message_history = replacement
+                # After truncation, some synthetic prompts may no longer be
+                # present in the new history. Drop their stale counts so a
+                # later real user prompt with the same text is not
+                # misclassified as synthetic.
+                synthetic_prompt_counts = reconcile_synthetic_prompt_counts(
+                    synthetic_prompt_counts, current_message_history
+                )
                 carried_messages.clear()
                 current_prompt = IN_RUN_COMPACTION_CONTINUATION_PROMPT
                 synthetic_prompt_counts[IN_RUN_COMPACTION_CONTINUATION_PROMPT] = (

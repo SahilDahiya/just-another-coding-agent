@@ -273,6 +273,35 @@ def _user_prompt_texts(message: ModelMessage) -> list[str]:
     return texts
 
 
+def reconcile_synthetic_prompt_counts(
+    counts: Mapping[str, int],
+    messages: Sequence[ModelMessage],
+) -> dict[str, int]:
+    """Cap each tracked synthetic count at the number of actual occurrences
+    in the given history.
+
+    Called after any mutation that REMOVES messages from the live history
+    (in-run compaction). A synthetic prompt that is no longer present in the
+    history must have its count dropped, otherwise a later real user prompt
+    with the same text would be consumed as synthetic by
+    build_in_run_truncated_history.
+    """
+    if not counts:
+        return {}
+    occurrences: dict[str, int] = {}
+    for message in messages:
+        for text in _user_prompt_texts(message):
+            if text in counts:
+                occurrences[text] = occurrences.get(text, 0) + 1
+    reconciled: dict[str, int] = {}
+    for text, tracked in counts.items():
+        live = occurrences.get(text, 0)
+        capped = min(tracked, live)
+        if capped > 0:
+            reconciled[text] = capped
+    return reconciled
+
+
 def _message_text_for_budget(message: ModelMessage) -> str:
     fragments: list[str] = []
     for part in message.parts:
@@ -450,6 +479,7 @@ __all__ = [
     "build_in_run_truncated_history",
     "extract_compaction_summary_text",
     "is_compaction_summary_message",
+    "reconcile_synthetic_prompt_counts",
     "strip_internal_prompt_state",
     "strip_thinking_parts",
     "strip_unpaired_tool_parts",

@@ -1261,6 +1261,131 @@ def test_build_in_run_truncated_history_does_not_anchor_synthetic_prompts() -> N
     assert "original task" in user_texts
 
 
+def test_reconcile_synthetic_prompt_counts_drops_missing_entries() -> None:
+    from just_another_coding_agent.session.replacement_history import (
+        reconcile_synthetic_prompt_counts,
+    )
+
+    # Synthetic text not in history anymore: entry dropped.
+    counts = {"continuation text": 1, "still here": 2}
+    history = [
+        ModelRequest(parts=[UserPromptPart(content="still here")]),
+        ModelRequest(parts=[UserPromptPart(content="real user prompt")]),
+    ]
+    reconciled = reconcile_synthetic_prompt_counts(counts, history)
+    assert reconciled == {"still here": 1}
+
+
+def test_reconcile_synthetic_prompt_counts_caps_at_live_occurrences() -> None:
+    from just_another_coding_agent.session.replacement_history import (
+        reconcile_synthetic_prompt_counts,
+    )
+
+    # Tracked 3 but only 2 live in history: cap at 2.
+    counts = {"text": 3}
+    history = [
+        ModelRequest(parts=[UserPromptPart(content="text")]),
+        ModelRequest(parts=[UserPromptPart(content="text")]),
+    ]
+    reconciled = reconcile_synthetic_prompt_counts(counts, history)
+    assert reconciled == {"text": 2}
+
+
+def test_reconcile_synthetic_prompt_counts_empty_input() -> None:
+    from just_another_coding_agent.session.replacement_history import (
+        reconcile_synthetic_prompt_counts,
+    )
+
+    assert reconcile_synthetic_prompt_counts({}, []) == {}
+    assert (
+        reconcile_synthetic_prompt_counts(
+            {"x": 1},
+            [ModelRequest(parts=[UserPromptPart(content="y")])],
+        )
+        == {}
+    )
+
+
+def test_build_in_run_truncated_history_stale_synthetic_count_after_reconcile() -> None:
+    # Simulates the post-compaction state: caller has already reconciled
+    # synthetic_prompt_counts against the new (compacted) history, so a
+    # later real user prompt with the same text as an old (dropped) synthetic
+    # is correctly treated as real.
+    from just_another_coding_agent.session.replacement_history import (
+        build_in_run_truncated_history,
+        reconcile_synthetic_prompt_counts,
+    )
+
+    synthetic_text = "Continue..."
+    # User sends a real prompt that happens to equal an old synthetic text.
+    # No synthetic occurrence is present in history (was dropped by prior
+    # truncation). Reconciling first clears the stale entry.
+    history_after_truncation = [
+        ModelRequest(parts=[UserPromptPart(content="original task")]),
+        ModelRequest(parts=[UserPromptPart(content=synthetic_text)]),
+        ModelResponse(parts=[TextPart(content="ok" * 10_000)], model_name="x"),
+    ]
+    stale_counts = {synthetic_text: 1}
+    reconciled = reconcile_synthetic_prompt_counts(
+        stale_counts, history_after_truncation
+    )
+    # One live occurrence, tracked 1 → reconciled == {synthetic_text: 1}.
+    # That's still wrong for our scenario, so the test here is to verify the
+    # "no live occurrence" path.
+
+    history_no_synthetic = [
+        ModelRequest(parts=[UserPromptPart(content="original task")]),
+        ModelResponse(parts=[TextPart(content="padding " * 1000)], model_name="x"),
+        ModelRequest(parts=[UserPromptPart(content=synthetic_text)]),
+        ModelResponse(parts=[TextPart(content="ok " * 1000)], model_name="x"),
+    ]
+    # Stale counts say "1 synthetic", but that's from an older run that's
+    # since been compacted away. Live history has 1 occurrence, which is
+    # actually a real user prompt the user just sent.
+    #
+    # Without reconciling, build_in_run_truncated_history consumes the 1
+    # match as synthetic and drops it under tight budget.
+    # With reconciling, if the live count matches the tracked count we
+    # still consume it (we can't distinguish) — but if the PRIOR compaction
+    # already dropped the synthetic before the real user sent theirs, the
+    # tracked count would have been reconciled to 0 at that time.
+    #
+    # This test verifies the run-loop-style flow: reconcile against the
+    # post-compaction history BEFORE the real prompt is added.
+    post_compaction_history = [
+        ModelRequest(parts=[UserPromptPart(content="original task")]),
+        ModelResponse(parts=[TextPart(content="tail")], model_name="x"),
+    ]
+    # After compaction, no synthetic occurrences remain:
+    reconciled_clean = reconcile_synthetic_prompt_counts(
+        {synthetic_text: 1}, post_compaction_history
+    )
+    assert reconciled_clean == {}
+
+    # Now the real user adds a message with the synthetic text:
+    history_with_real = [
+        *post_compaction_history,
+        ModelRequest(parts=[UserPromptPart(content=synthetic_text)]),
+        ModelResponse(parts=[TextPart(content="b" * 10_000)], model_name="x"),
+    ]
+    # Passing the reconciled (empty) counts, the real prompt is preserved.
+    result = build_in_run_truncated_history(
+        messages=history_with_real,
+        model="test:model",
+        token_budget=500,
+        synthetic_prompt_counts=reconciled_clean,
+    )
+    user_texts = [
+        p.content
+        for m in result
+        if isinstance(m, ModelRequest)
+        for p in m.parts
+        if isinstance(p, UserPromptPart)
+    ]
+    assert synthetic_text in user_texts
+    assert "original task" in user_texts
+
+
 def test_build_in_run_truncated_history_real_prompt_matching_synthetic_text_stays() -> None:
     # A real user prompt whose text happens to equal a synthetic correction
     # string must still be treated as a real anchor. Multiset accounting:
