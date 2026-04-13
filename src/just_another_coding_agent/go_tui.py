@@ -107,10 +107,13 @@ def resolve_release_version_for_launch() -> CachedReleaseVersion | None:
     if latest_version is None:
         return cached
 
-    write_cached_release_version(latest_version)
-    refreshed = load_cached_release_version()
-    if refreshed is not None:
-        return refreshed
+    try:
+        write_cached_release_version(latest_version)
+        refreshed = load_cached_release_version()
+        if refreshed is not None:
+            return refreshed
+    except OSError:
+        pass
     return CachedReleaseVersion(
         latest_version=latest_version,
         last_checked_at=datetime.now(UTC),

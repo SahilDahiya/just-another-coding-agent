@@ -185,6 +185,18 @@ func TestNormalizeFindMatchPath(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("literal backslash handling matches platform semantics", func(t *testing.T) {
+		input := "./nested/back\\slash.py"
+		want := "nested/back\\slash.py"
+		if runtime.GOOS == "windows" {
+			want = "nested/back/slash.py"
+		}
+		got := normalizeFindMatchPath(input)
+		if got != want {
+			t.Fatalf("normalizeFindMatchPath(%q) = %q, want %q", input, got, want)
+		}
+	})
 }
 
 func TestMaxInt(t *testing.T) {

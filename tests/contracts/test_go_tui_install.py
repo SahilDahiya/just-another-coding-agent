@@ -223,6 +223,36 @@ def test_available_installed_update_refreshes_stale_cache_for_current_launch(
     assert writes == ["0.1.17"]
 
 
+def test_available_installed_update_uses_live_version_when_cache_write_fails(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        go_tui,
+        "explicit_update_command",
+        lambda **_: ["uv", "tool", "upgrade", "just-another-coding-agent"],
+    )
+    stale_cache = go_tui.CachedReleaseVersion(
+        latest_version="0.1.17",
+        last_checked_at=datetime.now(UTC) - timedelta(hours=25),
+    )
+    monkeypatch.setattr(go_tui, "load_cached_release_version", lambda: stale_cache)
+    monkeypatch.setattr(go_tui, "fetch_latest_release_version", lambda: "0.1.18")
+
+    def fail_write(*args, **kwargs) -> None:
+        del args, kwargs
+        raise OSError("read-only home")
+
+    monkeypatch.setattr(go_tui, "write_cached_release_version", fail_write)
+
+    assert go_tui.available_installed_update(
+        current_version="0.1.17"
+    ) == go_tui.AvailableUpdate(
+        current_version="0.1.17",
+        latest_version="0.1.18",
+        command=("uv", "tool", "upgrade", "just-another-coding-agent"),
+    )
+
+
 def test_available_installed_update_is_disabled_in_repo_checkout(
     monkeypatch, tmp_path
 ) -> None:
