@@ -19,6 +19,7 @@ type Backend interface {
 	CompactSession(ctx context.Context, sessionID string) (rpc.SessionCompactResponse, error)
 	ModelCatalog(ctx context.Context) (rpc.ModelCatalogResponse, error)
 	AuthStatus(ctx context.Context) (rpc.AuthStatusResponse, error)
+	TraceLogfireStatus(ctx context.Context) (rpc.TraceLogfireStatusResponse, error)
 	PrepareAuthFile(ctx context.Context, provider string) (rpc.AuthPrepareFileResponse, error)
 	StartOpenAICodexLogin(ctx context.Context) (rpc.AuthLoginOpenAICodexStartResponse, error)
 	CompleteOpenAICodexLogin(ctx context.Context, flowID string, callbackOrCode string) (rpc.AuthLoginOpenAICodexCompleteResponse, error)

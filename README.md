@@ -209,19 +209,11 @@ If you omit the reference, `jaca fork` uses the same current-workspace picker as
 start as a new session with copied history instead of mutating the original
 thread.
 
-Tracing is off by default. Local and Logfire tracing both require the optional
-trace dependency:
-
-```bash
-uv sync --extra trace
-```
-
-For `logfire` mode, authenticate first:
-
-```bash
-uv run logfire auth
-uv run logfire projects use <project>
-```
+Tracing is off by default. Published installs already bundle the tracing
+dependencies, and repo checkouts get them from the normal `uv sync` setup.
+When `/trace logfire` is not ready yet, JACA tells the user to install
+Logfire, run `logfire auth`, run `logfire projects use <project>`, retry
+`/trace logfire`, and use `/trace local` until Logfire is ready.
 
 If interactive login starts on a machine without a supported OS keychain
 backend, JACA goes directly to the local secret file flow and explains that it

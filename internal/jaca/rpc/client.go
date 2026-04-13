@@ -178,6 +178,16 @@ func (m *Manager) AuthStatus(ctx context.Context) (AuthStatusResponse, error) {
 	return client.AuthStatus(ctx)
 }
 
+func (m *Manager) TraceLogfireStatus(ctx context.Context) (TraceLogfireStatusResponse, error) {
+	m.mu.Lock()
+	client, err := m.ensureStartedLocked()
+	m.mu.Unlock()
+	if err != nil {
+		return TraceLogfireStatusResponse{}, err
+	}
+	return client.TraceLogfireStatus(ctx)
+}
+
 func (m *Manager) StartOpenAICodexLogin(ctx context.Context) (AuthLoginOpenAICodexStartResponse, error) {
 	m.mu.Lock()
 	client, err := m.ensureStartedLocked()
@@ -751,6 +761,41 @@ func (c *Client) AuthStatus(ctx context.Context) (AuthStatusResponse, error) {
 		return AuthStatusResponse{}, fmt.Errorf("%s: %s", envelope.ErrorType, envelope.Message)
 	default:
 		return AuthStatusResponse{}, fmt.Errorf("unexpected envelope for auth.status: %T", line)
+	}
+}
+
+func (c *Client) TraceLogfireStatus(ctx context.Context) (TraceLogfireStatusResponse, error) {
+	requestID := c.nextRequestID()
+	waiter, cleanup, err := c.registerWaiter(requestID)
+	if err != nil {
+		return TraceLogfireStatusResponse{}, err
+	}
+	defer cleanup()
+	c.writeMu.Lock()
+	if err := c.writeRequest(Request{
+		ID:      requestID,
+		Command: "trace.logfire_status",
+		Payload: TraceLogfireStatusPayload{},
+	}); err != nil {
+		c.writeMu.Unlock()
+		return TraceLogfireStatusResponse{}, err
+	}
+	c.writeMu.Unlock()
+	line, err := c.awaitEnvelope(ctx, waiter)
+	if err != nil {
+		return TraceLogfireStatusResponse{}, err
+	}
+	switch envelope := line.(type) {
+	case ResponseEnvelope:
+		var response TraceLogfireStatusResponse
+		if err := json.Unmarshal(envelope.Response, &response); err != nil {
+			return TraceLogfireStatusResponse{}, err
+		}
+		return response, nil
+	case ErrorEnvelope:
+		return TraceLogfireStatusResponse{}, fmt.Errorf("%s: %s", envelope.ErrorType, envelope.Message)
+	default:
+		return TraceLogfireStatusResponse{}, fmt.Errorf("unexpected envelope for trace.logfire_status: %T", line)
 	}
 }
 

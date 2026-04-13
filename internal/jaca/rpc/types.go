@@ -28,6 +28,8 @@ type ModelCatalogPayload struct{}
 
 type AuthStatusPayload struct{}
 
+type TraceLogfireStatusPayload struct{}
+
 type AuthPrepareFilePayload struct {
 	Provider string `json:"provider"`
 }
@@ -173,6 +175,11 @@ type AuthStatusResponse struct {
 	OAuthProviders   []OAuthProviderStatus  `json:"oauth_providers"`
 }
 
+type TraceLogfireStatusResponse struct {
+	Installed             bool `json:"installed"`
+	CredentialsConfigured bool `json:"credentials_configured"`
+}
+
 type AuthPrepareFileResponse struct {
 	Provider     string `json:"provider"`
 	EnvKey       string `json:"env_key"`
@@ -242,34 +249,34 @@ type EventEnvelope struct {
 }
 
 type RunEvent struct {
-	Type                   string                `json:"type"`
-	RunID                  string                `json:"run_id"`
-	CompactionID           string                `json:"compaction_id,omitempty"`
-	CompactionCount        *int                  `json:"compaction_count,omitempty"`
-	SummarizedThrough      string                `json:"summarized_through_run_id,omitempty"`
-	Delta                  string                `json:"delta,omitempty"`
-	ToolCallID             string                `json:"tool_call_id,omitempty"`
-	ToolName               string                `json:"tool_name,omitempty"`
-	Args                   map[string]any        `json:"args,omitempty"`
-	ArgsValid              *bool                 `json:"args_valid,omitempty"`
-	Result                 any                   `json:"result,omitempty"`
-	Partial                any                   `json:"partial_result,omitempty"`
-	ErrorType              string                `json:"error_type,omitempty"`
-	Message                string                `json:"message,omitempty"`
-	OutputText             string                `json:"output_text,omitempty"`
-	InputTokens            *int                  `json:"input_tokens,omitempty"`
-	OutputTokens           *int                  `json:"output_tokens,omitempty"`
-	TotalTokens            *int                  `json:"total_tokens,omitempty"`
-	ContextWindowUsed      *float64              `json:"context_window_used,omitempty"`
-	NextRequestContextUsed *float64              `json:"next_request_context_window_used,omitempty"`
-	NextPrompts            []string              `json:"next_prompts,omitempty"`
-	LaterPrompts           []string              `json:"later_prompts,omitempty"`
-	Prompts                []string              `json:"prompts,omitempty"`
-	Mode                   string                `json:"mode,omitempty"`
+	Type                    string                `json:"type"`
+	RunID                   string                `json:"run_id"`
+	CompactionID            string                `json:"compaction_id,omitempty"`
+	CompactionCount         *int                  `json:"compaction_count,omitempty"`
+	SummarizedThrough       string                `json:"summarized_through_run_id,omitempty"`
+	Delta                   string                `json:"delta,omitempty"`
+	ToolCallID              string                `json:"tool_call_id,omitempty"`
+	ToolName                string                `json:"tool_name,omitempty"`
+	Args                    map[string]any        `json:"args,omitempty"`
+	ArgsValid               *bool                 `json:"args_valid,omitempty"`
+	Result                  any                   `json:"result,omitempty"`
+	Partial                 any                   `json:"partial_result,omitempty"`
+	ErrorType               string                `json:"error_type,omitempty"`
+	Message                 string                `json:"message,omitempty"`
+	OutputText              string                `json:"output_text,omitempty"`
+	InputTokens             *int                  `json:"input_tokens,omitempty"`
+	OutputTokens            *int                  `json:"output_tokens,omitempty"`
+	TotalTokens             *int                  `json:"total_tokens,omitempty"`
+	ContextWindowUsed       *float64              `json:"context_window_used,omitempty"`
+	NextRequestContextUsed  *float64              `json:"next_request_context_window_used,omitempty"`
+	NextPrompts             []string              `json:"next_prompts,omitempty"`
+	LaterPrompts            []string              `json:"later_prompts,omitempty"`
+	Prompts                 []string              `json:"prompts,omitempty"`
+	Mode                    string                `json:"mode,omitempty"`
 	LiveMessageCount        *int                  `json:"live_message_count,omitempty"`
 	ReplacementMessageCount *int                  `json:"replacement_message_count,omitempty"`
-	Activity               *ToolActivity         `json:"activity,omitempty"`
-	TranscriptSummary      *RunTranscriptSummary `json:"transcript_summary,omitempty"`
+	Activity                *ToolActivity         `json:"activity,omitempty"`
+	TranscriptSummary       *RunTranscriptSummary `json:"transcript_summary,omitempty"`
 }
 
 type ToolActivity struct {

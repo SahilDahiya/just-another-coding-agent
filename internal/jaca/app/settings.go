@@ -130,6 +130,19 @@ func (m *model) handleTraceCommand(arg string) {
 		m.transcript.WriteLine(fmt.Sprintf("trace: %s", mode))
 		return
 	}
+	if value == "logfire" {
+		status, err := m.traceLogfireStatus()
+		if err != nil {
+			m.transcript.WriteError(err.Error())
+			return
+		}
+		if !status.Installed || !status.CredentialsConfigured {
+			for _, line := range m.logfireTraceSetupLines(status) {
+				m.transcript.WriteLine(line)
+			}
+			return
+		}
+	}
 	if err := config.SaveTraceMode(value); err != nil {
 		m.transcript.WriteError(err.Error())
 		return
@@ -142,6 +155,34 @@ func (m *model) handleTraceCommand(arg string) {
 		}
 		m.restartBackendWithCurrentEnv()
 	}
+}
+
+func (m *model) traceLogfireStatus() (rpc.TraceLogfireStatusResponse, error) {
+	if m.options.Backend == nil {
+		return rpc.TraceLogfireStatusResponse{}, nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), authStatusTimeout)
+	defer cancel()
+	return m.options.Backend.TraceLogfireStatus(ctx)
+}
+
+func (m *model) logfireTraceSetupLines(status rpc.TraceLogfireStatusResponse) []string {
+	lines := []string{"Logfire tracing is not ready yet."}
+	if !status.Installed {
+		lines = append(lines, "Install Logfire first so the `logfire` command is available.")
+		lines = append(lines, "Install it with: pip install logfire")
+	}
+	if status.Installed && !status.CredentialsConfigured {
+		lines = append(lines, "Authenticate with Logfire: logfire auth")
+		lines = append(lines, "Select a Logfire project: logfire projects use <project>")
+	}
+	if !status.Installed {
+		lines = append(lines, "Then run: logfire auth")
+		lines = append(lines, "Then run: logfire projects use <project>")
+	}
+	lines = append(lines, "Retry: /trace logfire")
+	lines = append(lines, "Until then, use: /trace local")
+	return lines
 }
 
 func (m *model) handleVersionCommand() {

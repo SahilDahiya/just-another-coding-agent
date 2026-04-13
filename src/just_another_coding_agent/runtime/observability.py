@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import importlib
 import os
+import shutil
 import tomllib
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +16,12 @@ from just_another_coding_agent.runtime.local_traces import (
 
 _configured = False
 _DEFAULT_SERVICE_NAME = "jaca"
+
+
+@dataclass(frozen=True)
+class LogfireSetupStatus:
+    installed: bool
+    credentials_configured: bool
 
 
 def configure_observability() -> None:
@@ -33,7 +42,7 @@ def configure_observability() -> None:
         if not _has_logfire_credentials():
             raise RuntimeError(
                 "JACA_TRACE_MODE=logfire requires Logfire project credentials. "
-                "Run `uv run logfire auth` and `uv run logfire projects use "
+                "Run `logfire auth` and `logfire projects use "
                 "<project>` or set `LOGFIRE_TOKEN`."
             )
         logfire.configure(
@@ -79,9 +88,15 @@ def _scrub_only_api_keys(match: Any) -> Any:
 
 
 def _import_logfire() -> Any:
-    import logfire
-
-    return logfire
+    try:
+        return importlib.import_module("logfire")
+    except ModuleNotFoundError as error:
+        raise RuntimeError(
+            "JACA_TRACE_MODE=logfire requires the `logfire` package in this "
+            "environment. Install it with `pip install logfire`, run "
+            "`logfire auth`, and run `logfire projects use <project>` or set "
+            "`LOGFIRE_TOKEN`."
+        ) from error
 
 
 def _configure_local_tracing(service_name: str) -> None:
@@ -133,4 +148,19 @@ def _has_logfire_credentials() -> bool:
     return False
 
 
-__all__ = ["configure_observability"]
+def logfire_setup_status() -> LogfireSetupStatus:
+    return LogfireSetupStatus(
+        installed=_is_logfire_installed(),
+        credentials_configured=_has_logfire_credentials(),
+    )
+
+
+def _is_logfire_installed() -> bool:
+    try:
+        importlib.import_module("logfire")
+    except ModuleNotFoundError:
+        return False
+    return shutil.which("logfire") is not None
+
+
+__all__ = ["LogfireSetupStatus", "configure_observability", "logfire_setup_status"]

@@ -130,6 +130,9 @@ When `JACA_TRACE_MODE=logfire` is set, the backend also requires Logfire project
 credentials via `uv run logfire auth` plus `uv run logfire projects use <project>`
 or an explicit `LOGFIRE_TOKEN`. If either the optional dependency or the
 credentials are missing, startup fails hard.
+In the TUI, `/trace logfire` now preflights that setup first and points to the
+Logfire install/auth steps before retrying the slash command, and tells the
+user to stay on `/trace local` until Logfire is ready.
 
 ## CI
 

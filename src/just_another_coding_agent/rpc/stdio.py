@@ -67,6 +67,8 @@ from just_another_coding_agent.contracts.rpc import (
     SessionNameResponse,
     SessionPreviewRequest,
     SessionPreviewResponse,
+    TraceLogfireStatusRequest,
+    TraceLogfireStatusResponse,
     WorkspaceProjectDoc,
     WorkspaceProjectDocsRequest,
     WorkspaceProjectDocsResponse,
@@ -95,6 +97,7 @@ from just_another_coding_agent.runtime.compaction import (
 from just_another_coding_agent.runtime.project_docs import (
     load_workspace_project_docs,
 )
+from just_another_coding_agent.runtime.observability import logfire_setup_status
 from just_another_coding_agent.runtime.session import stream_session_run_events
 from just_another_coding_agent.session import (
     SessionFormatError,
@@ -471,6 +474,17 @@ async def handle_rpc_json_line(
                 providers=providers,
                 local_secret_store=get_local_secret_store_status(),
                 oauth_providers=get_oauth_provider_statuses(),
+            ),
+        ).model_dump_json()
+        return
+
+    if isinstance(request, TraceLogfireStatusRequest):
+        status = logfire_setup_status()
+        yield RpcResponseEnvelope(
+            id=request.id,
+            response=TraceLogfireStatusResponse(
+                installed=status.installed,
+                credentials_configured=status.credentials_configured,
             ),
         ).model_dump_json()
         return

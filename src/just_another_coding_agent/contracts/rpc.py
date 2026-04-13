@@ -81,6 +81,16 @@ class AuthStatusRequest(_RpcModel):
     payload: AuthStatusPayload
 
 
+class TraceLogfireStatusPayload(_RpcModel):
+    pass
+
+
+class TraceLogfireStatusRequest(_RpcModel):
+    id: str
+    command: Literal["trace.logfire_status"]
+    payload: TraceLogfireStatusPayload
+
+
 class AuthPrepareFilePayload(_RpcModel):
     provider: ProviderName
 
@@ -200,6 +210,7 @@ RpcRequest = Annotated[
     | SessionPreviewRequest
     | ModelCatalogRequest
     | AuthStatusRequest
+    | TraceLogfireStatusRequest
     | AuthPrepareFileRequest
     | AuthSetRequest
     | AuthClearRequest
@@ -248,6 +259,11 @@ class AuthStatusResponse(_RpcModel):
     providers: list[AuthProviderStatus]
     local_secret_store: RpcLocalSecretStoreStatus
     oauth_providers: list[OAuthProviderStatus]
+
+
+class TraceLogfireStatusResponse(_RpcModel):
+    installed: bool
+    credentials_configured: bool
 
 
 class AuthPrepareFileResponse(_RpcModel):
@@ -311,6 +327,7 @@ class RpcResponseEnvelope(_RpcModel):
         | SessionPreviewResponse
         | ModelCatalogResponse
         | AuthStatusResponse
+        | TraceLogfireStatusResponse
         | AuthPrepareFileResponse
         | AuthSetResponse
         | AuthClearResponse
@@ -360,6 +377,9 @@ __all__ = [
     "AuthStatusPayload",
     "AuthStatusRequest",
     "AuthStatusResponse",
+    "TraceLogfireStatusPayload",
+    "TraceLogfireStatusRequest",
+    "TraceLogfireStatusResponse",
     "RpcLocalSecretStoreStatus",
     "RpcErrorEnvelope",
     "RpcEventEnvelope",

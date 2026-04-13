@@ -61,6 +61,29 @@ def test_configure_observability_fails_fast_without_logfire_credentials(
         observability.configure_observability()
 
 
+def test_configure_observability_fails_fast_without_logfire_package(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("JACA_TRACE_MODE", "logfire")
+    monkeypatch.setenv("LOGFIRE_TOKEN", "test-token")
+    monkeypatch.setattr(observability, "_configured", False)
+
+    real_import_module = observability.importlib.import_module
+
+    def fake_import_module(name: str):
+        if name == "logfire":
+            raise ModuleNotFoundError("No module named 'logfire'")
+        return real_import_module(name)
+
+    monkeypatch.setattr(observability.importlib, "import_module", fake_import_module)
+
+    with pytest.raises(
+        RuntimeError,
+        match=r"requires the `logfire` package",
+    ):
+        observability.configure_observability()
+
+
 def test_configure_observability_accepts_default_logfire_toml_credentials(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -103,6 +126,43 @@ def test_configure_observability_accepts_default_logfire_toml_credentials(
             },
         }
     ]
+
+
+def test_logfire_setup_status_reports_missing_package_and_credentials(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("LOGFIRE_TOKEN", raising=False)
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+    real_import_module = observability.importlib.import_module
+
+    def fake_import_module(name: str):
+        if name == "logfire":
+            raise ModuleNotFoundError("No module named 'logfire'")
+        return real_import_module(name)
+
+    monkeypatch.setattr(observability.importlib, "import_module", fake_import_module)
+
+    status = observability.logfire_setup_status()
+
+    assert status.installed is False
+    assert status.credentials_configured is False
+
+
+def test_logfire_setup_status_requires_logfire_cli_on_path(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("LOGFIRE_TOKEN", raising=False)
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    monkeypatch.setitem(sys.modules, "logfire", _fake_logfire_module([]))
+    monkeypatch.setattr(observability.shutil, "which", lambda name: None)
+
+    status = observability.logfire_setup_status()
+
+    assert status.installed is False
+    assert status.credentials_configured is False
 
 
 def test_build_local_trace_path_uses_jaca_trace_directory(
