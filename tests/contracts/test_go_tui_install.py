@@ -31,11 +31,6 @@ def test_go_tui_install_command_uses_repo_rebuild_in_repo_checkout(tmp_path) -> 
 
 
 def test_explicit_update_command_detects_uv_tool_install(monkeypatch, tmp_path) -> None:
-    scripts_dir = tmp_path / ".local" / "share" / "uv" / "tools" / "pkg" / "bin"
-    scripts_dir.mkdir(parents=True)
-    monkeypatch.setattr(
-        install_repair.sysconfig, "get_path", lambda key: str(scripts_dir)
-    )
     monkeypatch.setattr(install_repair, "package_installer", lambda: "uv")
 
     assert go_tui.explicit_update_command() == [
@@ -49,37 +44,35 @@ def test_explicit_update_command_detects_uv_tool_install(monkeypatch, tmp_path) 
 def test_explicit_update_command_is_disabled_in_repo_checkout(
     monkeypatch, tmp_path
 ) -> None:
-    scripts_dir = tmp_path / ".local" / "share" / "uv" / "tools" / "pkg" / "bin"
-    scripts_dir.mkdir(parents=True)
-    monkeypatch.setattr(
-        install_repair.sysconfig, "get_path", lambda key: str(scripts_dir)
-    )
     monkeypatch.setattr(install_repair, "package_installer", lambda: "uv")
 
     assert go_tui.explicit_update_command(repo_root=tmp_path / "repo") is None
 
 
 def test_explicit_update_command_is_disabled_outside_uv_tool_install(
-    monkeypatch, tmp_path
+    monkeypatch,
 ) -> None:
-    scripts_dir = tmp_path / ".venv" / "bin"
-    scripts_dir.mkdir(parents=True)
-    monkeypatch.setattr(
-        install_repair.sysconfig, "get_path", lambda key: str(scripts_dir)
-    )
-    monkeypatch.setattr(install_repair, "package_installer", lambda: "uv")
+    monkeypatch.setattr(install_repair, "package_installer", lambda: "")
 
     assert go_tui.explicit_update_command() is None
 
 
-def test_go_tui_install_command_uses_uv_tool_repair_for_uv_tool_installs(
-    monkeypatch, tmp_path
+def test_explicit_update_command_accepts_uv_installer_without_uv_tools_path(
+    monkeypatch,
 ) -> None:
-    scripts_dir = tmp_path / ".local" / "share" / "uv" / "tools" / "pkg" / "bin"
-    scripts_dir.mkdir(parents=True)
-    monkeypatch.setattr(
-        install_repair.sysconfig, "get_path", lambda key: str(scripts_dir)
-    )
+    monkeypatch.setattr(install_repair, "package_installer", lambda: "uv")
+
+    assert go_tui.explicit_update_command() == [
+        "uv",
+        "tool",
+        "upgrade",
+        "just-another-coding-agent",
+    ]
+
+
+def test_go_tui_install_command_uses_uv_tool_repair_for_uv_tool_installs(
+    monkeypatch,
+) -> None:
     monkeypatch.setattr(install_repair, "package_installer", lambda: "uv")
 
     assert (
@@ -89,13 +82,8 @@ def test_go_tui_install_command_uses_uv_tool_repair_for_uv_tool_installs(
 
 
 def test_go_tui_install_command_falls_back_to_uv_tool_reinstall(
-    monkeypatch, tmp_path
+    monkeypatch,
 ) -> None:
-    scripts_dir = tmp_path / ".venv" / "bin"
-    scripts_dir.mkdir(parents=True)
-    monkeypatch.setattr(
-        install_repair.sysconfig, "get_path", lambda key: str(scripts_dir)
-    )
     monkeypatch.setattr(install_repair, "package_installer", lambda: "")
 
     assert (
@@ -105,13 +93,8 @@ def test_go_tui_install_command_falls_back_to_uv_tool_reinstall(
 
 
 def test_available_installed_update_returns_notice_for_newer_release(
-    monkeypatch, tmp_path
+    monkeypatch,
 ) -> None:
-    scripts_dir = tmp_path / ".local" / "share" / "uv" / "tools" / "pkg" / "bin"
-    scripts_dir.mkdir(parents=True)
-    monkeypatch.setattr(
-        install_repair.sysconfig, "get_path", lambda key: str(scripts_dir)
-    )
     monkeypatch.setattr(install_repair, "package_installer", lambda: "uv")
     monkeypatch.setattr(
         go_tui,
@@ -208,11 +191,6 @@ def test_available_installed_update_uses_live_version_when_cache_write_fails(
 def test_available_installed_update_is_disabled_in_repo_checkout(
     monkeypatch, tmp_path
 ) -> None:
-    scripts_dir = tmp_path / ".local" / "share" / "uv" / "tools" / "pkg" / "bin"
-    scripts_dir.mkdir(parents=True)
-    monkeypatch.setattr(
-        install_repair.sysconfig, "get_path", lambda key: str(scripts_dir)
-    )
     monkeypatch.setattr(install_repair, "package_installer", lambda: "uv")
     monkeypatch.setattr(
         go_tui,
@@ -332,7 +310,7 @@ def test_packaging_is_declared_as_direct_dependency() -> None:
 
 
 def test_explicit_update_command_first_element_is_always_uv(
-    monkeypatch, tmp_path
+    monkeypatch,
 ) -> None:
     # uv-only invariant: the upgrade command is either None (no prompt)
     # or a literal ["uv", ...] list with no shell metacharacters in any
@@ -340,11 +318,6 @@ def test_explicit_update_command_first_element_is_always_uv(
     # that would inject a path-with-spaces (sys.executable, an absolute
     # pipx venv path, etc.) would have to reopen the display-quoting
     # discussion deliberately rather than by accident.
-    scripts_dir = tmp_path / ".local" / "share" / "uv" / "tools" / "pkg" / "bin"
-    scripts_dir.mkdir(parents=True)
-    monkeypatch.setattr(
-        install_repair.sysconfig, "get_path", lambda key: str(scripts_dir)
-    )
     monkeypatch.setattr(install_repair, "package_installer", lambda: "uv")
 
     command = go_tui.explicit_update_command()
@@ -402,9 +375,7 @@ def test_resolve_go_tui_binary_reports_explicit_recovery_step(
     scripts_dir = tmp_path / "bin"
     scripts_dir.mkdir()
     monkeypatch.setattr(go_tui, "__file__", str(tmp_path / "outside" / "go_tui.py"))
-    monkeypatch.setattr(
-        install_repair.sysconfig, "get_path", lambda key: str(scripts_dir)
-    )
+    monkeypatch.setattr(go_tui.sysconfig, "get_path", lambda key: str(scripts_dir))
     monkeypatch.setattr(install_repair, "package_installer", lambda: "")
 
     with pytest.raises(
@@ -470,9 +441,7 @@ def test_resolve_go_tui_launch_uses_installed_binary_by_default_in_repo_checkout
     scripts_dir.mkdir()
     binary = scripts_dir / go_tui.GO_TUI_BINARY
     binary.write_text("", encoding="utf-8")
-    monkeypatch.setattr(
-        install_repair.sysconfig, "get_path", lambda key: str(scripts_dir)
-    )
+    monkeypatch.setattr(go_tui.sysconfig, "get_path", lambda key: str(scripts_dir))
 
     command, cwd = go_tui.resolve_go_tui_launch()
 
@@ -509,9 +478,7 @@ def test_resolve_go_tui_launch_uses_repo_local_go_run_when_explicitly_requested(
     scripts_dir = tmp_path / "bin"
     scripts_dir.mkdir()
     (scripts_dir / go_tui.GO_TUI_BINARY).write_text("", encoding="utf-8")
-    monkeypatch.setattr(
-        install_repair.sysconfig, "get_path", lambda key: str(scripts_dir)
-    )
+    monkeypatch.setattr(go_tui.sysconfig, "get_path", lambda key: str(scripts_dir))
 
     command, cwd = go_tui.resolve_go_tui_launch()
 
@@ -547,9 +514,7 @@ def test_resolve_go_tui_launch_falls_back_to_repo_local_go_run_when_binary_missi
 
     scripts_dir = tmp_path / "bin"
     scripts_dir.mkdir()
-    monkeypatch.setattr(
-        install_repair.sysconfig, "get_path", lambda key: str(scripts_dir)
-    )
+    monkeypatch.setattr(go_tui.sysconfig, "get_path", lambda key: str(scripts_dir))
 
     command, cwd = go_tui.resolve_go_tui_launch()
 
@@ -581,9 +546,7 @@ def test_resolve_go_tui_launch_reports_missing_binary_without_go_in_repo_checkou
 
     scripts_dir = tmp_path / "bin"
     scripts_dir.mkdir()
-    monkeypatch.setattr(
-        install_repair.sysconfig, "get_path", lambda key: str(scripts_dir)
-    )
+    monkeypatch.setattr(go_tui.sysconfig, "get_path", lambda key: str(scripts_dir))
 
     with pytest.raises(
         RuntimeError,
@@ -605,9 +568,7 @@ def test_resolve_go_tui_launch_uses_installed_binary_outside_repo(
     binary.write_text("", encoding="utf-8")
 
     monkeypatch.setattr(go_tui, "__file__", str(tmp_path / "outside" / "go_tui.py"))
-    monkeypatch.setattr(
-        install_repair.sysconfig, "get_path", lambda key: str(scripts_dir)
-    )
+    monkeypatch.setattr(go_tui.sysconfig, "get_path", lambda key: str(scripts_dir))
     monkeypatch.setattr(go_tui.shutil, "which", lambda name: "/usr/bin/go")
 
     command, cwd = go_tui.resolve_go_tui_launch()
