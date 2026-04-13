@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import importlib.metadata
+import shlex
+import sys
 import sysconfig
 from pathlib import Path
 
@@ -66,7 +68,11 @@ def explicit_update_command(*, repo_root: Path | None = None) -> list[str] | Non
             return ["pipx", "upgrade", PACKAGE_NAME]
 
     if installer == "pip":
-        return ["python", "-m", "pip", "install", "--upgrade", PACKAGE_NAME]
+        # Use the launcher interpreter explicitly so the upgrade lands in
+        # the same environment as the running process. A bare "python"
+        # would resolve through PATH and can hit a different interpreter
+        # or (on Windows) the Microsoft Store shim.
+        return [sys.executable, "-m", "pip", "install", "--upgrade", PACKAGE_NAME]
 
     return None
 
@@ -85,7 +91,11 @@ def repair_install_command(*, repo_root: Path | None, build_tui: bool) -> str:
         if is_pipx_scripts_dir(scripts_path):
             return f"pipx reinstall {PACKAGE_NAME}"
 
-    return f"python -m pip install --force-reinstall {PACKAGE_NAME}"
+    # Display the exact interpreter so copy-paste points at the same venv.
+    return (
+        f"{shlex.quote(sys.executable)} -m pip install "
+        f"--force-reinstall {PACKAGE_NAME}"
+    )
 
 
 __all__ = [

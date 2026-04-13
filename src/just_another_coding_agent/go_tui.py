@@ -186,7 +186,23 @@ def refresh_cached_release_version() -> None:
     latest_version = fetch_latest_release_version()
     if latest_version is None:
         return
-    write_cached_release_version(latest_version)
+    try:
+        write_cached_release_version(latest_version)
+    except OSError:
+        # Read-only home or other filesystem failure: the foreground
+        # launcher already has a fallback for this case, so silently
+        # skip the cache write rather than crashing the daemon thread.
+        return
+
+
+def _refresh_cached_release_version_thread_entry() -> None:
+    try:
+        refresh_cached_release_version()
+    except Exception:
+        # Daemon threads with unhandled exceptions print to stderr and
+        # look like crashes to the user. Suppress anything unexpected;
+        # the worst case is a stale cache on the next launch.
+        return
 
 
 def refresh_cached_release_version_in_background(
@@ -199,7 +215,7 @@ def refresh_cached_release_version_in_background(
     if not should_refresh_cached_release_version(cached):
         return
     threading.Thread(
-        target=refresh_cached_release_version,
+        target=_refresh_cached_release_version_thread_entry,
         name="jaca-update-check",
         daemon=True,
     ).start()

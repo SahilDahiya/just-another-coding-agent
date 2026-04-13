@@ -64,6 +64,8 @@ def test_explicit_update_command_detects_pipx_install(monkeypatch, tmp_path) -> 
 def test_explicit_update_command_detects_generic_pip_install(
     monkeypatch, tmp_path
 ) -> None:
+    import sys as _sys
+
     scripts_dir = tmp_path / ".venv" / "bin"
     scripts_dir.mkdir(parents=True)
     monkeypatch.setattr(
@@ -72,13 +74,35 @@ def test_explicit_update_command_detects_generic_pip_install(
     monkeypatch.setattr(install_repair, "package_installer", lambda: "pip")
 
     assert go_tui.explicit_update_command() == [
-        "python",
+        _sys.executable,
         "-m",
         "pip",
         "install",
         "--upgrade",
         "just-another-coding-agent",
     ]
+
+
+def test_explicit_update_command_pip_never_returns_bare_python(
+    monkeypatch, tmp_path
+) -> None:
+    """Regression: bare `python` in the command array can resolve to a
+    different interpreter (Windows Store shim, a different venv, etc.).
+    The upgrade command must always anchor to the launcher's sys.executable.
+    """
+    scripts_dir = tmp_path / ".venv" / "bin"
+    scripts_dir.mkdir(parents=True)
+    monkeypatch.setattr(
+        install_repair.sysconfig, "get_path", lambda key: str(scripts_dir)
+    )
+    monkeypatch.setattr(install_repair, "package_installer", lambda: "pip")
+
+    command = go_tui.explicit_update_command()
+    assert command is not None
+    assert command[0] != "python"
+    # sys.executable is typically an absolute path; at minimum it should
+    # not be the bare token that would rely on PATH.
+    assert "/" in command[0] or "\\" in command[0] or command[0].endswith(".exe")
 
 
 def test_explicit_update_command_is_disabled_in_repo_checkout(
@@ -139,6 +163,9 @@ def test_go_tui_install_command_uses_pipx_repair_for_pipx_installs(
 def test_go_tui_install_command_falls_back_to_pip_force_reinstall(
     monkeypatch, tmp_path
 ) -> None:
+    import shlex as _shlex
+    import sys as _sys
+
     scripts_dir = tmp_path / ".venv" / "bin"
     scripts_dir.mkdir(parents=True)
     monkeypatch.setattr(
@@ -146,10 +173,11 @@ def test_go_tui_install_command_falls_back_to_pip_force_reinstall(
     )
     monkeypatch.setattr(install_repair, "package_installer", lambda: "")
 
-    assert (
-        go_tui.go_tui_install_command()
-        == "python -m pip install --force-reinstall just-another-coding-agent"
+    expected = (
+        f"{_shlex.quote(_sys.executable)} -m pip install "
+        f"--force-reinstall just-another-coding-agent"
     )
+    assert go_tui.go_tui_install_command() == expected
 
 
 def test_available_installed_update_returns_notice_for_newer_release(
@@ -337,6 +365,43 @@ def test_is_newer_release_version_handles_equal_and_invalid_versions() -> None:
     assert go_tui.is_newer_release_version("dev", "0.1.1") == (False, False)
 
 
+def test_refresh_cached_release_version_swallows_cache_write_failure(
+    monkeypatch,
+) -> None:
+    """Regression: a read-only ~/.jaca must not crash the background thread.
+
+    Previously, refresh_cached_release_version() called
+    write_cached_release_version() without a guard. On unwritable home
+    dirs, the daemon thread would propagate an unhandled OSError and
+    Python would print `Exception in thread jaca-update-check` to stderr
+    right after the foreground launch succeeded.
+    """
+    monkeypatch.setattr(go_tui, "fetch_latest_release_version", lambda: "0.1.99")
+
+    def refuse_write(*args, **kwargs):
+        raise OSError("read-only home")
+
+    monkeypatch.setattr(go_tui, "write_cached_release_version", refuse_write)
+
+    # Should not raise.
+    go_tui.refresh_cached_release_version()
+
+
+def test_refresh_cached_release_version_thread_entry_swallows_all_exceptions(
+    monkeypatch,
+) -> None:
+    """Defense in depth: the thread wrapper must suppress any failure so
+    an uncaught exception in the daemon thread never reaches stderr."""
+
+    def boom():
+        raise RuntimeError("unexpected internal failure")
+
+    monkeypatch.setattr(go_tui, "refresh_cached_release_version", boom)
+
+    # Should not raise even for non-OSError exceptions.
+    go_tui._refresh_cached_release_version_thread_entry()
+
+
 def test_resolve_go_tui_binary_reports_explicit_recovery_step(
     tmp_path,
     monkeypatch,
@@ -351,7 +416,7 @@ def test_resolve_go_tui_binary_reports_explicit_recovery_step(
 
     with pytest.raises(
         RuntimeError,
-        match="python -m pip install --force-reinstall just-another-coding-agent",
+        match="-m pip install --force-reinstall just-another-coding-agent",
     ):
         go_tui.resolve_go_tui_binary()
 
