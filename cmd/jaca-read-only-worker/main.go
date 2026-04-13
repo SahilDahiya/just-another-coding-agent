@@ -612,6 +612,9 @@ func executeFind(ctx context.Context, req findRequest) (findResult, errorRespons
 }
 
 func normalizeFindMatchPath(path string) string {
+	if strings.HasPrefix(path, ".\\") {
+		return strings.ReplaceAll(strings.TrimPrefix(path, ".\\"), "\\", "/")
+	}
 	if filepath.Separator == '\\' {
 		normalized := strings.ReplaceAll(path, "\\", "/")
 		return strings.TrimPrefix(normalized, "./")
