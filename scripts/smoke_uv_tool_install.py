@@ -36,13 +36,26 @@ def tool_python_path(tool_dir: Path) -> Path:
 
 
 def run(cmd: list[str], *, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
+    # Capture output so the caller can read stdout (needed for `uv tool
+    # dir`), but on failure surface both streams to stderr before raising
+    # so CI logs show the actual error message instead of an opaque
+    # CalledProcessError traceback.
+    result = subprocess.run(
         cmd,
-        check=True,
         env=env,
         text=True,
         capture_output=True,
     )
+    if result.returncode != 0:
+        sys.stderr.write(
+            f"command failed (exit {result.returncode}): {' '.join(cmd)}\n"
+        )
+        if result.stdout:
+            sys.stderr.write(f"--- stdout ---\n{result.stdout}\n")
+        if result.stderr:
+            sys.stderr.write(f"--- stderr ---\n{result.stderr}\n")
+        raise SystemExit(result.returncode)
+    return result
 
 
 def main() -> int:
@@ -73,6 +86,12 @@ def main() -> int:
             raise SystemExit(f"installed tool python not found: {python_path}")
 
         probe = """
+# `packaging` must be a direct dependency of jaca — go_tui imports
+# packaging.version at module load time. Asserting its import explicitly
+# keeps this end-to-end smoke test load-bearing for the Requires-Dist
+# declaration, so the regression fixed in bd05ad6 can't silently come
+# back via a transitive-dependency rearrangement upstream.
+import packaging.version  # noqa: F401
 from just_another_coding_agent.go_tui import explicit_update_command, package_version
 from just_another_coding_agent.tools.read_only_worker.launcher import read_only_worker_install_command
 assert package_version()
