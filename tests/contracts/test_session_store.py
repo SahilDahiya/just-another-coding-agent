@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+from contextlib import nullcontext
 from datetime import UTC, datetime
 
 import pytest
@@ -369,7 +370,9 @@ def test_select_session_to_resume_caps_display_to_ten_sessions(
             for session in sessions
         ],
     )
-    monkeypatch.setattr("builtins.input", lambda _: "")
+    monkeypatch.setattr(entry, "_resume_picker_input_mode", nullcontext)
+    keys = iter(["enter"])
+    monkeypatch.setattr(entry, "_read_resume_picker_key", lambda: next(keys))
 
     resolved = entry._select_session_to_resume(
         sessions_root=tmp_path / "sessions",
@@ -377,9 +380,10 @@ def test_select_session_to_resume_caps_display_to_ten_sessions(
     )
 
     output = capsys.readouterr().out
-    assert "Showing 10 most recent of 12 sessions." in output
-    assert "10. s-10" in output
-    assert "11. s-11" not in output
+    assert "Recent sessions" in output
+    assert "s-10" in output
+    assert "s-11" not in output
+    assert "s-12" not in output
     assert resolved.session_id == "1" * 32
 
 
@@ -408,7 +412,9 @@ def test_select_session_to_resume_still_prompts_when_only_one_session(
             )()
         ],
     )
-    monkeypatch.setattr("builtins.input", lambda _: "")
+    monkeypatch.setattr(entry, "_resume_picker_input_mode", nullcontext)
+    keys = iter(["enter"])
+    monkeypatch.setattr(entry, "_read_resume_picker_key", lambda: next(keys))
 
     resolved = entry._select_session_to_resume(
         sessions_root=tmp_path / "sessions",
@@ -417,5 +423,5 @@ def test_select_session_to_resume_still_prompts_when_only_one_session(
 
     output = capsys.readouterr().out
     assert "Recent sessions" in output
-    assert "1. only-session" in output
+    assert "only-session" in output
     assert resolved.session_id == "1" * 32
