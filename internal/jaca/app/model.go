@@ -196,21 +196,15 @@ func New(options Options) tea.Model {
 	if options.SessionID != "" {
 		startupOnboardingSet = false
 		onboarding = onboardingState{}
-		lines := []string{fmt.Sprintf("resumed %s", options.SessionID)}
-		if options.SessionName != "" {
-			lines = []string{
-				fmt.Sprintf("resumed %s", options.SessionName),
-				fmt.Sprintf("id: %s", options.SessionID),
-			}
-		}
 		if options.ForkedFromSessionID != "" {
-			label := options.ForkedFromSessionID
+			lines := []string{"forked session"}
+			parentLabel := "session"
 			if options.ForkedFromSessionName != "" {
-				label = options.ForkedFromSessionName
+				parentLabel = options.ForkedFromSessionName
 			}
-			lines = append(lines, fmt.Sprintf("forked from %s", label))
+			lines = append(lines, fmt.Sprintf("forked from %s", parentLabel))
+			transcript.WriteNote("session", lines)
 		}
-		transcript.WriteNote("session", lines)
 	}
 
 	return &model{

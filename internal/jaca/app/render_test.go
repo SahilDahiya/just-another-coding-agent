@@ -25,7 +25,7 @@ func TestDisplayPathUsesHomeRelativePrefix(t *testing.T) {
 	}
 }
 
-func TestBuildStatusTextIncludesTruncatedSessionAndThinking(t *testing.T) {
+func TestBuildStatusTextIncludesThinkingWithoutSessionIdentity(t *testing.T) {
 	workspaceRoot := filepath.Join("workspace", "repo")
 	got := buildStatusText(viewModel{
 		Phase:         PhaseStreaming,
@@ -33,10 +33,11 @@ func TestBuildStatusTextIncludesTruncatedSessionAndThinking(t *testing.T) {
 		WorkspaceRoot: workspaceRoot,
 		Thinking:      "high",
 		SessionID:     "1234567890abcdef",
+		SessionName:   "auth-store-cleanup",
 		MotionTick:    1,
 	})
 
-	want := "streaming.. | gpt-5.4 | api | " + displayPath(workspaceRoot) + " | thinking=high | session=12345678"
+	want := "streaming.. | gpt-5.4 | api | " + displayPath(workspaceRoot) + " | thinking=high"
 	if got != want {
 		t.Fatalf("buildStatusText() = %q, want %q", got, want)
 	}
@@ -72,6 +73,19 @@ func TestBuildPromptFooterTextShowsModelAndWorkspaceWhenIdle(t *testing.T) {
 	}
 	if !strings.Contains(got, "/workspace") {
 		t.Fatalf("idle footer missing workspace: %q", got)
+	}
+}
+
+func TestBuildPromptFooterTextDoesNotShowSessionNameWhenIdle(t *testing.T) {
+	got := buildPromptFooterText(viewModel{
+		Phase:         PhaseIdle,
+		Model:         "openai-responses:gpt-5-codex",
+		WorkspaceRoot: "/workspace",
+		SessionName:   "run some tests",
+	})
+
+	if strings.Contains(got, "run some tests") {
+		t.Fatalf("idle footer should not show session name: %q", got)
 	}
 }
 

@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import json
 import os
+from contextlib import nullcontext
 from datetime import UTC, datetime
 from io import StringIO
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -410,7 +412,9 @@ def test_main_resume_without_reference_prompts_for_recent_session_selection(
         ],
     )
     monkeypatch.setattr("sys.stdin.isatty", lambda: True)
-    monkeypatch.setattr("builtins.input", lambda _: "2")
+    monkeypatch.setattr(entry, "_resume_picker_input_mode", nullcontext)
+    keys = iter(["down", "enter"])
+    monkeypatch.setattr(entry, "_read_resume_picker_key", lambda: next(keys))
 
     def fake_run(command, *, check, cwd=None):
         captured["command"] = command
@@ -436,8 +440,232 @@ def test_main_resume_without_reference_prompts_for_recent_session_selection(
     assert captured["command"][-4:-2] == ["--session-id", "2" * 32]
     output = capsys.readouterr().out
     assert "Recent sessions" in output
-    assert "1. first-session" in output
-    assert "2. second-session" in output
+    assert "Use up/down arrows, then press Enter to resume." in output
+    assert "first-session" in output
+    assert "second-session" in output
+    assert "2" * 32 not in output
+
+
+def test_build_resume_selection_options_uses_first_prompt_for_unnamed_sessions(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    sessions_root = tmp_path / "sessions"
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    updated_at = datetime(2026, 4, 13, 1, 15, tzinfo=UTC)
+
+    monkeypatch.setattr(
+        entry,
+        "session_path_for_id",
+        lambda **kwargs: (
+            Path(kwargs["sessions_root"]) / f'{kwargs["session_id"]}.jsonl'
+        ),
+    )
+    monkeypatch.setattr(
+        entry,
+        "load_session",
+        lambda *, path, workspace_root: SimpleNamespace(
+            runs=[
+                SimpleNamespace(
+                    prompt=(
+                        "Investigate auth-store cleanup"
+                        if path.stem.startswith("2")
+                        else "Follow up on login UX"
+                    )
+                )
+            ]
+        ),
+    )
+
+    options = entry._build_resume_selection_options(
+        sessions_root=sessions_root,
+        workspace_root=workspace_root,
+        sessions=[
+            SimpleNamespace(
+                session_id="1" * 32,
+                name="saved-name",
+                created_at=updated_at,
+                updated_at=updated_at,
+            ),
+            SimpleNamespace(
+                session_id="2" * 32,
+                name=None,
+                created_at=updated_at,
+                updated_at=updated_at,
+            ),
+        ],
+    )
+
+    assert options[0].label == "saved-name"
+    assert options[0].subtitle == entry._format_resume_timestamp(updated_at)
+    assert options[1].label == "Investigate auth-store cleanup"
+    assert options[1].subtitle == entry._format_resume_timestamp(updated_at)
+    rendered = " ".join(
+        filter(
+            None,
+            [
+                options[0].label,
+                options[0].subtitle,
+                options[1].label,
+                options[1].subtitle,
+            ],
+        )
+    )
+    assert "1" * 32 not in rendered
+    assert "2" * 32 not in rendered
+
+
+def test_main_resume_without_reference_uses_first_prompt_as_session_name(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    go_binary = tmp_path / ("jaca-go.exe" if os.name == "nt" else "jaca-go")
+    captured: dict[str, object] = {}
+    updated_at = datetime.now(UTC)
+
+    monkeypatch.setattr(
+        entry,
+        "resolve_go_tui_launch",
+        lambda: ([str(go_binary)], None),
+    )
+    monkeypatch.setattr(entry, "load_config", lambda: {})
+    monkeypatch.setattr(
+        entry,
+        "default_backend_command",
+        lambda: ["/tmp/fake-python", "-m", "just_another_coding_agent"],
+    )
+    monkeypatch.setattr(entry, "package_version", lambda: "0.1.5")
+    monkeypatch.setattr(
+        entry,
+        "list_workspace_sessions",
+        lambda **_: [
+            SimpleNamespace(
+                session_id="1" * 32,
+                name=None,
+                created_at=updated_at,
+                updated_at=updated_at,
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        entry,
+        "session_path_for_id",
+        lambda **kwargs: (
+            Path(kwargs["sessions_root"]) / f'{kwargs["session_id"]}.jsonl'
+        ),
+    )
+    monkeypatch.setattr(
+        entry,
+        "load_session",
+        lambda *, path, workspace_root: SimpleNamespace(
+            runs=[SimpleNamespace(prompt="Investigate auth-store cleanup")]
+        ),
+    )
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr(entry, "_resume_picker_input_mode", nullcontext)
+    keys = iter(["enter"])
+    monkeypatch.setattr(entry, "_read_resume_picker_key", lambda: next(keys))
+
+    def fake_run(command, *, check, cwd=None):
+        captured["command"] = command
+        return SimpleNamespace(returncode=29)
+
+    monkeypatch.setattr(
+        "just_another_coding_agent.__main__.subprocess.run",
+        fake_run,
+    )
+
+    exit_code = main(
+        [
+            "resume",
+            "--workspace-root",
+            str(workspace_root),
+            "--sessions-root",
+            str(sessions_root),
+        ]
+    )
+
+    assert exit_code == 29
+    assert captured["command"][-2:] == [
+        "--session-name",
+        "Investigate auth-store cleanup",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("sequence", "want"),
+    [
+        ("[A", "up"),
+        ("[B", "down"),
+        ("OA", "up"),
+        ("OB", "down"),
+        ("[1;5A", "up"),
+        ("[1;5B", "down"),
+        ("[C", "other"),
+        ("", "other"),
+    ],
+)
+def test_decode_resume_picker_escape_sequence(sequence: str, want: str) -> None:
+    assert entry._decode_resume_picker_escape_sequence(sequence) == want
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX key reader only")
+@pytest.mark.parametrize(
+    ("chars", "want"),
+    [
+        (["\x1b", "[", "A"], "up"),
+        (["\x1b", "[", "B"], "down"),
+        (["\x1b", "O", "A"], "up"),
+        (["\x1b", "O", "B"], "down"),
+        (["j"], "down"),
+        (["k"], "up"),
+    ],
+)
+def test_read_resume_picker_key_posix_handles_arrows(monkeypatch, chars, want) -> None:
+    class _FakeStdin:
+        def __init__(self, values: list[str]) -> None:
+            self._values = iter(values)
+
+        def read(self, n: int = 1) -> str:
+            return next(self._values)
+
+    monkeypatch.setattr(entry.sys, "stdin", _FakeStdin(chars))
+
+    assert entry._read_resume_picker_key_posix() == want
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX terminal mode only")
+def test_resume_picker_input_mode_uses_cbreak(monkeypatch) -> None:
+    import termios
+    import tty
+
+    calls: list[tuple[object, ...]] = []
+
+    monkeypatch.setattr("sys.stdin.fileno", lambda: 7)
+    monkeypatch.setattr(termios, "tcgetattr", lambda fd: ["original", fd])
+    monkeypatch.setattr(
+        termios,
+        "tcsetattr",
+        lambda fd, when, attrs: calls.append(("restore", fd, when, attrs)),
+    )
+    monkeypatch.setattr(tty, "setcbreak", lambda fd: calls.append(("cbreak", fd)))
+    monkeypatch.setattr(tty, "setraw", lambda fd: calls.append(("raw", fd)))
+
+    with entry._resume_picker_input_mode():
+        pass
+
+    assert ("cbreak", 7) in calls
+    assert not any(call[0] == "raw" for call in calls)
+    assert (
+        "restore",
+        7,
+        termios.TCSADRAIN,
+        ["original", 7],
+    ) in calls
 
 
 def test_main_uses_saved_default_model_and_trace_mode(

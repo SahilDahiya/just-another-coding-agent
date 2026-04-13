@@ -934,9 +934,6 @@ func buildIdleFooterText(vm viewModel) string {
 	if usage := buildUsageFooterText(vm, false); usage != "" {
 		parts = append(parts, usage)
 	}
-	if vm.SessionName != "" {
-		parts = append(parts, vm.SessionName)
-	}
 	return joinFooterParts(parts...)
 }
 
@@ -988,13 +985,6 @@ func buildStatusText(vm viewModel) string {
 	}
 	if vm.Thinking != "" {
 		parts = append(parts, fmt.Sprintf("thinking=%s", vm.Thinking))
-	}
-	if vm.SessionID != "" {
-		session := vm.SessionID
-		if len(session) > 8 {
-			session = session[:8]
-		}
-		parts = append(parts, fmt.Sprintf("session=%s", session))
 	}
 	return strings.Join(parts, " | ")
 }

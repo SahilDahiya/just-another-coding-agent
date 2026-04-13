@@ -8,8 +8,9 @@ import subprocess
 import sys
 from collections.abc import Sequence
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
-from typing import TextIO
+from typing import Callable, TextIO
 
 from just_another_coding_agent.config import (
     apply_config_to_env,
@@ -30,15 +31,27 @@ from just_another_coding_agent.rpc.session_store import (
     create_fork,
     list_workspace_sessions,
     resolve_session_reference,
+    session_path_for_id,
 )
 from just_another_coding_agent.runtime.observability import (
     configure_observability,
 )
+from just_another_coding_agent.session import load_session
 from just_another_coding_agent.tools._workspace import normalize_workspace_root
 from just_another_coding_agent.tools.windows_search_tools import (
     apply_managed_tool_path,
     bootstrap_windows_search_tools,
 )
+
+_RESUME_PICKER_MAX_SESSIONS = 10
+_RESUME_PICKER_LABEL_MAX_CHARS = 72
+_RESUME_PICKER_SUBTITLE_MAX_CHARS = 96
+
+
+@dataclass(frozen=True)
+class _ResumeSelectionOption:
+    label: str
+    subtitle: str | None = None
 
 
 def main(
@@ -211,39 +224,241 @@ def _select_session_to_resume(
     if not sessions:
         raise RuntimeError(f"No sessions found for workspace: {workspace_root}")
 
-    displayed_sessions = sessions[:10]
-    print("Recent sessions:")
-    if len(sessions) > len(displayed_sessions):
-        print(
-            f"Showing {len(displayed_sessions)} most recent "
-            f"of {len(sessions)} sessions."
+    displayed_sessions = sessions[:_RESUME_PICKER_MAX_SESSIONS]
+    options = _build_resume_selection_options(
+        sessions_root=sessions_root,
+        workspace_root=workspace_root,
+        sessions=displayed_sessions,
+    )
+    with _resume_picker_input_mode():
+        selected_index = _pick_resume_selection(
+            options,
+            writer=sys.stdout,
+            key_reader=_read_resume_picker_key,
         )
-    for index, session in enumerate(displayed_sessions, start=1):
-        label = session.name or session.session_id
-        print(f"{index}. {label}")
-        if session.name is not None:
-            print(f"   id: {session.session_id}")
-
-    raw_choice = input(
-        f"Select session [1-{len(displayed_sessions)}, default 1]: "
-    ).strip()
-    if raw_choice == "":
-        selected = displayed_sessions[0]
-        return ResolvedSessionReference(
-            session_id=selected.session_id,
-            name=selected.name,
-        )
-    try:
-        selected_index = int(raw_choice)
-    except ValueError as error:
-        raise RuntimeError("Resume selection must be a session number") from error
-    if selected_index < 1 or selected_index > len(displayed_sessions):
-        raise RuntimeError("Resume selection is out of range")
-    selected = displayed_sessions[selected_index - 1]
+    selected = displayed_sessions[selected_index]
+    selected_option = options[selected_index]
     return ResolvedSessionReference(
         session_id=selected.session_id,
-        name=selected.name,
+        name=selected.name or selected_option.label,
     )
+
+
+def _build_resume_selection_options(
+    *,
+    sessions_root: Path,
+    workspace_root: Path,
+    sessions: Sequence[object],
+) -> list[_ResumeSelectionOption]:
+    options: list[_ResumeSelectionOption] = []
+    for session in sessions:
+        label_text = session.name
+        if label_text is None:
+            label_text = _first_prompt_for_session(
+                sessions_root=sessions_root,
+                workspace_root=workspace_root,
+                session_id=session.session_id,
+            )
+        label_text = label_text or "Unnamed session"
+        subtitle_text = _format_resume_timestamp(session.updated_at)
+        options.append(
+            _ResumeSelectionOption(
+                label=_truncate_resume_text(
+                    label_text,
+                    max_chars=_RESUME_PICKER_LABEL_MAX_CHARS,
+                ),
+                subtitle=_truncate_resume_text(
+                    subtitle_text,
+                    max_chars=_RESUME_PICKER_SUBTITLE_MAX_CHARS,
+                )
+                if subtitle_text
+                else None,
+            )
+        )
+    return options
+
+
+def _first_prompt_for_session(
+    *,
+    sessions_root: Path,
+    workspace_root: Path,
+    session_id: str,
+) -> str | None:
+    path = session_path_for_id(
+        sessions_root=sessions_root,
+        workspace_root=workspace_root,
+        session_id=session_id,
+    )
+    loaded = load_session(path=path, workspace_root=workspace_root)
+    for run in loaded.runs:
+        prompt = _truncate_resume_text(
+            run.prompt,
+            max_chars=_RESUME_PICKER_SUBTITLE_MAX_CHARS,
+        )
+        if prompt:
+            return prompt
+    return None
+
+
+def _format_resume_timestamp(updated_at) -> str:
+    return "updated " + updated_at.astimezone().strftime("%Y-%m-%d %H:%M")
+
+
+def _truncate_resume_text(text: str, *, max_chars: int) -> str:
+    normalized = " ".join(text.split())
+    if normalized == "":
+        return ""
+    if len(normalized) <= max_chars:
+        return normalized
+    if max_chars <= 3:
+        return normalized[:max_chars]
+    return normalized[: max_chars - 3].rstrip() + "..."
+
+
+def _pick_resume_selection(
+    options: Sequence[_ResumeSelectionOption],
+    *,
+    writer: TextIO,
+    key_reader: Callable[[], str],
+) -> int:
+    if not options:
+        raise RuntimeError("Resume selection requires at least one session")
+
+    selected_index = 0
+    rendered_line_count = 0
+    while True:
+        rendered_line_count = _render_resume_picker(
+            options,
+            selected_index=selected_index,
+            writer=writer,
+            previous_line_count=rendered_line_count,
+        )
+        key = key_reader()
+        if key == "up":
+            selected_index = (selected_index - 1) % len(options)
+        elif key == "down":
+            selected_index = (selected_index + 1) % len(options)
+        elif key == "enter":
+            if rendered_line_count:
+                writer.write(f"\x1b[{rendered_line_count}F")
+                writer.write("\x1b[J")
+                writer.flush()
+            return selected_index
+
+
+def _render_resume_picker(
+    options: Sequence[_ResumeSelectionOption],
+    *,
+    selected_index: int,
+    writer: TextIO,
+    previous_line_count: int,
+) -> int:
+    if previous_line_count:
+        writer.write(f"\x1b[{previous_line_count}F")
+        writer.write("\x1b[J")
+
+    lines = [
+        "Recent sessions",
+        "Use up/down arrows, then press Enter to resume.",
+        "",
+    ]
+    for index, option in enumerate(options):
+        prefix = ">" if index == selected_index else " "
+        lines.append(f"{prefix} {option.label}")
+        if option.subtitle:
+            lines.append(f"  {option.subtitle}")
+        if index != len(options) - 1:
+            lines.append("")
+
+    writer.write("\r\n".join(lines))
+    writer.write("\r\n")
+    writer.flush()
+    return len(lines)
+
+
+@contextmanager
+def _resume_picker_input_mode():
+    if os.name == "nt":
+        yield
+        return
+
+    import termios
+    import tty
+
+    fd = sys.stdin.fileno()
+    original = termios.tcgetattr(fd)
+    try:
+        tty.setcbreak(fd)
+        yield
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, original)
+
+
+def _read_resume_picker_key() -> str:
+    if os.name == "nt":
+        return _read_resume_picker_key_windows()
+    return _read_resume_picker_key_posix()
+
+
+def _read_resume_picker_key_windows() -> str:
+    import msvcrt
+
+    first = msvcrt.getwch()
+    if first in ("\r", "\n"):
+        return "enter"
+    if first in ("k", "K"):
+        return "up"
+    if first in ("j", "J"):
+        return "down"
+    if first == "\x03":
+        raise KeyboardInterrupt
+    if first in ("\x00", "\xe0"):
+        second = msvcrt.getwch()
+        if second == "H":
+            return "up"
+        if second == "P":
+            return "down"
+    return "other"
+
+
+def _read_resume_picker_key_posix() -> str:
+    first = sys.stdin.read(1)
+    if first in ("\r", "\n"):
+        return "enter"
+    if first in ("k", "K"):
+        return "up"
+    if first in ("j", "J"):
+        return "down"
+    if first == "\x03":
+        raise KeyboardInterrupt
+    if first != "\x1b":
+        return "other"
+    second = sys.stdin.read(1)
+    if second not in ("[", "O"):
+        return "other"
+    third = sys.stdin.read(1)
+    sequence = second + third
+    if second == "[" and not ("@" <= third <= "~"):
+        while len(sequence) < 8:
+            next_char = sys.stdin.read(1)
+            if next_char == "":
+                break
+            sequence += next_char
+            if "@" <= next_char <= "~":
+                break
+    return _decode_resume_picker_escape_sequence(sequence)
+
+
+def _decode_resume_picker_escape_sequence(sequence: str) -> str:
+    if sequence in ("[A", "OA"):
+        return "up"
+    if sequence in ("[B", "OB"):
+        return "down"
+    if sequence.startswith("[") and sequence.endswith("A"):
+        return "up"
+    if sequence.startswith("[") and sequence.endswith("B"):
+        return "down"
+    return "other"
 
 
 def _add_common_interactive_args(

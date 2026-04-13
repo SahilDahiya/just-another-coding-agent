@@ -941,7 +941,7 @@ func TestCurrentViewModelMarksDetachedLiveWhenStreamingScrolledUp(t *testing.T) 
 	}
 }
 
-func TestNewResumedSessionSkipsFirstRunOnboardingAndShowsResumeNote(t *testing.T) {
+func TestNewResumedSessionSkipsFirstRunOnboardingWithoutResumeNote(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
@@ -956,8 +956,11 @@ func TestNewResumedSessionSkipsFirstRunOnboardingAndShowsResumeNote(t *testing.T
 		t.Fatal("resumed session should not show first-run onboarding")
 	}
 	rendered := stripANSI(m.transcript.Render())
-	if !strings.Contains(rendered, "resumed auth-store-cleanup") {
-		t.Fatalf("startup transcript missing resumed session note: %q", rendered)
+	if strings.Contains(rendered, "resumed auth-store-cleanup") {
+		t.Fatalf("startup transcript should not repeat resumed session name: %q", rendered)
+	}
+	if strings.Contains(rendered, "0123456789abcdef0123456789abcdef") {
+		t.Fatalf("startup transcript should not expose resumed session id: %q", rendered)
 	}
 }
 
@@ -966,7 +969,6 @@ func TestResumedSessionPreviewHydratesRecentHistory(t *testing.T) {
 	m.options.Backend = newStubBackend()
 	m.sessionID = "0123456789abcdef0123456789abcdef"
 	m.sessionName = "auth-store-cleanup"
-	m.transcript.WriteNote("session", []string{"resumed auth-store-cleanup"})
 
 	updated, _ := m.Update(sessionPreviewLoadedMsg{
 		Preview: rpc.SessionPreviewResponse{
