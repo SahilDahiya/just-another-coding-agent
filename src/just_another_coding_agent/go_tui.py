@@ -82,7 +82,7 @@ def available_installed_update(
     if not current_version or command is None:
         return None
 
-    latest = load_cached_release_version()
+    latest = resolve_release_version_for_launch()
     if latest is None:
         return None
     latest_version = latest.latest_version
@@ -95,6 +95,25 @@ def available_installed_update(
         current_version=current_version,
         latest_version=latest_version,
         command=tuple(command),
+    )
+
+
+def resolve_release_version_for_launch() -> CachedReleaseVersion | None:
+    cached = load_cached_release_version()
+    if not should_refresh_cached_release_version(cached):
+        return cached
+
+    latest_version = fetch_latest_release_version()
+    if latest_version is None:
+        return cached
+
+    write_cached_release_version(latest_version)
+    refreshed = load_cached_release_version()
+    if refreshed is not None:
+        return refreshed
+    return CachedReleaseVersion(
+        latest_version=latest_version,
+        last_checked_at=datetime.now(UTC),
     )
 
 

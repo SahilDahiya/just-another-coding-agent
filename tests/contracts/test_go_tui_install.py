@@ -179,6 +179,50 @@ def test_available_installed_update_returns_notice_for_newer_release(
     )
 
 
+def test_available_installed_update_refreshes_stale_cache_for_current_launch(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        go_tui,
+        "explicit_update_command",
+        lambda **_: ["uv", "tool", "upgrade", "just-another-coding-agent"],
+    )
+    stale_cache = go_tui.CachedReleaseVersion(
+        latest_version="0.1.14",
+        last_checked_at=datetime.now(UTC) - timedelta(hours=25),
+    )
+    monkeypatch.setattr(go_tui, "load_cached_release_version", lambda: stale_cache)
+    monkeypatch.setattr(go_tui, "fetch_latest_release_version", lambda: "0.1.17")
+    writes: list[str] = []
+
+    def fake_write(latest_version: str, *, checked_at=None) -> None:
+        del checked_at
+        writes.append(latest_version)
+
+    monkeypatch.setattr(go_tui, "write_cached_release_version", fake_write)
+    monkeypatch.setattr(
+        go_tui,
+        "load_cached_release_version",
+        lambda: (
+            go_tui.CachedReleaseVersion(
+                latest_version="0.1.17",
+                last_checked_at=datetime.now(UTC),
+            )
+            if writes
+            else stale_cache
+        ),
+    )
+
+    assert go_tui.available_installed_update(
+        current_version="0.1.14"
+    ) == go_tui.AvailableUpdate(
+        current_version="0.1.14",
+        latest_version="0.1.17",
+        command=("uv", "tool", "upgrade", "just-another-coding-agent"),
+    )
+    assert writes == ["0.1.17"]
+
+
 def test_available_installed_update_is_disabled_in_repo_checkout(
     monkeypatch, tmp_path
 ) -> None:

@@ -62,7 +62,7 @@ Current supported packaged targets are:
 - Keep runtime semantics in Python. Bundled Go binaries are execution helpers and UI clients.
 - Avoid startup-time installers, auto-builds, or hidden environment mutation.
 - Prefer explicit in-app update choices over blocking shell prompts:
-  - use cached release info for the current launch and refresh it in the background for the next one
+  - use cached release info when it is still fresh; when the cache is missing or stale, do one bounded live release check for the current launch and then refresh the cache
   - `Update now` exits cleanly and runs the exact external updater command
   - `Later` snoozes the notice for a bounded window
   - `Skip this version` suppresses only that exact release, not all future checks
