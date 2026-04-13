@@ -18,6 +18,7 @@ import (
 
 type Options struct {
 	AppVersion            string
+	AvailableUpdate       *UpdateNotice
 	Model                 string
 	WorkspaceRoot         string
 	SessionsRoot          string
@@ -159,6 +160,7 @@ type backendState struct {
 }
 
 type overlayState struct {
+	update               updateState
 	auth                 authState
 	login                loginState
 	startupOnboardingSet bool
@@ -173,6 +175,7 @@ type model struct {
 	layoutState
 	backendState
 	overlayState
+	exitAction *ExternalAction
 	textInput  textinput.Model
 	viewport   viewport.Model
 	transcript *Transcript
@@ -225,6 +228,7 @@ func New(options Options) tea.Model {
 			phase: PhaseIdle,
 		},
 		overlayState: overlayState{
+			update:               initialUpdateState(options),
 			startupOnboardingSet: startupOnboardingSet,
 			onboarding:           onboarding,
 		},
@@ -232,6 +236,16 @@ func New(options Options) tea.Model {
 		viewport:   newViewport(),
 		transcript: transcript,
 	}
+}
+
+func (m *model) ExitAction() *ExternalAction {
+	if m.exitAction == nil {
+		return nil
+	}
+	command := append([]string{}, m.exitAction.Command...)
+	action := *m.exitAction
+	action.Command = command
+	return &action
 }
 
 func initialOnboardingState() (bool, onboardingState) {
@@ -642,6 +656,15 @@ func (m *model) currentViewModel() viewModel {
 		DetachedLive:        m.streaming && !m.viewport.AtBottom(),
 		VisibleZones:        m.visibleZones,
 		SlashMenu:           m.slashMenu,
+		Update: updateOverlayView{
+			Active:         m.update.Active,
+			Selected:       m.update.Selected,
+			Title:          m.updateTitle(),
+			CurrentVersion: m.update.CurrentVersion,
+			LatestVersion:  m.update.LatestVersion,
+			OptionLines:    m.updateOptionLines(),
+			HelpLines:      m.updateHelpLines(),
+		},
 		Onboarding: onboardingOverlayView{
 			Active:      m.onboarding.Active,
 			Selected:    m.onboarding.Selected,
@@ -671,6 +694,9 @@ func (m *model) currentPromptFooter() string {
 	if m.promptFooterNotice != "" {
 		return m.promptFooterNotice
 	}
+	if m.update.Active {
+		return ""
+	}
 	if m.onboarding.Active {
 		return ""
 	}
@@ -691,6 +717,9 @@ func (m *model) waitingOAuthLoginBlocksInput() bool {
 }
 
 func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.update.Active {
+		return m.handleUpdateKey(msg)
+	}
 	if m.onboarding.Active {
 		return m.handleOnboardingKey(msg)
 	}

@@ -144,6 +144,24 @@ func (m *model) handleTraceCommand(arg string) {
 	}
 }
 
+func (m *model) handleVersionCommand() {
+	m.transcript.WriteNote("version", nil)
+	current := strings.TrimSpace(m.options.AppVersion)
+	if current == "" {
+		current = "unknown"
+	}
+	m.transcript.WriteLine(fmt.Sprintf("installed: %s", current))
+	if m.options.AvailableUpdate == nil {
+		return
+	}
+	m.transcript.WriteLine(fmt.Sprintf("available: %s", m.options.AvailableUpdate.LatestVersion))
+	if len(m.options.AvailableUpdate.Command) == 0 {
+		return
+	}
+	m.transcript.WriteLine("update outside JACA with:")
+	m.transcript.WriteLine(fmt.Sprintf("  %s", strings.Join(m.options.AvailableUpdate.Command, " ")))
+}
+
 func (m *model) applyProviderSelection(provider string) ([]string, bool, error) {
 	if err := config.SaveDefaultProvider(provider); err != nil {
 		return nil, false, err

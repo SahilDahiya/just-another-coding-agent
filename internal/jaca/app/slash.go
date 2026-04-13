@@ -46,6 +46,7 @@ type slashCommandSpec struct {
 var slashCommands = []slashCommandSpec{
 	{Value: "/login", Description: "Connect ChatGPT or API-key access", AcceptsArgs: true, ArgSuggestions: (*model).loginSlashSuggestions, Execute: (*model).executeLoginSlash},
 	{Value: "/model", Description: "Switch active model", AcceptsArgs: true, ArgSuggestions: (*model).modelSlashSuggestions, Execute: (*model).executeModelSlash},
+	{Value: "/version", Description: "Show installed and available version info", Execute: (*model).executeVersionSlash},
 	{Value: "/trace", Description: "Set tracing mode", AcceptsArgs: true, ArgSuggestions: (*model).traceSlashSuggestions, Execute: (*model).executeTraceSlash},
 	{Value: "/thinking", Description: "Set thinking effort", AcceptsArgs: true, Execute: (*model).executeThinkingSlash},
 	{Value: "/workspace", Description: "Show current workspace", Execute: (*model).executeWorkspaceSlash},
@@ -334,6 +335,12 @@ func (m *model) executeHelpSlash(_ string) (tea.Model, tea.Cmd) {
 
 func (m *model) executeModelSlash(arg string) (tea.Model, tea.Cmd) {
 	return m.handleModelCommand(arg)
+}
+
+func (m *model) executeVersionSlash(_ string) (tea.Model, tea.Cmd) {
+	m.handleVersionCommand()
+	m.refreshViewport()
+	return m, nil
 }
 
 func (m *model) executeThinkingSlash(arg string) (tea.Model, tea.Cmd) {

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+
 import pytest
 
 import just_another_coding_agent.go_tui as go_tui
@@ -40,6 +42,41 @@ def test_explicit_update_command_detects_uv_tool_install(monkeypatch, tmp_path) 
         "uv",
         "tool",
         "upgrade",
+        "just-another-coding-agent",
+    ]
+
+
+def test_explicit_update_command_detects_pipx_install(monkeypatch, tmp_path) -> None:
+    scripts_dir = tmp_path / ".local" / "share" / "pipx" / "venvs" / "jaca" / "bin"
+    scripts_dir.mkdir(parents=True)
+    monkeypatch.setattr(
+        install_repair.sysconfig, "get_path", lambda key: str(scripts_dir)
+    )
+    monkeypatch.setattr(install_repair, "package_installer", lambda: "pip")
+
+    assert go_tui.explicit_update_command() == [
+        "pipx",
+        "upgrade",
+        "just-another-coding-agent",
+    ]
+
+
+def test_explicit_update_command_detects_generic_pip_install(
+    monkeypatch, tmp_path
+) -> None:
+    scripts_dir = tmp_path / ".venv" / "bin"
+    scripts_dir.mkdir(parents=True)
+    monkeypatch.setattr(
+        install_repair.sysconfig, "get_path", lambda key: str(scripts_dir)
+    )
+    monkeypatch.setattr(install_repair, "package_installer", lambda: "pip")
+
+    assert go_tui.explicit_update_command() == [
+        "python",
+        "-m",
+        "pip",
+        "install",
+        "--upgrade",
         "just-another-coding-agent",
     ]
 
@@ -86,6 +123,19 @@ def test_go_tui_install_command_uses_uv_tool_repair_for_uv_tool_installs(
     )
 
 
+def test_go_tui_install_command_uses_pipx_repair_for_pipx_installs(
+    monkeypatch, tmp_path
+) -> None:
+    scripts_dir = tmp_path / ".local" / "share" / "pipx" / "venvs" / "jaca" / "bin"
+    scripts_dir.mkdir(parents=True)
+    monkeypatch.setattr(
+        install_repair.sysconfig, "get_path", lambda key: str(scripts_dir)
+    )
+    monkeypatch.setattr(install_repair, "package_installer", lambda: "pip")
+
+    assert go_tui.go_tui_install_command() == "pipx reinstall just-another-coding-agent"
+
+
 def test_go_tui_install_command_falls_back_to_pip_force_reinstall(
     monkeypatch, tmp_path
 ) -> None:
@@ -111,7 +161,14 @@ def test_available_installed_update_returns_notice_for_newer_release(
         install_repair.sysconfig, "get_path", lambda key: str(scripts_dir)
     )
     monkeypatch.setattr(install_repair, "package_installer", lambda: "uv")
-    monkeypatch.setattr(go_tui, "fetch_latest_release_version", lambda: "0.1.6")
+    monkeypatch.setattr(
+        go_tui,
+        "load_cached_release_version",
+        lambda: go_tui.CachedReleaseVersion(
+            latest_version="0.1.6",
+            last_checked_at=datetime.now(UTC),
+        ),
+    )
 
     assert go_tui.available_installed_update(
         current_version="0.1.5"
@@ -131,12 +188,73 @@ def test_available_installed_update_is_disabled_in_repo_checkout(
         install_repair.sysconfig, "get_path", lambda key: str(scripts_dir)
     )
     monkeypatch.setattr(install_repair, "package_installer", lambda: "uv")
-    monkeypatch.setattr(go_tui, "fetch_latest_release_version", lambda: "0.1.6")
+    monkeypatch.setattr(
+        go_tui,
+        "load_cached_release_version",
+        lambda: go_tui.CachedReleaseVersion(
+            latest_version="0.1.6",
+            last_checked_at=datetime.now(UTC),
+        ),
+    )
 
     assert go_tui.available_installed_update(
         current_version="0.1.5",
         repo_root=tmp_path / "repo",
     ) is None
+
+
+def test_cached_release_version_round_trip(tmp_path, monkeypatch) -> None:
+    cache_path = tmp_path / "version.json"
+    checked_at = datetime(2026, 4, 12, 12, 0, tzinfo=UTC)
+    monkeypatch.setattr(go_tui, "update_cache_path", lambda: cache_path)
+
+    go_tui.write_cached_release_version("0.1.6", checked_at=checked_at)
+
+    assert go_tui.load_cached_release_version() == go_tui.CachedReleaseVersion(
+        latest_version="0.1.6",
+        last_checked_at=checked_at,
+    )
+
+
+def test_should_refresh_cached_release_version_after_interval() -> None:
+    now = datetime(2026, 4, 12, 12, 0, tzinfo=UTC)
+    recent = go_tui.CachedReleaseVersion(
+        latest_version="0.1.6",
+        last_checked_at=now - timedelta(hours=1),
+    )
+    stale = go_tui.CachedReleaseVersion(
+        latest_version="0.1.6",
+        last_checked_at=now - timedelta(hours=25),
+    )
+
+    assert go_tui.should_refresh_cached_release_version(None, now=now) is True
+    assert go_tui.should_refresh_cached_release_version(recent, now=now) is False
+    assert go_tui.should_refresh_cached_release_version(stale, now=now) is True
+
+
+def test_refresh_cached_release_version_in_background_skips_recent_cache(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        go_tui,
+        "explicit_update_command",
+        lambda **_: ["uv", "tool", "upgrade", "just-another-coding-agent"],
+    )
+    monkeypatch.setattr(
+        go_tui,
+        "load_cached_release_version",
+        lambda: go_tui.CachedReleaseVersion(
+            latest_version="0.1.6",
+            last_checked_at=datetime.now(UTC),
+        ),
+    )
+
+    def fail_thread(*args, **kwargs):
+        raise AssertionError("background refresh should not start for fresh cache")
+
+    monkeypatch.setattr(go_tui.threading, "Thread", fail_thread)
+
+    go_tui.refresh_cached_release_version_in_background()
 
 
 def test_is_newer_release_version_handles_equal_and_invalid_versions() -> None:

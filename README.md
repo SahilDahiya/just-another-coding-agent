@@ -67,10 +67,13 @@ uv tool upgrade just-another-coding-agent
 ```
 
 JACA does not auto-upgrade or self-reinstall on startup.
-Installed `uv tool` builds may show a pre-launch notice before the TUI starts
-when a newer published version is available. That notice only prints the exact
-upgrade command and lets you either continue into the app or quit and update
-outside the running app.
+Installed builds may show a small in-app update chooser when a newer published
+version is available. The current launch uses cached version info, and JACA
+refreshes that cache in the background for the next launch so startup stays
+fast. You can update immediately, snooze the notice for a day, or skip that
+exact version until something newer is published. `/version` prints the
+installed version, the newer published version when one is known, and the
+exact upgrade command for your install lane.
 
 ## Repo Setup
 

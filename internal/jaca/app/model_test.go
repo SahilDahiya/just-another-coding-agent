@@ -357,6 +357,31 @@ func newTestModelWithBackend(backend Backend) *model {
 	return m
 }
 
+func newTestModelWithAvailableUpdate(latestVersion string, command ...string) *model {
+	m := New(Options{
+		AppVersion: "0.1.11",
+		AvailableUpdate: &UpdateNotice{
+			LatestVersion: latestVersion,
+			Command:       append([]string{}, command...),
+		},
+		Model:         "openai-responses:gpt-5.4",
+		WorkspaceRoot: "/workspace",
+		Thinking:      "medium",
+	}).(*model)
+	m.transcript = NewTranscript()
+	m.viewport = newViewport()
+	m.viewport.Width = 80
+	m.viewport.Height = 8
+	m.width = 80
+	m.height = 12
+	m.visibleZones = 3
+	m.asyncCh = make(chan tea.Msg)
+	m.modelCatalog = testModelCatalog()
+	m.startupOnboardingSet = false
+	m.onboarding = onboardingState{}
+	return m
+}
+
 func TestTypingWhileStreamingUpdatesComposer(t *testing.T) {
 	m := newTestModel()
 	m.streaming = true
@@ -666,6 +691,157 @@ func runTestCmd(m *model, cmd tea.Cmd) *model {
 	}
 	updated, next := m.Update(msg)
 	return runTestCmd(updated.(*model), next)
+}
+
+func TestShouldPromptForUpdateHonorsSkipAndSnoozeRules(t *testing.T) {
+	now := time.Date(2026, 4, 12, 12, 0, 0, 0, time.UTC)
+
+	if !shouldPromptForUpdate(map[string]string{}, "0.1.12", now) {
+		t.Fatal("empty config should prompt for a newer version")
+	}
+	if shouldPromptForUpdate(map[string]string{"update_skip_version": "0.1.12"}, "0.1.12", now) {
+		t.Fatal("same skipped version should stay suppressed")
+	}
+	if !shouldPromptForUpdate(map[string]string{"update_skip_version": "0.1.12"}, "0.1.13", now) {
+		t.Fatal("newer version should ignore an older skipped version")
+	}
+	if shouldPromptForUpdate(
+		map[string]string{"update_snooze_until": now.Add(time.Hour).Format(time.RFC3339)},
+		"0.1.12",
+		now,
+	) {
+		t.Fatal("active snooze window should suppress the prompt")
+	}
+	if !shouldPromptForUpdate(
+		map[string]string{"update_snooze_until": now.Add(-time.Hour).Format(time.RFC3339)},
+		"0.1.12",
+		now,
+	) {
+		t.Fatal("expired snooze window should allow the prompt")
+	}
+}
+
+func TestUpdateOverlayDefaultsToLaterAndPersistsSnooze(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	m := newTestModelWithAvailableUpdate(
+		"0.1.12",
+		"uv", "tool", "upgrade", "just-another-coding-agent",
+	)
+	if !m.update.Active {
+		t.Fatal("expected update overlay to open for a newer published version")
+	}
+	if m.update.Selected != 1 {
+		t.Fatalf("update.Selected = %d, want 1 for Later", m.update.Selected)
+	}
+
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	if m.update.Active {
+		t.Fatal("expected update overlay to close after choosing Later")
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("config.Load() returned error: %v", err)
+	}
+	rawUntil := strings.TrimSpace(cfg["update_snooze_until"])
+	if rawUntil == "" {
+		t.Fatal("expected update_snooze_until to be persisted")
+	}
+	until, err := time.Parse(time.RFC3339, rawUntil)
+	if err != nil {
+		t.Fatalf("time.Parse() returned error: %v", err)
+	}
+	if !until.After(time.Now().UTC().Add(23 * time.Hour)) {
+		t.Fatalf("snooze until = %s, want roughly 24h ahead", until)
+	}
+}
+
+func TestUpdateOverlayCanSkipOnlyCurrentVersion(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	m := newTestModelWithAvailableUpdate(
+		"0.1.12",
+		"uv", "tool", "upgrade", "just-another-coding-agent",
+	)
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("3")})
+	sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("config.Load() returned error: %v", err)
+	}
+	if got := cfg["update_skip_version"]; got != "0.1.12" {
+		t.Fatalf("update_skip_version = %q, want %q", got, "0.1.12")
+	}
+
+	sameVersion := newTestModelWithAvailableUpdate(
+		"0.1.12",
+		"uv", "tool", "upgrade", "just-another-coding-agent",
+	)
+	if sameVersion.update.Active {
+		t.Fatal("same skipped version should not reopen the update overlay")
+	}
+
+	newerVersion := newTestModelWithAvailableUpdate(
+		"0.1.13",
+		"uv", "tool", "upgrade", "just-another-coding-agent",
+	)
+	if !newerVersion.update.Active {
+		t.Fatal("newer version should reopen the update overlay")
+	}
+}
+
+func TestUpdateOverlayCanRequestExternalUpdate(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	m := newTestModelWithAvailableUpdate(
+		"0.1.12",
+		"uv", "tool", "upgrade", "just-another-coding-agent",
+	)
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("1")})
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(*model)
+
+	quitMsg := cmd()
+	if _, ok := quitMsg.(tea.QuitMsg); !ok {
+		t.Fatalf("cmd() = %#v, want tea.QuitMsg", quitMsg)
+	}
+	action := m.ExitAction()
+	if action == nil {
+		t.Fatal("expected update selection to record an external update action")
+	}
+	if action.Kind != ExternalActionUpdate {
+		t.Fatalf("action.Kind = %q, want %q", action.Kind, ExternalActionUpdate)
+	}
+	if strings.Join(action.Command, " ") != "uv tool upgrade just-another-coding-agent" {
+		t.Fatalf("action.Command = %#v", action.Command)
+	}
+}
+
+func TestVersionSlashShowsAvailableUpgradeCommand(t *testing.T) {
+	m := newTestModelWithAvailableUpdate(
+		"0.1.12",
+		"uv", "tool", "upgrade", "just-another-coding-agent",
+	)
+	m.update = updateState{}
+
+	m = sendRunes(m, "/version")
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	rendered := stripANSI(m.transcript.Render())
+	for _, want := range []string{
+		"installed: 0.1.11",
+		"available: 0.1.12",
+		"uv tool upgrade just-another-coding-agent",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("missing %q in %q", want, rendered)
+		}
+	}
 }
 
 func TestModelBuffersAssistantDeltasUntilLiveFlush(t *testing.T) {
@@ -1168,6 +1344,7 @@ func TestSlashShowsInlineCommandSuggestions(t *testing.T) {
 	for _, want := range []string{
 		"/login",
 		"/model",
+		"/version",
 		"/trace",
 	} {
 		if !strings.Contains(rendered, want) {

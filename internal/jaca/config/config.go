@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 var envKeys = []string{
@@ -120,5 +121,32 @@ func SaveDefaultProvider(provider string) error {
 		return errors.New("unknown provider")
 	}
 	config["default_provider"] = provider
+	return Save(config)
+}
+
+func SaveUpdateSnoozeUntil(until time.Time) error {
+	config, err := Load()
+	if err != nil {
+		return err
+	}
+	if until.IsZero() {
+		delete(config, "update_snooze_until")
+	} else {
+		config["update_snooze_until"] = until.UTC().Format(time.RFC3339)
+	}
+	return Save(config)
+}
+
+func SaveSkippedUpdateVersion(version string) error {
+	config, err := Load()
+	if err != nil {
+		return err
+	}
+	version = strings.TrimSpace(version)
+	if version == "" {
+		delete(config, "update_skip_version")
+	} else {
+		config["update_skip_version"] = version
+	}
 	return Save(config)
 }

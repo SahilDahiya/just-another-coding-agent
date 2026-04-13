@@ -684,7 +684,7 @@ def test_main_launches_repo_local_go_tui_when_installed_binary_is_missing(
     }
 
 
-def test_run_tui_prompts_for_external_update_before_launch(
+def test_run_tui_passes_available_update_to_go_tui(
     tmp_path,
     monkeypatch,
 ) -> None:
@@ -713,6 +713,11 @@ def test_run_tui_prompts_for_external_update_before_launch(
         entry,
         "default_backend_command",
         lambda: ["/tmp/fake-python", "-m", "just_another_coding_agent"],
+    )
+    monkeypatch.setattr(
+        entry,
+        "refresh_cached_release_version_in_background",
+        lambda *, repo_root: captured.setdefault("refresh_repo_root", repo_root),
     )
 
     def fake_run(command, *, check, cwd=None):
@@ -726,27 +731,25 @@ def test_run_tui_prompts_for_external_update_before_launch(
         fake_run,
     )
 
-    input_stream = _TTYBuffer("\n")
-    output_stream = _TTYBuffer()
-
     exit_code = entry._run_tui(
         model="openai:test-model",
         workspace_root=workspace_root.resolve(),
         sessions_root=sessions_root.resolve(),
         thinking=None,
-        input_stream=input_stream,
-        output_stream=output_stream,
     )
 
     assert exit_code == 19
-    assert "Update available: 0.1.5 -> 0.1.6" in output_stream.getvalue()
-    assert "uv tool upgrade just-another-coding-agent" in output_stream.getvalue()
+    assert captured["refresh_repo_root"] is None
     assert captured["command"] == [
         str(go_binary),
         "--backend-command-json",
         json.dumps(["/tmp/fake-python", "-m", "just_another_coding_agent"]),
         "--app-version",
         "0.1.5",
+        "--available-update-version",
+        "0.1.6",
+        "--available-update-command-json",
+        json.dumps(["uv", "tool", "upgrade", "just-another-coding-agent"]),
         "--model",
         "openai:test-model",
         "--workspace-root",
@@ -755,60 +758,7 @@ def test_run_tui_prompts_for_external_update_before_launch(
         str(sessions_root.resolve()),
     ]
 
-
-def test_run_tui_can_quit_before_launch_for_external_update(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    workspace_root = tmp_path / "workspace"
-    workspace_root.mkdir()
-    sessions_root = tmp_path / "sessions"
-    go_binary = tmp_path / ("jaca-go.exe" if os.name == "nt" else "jaca-go")
-
-    monkeypatch.setattr(
-        entry,
-        "resolve_go_tui_launch",
-        lambda: ([str(go_binary)], None),
-    )
-    monkeypatch.setattr(entry, "package_version", lambda: "0.1.5")
-    monkeypatch.setattr(
-        entry,
-        "available_installed_update",
-        lambda **_: AvailableUpdate(
-            current_version="0.1.5",
-            latest_version="0.1.6",
-            command=("uv", "tool", "upgrade", "just-another-coding-agent"),
-        ),
-    )
-
-    def fail_run(*args, **kwargs):
-        raise AssertionError("subprocess.run should not be called when user quits")
-
-    monkeypatch.setattr(
-        "just_another_coding_agent.__main__.subprocess.run",
-        fail_run,
-    )
-
-    input_stream = _TTYBuffer("q\n")
-    output_stream = _TTYBuffer()
-
-    exit_code = entry._run_tui(
-        model="openai:test-model",
-        workspace_root=workspace_root.resolve(),
-        sessions_root=sessions_root.resolve(),
-        thinking=None,
-        input_stream=input_stream,
-        output_stream=output_stream,
-    )
-
-    assert exit_code == 0
-    assert (
-        "Press Enter to continue, or type 'q' to quit and update now:"
-        in output_stream.getvalue()
-    )
-
-
-def test_run_tui_skips_update_check_for_non_tty_streams(
+def test_run_tui_omits_available_update_flags_when_none_are_available(
     tmp_path,
     monkeypatch,
 ) -> None:
@@ -824,17 +774,16 @@ def test_run_tui_skips_update_check_for_non_tty_streams(
         lambda: ([str(go_binary)], None),
     )
     monkeypatch.setattr(entry, "package_version", lambda: "0.1.5")
-    monkeypatch.setattr(
-        entry,
-        "available_installed_update",
-        lambda **_: (_ for _ in ()).throw(
-            AssertionError("available_installed_update should not run for non-TTY")
-        ),
-    )
+    monkeypatch.setattr(entry, "available_installed_update", lambda **_: None)
     monkeypatch.setattr(
         entry,
         "default_backend_command",
         lambda: ["/tmp/fake-python", "-m", "just_another_coding_agent"],
+    )
+    monkeypatch.setattr(
+        entry,
+        "refresh_cached_release_version_in_background",
+        lambda *, repo_root: captured.setdefault("refresh_repo_root", repo_root),
     )
 
     def fake_run(command, *, check, cwd=None):
@@ -853,11 +802,23 @@ def test_run_tui_skips_update_check_for_non_tty_streams(
         workspace_root=workspace_root.resolve(),
         sessions_root=sessions_root.resolve(),
         thinking=None,
-        input_stream=_NonTTYBuffer(),
-        output_stream=_NonTTYBuffer(),
     )
 
     assert exit_code == 7
+    assert captured["refresh_repo_root"] is None
+    assert captured["command"] == [
+        str(go_binary),
+        "--backend-command-json",
+        json.dumps(["/tmp/fake-python", "-m", "just_another_coding_agent"]),
+        "--app-version",
+        "0.1.5",
+        "--model",
+        "openai:test-model",
+        "--workspace-root",
+        str(workspace_root.resolve()),
+        "--sessions-root",
+        str(sessions_root.resolve()),
+    ]
     assert captured["command"] == [
         str(go_binary),
         "--backend-command-json",

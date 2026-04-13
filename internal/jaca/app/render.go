@@ -82,9 +82,20 @@ type viewModel struct {
 	DetachedLive        bool
 	VisibleZones        int
 	SlashMenu           slashMenuState
+	Update              updateOverlayView
 	Onboarding          onboardingOverlayView
 	Auth                authOverlayView
 	Login               loginOverlayView
+}
+
+type updateOverlayView struct {
+	Active         bool
+	Title          string
+	CurrentVersion string
+	LatestVersion  string
+	Selected       int
+	OptionLines    []string
+	HelpLines      []string
 }
 
 type onboardingOverlayView struct {
@@ -113,6 +124,9 @@ type loginOverlayView struct {
 }
 
 func renderView(vm viewModel) string {
+	if vm.Update.Active {
+		return renderUpdateOverlay(vm)
+	}
 	if vm.Onboarding.Active {
 		return renderOnboardingOverlay(vm)
 	}
@@ -131,6 +145,73 @@ func renderView(vm viewModel) string {
 		prompt = renderPrompt(vm)
 	}
 	return lipgloss.JoinVertical(lipgloss.Left, transcript, prompt)
+}
+
+func renderUpdateOverlay(vm viewModel) string {
+	panelWidth := 60
+	if vm.Width > 0 {
+		panelWidth = min(68, max(48, vm.Width-8))
+	}
+	title := lipgloss.NewStyle().
+		Foreground(defaultTheme.accentSoft).
+		Bold(true).
+		Render(vm.Update.Title)
+	subtitle := lipgloss.NewStyle().
+		Foreground(defaultTheme.textSoft).
+		Render(fmt.Sprintf("JACA %s -> %s", vm.Update.CurrentVersion, vm.Update.LatestVersion))
+	rows := make([]string, 0, len(vm.Update.OptionLines))
+	for i, line := range vm.Update.OptionLines {
+		prefix := " "
+		style := lipgloss.NewStyle().Foreground(defaultTheme.textMuted)
+		if i == vm.Update.Selected {
+			prefix = ">"
+			style = lipgloss.NewStyle().Foreground(defaultTheme.accentSoft)
+		}
+		rows = append(
+			rows,
+			lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render(prefix)+" "+style.Render(line),
+		)
+	}
+	helpLines := make([]string, 0, len(vm.Update.HelpLines))
+	for index, line := range vm.Update.HelpLines {
+		style := lipgloss.NewStyle().Foreground(defaultTheme.textMuted)
+		if index == 0 {
+			style = lipgloss.NewStyle().Foreground(defaultTheme.textSoft)
+		}
+		helpLines = append(helpLines, style.Render(line))
+	}
+	panel := lipgloss.NewStyle().
+		Width(panelWidth).
+		Padding(1, 2).
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(defaultTheme.border).
+		Render(lipgloss.JoinVertical(
+			lipgloss.Left,
+			title,
+			subtitle,
+			"",
+			lipgloss.JoinVertical(lipgloss.Left, rows...),
+			"",
+			lipgloss.JoinVertical(lipgloss.Left, helpLines...),
+		))
+
+	width := vm.Width
+	if width <= 0 {
+		width = panelWidth + 8
+	}
+	height := vm.Height
+	if height <= 0 {
+		height = max(16, lipgloss.Height(panel)+6)
+	}
+	return lipgloss.Place(
+		width,
+		height,
+		lipgloss.Center,
+		lipgloss.Center,
+		panel,
+		lipgloss.WithWhitespaceChars(" "),
+		lipgloss.WithWhitespaceForeground(defaultTheme.background),
+	)
 }
 
 func renderOnboardingOverlay(vm viewModel) string {

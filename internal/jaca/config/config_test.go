@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestLoadFailsOnCorruptConfigJSON(t *testing.T) {
@@ -147,5 +148,64 @@ func TestApplyTraceModeToEnvSetsAndClearsRuntimeEnv(t *testing.T) {
 	}
 	if got := os.Getenv("JACA_TRACE_MODE"); got != "" {
 		t.Fatalf("JACA_TRACE_MODE = %q, want empty", got)
+	}
+}
+
+func TestSaveUpdateSnoozeUntilPersistsAndClears(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	until := time.Date(2026, 4, 13, 12, 0, 0, 0, time.UTC)
+
+	if err := SaveUpdateSnoozeUntil(until); err != nil {
+		t.Fatalf("SaveUpdateSnoozeUntil() returned error: %v", err)
+	}
+	got, err := Load()
+	if err != nil {
+		t.Fatalf("Load() returned error: %v", err)
+	}
+	if got["update_snooze_until"] != until.Format(time.RFC3339) {
+		t.Fatalf(
+			"update_snooze_until = %q, want %q",
+			got["update_snooze_until"],
+			until.Format(time.RFC3339),
+		)
+	}
+
+	if err := SaveUpdateSnoozeUntil(time.Time{}); err != nil {
+		t.Fatalf("SaveUpdateSnoozeUntil(clear) returned error: %v", err)
+	}
+	got, err = Load()
+	if err != nil {
+		t.Fatalf("Load() returned error: %v", err)
+	}
+	if _, ok := got["update_snooze_until"]; ok {
+		t.Fatalf("update_snooze_until unexpectedly present: %#v", got)
+	}
+}
+
+func TestSaveSkippedUpdateVersionPersistsAndClears(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	if err := SaveSkippedUpdateVersion("0.1.12"); err != nil {
+		t.Fatalf("SaveSkippedUpdateVersion() returned error: %v", err)
+	}
+	got, err := Load()
+	if err != nil {
+		t.Fatalf("Load() returned error: %v", err)
+	}
+	if got["update_skip_version"] != "0.1.12" {
+		t.Fatalf("update_skip_version = %q, want %q", got["update_skip_version"], "0.1.12")
+	}
+
+	if err := SaveSkippedUpdateVersion(""); err != nil {
+		t.Fatalf("SaveSkippedUpdateVersion(clear) returned error: %v", err)
+	}
+	got, err = Load()
+	if err != nil {
+		t.Fatalf("Load() returned error: %v", err)
+	}
+	if _, ok := got["update_skip_version"]; ok {
+		t.Fatalf("update_skip_version unexpectedly present: %#v", got)
 	}
 }

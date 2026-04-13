@@ -46,30 +46,44 @@ def is_uv_tool_scripts_dir(path: Path) -> bool:
     return False
 
 
+def is_pipx_scripts_dir(path: Path) -> bool:
+    parts = {part.lower() for part in path.parts}
+    return "pipx" in parts and "venvs" in parts
+
+
 def explicit_update_command(*, repo_root: Path | None = None) -> list[str] | None:
     if repo_root is not None:
         return None
 
     scripts_dir = sysconfig.get_path("scripts")
-    if not scripts_dir:
-        return None
+    installer = package_installer()
+    scripts_path = Path(scripts_dir) if scripts_dir else None
 
-    if package_installer() != "uv":
-        return None
+    if scripts_path is not None:
+        if installer == "uv" and is_uv_tool_scripts_dir(scripts_path):
+            return ["uv", "tool", "upgrade", PACKAGE_NAME]
+        if is_pipx_scripts_dir(scripts_path):
+            return ["pipx", "upgrade", PACKAGE_NAME]
 
-    if not is_uv_tool_scripts_dir(Path(scripts_dir)):
-        return None
+    if installer == "pip":
+        return ["python", "-m", "pip", "install", "--upgrade", PACKAGE_NAME]
 
-    return ["uv", "tool", "upgrade", PACKAGE_NAME]
+    return None
 
 
 def repair_install_command(*, repo_root: Path | None, build_tui: bool) -> str:
     if repo_root is not None:
         return repo_sync_command(build_tui=build_tui)
 
-    update_command = explicit_update_command(repo_root=repo_root)
-    if update_command is not None:
-        return " ".join([*update_command, "--reinstall"])
+    scripts_dir = sysconfig.get_path("scripts")
+    scripts_path = Path(scripts_dir) if scripts_dir else None
+    installer = package_installer()
+
+    if scripts_path is not None:
+        if installer == "uv" and is_uv_tool_scripts_dir(scripts_path):
+            return f"uv tool upgrade {PACKAGE_NAME} --reinstall"
+        if is_pipx_scripts_dir(scripts_path):
+            return f"pipx reinstall {PACKAGE_NAME}"
 
     return f"python -m pip install --force-reinstall {PACKAGE_NAME}"
 
@@ -78,6 +92,7 @@ __all__ = [
     "PACKAGE_NAME",
     "explicit_update_command",
     "find_repo_root",
+    "is_pipx_scripts_dir",
     "is_uv_tool_scripts_dir",
     "package_installer",
     "repair_install_command",

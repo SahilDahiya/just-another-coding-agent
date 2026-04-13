@@ -61,6 +61,11 @@ Current supported packaged targets are:
 - Treat the Python package as the distribution root. Go executables are bundled implementation artifacts, not separate products.
 - Keep runtime semantics in Python. Bundled Go binaries are execution helpers and UI clients.
 - Avoid startup-time installers, auto-builds, or hidden environment mutation.
+- Prefer explicit in-app update choices over blocking shell prompts:
+  - use cached release info for the current launch and refresh it in the background for the next one
+  - `Update now` exits cleanly and runs the exact external updater command
+  - `Later` snoozes the notice for a bounded window
+  - `Skip this version` suppresses only that exact release, not all future checks
 - Keep repair commands context-aware:
   - repo checkout: rebuild with `uv sync`
   - isolated uv tool install: repair with `uv tool upgrade --reinstall`

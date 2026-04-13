@@ -6,9 +6,11 @@ import os
 import shutil
 import sys
 import sysconfig
+import threading
 import urllib.request
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from just_another_coding_agent.install_repair import (
@@ -25,6 +27,8 @@ GO_TUI_BUILD_ENV = "JACA_BUILD_TUI"
 GO_TUI_GO_RUN_ENV = "JACA_GO_RUN"
 UPDATE_CHECK_URL = "https://pypi.org/pypi/just-another-coding-agent/json"
 UPDATE_CHECK_TIMEOUT = 5.0
+UPDATE_CACHE_FILENAME = "version.json"
+UPDATE_REFRESH_INTERVAL = timedelta(hours=20)
 
 
 @dataclass(frozen=True)
@@ -32,6 +36,12 @@ class AvailableUpdate:
     current_version: str
     latest_version: str
     command: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class CachedReleaseVersion:
+    latest_version: str
+    last_checked_at: datetime | None
 
 
 def default_backend_command(python_executable: str | None = None) -> list[str]:
@@ -72,9 +82,10 @@ def available_installed_update(
     if not current_version or command is None:
         return None
 
-    latest_version = fetch_latest_release_version()
-    if latest_version is None:
+    latest = load_cached_release_version()
+    if latest is None:
         return None
+    latest_version = latest.latest_version
 
     newer, ok = is_newer_release_version(current_version, latest_version)
     if not ok or not newer:
@@ -85,6 +96,91 @@ def available_installed_update(
         latest_version=latest_version,
         command=tuple(command),
     )
+
+
+def update_cache_path() -> Path:
+    return Path.home() / ".jaca" / UPDATE_CACHE_FILENAME
+
+
+def load_cached_release_version() -> CachedReleaseVersion | None:
+    path = update_cache_path()
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    latest = payload.get("latest_version", "")
+    if not isinstance(latest, str) or not latest.strip():
+        return None
+    raw_checked = payload.get("last_checked_at", "")
+    checked_at = parse_cached_release_timestamp(raw_checked)
+    return CachedReleaseVersion(
+        latest_version=latest.strip(),
+        last_checked_at=checked_at,
+    )
+
+
+def parse_cached_release_timestamp(raw: object) -> datetime | None:
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    try:
+        return datetime.fromisoformat(raw.replace("Z", "+00:00")).astimezone(UTC)
+    except ValueError:
+        return None
+
+
+def format_cached_release_timestamp(value: datetime) -> str:
+    return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+
+def should_refresh_cached_release_version(
+    cached: CachedReleaseVersion | None,
+    *,
+    now: datetime | None = None,
+) -> bool:
+    current = datetime.now(UTC) if now is None else now.astimezone(UTC)
+    if cached is None or cached.last_checked_at is None:
+        return True
+    return cached.last_checked_at < current - UPDATE_REFRESH_INTERVAL
+
+
+def write_cached_release_version(
+    latest_version: str,
+    *,
+    checked_at: datetime | None = None,
+) -> None:
+    path = update_cache_path()
+    timestamp = datetime.now(UTC) if checked_at is None else checked_at.astimezone(UTC)
+    payload = {
+        "latest_version": latest_version,
+        "last_checked_at": format_cached_release_timestamp(timestamp),
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(f"{json.dumps(payload)}\n", encoding="utf-8")
+
+
+def refresh_cached_release_version() -> None:
+    latest_version = fetch_latest_release_version()
+    if latest_version is None:
+        return
+    write_cached_release_version(latest_version)
+
+
+def refresh_cached_release_version_in_background(
+    *,
+    repo_root: Path | None = None,
+) -> None:
+    if explicit_update_command(repo_root=repo_root) is None:
+        return
+    cached = load_cached_release_version()
+    if not should_refresh_cached_release_version(cached):
+        return
+    threading.Thread(
+        target=refresh_cached_release_version,
+        name="jaca-update-check",
+        daemon=True,
+    ).start()
 
 
 def fetch_latest_release_version() -> str | None:
@@ -129,6 +225,8 @@ def parse_release_version(raw: str) -> tuple[int, int, int] | None:
     if major < 0 or minor < 0 or patch < 0:
         return None
     return major, minor, patch
+
+
 def resolve_go_tui_binary() -> Path:
     scripts_dir = sysconfig.get_path("scripts")
     if not scripts_dir:
