@@ -902,7 +902,7 @@ wheels = [
 
 [[package]]
 name = "just-another-coding-agent"
-version = "0.1.12"
+version = "0.1.13"
 source = { editable = "." }
 dependencies = [
     { name = "keyring" },
