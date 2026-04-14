@@ -39,7 +39,10 @@ from just_another_coding_agent.provider_readiness import (
     ProviderReadinessError,
     compute_model_readiness,
 )
-from just_another_coding_agent.runtime.activity import build_failed_tool_activity
+from just_another_coding_agent.runtime.activity import (
+    PendingToolCall,
+    synthesize_tool_failed_events_for_pending,
+)
 from just_another_coding_agent.runtime.agent import (
     build_canonical_agent,
     detect_current_timezone_label,
@@ -497,21 +500,21 @@ async def stream_session_run_events(
         if run_appender is not None and active_run_id is not None:
             error_type = type(error).__name__
             message = str(error) or "run cancelled"
-            for pending_tool_call in pending_tool_calls.values():
-                tool_failed_event = ToolCallFailedEvent(
-                    run_id=active_run_id,
-                    tool_call_id=pending_tool_call.tool_call_id,
-                    tool_name=pending_tool_call.tool_name,
-                    error_type=error_type,
-                    message=message,
-                    activity=build_failed_tool_activity(
+            for tool_failed_event in synthesize_tool_failed_events_for_pending(
+                run_id=active_run_id,
+                pending=(
+                    PendingToolCall(
+                        tool_call_id=pending_tool_call.tool_call_id,
                         tool_name=pending_tool_call.tool_name,
                         args=pending_tool_call.args,
                         args_valid=pending_tool_call.args_valid,
-                        message=message,
-                        duration_ms=0,
-                    ),
-                )
+                        started_at=0,
+                    )
+                    for pending_tool_call in pending_tool_calls.values()
+                ),
+                error_type=error_type,
+                message=message,
+            ):
                 run_appender.append_event(tool_failed_event)
                 yield tool_failed_event
             pending_tool_calls.clear()
@@ -539,21 +542,21 @@ async def stream_session_run_events(
         if active_run_id is not None:
             error_type = type(error).__name__
             message = str(error) or error_type
-            for pending_tool_call in pending_tool_calls.values():
-                tool_failed_event = ToolCallFailedEvent(
-                    run_id=active_run_id,
-                    tool_call_id=pending_tool_call.tool_call_id,
-                    tool_name=pending_tool_call.tool_name,
-                    error_type=error_type,
-                    message=message,
-                    activity=build_failed_tool_activity(
+            for tool_failed_event in synthesize_tool_failed_events_for_pending(
+                run_id=active_run_id,
+                pending=(
+                    PendingToolCall(
+                        tool_call_id=pending_tool_call.tool_call_id,
                         tool_name=pending_tool_call.tool_name,
                         args=pending_tool_call.args,
                         args_valid=pending_tool_call.args_valid,
-                        message=message,
-                        duration_ms=0,
-                    ),
-                )
+                        started_at=0,
+                    )
+                    for pending_tool_call in pending_tool_calls.values()
+                ),
+                error_type=error_type,
+                message=message,
+            ):
                 yield tool_failed_event
             pending_tool_calls.clear()
             run_failed_event = RunFailedEvent(
