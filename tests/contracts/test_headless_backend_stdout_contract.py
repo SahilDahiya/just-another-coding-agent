@@ -1,0 +1,159 @@
+"""Stdout contract test for the headless backend subprocess.
+
+The Go TUI reads the backend's stdout line-by-line and parses each line
+as a JSON-RPC envelope. **Any non-JSON byte on stdout poisons the Go
+client's readLoop** — the first parse failure calls `failAllWaiters`
+and every in-flight and future request receives the same error until
+the backend is restarted. We lived this class of bug: a user saw four
+`invalid character 'N' looking for beginning of value` errors from a
+single non-JSON line somewhere in the startup sequence, with no way to
+identify which line or which code path produced it.
+
+The invariant enforced here is stronger than "today's bugs are fixed":
+**under any startup condition, every byte written to stdout by the
+headless backend must be part of a valid JSON-RPC envelope on a
+newline-delimited line.** This catches future regressions where a
+dependency starts printing to stdout on import, a configure hook writes
+a progress message, an error handler prints a traceback, or a warning
+emission slips past the default stderr routing.
+
+If this test ever fails, the fix is always the same: route the
+offending output to stderr (or to an explicit logging sink), never
+stdout. Do not add a filter that drops non-JSON from stdout — that
+would hide the problem and mask the next one.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+_STARTUP_REQUEST_BURST = (
+    {"id": "r-auth", "command": "auth.status", "payload": {}},
+    {"id": "r-models", "command": "model.catalog", "payload": {}},
+    {"id": "r-docs", "command": "workspace.project_docs", "payload": {}},
+)
+
+
+def _encode_requests(requests: tuple[dict, ...]) -> bytes:
+    return b"".join(
+        (json.dumps(request) + "\n").encode("utf-8") for request in requests
+    )
+
+
+def _parse_stdout_lines_or_fail(
+    stdout: bytes,
+    stderr: bytes,
+    *,
+    trace_mode: str,
+) -> list[dict]:
+    """Assert every non-empty stdout line is a valid JSON-RPC envelope
+    with a ``type`` field, returning the parsed envelopes. Any parse
+    failure raises pytest.Fail with the offending line inline so a CI
+    run prints a definitive smoking gun without further investigation.
+    """
+    parsed: list[dict] = []
+    for line_number, raw in enumerate(stdout.split(b"\n"), start=1):
+        if not raw:
+            continue
+        try:
+            envelope = json.loads(raw)
+        except json.JSONDecodeError as error:
+            preview = raw[:200].decode("utf-8", errors="replace")
+            hex_preview = raw[:32].hex()
+            pytest.fail(
+                "Headless backend emitted a non-JSON line on stdout "
+                f"(trace_mode={trace_mode!r}):\n"
+                f"  line {line_number}: {len(raw)} bytes\n"
+                f"  first 32 bytes hex: {hex_preview}\n"
+                f"  preview: {preview!r}\n"
+                f"  json error: {error}\n"
+                f"  stdout total: {len(stdout)} bytes\n"
+                f"  stderr: {stderr.decode('utf-8', errors='replace')[:500]!r}"
+            )
+        if not isinstance(envelope, dict) or "type" not in envelope:
+            pytest.fail(
+                "Headless backend emitted a JSON line that is not an envelope "
+                f"(trace_mode={trace_mode!r}):\n"
+                f"  line {line_number}: {raw[:200]!r}"
+            )
+        parsed.append(envelope)
+    return parsed
+
+
+@pytest.mark.parametrize("trace_mode", ["off", "local"])
+def test_headless_backend_stdout_is_pure_json(
+    tmp_path: Path,
+    trace_mode: str,
+) -> None:
+    # The logfire trace mode is deliberately NOT parameterized here
+    # because its configure path requires real Logfire credentials
+    # (LOGFIRE_TOKEN or ~/.logfire/default.toml); a CI environment
+    # without those would raise RuntimeError at backend startup, which
+    # is a different failure mode than the stdout contract this test
+    # enforces. Logfire's own contract (that its configure hook is
+    # silent when console=False) is verified by logfire's upstream
+    # test suite.
+    env = os.environ.copy()
+    env["JACA_TRACE_MODE"] = trace_mode
+    # Isolate from whatever ~/.logfire may exist in dev environments.
+    env.pop("LOGFIRE_TOKEN", None)
+
+    sessions_root = tmp_path / "sessions"
+    sessions_root.mkdir()
+
+    cmd = [
+        sys.executable,
+        "-m",
+        "just_another_coding_agent",
+        "--headless",
+        "--model",
+        "openai-responses:gpt-5.4",
+        "--workspace-root",
+        str(tmp_path),
+        "--sessions-root",
+        str(sessions_root),
+    ]
+
+    result = subprocess.run(
+        cmd,
+        input=_encode_requests(_STARTUP_REQUEST_BURST),
+        capture_output=True,
+        env=env,
+        timeout=30,
+        check=False,
+    )
+
+    envelopes = _parse_stdout_lines_or_fail(
+        result.stdout,
+        result.stderr,
+        trace_mode=trace_mode,
+    )
+
+    # Exactly one envelope per request in the burst. If the count
+    # mismatches, stdout probably has an extra line that IS valid JSON
+    # but does not correspond to any request we sent — still a bug, but
+    # a milder one than the first assertion catches.
+    assert len(envelopes) == len(_STARTUP_REQUEST_BURST), (
+        f"expected {len(_STARTUP_REQUEST_BURST)} envelopes, got {len(envelopes)}: "
+        f"{envelopes!r}"
+    )
+
+    # Each envelope must correspond to the request it replies to.
+    for request, envelope in zip(_STARTUP_REQUEST_BURST, envelopes, strict=True):
+        assert envelope.get("id") == request["id"], (
+            f"envelope id mismatch: request id={request['id']!r}, "
+            f"envelope={envelope!r}"
+        )
+        # The envelope type is either rpc_response (success) or
+        # rpc_error (unknown session etc.) — both are valid JSON-RPC
+        # shapes. We don't require success here; we only require that
+        # the backend produced a real envelope for the request.
+        assert envelope["type"] in {"rpc_response", "rpc_error"}, (
+            f"unexpected envelope type: {envelope!r}"
+        )
