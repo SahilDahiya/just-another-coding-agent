@@ -9,7 +9,6 @@ from glob import glob
 from pathlib import Path
 
 PACKAGE_NAME = "just-another-coding-agent"
-WINDOWS_RIPGREP_BINARY = "rg.exe"
 GO_TUI_BINARY = "jaca-go.exe" if os.name == "nt" else "jaca-go"
 
 
@@ -131,7 +130,6 @@ from just_another_coding_agent.go_tui import explicit_update_command, package_ve
 from just_another_coding_agent.tools.read_only_worker.launcher import (
     read_only_worker_install_command,
 )
-from just_another_coding_agent.tools.windows_search_tools import ensure_windows_search_tool
 assert package_version()
 assert explicit_update_command(repo_root=None) == [
     "uv",
@@ -143,8 +141,6 @@ assert (
     read_only_worker_install_command(repo_root=None)
     == "uv tool upgrade just-another-coding-agent --reinstall"
 )
-if os.name == "nt":
-    assert ensure_windows_search_tool("rg").lower().endswith("\\\\rg.exe")
 """
         run([str(python_path), "-c", probe], env=env)
         probe_installed_binary(
@@ -152,10 +148,6 @@ if os.name == "nt":
             args=["-h"],
             env=env,
         )
-        if os.name == "nt":
-            bundled_rg = tool_dir / PACKAGE_NAME / "Scripts" / WINDOWS_RIPGREP_BINARY
-            if not bundled_rg.is_file():
-                raise SystemExit(f"bundled ripgrep not found: {bundled_rg}")
     return 0
 
 
