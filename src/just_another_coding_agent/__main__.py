@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import json
 import os
+import shutil
 import subprocess
 import sys
 from collections.abc import Sequence
@@ -21,6 +22,8 @@ from just_another_coding_agent.config import (
 from just_another_coding_agent.go_tui import (
     available_installed_update,
     default_backend_command,
+    find_go_tui_repo_root,
+    go_tui_install_command,
     package_version,
     refresh_cached_release_version_in_background,
     resolve_go_tui_launch,
@@ -581,13 +584,75 @@ def _run_tui(
         command.extend(["--forked-from-session-id", forked_from_session_id])
     if forked_from_session_name is not None:
         command.extend(["--forked-from-session-name", forked_from_session_name])
-    completed = subprocess.run(
-        command,
-        check=False,
-        cwd=None if launch_cwd is None else str(launch_cwd),
-        env=env,
-    )
+    try:
+        completed = subprocess.run(
+            command,
+            check=False,
+            cwd=None if launch_cwd is None else str(launch_cwd),
+            env=env,
+        )
+    except OSError as error:
+        if _is_windows_launch_policy_error(error, launch_command=launch_command):
+            raise RuntimeError(
+                _format_windows_launch_policy_error(
+                    error=error,
+                    launch_command=launch_command,
+                )
+            ) from error
+        raise
     return completed.returncode
+
+
+def _is_windows_launch_policy_error(
+    error: OSError,
+    *,
+    launch_command: Sequence[str],
+) -> bool:
+    if os.name != "nt" or not launch_command:
+        return False
+    executable = launch_command[0].lower()
+    if executable == "go":
+        return False
+    winerror = getattr(error, "winerror", None)
+    message = " ".join(
+        part
+        for part in [str(error), getattr(error, "strerror", "")]
+        if isinstance(part, str) and part
+    ).lower()
+    if winerror in {216, 225}:
+        return True
+    return (
+        "application control" in message
+        or "malicious binary reputation" in message
+        or "smart app control" in message
+        or ("blocked" in message and ".exe" in executable)
+    )
+
+
+def _format_windows_launch_policy_error(
+    *,
+    error: OSError,
+    launch_command: Sequence[str],
+) -> str:
+    repo_root = find_go_tui_repo_root()
+    repair_command = go_tui_install_command(repo_root=repo_root)
+    binary_path = launch_command[0]
+    lines = [
+        "Windows blocked the JACA Go TUI executable before launch.",
+        (
+            "This is usually Microsoft Defender, Windows Application Control, "
+            "or Smart App Control blocking an unsigned or untrusted executable."
+        ),
+        f"Blocked executable: {binary_path}",
+        f"Original error: {error}",
+        f"Repair command: {repair_command}",
+    ]
+    if repo_root is not None and shutil.which("go") is not None:
+        lines.append("Repo workaround: JACA_GO_RUN=1 uv run jaca")
+    lines.append(
+        "Release fix: publish a verified Windows wheel whose bundled jaca-go.exe launches after uv tool install."
+    )
+    return "\n".join(lines)
 
 
 def _resolve_fork_context(

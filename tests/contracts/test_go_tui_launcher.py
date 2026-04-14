@@ -1113,3 +1113,102 @@ def test_run_tui_bootstraps_windows_search_tools_before_launch(
     assert exit_code == 0
     assert captured["writer"] is output_stream
     assert captured["command"][0] == str(go_binary)
+
+
+def test_run_tui_reports_explicit_windows_policy_block_for_installed_binary(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    go_binary = tmp_path / "jaca-go.exe"
+
+    monkeypatch.setattr(
+        entry,
+        "resolve_go_tui_launch",
+        lambda: ([str(go_binary)], None),
+    )
+    monkeypatch.setattr(entry, "package_version", lambda: "0.1.5")
+    monkeypatch.setattr(
+        entry,
+        "default_backend_command",
+        lambda: ["/tmp/fake-python", "-m", "just_another_coding_agent"],
+    )
+    monkeypatch.setattr(entry, "find_go_tui_repo_root", lambda: None)
+
+    def fake_run(command, *, check, cwd=None, env=None):
+        del command, check, cwd, env
+        error = OSError("Application Control policy has blocked this file")
+        error.winerror = 216
+        raise error
+
+    monkeypatch.setattr(
+        "just_another_coding_agent.__main__.subprocess.run",
+        fake_run,
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="Windows blocked the JACA Go TUI executable before launch",
+    ) as excinfo:
+        entry._run_tui(
+            model="openai:test-model",
+            workspace_root=workspace_root.resolve(),
+            sessions_root=sessions_root.resolve(),
+            thinking=None,
+        )
+
+    message = str(excinfo.value)
+    assert str(go_binary) in message
+    assert "uv tool" in message
+
+
+def test_run_tui_reports_repo_go_run_workaround_for_windows_policy_block(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    go_binary = tmp_path / "jaca-go.exe"
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    monkeypatch.setattr(
+        entry,
+        "resolve_go_tui_launch",
+        lambda: ([str(go_binary)], None),
+    )
+    monkeypatch.setattr(entry, "package_version", lambda: "0.1.5")
+    monkeypatch.setattr(
+        entry,
+        "default_backend_command",
+        lambda: ["/tmp/fake-python", "-m", "just_another_coding_agent"],
+    )
+    monkeypatch.setattr(entry, "find_go_tui_repo_root", lambda: repo_root)
+    monkeypatch.setattr(entry.shutil, "which", lambda name: "C:/Go/bin/go.exe" if name == "go" else None)
+
+    def fake_run(command, *, check, cwd=None, env=None):
+        del command, check, cwd, env
+        error = OSError("This version of %1 is not compatible with the version of Windows you're running")
+        error.winerror = 216
+        raise error
+
+    monkeypatch.setattr(
+        "just_another_coding_agent.__main__.subprocess.run",
+        fake_run,
+    )
+
+    with pytest.raises(RuntimeError, match="Repo workaround: JACA_GO_RUN=1 uv run jaca") as excinfo:
+        entry._run_tui(
+            model="openai:test-model",
+            workspace_root=workspace_root.resolve(),
+            sessions_root=sessions_root.resolve(),
+            thinking=None,
+        )
+
+    assert (
+        "Release fix: publish a verified Windows wheel whose bundled jaca-go.exe launches after uv tool install."
+        in str(excinfo.value)
+    )
