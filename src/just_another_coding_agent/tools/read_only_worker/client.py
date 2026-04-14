@@ -18,6 +18,13 @@ from just_another_coding_agent.tools.read_only_worker.protocol import (
     worker_error_to_exception,
 )
 
+# asyncio.StreamReader's default per-line buffer is 64 KB, which is smaller
+# than legitimate single-line worker responses can reach (a `read` window or
+# a `grep` result with many matches easily exceeds 64 KB on one line and
+# would raise LimitOverrunError mid-readline). 16 MB is well above any
+# realistic single tool result and well below the OS pipe buffer worst case.
+_WORKER_STREAM_BUFFER_LIMIT = 16 * 1024 * 1024
+
 
 class ReadOnlyWorkerClient:
     def __init__(
@@ -53,6 +60,7 @@ class ReadOnlyWorkerClient:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 env=self._env,
+                limit=_WORKER_STREAM_BUFFER_LIMIT,
             )
             self._reader_task = asyncio.create_task(self._reader_loop())
             hello = await self.send(HelloWorkerRequest(request_id=uuid4().hex))

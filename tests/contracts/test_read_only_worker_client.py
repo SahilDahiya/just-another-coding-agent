@@ -193,3 +193,67 @@ for line in sys.stdin:
                     max_bytes=50 * 1024,
                 )
             )
+
+
+async def test_read_only_worker_client_handles_response_lines_larger_than_64kb(
+    tmp_path: Path,
+) -> None:
+    # Regression: asyncio.StreamReader's default per-line buffer is 64 KB,
+    # which is smaller than legitimate single-line worker responses can
+    # reach. A `read` window or a `grep` result with many matches easily
+    # exceeds 64 KB on one line and would raise LimitOverrunError mid-
+    # readline. The client must spawn the subprocess with a larger limit
+    # so single-line responses up to ~16 MB pass through cleanly.
+    payload_size = 200 * 1024  # 200 KB, comfortably above the 64 KB default
+    script_path = _write_worker_script(
+        tmp_path,
+        f"""
+import json
+import sys
+
+window_text = "x" * {payload_size}
+
+for line in sys.stdin:
+    request = json.loads(line)
+    if request["type"] == "hello":
+        print(json.dumps({{
+            "request_id": request["request_id"],
+            "type": "hello_ok",
+            "protocol_version": 1,
+            "worker_kind": "read_only",
+            "supported_operations": ["read", "ls"],
+            "supports_cancel": True,
+            "supports_parallel_calls": True,
+        }}), flush=True)
+    elif request["type"] == "call_read":
+        print(json.dumps({{
+            "request_id": request["request_id"],
+            "type": "read_result",
+            "window_text": window_text,
+            "total_lines": 1,
+            "start_line": 1,
+            "end_line": 1,
+            "truncated": False,
+            "next_offset": None,
+            "first_line_exceeds_max_bytes": False,
+        }}), flush=True)
+    elif request["type"] == "shutdown":
+        break
+""",
+    )
+
+    async with ReadOnlyWorkerClient([sys.executable, "-u", str(script_path)]) as client:
+        response = await client.send(
+            ReadWorkerRequest(
+                request_id="read-large",
+                workspace_root="/workspace",
+                path="huge.txt",
+                offset=1,
+                limit=1,
+                max_lines=2000,
+                max_bytes=1024 * 1024,
+            )
+        )
+
+    assert isinstance(response, ReadCallResult)
+    assert len(response.window_text) == payload_size
