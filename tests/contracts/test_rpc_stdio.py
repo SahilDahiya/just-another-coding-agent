@@ -29,9 +29,7 @@ from just_another_coding_agent.rpc.session_store import (
 )
 from just_another_coding_agent.rpc.stdio import (
     _OPENAI_CODEX_LOGIN_FLOWS,
-    _OPENAI_CODEX_LOGIN_RESULTS,
-    _OPENAI_CODEX_LOGIN_STARTED_AT,
-    _OPENAI_CODEX_LOGIN_TASKS,
+    _OpenAICodexLoginFlowState,
     _FollowUpState,
     _prune_stale_login_flows,
     handle_rpc_json_line,
@@ -70,6 +68,10 @@ def _has_tool_return(messages: list[ModelMessage], *, tool_name: str) -> bool:
         isinstance(part, ToolReturnPart) and part.tool_name == tool_name
         for part in _all_parts(messages)
     )
+
+
+def _clear_login_flows() -> None:
+    _OPENAI_CODEX_LOGIN_FLOWS.clear()
 
 
 async def resume_aware_write_stream(
@@ -791,7 +793,7 @@ async def test_handle_rpc_json_line_starts_openai_codex_login(
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
     sessions_root = tmp_path / "sessions"
-    _OPENAI_CODEX_LOGIN_FLOWS.clear()
+    _clear_login_flows()
     monkeypatch.setattr(
         "just_another_coding_agent.rpc.stdio.start_openai_codex_oauth_login",
         lambda: (
@@ -841,10 +843,7 @@ async def test_handle_rpc_json_line_replaces_existing_openai_codex_login_flow(
     workspace_root.mkdir()
     sessions_root = tmp_path / "sessions"
     sessions_root.mkdir()
-    _OPENAI_CODEX_LOGIN_FLOWS.clear()
-    _OPENAI_CODEX_LOGIN_TASKS.clear()
-    _OPENAI_CODEX_LOGIN_RESULTS.clear()
-    _OPENAI_CODEX_LOGIN_STARTED_AT.clear()
+    _clear_login_flows()
 
     issued_flows = iter(
         [
@@ -890,7 +889,8 @@ async def test_handle_rpc_json_line_replaces_existing_openai_codex_login_flow(
         workspace_root=workspace_root,
         sessions_root=sessions_root,
     )
-    first_task = _OPENAI_CODEX_LOGIN_TASKS["flow-1"]
+    first_task = _OPENAI_CODEX_LOGIN_FLOWS["flow-1"].task
+    assert first_task is not None
     await asyncio.sleep(0)
 
     await _rpc_messages(
@@ -908,16 +908,20 @@ async def test_handle_rpc_json_line_replaces_existing_openai_codex_login_flow(
     assert first_task.cancelled()
     assert cancelled == ["flow-1"]
     assert list(_OPENAI_CODEX_LOGIN_FLOWS) == ["flow-2"]
-    assert list(_OPENAI_CODEX_LOGIN_TASKS) == ["flow-2"]
-    assert list(_OPENAI_CODEX_LOGIN_RESULTS) == ["flow-2"]
-    assert list(_OPENAI_CODEX_LOGIN_STARTED_AT) == ["flow-2"]
+    assert _OPENAI_CODEX_LOGIN_FLOWS["flow-2"].task is not None
+    assert _OPENAI_CODEX_LOGIN_FLOWS["flow-2"].result is not None
+    assert _OPENAI_CODEX_LOGIN_FLOWS["flow-2"].started_at is not None
 
-    _OPENAI_CODEX_LOGIN_TASKS["flow-2"].cancel()
-    await asyncio.gather(*_OPENAI_CODEX_LOGIN_TASKS.values(), return_exceptions=True)
-    _OPENAI_CODEX_LOGIN_FLOWS.clear()
-    _OPENAI_CODEX_LOGIN_TASKS.clear()
-    _OPENAI_CODEX_LOGIN_RESULTS.clear()
-    _OPENAI_CODEX_LOGIN_STARTED_AT.clear()
+    _OPENAI_CODEX_LOGIN_FLOWS["flow-2"].task.cancel()
+    await asyncio.gather(
+        *[
+            state.task
+            for state in _OPENAI_CODEX_LOGIN_FLOWS.values()
+            if state.task is not None
+        ],
+        return_exceptions=True,
+    )
+    _clear_login_flows()
 
 
 async def test_handle_rpc_json_line_preserves_login_flow_after_failed_completion(
@@ -927,14 +931,13 @@ async def test_handle_rpc_json_line_preserves_login_flow_after_failed_completion
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
     sessions_root = tmp_path / "sessions"
-    _OPENAI_CODEX_LOGIN_FLOWS.clear()
-    _OPENAI_CODEX_LOGIN_TASKS.clear()
-    _OPENAI_CODEX_LOGIN_RESULTS.clear()
-    _OPENAI_CODEX_LOGIN_STARTED_AT.clear()
+    _clear_login_flows()
     flow = OpenAICodexLoginFlow(flow_id="flow-2", verifier="v", state="s")
-    _OPENAI_CODEX_LOGIN_FLOWS["flow-2"] = flow
-    _OPENAI_CODEX_LOGIN_RESULTS["flow-2"] = asyncio.get_running_loop().create_future()
-    _OPENAI_CODEX_LOGIN_STARTED_AT["flow-2"] = time.monotonic()
+    _OPENAI_CODEX_LOGIN_FLOWS["flow-2"] = _OpenAICodexLoginFlowState(
+        flow=flow,
+        result=asyncio.get_running_loop().create_future(),
+        started_at=time.monotonic(),
+    )
     attempt_counter = {"count": 0}
 
     async def _complete(_flow, callback_or_code: str):
@@ -1006,7 +1009,6 @@ async def test_handle_rpc_json_line_preserves_login_flow_after_failed_completion
         }
     ]
     assert "flow-2" not in _OPENAI_CODEX_LOGIN_FLOWS
-    assert "flow-2" not in _OPENAI_CODEX_LOGIN_RESULTS
     assert attempt_counter["count"] == 2
 
 
@@ -1018,10 +1020,7 @@ async def test_handle_rpc_json_line_waits_for_openai_codex_login(
     workspace_root.mkdir()
     sessions_root = tmp_path / "sessions"
     sessions_root.mkdir()
-    _OPENAI_CODEX_LOGIN_FLOWS.clear()
-    _OPENAI_CODEX_LOGIN_TASKS.clear()
-    _OPENAI_CODEX_LOGIN_RESULTS.clear()
-    _OPENAI_CODEX_LOGIN_STARTED_AT.clear()
+    _clear_login_flows()
 
     gate = asyncio.Event()
 
@@ -1094,10 +1093,7 @@ async def test_handle_rpc_json_line_wait_openai_codex_resolves_after_manual_comp
     workspace_root.mkdir()
     sessions_root = tmp_path / "sessions"
     sessions_root.mkdir()
-    _OPENAI_CODEX_LOGIN_FLOWS.clear()
-    _OPENAI_CODEX_LOGIN_TASKS.clear()
-    _OPENAI_CODEX_LOGIN_RESULTS.clear()
-    _OPENAI_CODEX_LOGIN_STARTED_AT.clear()
+    _clear_login_flows()
 
     async def _wait(_flow):
         await asyncio.Event().wait()
@@ -1195,10 +1191,7 @@ async def test_handle_rpc_json_line_openai_wait_unknown_flow_returns_logged_in_s
     workspace_root.mkdir()
     sessions_root = tmp_path / "sessions"
     sessions_root.mkdir()
-    _OPENAI_CODEX_LOGIN_FLOWS.clear()
-    _OPENAI_CODEX_LOGIN_TASKS.clear()
-    _OPENAI_CODEX_LOGIN_RESULTS.clear()
-    _OPENAI_CODEX_LOGIN_STARTED_AT.clear()
+    _clear_login_flows()
 
     monkeypatch.setattr(
         "just_another_coding_agent.rpc.stdio.get_oauth_provider_statuses",
@@ -1240,42 +1233,40 @@ async def test_handle_rpc_json_line_openai_wait_unknown_flow_returns_logged_in_s
 
 
 def test_prune_stale_login_flows_removes_expired_openai_codex_entries() -> None:
-    _OPENAI_CODEX_LOGIN_FLOWS.clear()
-    _OPENAI_CODEX_LOGIN_TASKS.clear()
-    _OPENAI_CODEX_LOGIN_STARTED_AT.clear()
+    _clear_login_flows()
     flow = OpenAICodexLoginFlow(flow_id="stale-flow", verifier="v", state="s")
-    _OPENAI_CODEX_LOGIN_FLOWS["stale-flow"] = flow
-    _OPENAI_CODEX_LOGIN_STARTED_AT["stale-flow"] = 0.0
+    _OPENAI_CODEX_LOGIN_FLOWS["stale-flow"] = _OpenAICodexLoginFlowState(
+        flow=flow,
+        started_at=0.0,
+    )
 
     _prune_stale_login_flows(now=10_000.0)
 
     assert "stale-flow" not in _OPENAI_CODEX_LOGIN_FLOWS
-    assert "stale-flow" not in _OPENAI_CODEX_LOGIN_STARTED_AT
 
 
 @pytest.mark.asyncio
 async def test_prune_stale_login_flows_keeps_completed_openai_task_until_waited() -> (
     None
 ):
-    _OPENAI_CODEX_LOGIN_FLOWS.clear()
-    _OPENAI_CODEX_LOGIN_TASKS.clear()
-    _OPENAI_CODEX_LOGIN_RESULTS.clear()
-    _OPENAI_CODEX_LOGIN_STARTED_AT.clear()
+    _clear_login_flows()
 
     flow = OpenAICodexLoginFlow(flow_id="done-flow", verifier="v", state="s")
     task = asyncio.create_task(asyncio.sleep(0, result="done"))
     await task
 
-    _OPENAI_CODEX_LOGIN_FLOWS["done-flow"] = flow
-    _OPENAI_CODEX_LOGIN_TASKS["done-flow"] = task
-    _OPENAI_CODEX_LOGIN_STARTED_AT["done-flow"] = 9_999.0
+    _OPENAI_CODEX_LOGIN_FLOWS["done-flow"] = _OpenAICodexLoginFlowState(
+        flow=flow,
+        task=task,
+        started_at=9_999.0,
+    )
 
     _prune_stale_login_flows(now=10_000.0)
 
     assert "done-flow" in _OPENAI_CODEX_LOGIN_FLOWS
-    assert "done-flow" in _OPENAI_CODEX_LOGIN_TASKS
-    assert "done-flow" not in _OPENAI_CODEX_LOGIN_RESULTS
-    assert "done-flow" in _OPENAI_CODEX_LOGIN_STARTED_AT
+    assert _OPENAI_CODEX_LOGIN_FLOWS["done-flow"].task is task
+    assert _OPENAI_CODEX_LOGIN_FLOWS["done-flow"].result is None
+    assert _OPENAI_CODEX_LOGIN_FLOWS["done-flow"].started_at == 9_999.0
 
 
 async def test_handle_rpc_json_line_sets_provider_secret(

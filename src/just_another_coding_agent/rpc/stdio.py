@@ -102,10 +102,6 @@ from just_another_coding_agent.session import (
 
 _RPC_REQUEST_ADAPTER = TypeAdapter(RpcRequest)
 _LOGIN_FLOW_TTL_SECONDS = 15 * 60
-_OPENAI_CODEX_LOGIN_FLOWS: dict[str, OpenAICodexLoginFlow] = {}
-_OPENAI_CODEX_LOGIN_TASKS: dict[str, asyncio.Task] = {}
-_OPENAI_CODEX_LOGIN_RESULTS: dict[str, asyncio.Future] = {}
-_OPENAI_CODEX_LOGIN_STARTED_AT: dict[str, float] = {}
 
 
 @dataclass
@@ -371,6 +367,17 @@ class _FollowUpState:
 _FOLLOW_UP_STATE = _FollowUpState()
 
 
+@dataclass
+class _OpenAICodexLoginFlowState:
+    flow: OpenAICodexLoginFlow
+    task: asyncio.Task[Any] | None = None
+    result: asyncio.Future[Any] | None = None
+    started_at: float | None = None
+
+
+_OPENAI_CODEX_LOGIN_FLOWS: dict[str, _OpenAICodexLoginFlowState] = {}
+
+
 def _combine_prompt_batch(prompts: list[str]) -> str:
     return "\n\n".join(prompts)
 
@@ -562,22 +569,24 @@ async def handle_rpc_json_line(
                 message=str(error),
             ).model_dump_json()
             return
-        _reset_login_flow_group(
-            flows=_OPENAI_CODEX_LOGIN_FLOWS,
-            tasks=_OPENAI_CODEX_LOGIN_TASKS,
-            results=_OPENAI_CODEX_LOGIN_RESULTS,
-            started_at=_OPENAI_CODEX_LOGIN_STARTED_AT,
-        )
+        for existing_flow_id in list(_OPENAI_CODEX_LOGIN_FLOWS):
+            state = _pop_login_flow_state(existing_flow_id)
+            if state is None:
+                continue
+            _cancel_login_flow_task(state.task)
+            _fail_login_result(state.result, "login flow cancelled")
         result = asyncio.get_running_loop().create_future()
-        _OPENAI_CODEX_LOGIN_FLOWS[flow_id] = flow
-        _OPENAI_CODEX_LOGIN_TASKS[flow_id] = asyncio.create_task(
-            _drive_login_result(
-                result=result,
-                wait_for_status=wait_for_openai_codex_oauth_login(flow),
-            )
+        _OPENAI_CODEX_LOGIN_FLOWS[flow_id] = _OpenAICodexLoginFlowState(
+            flow=flow,
+            task=asyncio.create_task(
+                _drive_login_result(
+                    result=result,
+                    wait_for_status=wait_for_openai_codex_oauth_login(flow),
+                )
+            ),
+            result=result,
+            started_at=time.monotonic(),
         )
-        _OPENAI_CODEX_LOGIN_RESULTS[flow_id] = result
-        _OPENAI_CODEX_LOGIN_STARTED_AT[flow_id] = time.monotonic()
         yield RpcResponseEnvelope(
             id=request.id,
             response=AuthLoginOpenAICodexStartResponse(
@@ -589,7 +598,8 @@ async def handle_rpc_json_line(
         return
 
     if isinstance(request, AuthLoginOpenAICodexWaitRequest):
-        result = _OPENAI_CODEX_LOGIN_RESULTS.get(request.payload.flow_id)
+        state = _OPENAI_CODEX_LOGIN_FLOWS.get(request.payload.flow_id)
+        result = state.result if state is not None else None
         if result is None:
             status = _find_oauth_provider_status("openai-codex")
             if status is not None and status.logged_in:
@@ -607,20 +617,14 @@ async def handle_rpc_json_line(
         try:
             status = await result
         except Exception as error:
-            _OPENAI_CODEX_LOGIN_TASKS.pop(request.payload.flow_id, None)
-            _OPENAI_CODEX_LOGIN_FLOWS.pop(request.payload.flow_id, None)
-            _OPENAI_CODEX_LOGIN_RESULTS.pop(request.payload.flow_id, None)
-            _OPENAI_CODEX_LOGIN_STARTED_AT.pop(request.payload.flow_id, None)
+            _pop_login_flow_state(request.payload.flow_id)
             yield RpcErrorEnvelope(
                 id=request.id,
                 error_type="InternalError",
                 message=str(error),
             ).model_dump_json()
             return
-        _OPENAI_CODEX_LOGIN_TASKS.pop(request.payload.flow_id, None)
-        _OPENAI_CODEX_LOGIN_FLOWS.pop(request.payload.flow_id, None)
-        _OPENAI_CODEX_LOGIN_RESULTS.pop(request.payload.flow_id, None)
-        _OPENAI_CODEX_LOGIN_STARTED_AT.pop(request.payload.flow_id, None)
+        _pop_login_flow_state(request.payload.flow_id)
         yield RpcResponseEnvelope(
             id=request.id,
             response=AuthLoginOpenAICodexWaitResponse(status=status),
@@ -628,9 +632,8 @@ async def handle_rpc_json_line(
         return
 
     if isinstance(request, AuthLoginOpenAICodexCompleteRequest):
-        flow = _OPENAI_CODEX_LOGIN_FLOWS.get(request.payload.flow_id)
-        result = _OPENAI_CODEX_LOGIN_RESULTS.get(request.payload.flow_id)
-        if flow is None or result is None:
+        state = _OPENAI_CODEX_LOGIN_FLOWS.get(request.payload.flow_id)
+        if state is None or state.result is None:
             yield RpcErrorEnvelope(
                 id=request.id,
                 error_type="InvalidRequest",
@@ -639,7 +642,7 @@ async def handle_rpc_json_line(
             return
         try:
             status = await complete_openai_codex_oauth_login(
-                flow,
+                state.flow,
                 request.payload.callback_or_code,
             )
         except Exception as error:
@@ -649,13 +652,10 @@ async def handle_rpc_json_line(
                 message=str(error),
             ).model_dump_json()
             return
-        task = _OPENAI_CODEX_LOGIN_TASKS.pop(request.payload.flow_id, None)
-        if not result.done():
-            result.set_result(status)
-        _cancel_login_flow_task(task)
-        _OPENAI_CODEX_LOGIN_FLOWS.pop(request.payload.flow_id, None)
-        _OPENAI_CODEX_LOGIN_RESULTS.pop(request.payload.flow_id, None)
-        _OPENAI_CODEX_LOGIN_STARTED_AT.pop(request.payload.flow_id, None)
+        state = _pop_login_flow_state(request.payload.flow_id)
+        if state is not None and state.result is not None and not state.result.done():
+            state.result.set_result(status)
+        _cancel_login_flow_task(state.task if state is not None else None)
         yield RpcResponseEnvelope(
             id=request.id,
             response=AuthLoginOpenAICodexCompleteResponse(status=status),
@@ -1083,55 +1083,24 @@ async def serve_rpc_stdio(
 
 def _prune_stale_login_flows(now: float | None = None) -> None:
     current = time.monotonic() if now is None else now
-    _prune_login_flow_group(
-        flows=_OPENAI_CODEX_LOGIN_FLOWS,
-        tasks=_OPENAI_CODEX_LOGIN_TASKS,
-        results=_OPENAI_CODEX_LOGIN_RESULTS,
-        started_at=_OPENAI_CODEX_LOGIN_STARTED_AT,
-        now=current,
-        error_message="OpenAI Codex login flow expired",
-    )
+    stale_ids = [
+        flow_id
+        for flow_id, state in _OPENAI_CODEX_LOGIN_FLOWS.items()
+        if (
+            state.started_at is not None
+            and (current - state.started_at) > _LOGIN_FLOW_TTL_SECONDS
+        )
+    ]
+    for flow_id in stale_ids:
+        state = _pop_login_flow_state(flow_id)
+        if state is None:
+            continue
+        _cancel_login_flow_task(state.task)
+        _fail_login_result(state.result, "OpenAI Codex login flow expired")
 
 
-def _prune_login_flow_group(
-    *,
-    flows: dict[str, Any],
-    tasks: dict[str, asyncio.Task],
-    results: dict[str, asyncio.Future],
-    started_at: dict[str, float],
-    now: float,
-    error_message: str,
-) -> None:
-    stale_flow_ids: list[str] = []
-    for flow_id, started in started_at.items():
-        task = tasks.get(flow_id)
-        expired = (now - started) > _LOGIN_FLOW_TTL_SECONDS
-        if expired:
-            _cancel_login_flow_task(task)
-            _fail_login_result(results.get(flow_id), error_message)
-            stale_flow_ids.append(flow_id)
-    for flow_id in stale_flow_ids:
-        flows.pop(flow_id, None)
-        tasks.pop(flow_id, None)
-        results.pop(flow_id, None)
-        started_at.pop(flow_id, None)
-
-
-def _reset_login_flow_group(
-    *,
-    flows: dict[str, Any],
-    tasks: dict[str, asyncio.Task],
-    results: dict[str, asyncio.Future],
-    started_at: dict[str, float],
-) -> None:
-    for task in tasks.values():
-        _cancel_login_flow_task(task)
-    for result in results.values():
-        _fail_login_result(result, "login flow cancelled")
-    flows.clear()
-    tasks.clear()
-    results.clear()
-    started_at.clear()
+def _pop_login_flow_state(flow_id: str) -> _OpenAICodexLoginFlowState | None:
+    return _OPENAI_CODEX_LOGIN_FLOWS.pop(flow_id, None)
 
 
 def _cancel_login_flow_task(task: asyncio.Task | None) -> None:
