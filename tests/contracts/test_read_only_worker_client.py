@@ -257,3 +257,71 @@ for line in sys.stdin:
 
     assert isinstance(response, ReadCallResult)
     assert len(response.window_text) == payload_size
+
+
+async def test_read_only_worker_client_handles_in_contract_payload_that_expands_past_64kb_after_json_encoding(
+    tmp_path: Path,
+) -> None:
+    # Regression: a tool call that fully honors our own max_bytes contract
+    # can still produce a response line larger than the old 64 KB asyncio
+    # reader limit, because JSON encoding inflates strings whose characters
+    # need escaping. A `read` window of 50 KB minus framing overhead, filled
+    # with double-quote characters, is well under the worker's max_bytes
+    # contract as text content but each `"` becomes `\"` in the JSON body,
+    # roughly doubling the on-the-wire size to ~100 KB on a single line.
+    # This is the realistic in-contract failure mode the original 200 KB
+    # synthetic test does not cover.
+    payload_size = 50 * 1024 - 128  # in-contract under a 50 KB max_bytes budget
+    script_path = _write_worker_script(
+        tmp_path,
+        f"""
+import json
+import sys
+
+window_text = '"' * {payload_size}
+
+for line in sys.stdin:
+    request = json.loads(line)
+    if request["type"] == "hello":
+        print(json.dumps({{
+            "request_id": request["request_id"],
+            "type": "hello_ok",
+            "protocol_version": 1,
+            "worker_kind": "read_only",
+            "supported_operations": ["read", "ls"],
+            "supports_cancel": True,
+            "supports_parallel_calls": True,
+        }}), flush=True)
+    elif request["type"] == "call_read":
+        print(json.dumps({{
+            "request_id": request["request_id"],
+            "type": "read_result",
+            "window_text": window_text,
+            "total_lines": 1,
+            "start_line": 1,
+            "end_line": 1,
+            "truncated": False,
+            "next_offset": None,
+            "first_line_exceeds_max_bytes": False,
+        }}), flush=True)
+    elif request["type"] == "shutdown":
+        break
+""",
+    )
+
+    async with ReadOnlyWorkerClient([sys.executable, "-u", str(script_path)]) as client:
+        response = await client.send(
+            ReadWorkerRequest(
+                request_id="read-quotes",
+                workspace_root="/workspace",
+                path="quoted.txt",
+                offset=1,
+                limit=1,
+                max_lines=2000,
+                max_bytes=50 * 1024,
+            )
+        )
+
+    assert isinstance(response, ReadCallResult)
+    assert len(response.window_text) == payload_size
+    assert response.window_text == '"' * payload_size
