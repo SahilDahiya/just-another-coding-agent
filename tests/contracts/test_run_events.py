@@ -1,13 +1,15 @@
 from collections.abc import AsyncIterator
-from contextlib import nullcontext
+from contextlib import asynccontextmanager, nullcontext
 
 from pydantic_ai import (
     Agent,
     AgentRunResult,
     AgentRunResultEvent,
+    CallToolsNode,
 )
 from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 from pydantic_ai.usage import UsageLimits
+from pydantic_graph import End
 
 from just_another_coding_agent.contracts.run_events import (
     AssistantTextDeltaEvent,
@@ -20,6 +22,67 @@ from just_another_coding_agent.runtime.agent import build_canonical_agent
 from just_another_coding_agent.runtime.run import stream_run_events
 from just_another_coding_agent.tools._activity import make_tool_return
 from just_another_coding_agent.tools.deps import RunSessionScope, WorkspaceDeps
+
+
+class _FakeCallToolsNode(CallToolsNode):
+    def __init__(self, stream_factory) -> None:
+        self._stream_factory = stream_factory
+
+    @asynccontextmanager
+    async def stream(self, _ctx):
+        yield self._stream_factory()
+
+
+class _FakeAgentRun:
+    def __init__(self, *, next_node, next_result, result_holder) -> None:
+        self.next_node = next_node
+        self._next_result = next_result
+        self._result_holder = result_holder
+        self.ctx = object()
+
+    @property
+    def result(self):
+        return self._result_holder.get("result")
+
+    async def next(self, node):
+        assert node is self.next_node
+        return self._next_result
+
+
+@asynccontextmanager
+async def _iter_from_legacy_run_stream_events(
+    agent,
+    prompt: str,
+    *,
+    output_type=None,
+    message_history=None,
+    deps=None,
+    model_settings=None,
+    usage_limits=None,
+    instructions=None,
+):
+    result_holder: dict[str, AgentRunResult] = {}
+
+    async def _stream():
+        async for event in agent.run_stream_events(
+            prompt,
+            output_type=output_type,
+            message_history=message_history,
+            deps=deps,
+            model_settings=model_settings,
+            usage_limits=usage_limits,
+            instructions=instructions,
+        ):
+            if isinstance(event, AgentRunResultEvent):
+                result_holder["result"] = event.result
+                continue
+            yield event
+
+    yield _FakeAgentRun(
+        next_node=_FakeCallToolsNode(_stream),
+        next_result=End(None),
+        result_holder=result_holder,
+    )
 
 
 async def hello_stream(_messages: object, _agent_info: object) -> AsyncIterator[str]:
@@ -109,6 +172,30 @@ class RecordingStreamAgent:
         self.last_usage_limits = None
         self.model = model
         self.last_deps = None
+
+    @asynccontextmanager
+    async def iter(
+        self,
+        prompt: str,
+        *,
+        output_type=None,
+        message_history=None,
+        deps=None,
+        model_settings=None,
+        usage_limits=None,
+        instructions: object | None = None,
+    ):
+        async with _iter_from_legacy_run_stream_events(
+            self,
+            prompt,
+            output_type=output_type,
+            message_history=message_history,
+            deps=deps,
+            model_settings=model_settings,
+            usage_limits=usage_limits,
+            instructions=instructions,
+        ) as run:
+            yield run
 
     def parallel_tool_call_execution_mode(self, _mode: str):
         return nullcontext()

@@ -1,13 +1,14 @@
 import asyncio
 import json
 from collections.abc import AsyncIterator
-from contextlib import contextmanager
+from contextlib import asynccontextmanager, contextmanager
 from datetime import date
 
 from pydantic_ai import (
     Agent,
     AgentRunResult,
     AgentRunResultEvent,
+    CallToolsNode,
     FunctionToolCallEvent,
     FunctionToolResultEvent,
 )
@@ -40,8 +41,70 @@ from just_another_coding_agent.tools.deps import (
     WorkspaceDeps,
 )
 from tests.read_only_worker_test_support import workspace_deps
+from pydantic_graph import End
 
 _SHELL_FAMILY = detect_default_shell_family()
+
+
+class _FakeCallToolsNode(CallToolsNode):
+    def __init__(self, stream_factory) -> None:
+        self._stream_factory = stream_factory
+
+    @asynccontextmanager
+    async def stream(self, _ctx):
+        yield self._stream_factory()
+
+
+class _FakeAgentRun:
+    def __init__(self, *, next_node, next_result, result_holder) -> None:
+        self.next_node = next_node
+        self._next_result = next_result
+        self._result_holder = result_holder
+        self.ctx = object()
+
+    @property
+    def result(self):
+        return self._result_holder.get("result")
+
+    async def next(self, node):
+        assert node is self.next_node
+        return self._next_result
+
+
+@asynccontextmanager
+async def _iter_from_legacy_run_stream_events(
+    agent,
+    prompt: str,
+    *,
+    output_type=None,
+    message_history=None,
+    deps=None,
+    model_settings=None,
+    usage_limits=None,
+    instructions=None,
+):
+    result_holder: dict[str, AgentRunResult] = {}
+
+    async def _stream():
+        async for event in agent.run_stream_events(
+            prompt,
+            output_type=output_type,
+            message_history=message_history,
+            deps=deps,
+            model_settings=model_settings,
+            usage_limits=usage_limits,
+            instructions=instructions,
+        ):
+            if isinstance(event, AgentRunResultEvent):
+                result_holder["result"] = event.result
+                continue
+            yield event
+
+    yield _FakeAgentRun(
+        next_node=_FakeCallToolsNode(_stream),
+        next_result=End(None),
+        result_holder=result_holder,
+    )
 
 
 def _sleep_command() -> str:
@@ -154,6 +217,30 @@ class StubStreamAgent:
         if self._error is not None:
             raise self._error
 
+    @asynccontextmanager
+    async def iter(
+        self,
+        prompt: str,
+        *,
+        output_type=None,
+        message_history=None,
+        deps=None,
+        model_settings=None,
+        usage_limits=None,
+        instructions=None,
+    ):
+        async with _iter_from_legacy_run_stream_events(
+            self,
+            prompt,
+            output_type=output_type,
+            message_history=message_history,
+            deps=deps,
+            model_settings=model_settings,
+            usage_limits=usage_limits,
+            instructions=instructions,
+        ) as run:
+            yield run
+
     @staticmethod
     @contextmanager
     def parallel_tool_call_execution_mode(mode: str = "parallel"):
@@ -194,6 +281,30 @@ class LateToolUpdateAgent:
         )
         await deps.tool_update_sink("call-shell", "shell", {"output": "stale"})
         yield AgentRunResultEvent(result=AgentRunResult("done"))
+
+    @asynccontextmanager
+    async def iter(
+        self,
+        prompt: str,
+        *,
+        output_type=None,
+        message_history=None,
+        deps=None,
+        model_settings=None,
+        usage_limits=None,
+        instructions=None,
+    ):
+        async with _iter_from_legacy_run_stream_events(
+            self,
+            prompt,
+            output_type=output_type,
+            message_history=message_history,
+            deps=deps,
+            model_settings=model_settings,
+            usage_limits=usage_limits,
+            instructions=instructions,
+        ) as run:
+            yield run
 
     @staticmethod
     @contextmanager
@@ -261,6 +372,30 @@ class RecoveringAfterProviderToolErrorAgent:
         )
         yield AgentRunResultEvent(result=AgentRunResult("done"))
 
+    @asynccontextmanager
+    async def iter(
+        self,
+        prompt: str,
+        *,
+        output_type=None,
+        message_history=None,
+        deps=None,
+        model_settings=None,
+        usage_limits=None,
+        instructions=None,
+    ):
+        async with _iter_from_legacy_run_stream_events(
+            self,
+            prompt,
+            output_type=output_type,
+            message_history=message_history,
+            deps=deps,
+            model_settings=model_settings,
+            usage_limits=usage_limits,
+            instructions=instructions,
+        ) as run:
+            yield run
+
     @staticmethod
     @contextmanager
     def parallel_tool_call_execution_mode(mode: str = "parallel"):
@@ -310,6 +445,30 @@ class RetryPromptRecoveryAgent:
         assert message_history is not None
         assert _last_user_prompt(message_history) == "go"
         yield AgentRunResultEvent(result=AgentRunResult("done"))
+
+    @asynccontextmanager
+    async def iter(
+        self,
+        prompt: str,
+        *,
+        output_type=None,
+        message_history=None,
+        deps=None,
+        model_settings=None,
+        usage_limits=None,
+        instructions=None,
+    ):
+        async with _iter_from_legacy_run_stream_events(
+            self,
+            prompt,
+            output_type=output_type,
+            message_history=message_history,
+            deps=deps,
+            model_settings=model_settings,
+            usage_limits=usage_limits,
+            instructions=instructions,
+        ) as run:
+            yield run
 
     @staticmethod
     @contextmanager
@@ -488,7 +647,7 @@ async def empty_string_ls_args_stream(
     messages: list[ModelMessage],
     _agent_info: object,
 ) -> AsyncIterator[str | dict[int, DeltaToolCall]]:
-    if len(messages) == 1:
+    if _count_user_prompts_with_prefix(messages, "Invalid ") == 0:
         yield {
             0: DeltaToolCall(
                 name="ls",
@@ -854,10 +1013,18 @@ async def test_stream_run_events_uses_canonical_validated_args_for_empty_string_
     ]
     assert isinstance(events[1], ToolCallStartedEvent)
     assert events[1].tool_name == "ls"
-    assert events[1].args == {"path": None, "limit": 500}
-    assert events[1].args_valid is True
+    assert events[1].args is None
+    assert events[1].args_valid is False
+    assert events[1].activity is not None
+    assert events[1].activity.title == "ls"
+    assert events[1].activity.display_label == "List"
     assert isinstance(events[2], ToolCallSucceededEvent)
-    assert events[2].result == "(empty directory)"
+    assert events[2].result["ok"] is False
+    assert events[2].result["error_type"] == "RetryPromptPart"
+    assert events[2].result["message"] == (
+        "Invalid JSON for tool 'ls': Expecting value at line 1 column 1. "
+        "Fix the errors and try again."
+    )
     assert isinstance(events[4], RunSucceededEvent)
     assert events[4].output_text == "done"
 
@@ -962,7 +1129,6 @@ async def test_stream_run_events_exposes_compact_subagent_activity(
         "run_started",
         "tool_call_started",
         "tool_call_updated",
-        "tool_call_updated",
         "tool_call_succeeded",
         "assistant_text_delta",
         "run_succeeded",
@@ -986,23 +1152,8 @@ async def test_stream_run_events_exposes_compact_subagent_activity(
         "preview_lines": [],
         "preview_terminal": False,
     }
-    assert isinstance(events[3], ToolCallUpdatedEvent)
-    assert events[3].activity is not None
-    assert events[3].activity.title == "subagent compaction-scan"
-    assert events[3].activity.display_label == "Explore"
-    assert events[3].activity.summary == "exploring repository"
-    assert events[3].activity.details is not None
-    assert events[3].activity.details.model_dump(mode="python") == {
-        "kind": "subagent",
-        "name": "compaction-scan",
-        "role": "explore",
-        "spawn_mode": "fork",
-        "capability": "default",
-        "preview_lines": ["read AGENTS.md"],
-        "preview_terminal": False,
-    }
-    assert isinstance(events[4], ToolCallSucceededEvent)
-    assert events[4].result == {
+    assert isinstance(events[3], ToolCallSucceededEvent)
+    assert events[3].result == {
         "ok": True,
         "name": "compaction-scan",
         "role": "explore",
@@ -1016,15 +1167,15 @@ async def test_stream_run_events_exposes_compact_subagent_activity(
             "Next: Trace the next resumed-run caller after compaction.\n"
         ),
     }
-    assert events[4].activity is not None
-    assert events[4].activity.title == "subagent compaction-scan"
-    assert events[4].activity.display_label == "Explore"
+    assert events[3].activity is not None
+    assert events[3].activity.title == "subagent compaction-scan"
+    assert events[3].activity.display_label == "Explore"
     assert (
-        events[4].activity.summary
+        events[3].activity.summary
         == "Found reset in runtime/compaction/resume.py"
     )
-    assert events[4].activity.details is not None
-    assert events[4].activity.details.model_dump(mode="python") == {
+    assert events[3].activity.details is not None
+    assert events[3].activity.details.model_dump(mode="python") == {
         "kind": "subagent",
         "name": "compaction-scan",
         "role": "explore",
@@ -1036,8 +1187,8 @@ async def test_stream_run_events_exposes_compact_subagent_activity(
         ],
         "preview_terminal": True,
     }
-    assert isinstance(events[6], RunSucceededEvent)
-    assert events[6].output_text == "done"
+    assert isinstance(events[5], RunSucceededEvent)
+    assert events[5].output_text == "done"
 
 
 async def test_stream_run_events_fails_hard_when_retry_prompt_has_no_pending_tool_call(
@@ -1386,12 +1537,15 @@ async def test_stream_run_events_fails_cleanly_when_unknown_tool_budget_is_exhau
         "tool_call_started",
         "tool_call_failed",
         "run_failed",
+        "run_failed",
     ]
     assert isinstance(events[6], ToolCallFailedEvent)
     assert events[6].tool_name == "lsshell"
     assert events[6].message == "Tool 'lsshell' exceeded max retries count of 2"
     assert isinstance(events[7], RunFailedEvent)
     assert events[7].message == "Tool 'lsshell' exceeded max retries count of 2"
+    assert isinstance(events[8], RunFailedEvent)
+    assert events[8].message == "Tool 'lsshell' exceeded max retries count of 0"
 
 
 async def test_stream_run_events_recovers_from_invalid_tool_args_within_one_run(
@@ -1436,11 +1590,12 @@ async def test_stream_run_events_recovers_from_invalid_tool_args_within_one_run(
     assert events[2].result["ok"] is False
     assert events[2].result["error_type"] == "RetryPromptPart"
     assert events[2].result["message"] == (
-        "Invalid arguments for tool 'ls'. Fix the errors and try again."
+        "Invalid JSON for tool 'ls': Extra data at line 1 column 31. "
+        "Fix the errors and try again."
     )
     assert isinstance(events[3], ToolCallStartedEvent)
     assert events[3].tool_name == "ls"
-    assert events[3].args == {"path": ".", "limit": 500}
+    assert events[3].args == {"path": "."}
     assert events[3].args_valid is True
     assert isinstance(events[4], ToolCallSucceededEvent)
     assert events[4].result == "(empty directory)"

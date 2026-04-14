@@ -769,6 +769,71 @@ async def test_in_run_compaction_does_not_require_tool_activity(
 
 
 @pytest.mark.anyio
+async def test_in_run_compaction_does_not_require_steer_callbacks(
+    monkeypatch,
+) -> None:
+    from collections.abc import AsyncIterator
+
+    from pydantic_ai import Agent
+    from pydantic_ai.models.function import FunctionModel
+
+    from just_another_coding_agent.runtime import run as run_module
+    from just_another_coding_agent.runtime.run import stream_run_events
+
+    stream_call_count = 0
+    check_call_count = 0
+
+    async def single_response_stream(
+        messages: object,
+        _agent_info: object,
+    ) -> AsyncIterator[str]:
+        del messages, _agent_info
+        nonlocal stream_call_count
+        stream_call_count += 1
+        yield "done"
+
+    agent = Agent(
+        FunctionModel(stream_function=single_response_stream), output_type=str
+    )
+
+    def fake_check(messages, *, model, last_response_usage=None, pending_prompt=None):
+        del messages, model, last_response_usage, pending_prompt
+        nonlocal check_call_count
+        check_call_count += 1
+        return check_call_count == 1
+
+    monkeypatch.setattr(run_module, "check_in_run_compaction_needed", fake_check)
+
+    seed_history = [
+        ModelRequest(parts=[UserPromptPart(content="earlier user turn")]),
+        ModelResponse(
+            parts=[TextPart(content="earlier assistant text")], model_name="x"
+        ),
+    ]
+    events = [
+        event
+        async for event in stream_run_events(
+            agent=agent,
+            prompt="go",
+            message_history=seed_history,
+            available_tool_names=[],
+        )
+    ]
+
+    from just_another_coding_agent.contracts.run_events import (
+        InRunCompactionCompletedEvent,
+    )
+
+    compaction_events = [
+        event for event in events if isinstance(event, InRunCompactionCompletedEvent)
+    ]
+    assert events[-1].type == "run_succeeded"
+    assert len(compaction_events) == 1
+    assert stream_call_count == 1
+    assert check_call_count >= 2
+
+
+@pytest.mark.anyio
 async def test_in_run_compaction_circuit_breaker_on_failure(monkeypatch) -> None:
     from collections.abc import AsyncIterator
 
