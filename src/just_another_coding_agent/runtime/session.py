@@ -501,32 +501,36 @@ async def stream_session_run_events(
             yield run_failed_event
         raise
     finally:
-        if run_appender is not None and should_finalize:
-            if authoritative_messages is None:
-                # Invariant: stream_run_events must fire message_history_sink
-                # on every terminal path (success, explicit RunFailedEvent,
-                # cancellation/BaseException) before reaching finalization.
-                # If we get here with authoritative_messages unset, that's a
-                # bug in run.py's terminal-path sink-firing discipline and we
-                # fail hard rather than persist an empty transcript. If this
-                # ever fires during exception propagation, it will chain onto
-                # the in-flight exception via __context__, preserving the
-                # original cause.
-                raise RuntimeError(
-                    "Cannot finalize run without authoritative messages: "
-                    "stream_run_events must fire message_history_sink on "
-                    "every terminal path before session finalization runs"
+        try:
+            if run_appender is not None and should_finalize:
+                if authoritative_messages is None:
+                    # Invariant: stream_run_events must fire message_history_sink
+                    # on every terminal path (success, explicit RunFailedEvent,
+                    # cancellation/BaseException) before reaching finalization.
+                    # If we get here with authoritative_messages unset, that's a
+                    # bug in run.py's terminal-path sink-firing discipline and we
+                    # fail hard rather than persist an empty transcript. If this
+                    # ever fires during exception propagation, it will chain onto
+                    # the in-flight exception via __context__, preserving the
+                    # original cause.
+                    raise RuntimeError(
+                        "Cannot finalize run without authoritative messages: "
+                        "stream_run_events must fire message_history_sink on "
+                        "every terminal path before session finalization runs"
+                    )
+                finalized_messages: list[ModelMessage] = list(authoritative_messages)
+                if failed_terminal:
+                    finalized_messages = sanitize_failed_run_messages(
+                        finalized_messages
+                    )
+                finalized_messages = strip_internal_prompt_state(finalized_messages)
+                run_appender.finalize(
+                    messages=finalized_messages,
+                    turn_context=run_turn_context,
                 )
-            finalized_messages: list[ModelMessage] = list(authoritative_messages)
-            if failed_terminal:
-                finalized_messages = sanitize_failed_run_messages(
-                    finalized_messages
-                )
-            finalized_messages = strip_internal_prompt_state(finalized_messages)
-            run_appender.finalize(
-                messages=finalized_messages,
-                turn_context=run_turn_context,
-            )
+        finally:
+            if run_appender is not None:
+                run_appender.close()
 
 
 __all__ = ["stream_session_run_events"]

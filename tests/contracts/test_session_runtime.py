@@ -2394,6 +2394,72 @@ async def test_stream_session_run_events_persists_incomplete_partial_consumption
         load_session(path=session_path, workspace_root=workspace_root)
 
 
+async def test_stream_session_run_events_closes_non_finalized_appender_on_partial_consumption(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    session_path = tmp_path / "session.jsonl"
+    real_start_run_to_session = runtime_session_module.start_run_to_session
+    close_calls = 0
+
+    class TrackingAppender:
+        def __init__(self, inner) -> None:
+            self._inner = inner
+
+        def append_event(self, event) -> None:
+            self._inner.append_event(event)
+
+        def finalize(self, *, messages, turn_context=None) -> None:
+            self._inner.finalize(messages=messages, turn_context=turn_context)
+
+        def close(self) -> None:
+            nonlocal close_calls
+            close_calls += 1
+            self._inner.close()
+
+    def tracking_start_run_to_session(
+        *,
+        path,
+        workspace_root,
+        shell_family=None,
+        run_id,
+        prompt,
+        thinking=None,
+    ):
+        return TrackingAppender(
+            real_start_run_to_session(
+                path=path,
+                workspace_root=workspace_root,
+                shell_family=shell_family,
+                run_id=run_id,
+                prompt=prompt,
+                thinking=thinking,
+            )
+        )
+
+    monkeypatch.setattr(
+        runtime_session_module,
+        "start_run_to_session",
+        tracking_start_run_to_session,
+    )
+
+    stream = stream_session_run_events(
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        session_path=session_path,
+        prompt="go",
+    )
+
+    first_event = await anext(stream)
+    assert isinstance(first_event, RunStartedEvent)
+
+    await stream.aclose()
+
+    assert close_calls == 1
+
+
 async def test_stream_session_run_events_finalizes_cancelled_run(
     tmp_path,
     monkeypatch,

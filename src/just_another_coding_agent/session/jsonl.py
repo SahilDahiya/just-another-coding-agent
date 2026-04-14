@@ -4,6 +4,7 @@ import json
 import os
 import re
 from collections.abc import Sequence
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TextIO
@@ -74,6 +75,13 @@ class SessionNameValidationError(ValueError):
     """Raised when a requested session name cannot be normalized safely."""
 
 
+@dataclass
+class _AppenderValidatorState:
+    saw_run_started: bool = False
+    pending_tool_calls: dict[str, str] = field(default_factory=dict)
+    terminal_seen: bool = False
+
+
 class SessionRunAppender:
     """Append one run incrementally to the canonical session JSONL file."""
 
@@ -93,16 +101,24 @@ class SessionRunAppender:
         self._run_id = run_id
         self._events: list[RunEvent] = []
         self._finalized = False
+        self._file: TextIO | None = None
+        self._validator_state = _AppenderValidatorState()
 
         _ensure_session_is_appendable(
             path=self._path,
             workspace_root=self._workspace_root,
             shell_family=self._shell_family,
         )
-        _append_entry_to_path(
-            self._path,
-            SessionRunEntry(run_id=run_id, prompt=prompt, thinking=thinking),
-        )
+        self._file = self._path.open("a", encoding="utf-8")
+        try:
+            _write_entry(
+                self._file,
+                SessionRunEntry(run_id=run_id, prompt=prompt, thinking=thinking),
+            )
+            _flush_file_handle(self._file, sync_to_disk=False)
+        except Exception:
+            self.close()
+            raise
 
     def append_event(self, event: RunEvent) -> None:
         if self._finalized:
@@ -115,17 +131,18 @@ class SessionRunAppender:
         if isinstance(event, AssistantTextDeltaEvent):
             return
 
-        candidate_events = [*self._events, event]
-        _validate_run_events(
+        file_handle = self._require_open_file()
+        _validate_run_event_incremental(
+            state=self._validator_state,
+            event=event,
             run_id=self._run_id,
-            events=candidate_events,
-            require_terminal=False,
         )
-        self._events = candidate_events
-        _append_entry_to_path(
-            self._path,
+        self._events.append(event)
+        _write_entry(
+            file_handle,
             SessionEventEntry(run_id=self._run_id, event=event),
         )
+        _flush_file_handle(file_handle, sync_to_disk=False)
 
     def finalize(
         self,
@@ -135,36 +152,50 @@ class SessionRunAppender:
     ) -> None:
         if self._finalized:
             raise RuntimeError("Session run already finalized")
+        file_handle = self._require_open_file()
+        try:
+            run_record = SessionRunRecord(
+                run_id=self._run_id,
+                prompt="",
+                thinking=None,
+                messages=list(messages),
+                events=list(self._events),
+            )
+            _validate_run_record(run_record)
+            _write_entry(
+                file_handle,
+                SessionMessagesEntry(run_id=self._run_id, messages=list(messages)),
+            )
+            if turn_context is not None:
+                if turn_context.run_id != self._run_id:
+                    raise SessionFormatError(
+                        "Session turn context entry run_id must belong to the current run"
+                    )
+                if turn_context.workspace_root != str(self._workspace_root):
+                    raise SessionFormatError(
+                        "Session turn context workspace_root must match "
+                        "session workspace_root"
+                    )
+                if turn_context.shell_family != self._shell_family:
+                    raise SessionFormatError(
+                        "Session turn context shell_family must match session shell_family"
+                    )
+                _write_entry(file_handle, turn_context)
+            _flush_file_handle(file_handle, sync_to_disk=True)
+            _update_session_metadata(path=self._path, updated_at=_utc_now())
+            self._finalized = True
+        finally:
+            self.close()
 
-        run_record = SessionRunRecord(
-            run_id=self._run_id,
-            prompt="",
-            thinking=None,
-            messages=list(messages),
-            events=list(self._events),
-        )
-        _validate_run_record(run_record)
-        _append_entry_to_path(
-            self._path,
-            SessionMessagesEntry(run_id=self._run_id, messages=list(messages)),
-        )
-        if turn_context is not None:
-            if turn_context.run_id != self._run_id:
-                raise SessionFormatError(
-                    "Session turn context entry run_id must belong to the current run"
-                )
-            if turn_context.workspace_root != str(self._workspace_root):
-                raise SessionFormatError(
-                    "Session turn context workspace_root must match "
-                    "session workspace_root"
-                )
-            if turn_context.shell_family != self._shell_family:
-                raise SessionFormatError(
-                    "Session turn context shell_family must match session shell_family"
-                )
-            _append_entry_to_path(self._path, turn_context)
-        _update_session_metadata(path=self._path, updated_at=_utc_now())
-        self._finalized = True
+    def close(self) -> None:
+        if self._file is not None:
+            self._file.close()
+            self._file = None
+
+    def _require_open_file(self) -> TextIO:
+        if self._file is None:
+            raise RuntimeError("Session run appender is closed")
+        return self._file
 
 
 def initialize_session(
@@ -750,6 +781,66 @@ def _validate_run_events(
             raise SessionFormatError("Run must end with a terminal outcome")
 
 
+def _validate_run_event_incremental(
+    *,
+    state: _AppenderValidatorState,
+    event: RunEvent,
+    run_id: str,
+) -> None:
+    if event.run_id != run_id:
+        raise SessionFormatError(
+            "Persisted run event run_id must match session run_id"
+        )
+
+    if state.terminal_seen:
+        raise SessionFormatError(
+            "Run cannot contain events after the terminal outcome"
+        )
+
+    if isinstance(event, RunStartedEvent):
+        if state.saw_run_started:
+            raise SessionFormatError("run_started may appear only once per run")
+        state.saw_run_started = True
+        return
+
+    if not state.saw_run_started:
+        raise SessionFormatError("Run must start with run_started")
+
+    if isinstance(event, ToolCallStartedEvent):
+        if event.tool_call_id in state.pending_tool_calls:
+            raise SessionFormatError("Tool call IDs must be unique until resolved")
+        state.pending_tool_calls[event.tool_call_id] = event.tool_name
+        return
+
+    if isinstance(event, ToolCallUpdatedEvent):
+        expected_name = state.pending_tool_calls.get(event.tool_call_id)
+        if expected_name is None:
+            raise SessionFormatError("Tool update must follow tool_call_started")
+        if expected_name != event.tool_name:
+            raise SessionFormatError(
+                "Tool update tool_name must match the started tool call"
+            )
+        return
+
+    if isinstance(event, ToolCallSucceededEvent | ToolCallFailedEvent):
+        expected_name = state.pending_tool_calls.get(event.tool_call_id)
+        if expected_name is None:
+            raise SessionFormatError("Tool result must follow tool_call_started")
+        if expected_name != event.tool_name:
+            raise SessionFormatError(
+                "Tool result tool_name must match the started tool call"
+            )
+        state.pending_tool_calls.pop(event.tool_call_id, None)
+        return
+
+    if isinstance(event, RunSucceededEvent | RunFailedEvent):
+        if state.pending_tool_calls:
+            raise SessionFormatError(
+                "Run cannot terminate with unresolved tool calls"
+            )
+        state.terminal_seen = True
+
+
 def _validate_run_messages(messages: Sequence[ModelMessage]) -> None:
     pending_tool_calls: dict[str, str] = {}
 
@@ -935,9 +1026,10 @@ def _ensure_session_is_appendable(
     )
 
 
-def _flush_file_handle(file_handle: TextIO) -> None:
+def _flush_file_handle(file_handle: TextIO, *, sync_to_disk: bool = True) -> None:
     file_handle.flush()
-    os.fsync(file_handle.fileno())
+    if sync_to_disk:
+        os.fsync(file_handle.fileno())
 
 
 def _metadata_path_for_session_path(path: Path) -> Path:

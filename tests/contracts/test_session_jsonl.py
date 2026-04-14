@@ -45,6 +45,7 @@ from just_another_coding_agent.session.jsonl import (
     initialize_session,
     load_session,
     read_session_metadata,
+    start_run_to_session,
 )
 from just_another_coding_agent.session.replacement_history import (
     build_compaction_summary_message,
@@ -77,6 +78,55 @@ def test_append_and_load_session_project_docs_entry(tmp_path) -> None:
     loaded = load_session(path=path, workspace_root=workspace_root)
     assert loaded.project_docs is not None
     assert [doc.short_path for doc in loaded.project_docs.documents] == ["AGENTS.md"]
+
+
+def test_session_run_appender_close_is_idempotent_and_preserves_incomplete_run(
+    tmp_path,
+) -> None:
+    path = tmp_path / "session.jsonl"
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    appender = start_run_to_session(
+        path=path,
+        workspace_root=workspace_root,
+        run_id="run-1",
+        prompt="go",
+    )
+
+    appender.close()
+    appender.close()
+
+    with pytest.raises(SessionFormatError, match="Session ended with incomplete run"):
+        load_session(path=path, workspace_root=workspace_root)
+
+
+def test_session_run_appender_incremental_validation_matches_run_validation(
+    tmp_path,
+) -> None:
+    path = tmp_path / "session.jsonl"
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    appender = start_run_to_session(
+        path=path,
+        workspace_root=workspace_root,
+        run_id="run-1",
+        prompt="go",
+    )
+
+    with pytest.raises(SessionFormatError, match="Run must start with run_started"):
+        appender.append_event(
+            ToolCallStartedEvent(
+                run_id="run-1",
+                tool_call_id="call-read",
+                tool_name="read",
+                args={"path": "README.md"},
+                args_valid=True,
+            )
+        )
+
+    appender.close()
 
 
 def test_build_session_preview_includes_project_docs_note(tmp_path) -> None:
