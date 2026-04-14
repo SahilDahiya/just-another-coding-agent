@@ -378,439 +378,502 @@ class _OpenAICodexLoginFlowState:
 _OPENAI_CODEX_LOGIN_FLOWS: dict[str, _OpenAICodexLoginFlowState] = {}
 
 
+RpcHandler = Callable[[Any, "_RpcContext"], AsyncIterator[str]]
+
+
+@dataclass(frozen=True)
+class _RpcContext:
+    model: Any
+    workspace_root: Path | str
+    sessions_root: Path | str
+    emit_rpc_event: (
+        Callable[[str, RunEvent | SessionLifecycleEvent], Awaitable[None]] | None
+    )
+
+
+@dataclass(frozen=True)
+class _RpcErrorMapping:
+    exception: type[BaseException]
+    error_type: str
+
+
 def _combine_prompt_batch(prompts: list[str]) -> str:
     return "\n\n".join(prompts)
 
 
-async def handle_rpc_json_line(
-    *,
-    line: str,
-    model: Any,
-    workspace_root: Path | str,
-    sessions_root: Path | str,
-    emit_rpc_event: Callable[[str, RunEvent | SessionLifecycleEvent], Awaitable[None]]
-    | None = None,
-) -> AsyncIterator[str]:
-    _prune_stale_login_flows()
+def _rpc_error_handler(*mappings: _RpcErrorMapping) -> Callable[[RpcHandler], RpcHandler]:
+    exception_types = tuple(mapping.exception for mapping in mappings)
 
-    try:
-        payload = json.loads(line)
-    except json.JSONDecodeError:
-        yield RpcErrorEnvelope(
-            id=None,
-            error_type="InvalidJSON",
-            message="Invalid JSON request",
-        ).model_dump_json()
-        return
-
-    request_id = _extract_request_id(payload)
-
-    try:
-        request = _RPC_REQUEST_ADAPTER.validate_python(payload)
-    except ValidationError:
-        yield RpcErrorEnvelope(
-            id=request_id,
-            error_type="InvalidRequest",
-            message="Invalid RPC request",
-        ).model_dump_json()
-        return
-
-    if isinstance(request, SessionCreateRequest):
-        session_id = create_session(
-            sessions_root=sessions_root,
-            workspace_root=workspace_root,
-        )
-        yield RpcResponseEnvelope(
-            id=request.id,
-            response=SessionCreateResponse(
-                session_id=session_id,
-                project_docs=[
-                    WorkspaceProjectDoc(
-                        path=str(doc.path),
-                        filename=doc.filename,
-                        truncated=doc.truncated,
-                    )
-                    for doc in load_workspace_project_docs(workspace_root)
-                ],
-            ),
-        ).model_dump_json()
-        return
-
-    if isinstance(request, ModelCatalogRequest):
-        yield RpcResponseEnvelope(
-            id=request.id,
-            response=ModelCatalogResponse(
-                providers=[
-                    ModelCatalogProvider(
-                        provider=provider,
-                        default_model_id=default_model_for_provider(provider),
-                        models=[
-                            ModelCatalogModel(
-                                model_id=model.model_id,
-                                description=model.description,
-                            )
-                            for model in shipped_models_for_provider(provider)
-                        ],
-                    )
-                    for provider in CANONICAL_PROVIDER_ORDER
-                ]
-            ),
-        ).model_dump_json()
-        return
-
-    if isinstance(request, AuthStatusRequest):
-        try:
-            providers = list_provider_auth_statuses()
-        except AuthStoreError as error:
-            yield RpcErrorEnvelope(
-                id=request.id,
-                error_type="InternalError",
-                message=str(error),
-            ).model_dump_json()
-            return
-
-        yield RpcResponseEnvelope(
-            id=request.id,
-            response=AuthStatusResponse(
-                providers=providers,
-                local_secret_store=get_local_secret_store_status(),
-                oauth_providers=get_oauth_provider_statuses(),
-            ),
-        ).model_dump_json()
-        return
-
-    if isinstance(request, TraceLogfireStatusRequest):
-        status = logfire_setup_status()
-        yield RpcResponseEnvelope(
-            id=request.id,
-            response=TraceLogfireStatusResponse(
-                installed=status.installed,
-                credentials_configured=status.credentials_configured,
-            ),
-        ).model_dump_json()
-        return
-
-    if isinstance(request, AuthPrepareFileRequest):
-        try:
-            prepared = prepare_provider_secret_file(request.payload.provider)
-        except AuthStoreError as error:
-            yield RpcErrorEnvelope(
-                id=request.id,
-                error_type="InternalError",
-                message=str(error),
-            ).model_dump_json()
-            return
-
-        yield RpcResponseEnvelope(
-            id=request.id,
-            response=AuthPrepareFileResponse(
-                provider=prepared.provider,
-                env_key=prepared.env_key,
-                file_path=prepared.file_path,
-                created=prepared.created,
-                file_snippet=prepared.file_snippet,
-                entry_snippet=prepared.entry_snippet,
-            ),
-        ).model_dump_json()
-        return
-
-    if isinstance(request, AuthSetRequest):
-        try:
-            status = set_provider_secret(
-                request.payload.provider,
-                request.payload.secret,
-                storage=request.payload.storage,
-            )
-        except ProviderSecretValidationError as error:
-            yield RpcErrorEnvelope(
-                id=request.id,
-                error_type="InvalidRequest",
-                message=str(error),
-            ).model_dump_json()
-            return
-        except AuthStoreError as error:
-            yield RpcErrorEnvelope(
-                id=request.id,
-                error_type="InternalError",
-                message=str(error),
-            ).model_dump_json()
-            return
-
-        yield RpcResponseEnvelope(
-            id=request.id,
-            response=AuthSetResponse(status=status),
-        ).model_dump_json()
-        return
-
-    if isinstance(request, AuthClearRequest):
-        try:
-            status = clear_provider_secret(request.payload.provider)
-        except AuthStoreError as error:
-            yield RpcErrorEnvelope(
-                id=request.id,
-                error_type="InternalError",
-                message=str(error),
-            ).model_dump_json()
-            return
-
-        yield RpcResponseEnvelope(
-            id=request.id,
-            response=AuthClearResponse(status=status),
-        ).model_dump_json()
-        return
-
-    if isinstance(request, AuthLoginOpenAICodexStartRequest):
-        try:
-            flow, flow_id, auth_url, instructions = start_openai_codex_oauth_login()
-        except AuthStoreError as error:
-            yield RpcErrorEnvelope(
-                id=request.id,
-                error_type="InternalError",
-                message=str(error),
-            ).model_dump_json()
-            return
-        for existing_flow_id in list(_OPENAI_CODEX_LOGIN_FLOWS):
-            state = _pop_login_flow_state(existing_flow_id)
-            if state is None:
-                continue
-            _cancel_login_flow_task(state.task)
-            _fail_login_result(state.result, "login flow cancelled")
-        result = asyncio.get_running_loop().create_future()
-        _OPENAI_CODEX_LOGIN_FLOWS[flow_id] = _OpenAICodexLoginFlowState(
-            flow=flow,
-            task=asyncio.create_task(
-                _drive_login_result(
-                    result=result,
-                    wait_for_status=wait_for_openai_codex_oauth_login(flow),
+    def decorator(handler: RpcHandler) -> RpcHandler:
+        async def wrapped(request: Any, ctx: _RpcContext) -> AsyncIterator[str]:
+            try:
+                async for line in handler(request, ctx):
+                    yield line
+            except exception_types as error:
+                error_type = next(
+                    mapping.error_type
+                    for mapping in mappings
+                    if isinstance(error, mapping.exception)
                 )
-            ),
-            result=result,
-            started_at=time.monotonic(),
-        )
-        yield RpcResponseEnvelope(
-            id=request.id,
-            response=AuthLoginOpenAICodexStartResponse(
-                flow_id=flow_id,
-                auth_url=auth_url,
-                instructions=instructions,
-            ),
-        ).model_dump_json()
-        return
-
-    if isinstance(request, AuthLoginOpenAICodexWaitRequest):
-        state = _OPENAI_CODEX_LOGIN_FLOWS.get(request.payload.flow_id)
-        result = state.result if state is not None else None
-        if result is None:
-            status = _find_oauth_provider_status("openai-codex")
-            if status is not None and status.logged_in:
-                yield RpcResponseEnvelope(
+                yield RpcErrorEnvelope(
                     id=request.id,
-                    response=AuthLoginOpenAICodexWaitResponse(status=status),
+                    error_type=error_type,
+                    message=str(error),
                 ).model_dump_json()
-                return
-            yield RpcErrorEnvelope(
+
+        return wrapped
+
+    return decorator
+
+
+async def _handle_session_create(
+    request: SessionCreateRequest,
+    ctx: _RpcContext,
+) -> AsyncIterator[str]:
+    session_id = create_session(
+        sessions_root=ctx.sessions_root,
+        workspace_root=ctx.workspace_root,
+    )
+    yield RpcResponseEnvelope(
+        id=request.id,
+        response=SessionCreateResponse(
+            session_id=session_id,
+            project_docs=[
+                WorkspaceProjectDoc(
+                    path=str(doc.path),
+                    filename=doc.filename,
+                    truncated=doc.truncated,
+                )
+                for doc in load_workspace_project_docs(ctx.workspace_root)
+            ],
+        ),
+    ).model_dump_json()
+
+
+async def _handle_model_catalog(
+    request: ModelCatalogRequest,
+    _ctx: _RpcContext,
+) -> AsyncIterator[str]:
+    yield RpcResponseEnvelope(
+        id=request.id,
+        response=ModelCatalogResponse(
+            providers=[
+                ModelCatalogProvider(
+                    provider=provider,
+                    default_model_id=default_model_for_provider(provider),
+                    models=[
+                        ModelCatalogModel(
+                            model_id=model.model_id,
+                            description=model.description,
+                        )
+                        for model in shipped_models_for_provider(provider)
+                    ],
+                )
+                for provider in CANONICAL_PROVIDER_ORDER
+            ]
+        ),
+    ).model_dump_json()
+
+
+@_rpc_error_handler(_RpcErrorMapping(AuthStoreError, "InternalError"))
+async def _handle_auth_status(
+    request: AuthStatusRequest,
+    _ctx: _RpcContext,
+) -> AsyncIterator[str]:
+    providers = list_provider_auth_statuses()
+    yield RpcResponseEnvelope(
+        id=request.id,
+        response=AuthStatusResponse(
+            providers=providers,
+            local_secret_store=get_local_secret_store_status(),
+            oauth_providers=get_oauth_provider_statuses(),
+        ),
+    ).model_dump_json()
+
+
+async def _handle_trace_logfire_status(
+    request: TraceLogfireStatusRequest,
+    _ctx: _RpcContext,
+) -> AsyncIterator[str]:
+    status = logfire_setup_status()
+    yield RpcResponseEnvelope(
+        id=request.id,
+        response=TraceLogfireStatusResponse(
+            installed=status.installed,
+            credentials_configured=status.credentials_configured,
+        ),
+    ).model_dump_json()
+
+
+@_rpc_error_handler(_RpcErrorMapping(AuthStoreError, "InternalError"))
+async def _handle_auth_prepare_file(
+    request: AuthPrepareFileRequest,
+    _ctx: _RpcContext,
+) -> AsyncIterator[str]:
+    prepared = prepare_provider_secret_file(request.payload.provider)
+    yield RpcResponseEnvelope(
+        id=request.id,
+        response=AuthPrepareFileResponse(
+            provider=prepared.provider,
+            env_key=prepared.env_key,
+            file_path=prepared.file_path,
+            created=prepared.created,
+            file_snippet=prepared.file_snippet,
+            entry_snippet=prepared.entry_snippet,
+        ),
+    ).model_dump_json()
+
+
+@_rpc_error_handler(
+    _RpcErrorMapping(ProviderSecretValidationError, "InvalidRequest"),
+    _RpcErrorMapping(AuthStoreError, "InternalError"),
+)
+async def _handle_auth_set(
+    request: AuthSetRequest,
+    _ctx: _RpcContext,
+) -> AsyncIterator[str]:
+    status = set_provider_secret(
+        request.payload.provider,
+        request.payload.secret,
+        storage=request.payload.storage,
+    )
+    yield RpcResponseEnvelope(
+        id=request.id,
+        response=AuthSetResponse(status=status),
+    ).model_dump_json()
+
+
+@_rpc_error_handler(_RpcErrorMapping(AuthStoreError, "InternalError"))
+async def _handle_auth_clear(
+    request: AuthClearRequest,
+    _ctx: _RpcContext,
+) -> AsyncIterator[str]:
+    status = clear_provider_secret(request.payload.provider)
+    yield RpcResponseEnvelope(
+        id=request.id,
+        response=AuthClearResponse(status=status),
+    ).model_dump_json()
+
+
+@_rpc_error_handler(_RpcErrorMapping(AuthStoreError, "InternalError"))
+async def _handle_auth_login_openai_codex_start(
+    request: AuthLoginOpenAICodexStartRequest,
+    _ctx: _RpcContext,
+) -> AsyncIterator[str]:
+    flow, flow_id, auth_url, instructions = start_openai_codex_oauth_login()
+    for state in _OPENAI_CODEX_LOGIN_FLOWS.values():
+        _cancel_login_flow_task(state.task)
+        _fail_login_result(state.result, "login flow cancelled")
+    _OPENAI_CODEX_LOGIN_FLOWS.clear()
+
+    result = asyncio.get_running_loop().create_future()
+    _OPENAI_CODEX_LOGIN_FLOWS[flow_id] = _OpenAICodexLoginFlowState(
+        flow=flow,
+        task=asyncio.create_task(
+            _drive_login_result(
+                result=result,
+                wait_for_status=wait_for_openai_codex_oauth_login(flow),
+            )
+        ),
+        result=result,
+        started_at=time.monotonic(),
+    )
+    yield RpcResponseEnvelope(
+        id=request.id,
+        response=AuthLoginOpenAICodexStartResponse(
+            flow_id=flow_id,
+            auth_url=auth_url,
+            instructions=instructions,
+        ),
+    ).model_dump_json()
+
+
+async def _handle_auth_login_openai_codex_wait(
+    request: AuthLoginOpenAICodexWaitRequest,
+    _ctx: _RpcContext,
+) -> AsyncIterator[str]:
+    state = _OPENAI_CODEX_LOGIN_FLOWS.get(request.payload.flow_id)
+    result = state.result if state is not None else None
+    if result is None:
+        status = _find_oauth_provider_status("openai-codex")
+        if status is not None and status.logged_in:
+            yield RpcResponseEnvelope(
                 id=request.id,
-                error_type="InvalidRequest",
-                message="unknown OpenAI Codex login flow",
+                response=AuthLoginOpenAICodexWaitResponse(status=status),
             ).model_dump_json()
             return
-        try:
-            status = await result
-        except Exception as error:
-            _pop_login_flow_state(request.payload.flow_id)
-            yield RpcErrorEnvelope(
-                id=request.id,
-                error_type="InternalError",
-                message=str(error),
-            ).model_dump_json()
-            return
+        yield RpcErrorEnvelope(
+            id=request.id,
+            error_type="InvalidRequest",
+            message="unknown OpenAI Codex login flow",
+        ).model_dump_json()
+        return
+    try:
+        status = await result
+    except Exception as error:
         _pop_login_flow_state(request.payload.flow_id)
-        yield RpcResponseEnvelope(
+        yield RpcErrorEnvelope(
             id=request.id,
-            response=AuthLoginOpenAICodexWaitResponse(status=status),
+            error_type="InternalError",
+            message=str(error),
         ).model_dump_json()
         return
+    _pop_login_flow_state(request.payload.flow_id)
+    yield RpcResponseEnvelope(
+        id=request.id,
+        response=AuthLoginOpenAICodexWaitResponse(status=status),
+    ).model_dump_json()
 
-    if isinstance(request, AuthLoginOpenAICodexCompleteRequest):
-        state = _OPENAI_CODEX_LOGIN_FLOWS.get(request.payload.flow_id)
-        if state is None or state.result is None:
-            yield RpcErrorEnvelope(
-                id=request.id,
-                error_type="InvalidRequest",
-                message="unknown OpenAI Codex login flow",
-            ).model_dump_json()
-            return
-        try:
-            status = await complete_openai_codex_oauth_login(
-                state.flow,
-                request.payload.callback_or_code,
-            )
-        except Exception as error:
-            yield RpcErrorEnvelope(
-                id=request.id,
-                error_type="InternalError",
-                message=str(error),
-            ).model_dump_json()
-            return
-        state = _pop_login_flow_state(request.payload.flow_id)
-        if state is not None and state.result is not None and not state.result.done():
-            state.result.set_result(status)
-        _cancel_login_flow_task(state.task if state is not None else None)
-        yield RpcResponseEnvelope(
-            id=request.id,
-            response=AuthLoginOpenAICodexCompleteResponse(status=status),
-        ).model_dump_json()
-        return
 
-    if isinstance(request, RunEnqueueRequest):
-        if request.payload.prompt.strip() == "":
-            yield RpcErrorEnvelope(
-                id=request.id,
-                error_type="InvalidRequest",
-                message="Follow-up prompt must not be blank",
-            ).model_dump_json()
-            return
-        try:
-            queued_count = await _FOLLOW_UP_STATE.enqueue(
-                request.payload.session_id,
-                request.payload.prompt,
-                mode=request.payload.mode,
-            )
-        except RuntimeError as error:
-            yield RpcErrorEnvelope(
-                id=request.id,
-                error_type="InvalidRequest",
-                message=str(error),
-            ).model_dump_json()
-            return
-        yield RpcResponseEnvelope(
+async def _handle_auth_login_openai_codex_complete(
+    request: AuthLoginOpenAICodexCompleteRequest,
+    _ctx: _RpcContext,
+) -> AsyncIterator[str]:
+    state = _OPENAI_CODEX_LOGIN_FLOWS.get(request.payload.flow_id)
+    if state is None or state.result is None:
+        yield RpcErrorEnvelope(
             id=request.id,
-            response=RunEnqueueResponse(
-                session_id=request.payload.session_id,
-                queued_count=queued_count,
-            ),
+            error_type="InvalidRequest",
+            message="unknown OpenAI Codex login flow",
         ).model_dump_json()
         return
-    if isinstance(request, RunInterruptRequest):
-        try:
-            promoted_count = await _FOLLOW_UP_STATE.interrupt(
-                request.payload.session_id,
-                promote_queued_steer=request.payload.promote_queued_steer,
-            )
-        except RuntimeError as error:
-            yield RpcErrorEnvelope(
-                id=request.id,
-                error_type="InvalidRequest",
-                message=str(error),
-            ).model_dump_json()
-            return
-        yield RpcResponseEnvelope(
-            id=request.id,
-            response=RunInterruptResponse(
-                session_id=request.payload.session_id,
-                promoted_count=promoted_count,
-            ),
-        ).model_dump_json()
-        return
-
-    if isinstance(request, SessionNameRequest):
-        session_path = session_path_for_id(
-            sessions_root=sessions_root,
-            workspace_root=workspace_root,
-            session_id=request.payload.session_id,
+    try:
+        status = await complete_openai_codex_oauth_login(
+            state.flow,
+            request.payload.callback_or_code,
         )
-        if not session_path.exists():
-            yield RpcErrorEnvelope(
-                id=request.id,
-                error_type="UnknownSession",
-                message=f"Unknown session_id: {request.payload.session_id}",
-            ).model_dump_json()
-            return
-        try:
-            name = append_session_name_to_session(
-                path=session_path,
-                workspace_root=workspace_root,
-                name=request.payload.name,
-            )
-        except SessionNameValidationError as error:
-            yield RpcErrorEnvelope(
-                id=request.id,
-                error_type="InvalidRequest",
-                message=str(error),
-            ).model_dump_json()
-            return
-        except SessionFormatError as error:
-            yield RpcErrorEnvelope(
-                id=request.id,
-                error_type="InvalidSession",
-                message=str(error),
-            ).model_dump_json()
-            return
-
-        yield RpcResponseEnvelope(
+    except Exception as error:
+        yield RpcErrorEnvelope(
             id=request.id,
-            response=SessionNameResponse(
-                session_id=request.payload.session_id,
-                name=name,
-            ),
+            error_type="InternalError",
+            message=str(error),
         ).model_dump_json()
         return
+    state = _pop_login_flow_state(request.payload.flow_id)
+    if state is not None and state.result is not None and not state.result.done():
+        state.result.set_result(status)
+    _cancel_login_flow_task(state.task if state is not None else None)
+    yield RpcResponseEnvelope(
+        id=request.id,
+        response=AuthLoginOpenAICodexCompleteResponse(status=status),
+    ).model_dump_json()
 
-    if isinstance(request, SessionPreviewRequest):
-        session_path = session_path_for_id(
-            sessions_root=sessions_root,
-            workspace_root=workspace_root,
-            session_id=request.payload.session_id,
+
+async def _handle_run_enqueue(
+    request: RunEnqueueRequest,
+    _ctx: _RpcContext,
+) -> AsyncIterator[str]:
+    if request.payload.prompt.strip() == "":
+        yield RpcErrorEnvelope(
+            id=request.id,
+            error_type="InvalidRequest",
+            message="Follow-up prompt must not be blank",
+        ).model_dump_json()
+        return
+    try:
+        queued_count = await _FOLLOW_UP_STATE.enqueue(
+            request.payload.session_id,
+            request.payload.prompt,
+            mode=request.payload.mode,
         )
-        if not session_path.exists():
-            yield RpcErrorEnvelope(
-                id=request.id,
-                error_type="UnknownSession",
-                message=f"Unknown session_id: {request.payload.session_id}",
-            ).model_dump_json()
-            return
-        try:
-            preview = build_session_preview(
-                path=session_path,
-                workspace_root=workspace_root,
-            )
-        except SessionFormatError as error:
-            yield RpcErrorEnvelope(
-                id=request.id,
-                error_type="InvalidSession",
-                message=str(error),
-            ).model_dump_json()
-            return
-
-        yield RpcResponseEnvelope(
+    except RuntimeError as error:
+        yield RpcErrorEnvelope(
             id=request.id,
-            response=SessionPreviewResponse(
-                session_id=preview.session_id,
-                entries=preview.entries,
-                truncated=preview.truncated,
-            ),
+            error_type="InvalidRequest",
+            message=str(error),
         ).model_dump_json()
         return
+    yield RpcResponseEnvelope(
+        id=request.id,
+        response=RunEnqueueResponse(
+            session_id=request.payload.session_id,
+            queued_count=queued_count,
+        ),
+    ).model_dump_json()
 
-    if isinstance(request, WorkspaceProjectDocsRequest):
-        yield RpcResponseEnvelope(
+
+async def _handle_run_interrupt(
+    request: RunInterruptRequest,
+    _ctx: _RpcContext,
+) -> AsyncIterator[str]:
+    try:
+        promoted_count = await _FOLLOW_UP_STATE.interrupt(
+            request.payload.session_id,
+            promote_queued_steer=request.payload.promote_queued_steer,
+        )
+    except RuntimeError as error:
+        yield RpcErrorEnvelope(
             id=request.id,
-            response=WorkspaceProjectDocsResponse(
-                documents=[
-                    WorkspaceProjectDoc(
-                        path=str(doc.path),
-                        filename=doc.filename,
-                        truncated=doc.truncated,
-                    )
-                    for doc in load_workspace_project_docs(workspace_root)
-                ]
-            ),
+            error_type="InvalidRequest",
+            message=str(error),
         ).model_dump_json()
         return
+    yield RpcResponseEnvelope(
+        id=request.id,
+        response=RunInterruptResponse(
+            session_id=request.payload.session_id,
+            promoted_count=promoted_count,
+        ),
+    ).model_dump_json()
 
+
+async def _handle_session_name(
+    request: SessionNameRequest,
+    ctx: _RpcContext,
+) -> AsyncIterator[str]:
     session_path = session_path_for_id(
-        sessions_root=sessions_root,
-        workspace_root=workspace_root,
+        sessions_root=ctx.sessions_root,
+        workspace_root=ctx.workspace_root,
+        session_id=request.payload.session_id,
+    )
+    if not session_path.exists():
+        yield RpcErrorEnvelope(
+            id=request.id,
+            error_type="UnknownSession",
+            message=f"Unknown session_id: {request.payload.session_id}",
+        ).model_dump_json()
+        return
+    try:
+        name = append_session_name_to_session(
+            path=session_path,
+            workspace_root=ctx.workspace_root,
+            name=request.payload.name,
+        )
+    except SessionNameValidationError as error:
+        yield RpcErrorEnvelope(
+            id=request.id,
+            error_type="InvalidRequest",
+            message=str(error),
+        ).model_dump_json()
+        return
+    except SessionFormatError as error:
+        yield RpcErrorEnvelope(
+            id=request.id,
+            error_type="InvalidSession",
+            message=str(error),
+        ).model_dump_json()
+        return
+
+    yield RpcResponseEnvelope(
+        id=request.id,
+        response=SessionNameResponse(
+            session_id=request.payload.session_id,
+            name=name,
+        ),
+    ).model_dump_json()
+
+
+async def _handle_session_preview(
+    request: SessionPreviewRequest,
+    ctx: _RpcContext,
+) -> AsyncIterator[str]:
+    session_path = session_path_for_id(
+        sessions_root=ctx.sessions_root,
+        workspace_root=ctx.workspace_root,
+        session_id=request.payload.session_id,
+    )
+    if not session_path.exists():
+        yield RpcErrorEnvelope(
+            id=request.id,
+            error_type="UnknownSession",
+            message=f"Unknown session_id: {request.payload.session_id}",
+        ).model_dump_json()
+        return
+    try:
+        preview = build_session_preview(
+            path=session_path,
+            workspace_root=ctx.workspace_root,
+        )
+    except SessionFormatError as error:
+        yield RpcErrorEnvelope(
+            id=request.id,
+            error_type="InvalidSession",
+            message=str(error),
+        ).model_dump_json()
+        return
+
+    yield RpcResponseEnvelope(
+        id=request.id,
+        response=SessionPreviewResponse(
+            session_id=preview.session_id,
+            entries=preview.entries,
+            truncated=preview.truncated,
+        ),
+    ).model_dump_json()
+
+
+async def _handle_workspace_project_docs(
+    request: WorkspaceProjectDocsRequest,
+    ctx: _RpcContext,
+) -> AsyncIterator[str]:
+    yield RpcResponseEnvelope(
+        id=request.id,
+        response=WorkspaceProjectDocsResponse(
+            documents=[
+                WorkspaceProjectDoc(
+                    path=str(doc.path),
+                    filename=doc.filename,
+                    truncated=doc.truncated,
+                )
+                for doc in load_workspace_project_docs(ctx.workspace_root)
+            ]
+        ),
+    ).model_dump_json()
+
+
+async def _handle_session_compact(
+    request: SessionCompactRequest,
+    ctx: _RpcContext,
+) -> AsyncIterator[str]:
+    session_path = session_path_for_id(
+        sessions_root=ctx.sessions_root,
+        workspace_root=ctx.workspace_root,
+        session_id=request.payload.session_id,
+    )
+    if not session_path.exists():
+        yield RpcErrorEnvelope(
+            id=request.id,
+            error_type="UnknownSession",
+            message=f"Unknown session_id: {request.payload.session_id}",
+        ).model_dump_json()
+        return
+    try:
+        compaction = await summarize_and_append_compaction_to_session(
+            model=ctx.model,
+            path=session_path,
+            workspace_root=ctx.workspace_root,
+        )
+    except SessionFormatError as error:
+        yield RpcErrorEnvelope(
+            id=request.id,
+            error_type="InvalidSession",
+            message=str(error),
+        ).model_dump_json()
+        return
+    except Exception as error:
+        yield RpcErrorEnvelope(
+            id=request.id,
+            error_type="InternalError",
+            message=str(error),
+        ).model_dump_json()
+        return
+
+    yield RpcResponseEnvelope(
+        id=request.id,
+        response=SessionCompactResponse(
+            compaction_id=compaction.compaction_id,
+            compacted_through_run_id=compaction.compacted_through_run_id,
+        ),
+    ).model_dump_json()
+
+
+async def _handle_run_start(
+    request: RunStartRequest,
+    ctx: _RpcContext,
+) -> AsyncIterator[str]:
+    session_path = session_path_for_id(
+        sessions_root=ctx.sessions_root,
+        workspace_root=ctx.workspace_root,
         session_id=request.payload.session_id,
     )
     if not session_path.exists():
@@ -821,41 +884,10 @@ async def handle_rpc_json_line(
         ).model_dump_json()
         return
 
-    if isinstance(request, SessionCompactRequest):
-        try:
-            compaction = await summarize_and_append_compaction_to_session(
-                model=model,
-                path=session_path,
-                workspace_root=workspace_root,
-            )
-        except SessionFormatError as error:
-            yield RpcErrorEnvelope(
-                id=request.id,
-                error_type="InvalidSession",
-                message=str(error),
-            ).model_dump_json()
-            return
-        except Exception as error:
-            yield RpcErrorEnvelope(
-                id=request.id,
-                error_type="InternalError",
-                message=str(error),
-            ).model_dump_json()
-            return
-
-        yield RpcResponseEnvelope(
-            id=request.id,
-            response=SessionCompactResponse(
-                compaction_id=compaction.compaction_id,
-                compacted_through_run_id=compaction.compacted_through_run_id,
-            ),
-        ).model_dump_json()
-        return
-
-    assert isinstance(request, RunStartRequest)
     current_task = asyncio.current_task()
     if current_task is None:
         raise RuntimeError("run.start must execute inside an asyncio task")
+    emit_rpc_event = ctx.emit_rpc_event
     if emit_rpc_event is None:
         raise RuntimeError("run.start requires an rpc event emitter")
 
@@ -895,8 +927,8 @@ async def handle_rpc_json_line(
         while True:
             try:
                 async for event in stream_session_run_events(
-                    model=model,
-                    workspace_root=workspace_root,
+                    model=ctx.model,
+                    workspace_root=ctx.workspace_root,
                     session_path=session_path,
                     prompt=prompt,
                     tool_names=CANONICAL_TOOL_NAMES,
@@ -960,6 +992,79 @@ async def handle_rpc_json_line(
         id=request.id,
         response=RunStartResponse(session_id=request.payload.session_id),
     ).model_dump_json()
+
+
+_RPC_HANDLERS: dict[type[Any], RpcHandler] = {
+    SessionCreateRequest: _handle_session_create,
+    ModelCatalogRequest: _handle_model_catalog,
+    AuthStatusRequest: _handle_auth_status,
+    AuthPrepareFileRequest: _handle_auth_prepare_file,
+    AuthSetRequest: _handle_auth_set,
+    AuthClearRequest: _handle_auth_clear,
+    AuthLoginOpenAICodexStartRequest: _handle_auth_login_openai_codex_start,
+    AuthLoginOpenAICodexWaitRequest: _handle_auth_login_openai_codex_wait,
+    AuthLoginOpenAICodexCompleteRequest: _handle_auth_login_openai_codex_complete,
+    TraceLogfireStatusRequest: _handle_trace_logfire_status,
+    RunEnqueueRequest: _handle_run_enqueue,
+    RunInterruptRequest: _handle_run_interrupt,
+    SessionNameRequest: _handle_session_name,
+    SessionPreviewRequest: _handle_session_preview,
+    WorkspaceProjectDocsRequest: _handle_workspace_project_docs,
+    SessionCompactRequest: _handle_session_compact,
+    RunStartRequest: _handle_run_start,
+}
+
+
+async def handle_rpc_json_line(
+    *,
+    line: str,
+    model: Any,
+    workspace_root: Path | str,
+    sessions_root: Path | str,
+    emit_rpc_event: Callable[[str, RunEvent | SessionLifecycleEvent], Awaitable[None]]
+    | None = None,
+) -> AsyncIterator[str]:
+    _prune_stale_login_flows()
+
+    try:
+        payload = json.loads(line)
+    except json.JSONDecodeError:
+        yield RpcErrorEnvelope(
+            id=None,
+            error_type="InvalidJSON",
+            message="Invalid JSON request",
+        ).model_dump_json()
+        return
+
+    request_id = _extract_request_id(payload)
+
+    try:
+        request = _RPC_REQUEST_ADAPTER.validate_python(payload)
+    except ValidationError:
+        yield RpcErrorEnvelope(
+            id=request_id,
+            error_type="InvalidRequest",
+            message="Invalid RPC request",
+        ).model_dump_json()
+        return
+
+    ctx = _RpcContext(
+        model=model,
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+        emit_rpc_event=emit_rpc_event,
+    )
+    handler = _RPC_HANDLERS.get(type(request))
+    if handler is None:
+        yield RpcErrorEnvelope(
+            id=request_id,
+            error_type="InvalidRequest",
+            message="Invalid RPC request",
+        ).model_dump_json()
+        return
+
+    async for response_line in handler(request, ctx):
+        yield response_line
 
 
 async def serve_rpc_stdio(
