@@ -145,7 +145,9 @@ def _select_recent_user_message_tail(
             continue
         if remaining_tokens <= 0:
             break
-        truncated = _truncate_text_to_token_budget(user_message, remaining_tokens)
+        truncated = truncate_middle_to_token_budget(
+            user_message, remaining_tokens
+        )
         if truncated is not None:
             selected.append(truncated)
         break
@@ -520,10 +522,6 @@ def truncate_middle_to_token_budget(text: str, token_budget: int) -> str | None:
 
     result = f"{left}{marker}{right}".strip()
     return result or None
-
-
-def _truncate_text_to_token_budget(text: str, token_budget: int) -> str | None:
-    return truncate_middle_to_token_budget(text, token_budget)
 
 
 __all__ = [

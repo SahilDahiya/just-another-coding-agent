@@ -67,7 +67,7 @@ def _write_full_output(output: str) -> str:
         return file_handle.name
 
 
-def _truncate_shell_output(output: str) -> str:
+def _truncate_shell_output(output: str, *, partial: bool) -> str:
     if not output:
         return ""
 
@@ -79,57 +79,41 @@ def _truncate_shell_output(output: str) -> str:
     if window.truncated_by is None:
         return output
 
-    full_output_path = _write_full_output(output)
+    if partial:
+        suffix = "while command is still running"
+    else:
+        suffix = f"Full output: {_write_full_output(output)}"
 
     if window.last_line_partial:
-        note = (
-            f"[Showing last {SHELL_MAX_BYTES} bytes of line {window.end_line} "
-            f"(line exceeds limit). Full output: {full_output_path}]"
+        body = (
+            f"Showing last {SHELL_MAX_BYTES} bytes of line {window.end_line} "
+            "(line exceeds limit)"
         )
     elif window.truncated_by == "lines":
-        note = (
-            f"[Showing lines {window.start_line}-{window.end_line} of "
-            f"{window.total_lines}. "
-            f"Full output: {full_output_path}]"
+        body = (
+            f"Showing lines {window.start_line}-{window.end_line} of "
+            f"{window.total_lines}"
         )
     else:
-        note = (
-            f"[Showing lines {window.start_line}-{window.end_line} of "
-            f"{window.total_lines} "
-            f"({SHELL_MAX_BYTES} byte limit). Full output: {full_output_path}]"
-        )
+        if partial:
+            body = (
+                f"Showing lines {window.start_line}-{window.end_line} of "
+                f"{window.total_lines} while command is still running "
+                f"({SHELL_MAX_BYTES} byte limit)"
+            )
+        else:
+            body = (
+                f"Showing lines {window.start_line}-{window.end_line} of "
+                f"{window.total_lines} "
+                f"({SHELL_MAX_BYTES} byte limit)"
+            )
 
-    return append_tool_note(window.text, note)
-
-
-def _truncate_partial_shell_output(output: str) -> str:
-    if not output:
-        return ""
-
-    window = truncate_tail_text(
-        output,
-        max_lines=SHELL_MAX_LINES,
-        max_bytes=SHELL_MAX_BYTES,
-    )
-    if window.truncated_by is None:
-        return output
-
-    if window.last_line_partial:
-        note = (
-            f"[Showing last {SHELL_MAX_BYTES} bytes of line {window.end_line} "
-            "(line exceeds limit) while command is still running]"
-        )
-    elif window.truncated_by == "lines":
-        note = (
-            f"[Showing lines {window.start_line}-{window.end_line} of "
-            f"{window.total_lines} while command is still running]"
-        )
+    if partial and window.truncated_by == "bytes" and not window.last_line_partial:
+        note = f"[{body}]"
+    elif partial:
+        note = f"[{body} {suffix}]"
     else:
-        note = (
-            f"[Showing lines {window.start_line}-{window.end_line} of "
-            f"{window.total_lines} while command is still running "
-            f"({SHELL_MAX_BYTES} byte limit)]"
-        )
+        note = f"[{body}. {suffix}]"
 
     return append_tool_note(window.text, note)
 
@@ -180,7 +164,7 @@ async def _publish_shell_update(
     await ctx.deps.tool_update_sink(
         ctx.tool_call_id,
         ctx.tool_name,
-        {"output": _truncate_partial_shell_output(output)},
+        {"output": _truncate_shell_output(output, partial=True)},
     )
 
 
@@ -337,7 +321,7 @@ async def execute_shell(
                     asyncio.CancelledError, ToolEncodingError
                 ):
                     await reader_task
-                output = _truncate_shell_output("".join(output_chunks))
+                output = _truncate_shell_output("".join(output_chunks), partial=False)
                 raise ToolCommandError(
                     _format_shell_failure(
                         output,
@@ -358,7 +342,7 @@ async def execute_shell(
             with contextlib.suppress(asyncio.CancelledError):
                 await publisher_task
 
-    output = _truncate_shell_output("".join(output_chunks))
+    output = _truncate_shell_output("".join(output_chunks), partial=False)
 
     if process.returncode != 0:
         raise ToolCommandError(
