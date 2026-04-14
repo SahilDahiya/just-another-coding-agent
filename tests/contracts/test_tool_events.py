@@ -39,6 +39,7 @@ from just_another_coding_agent.tools.deps import (
     RunSessionScope,
     WorkspaceDeps,
 )
+from tests.read_only_worker_test_support import workspace_deps
 
 _SHELL_FAMILY = detect_default_shell_family()
 
@@ -839,7 +840,7 @@ async def test_stream_run_events_uses_canonical_validated_args_for_empty_string_
         async for event in stream_run_events(
             agent=agent,
             prompt="go",
-            deps=WorkspaceDeps.from_workspace_root(workspace_root),
+            deps=workspace_deps(workspace_root),
             available_tool_names=("ls",),
         )
     ]
@@ -1180,7 +1181,7 @@ async def test_stream_run_events_recovers_from_edit_mismatch_within_one_run(
         async for event in stream_run_events(
             agent=agent,
             prompt="go",
-            deps=WorkspaceDeps.from_workspace_root(workspace_root),
+            deps=workspace_deps(workspace_root),
             available_tool_names=("edit",),
         )
     ]
@@ -1245,7 +1246,7 @@ async def test_stream_run_events_recovers_from_missing_read_within_one_run(
         async for event in stream_run_events(
             agent=agent,
             prompt="go",
-            deps=WorkspaceDeps.from_workspace_root(workspace_root),
+            deps=workspace_deps(workspace_root),
             available_tool_names=("read",),
         )
     ]
@@ -1316,7 +1317,7 @@ async def test_stream_run_events_recovers_from_unknown_tool_name_within_one_run(
         async for event in stream_run_events(
             agent=agent,
             prompt="go",
-            deps=WorkspaceDeps.from_workspace_root(workspace_root),
+            deps=workspace_deps(workspace_root),
             available_tool_names=("ls",),
         )
     ]
@@ -1371,7 +1372,7 @@ async def test_stream_run_events_fails_cleanly_when_unknown_tool_budget_is_exhau
         async for event in stream_run_events(
             agent=agent,
             prompt="go",
-            deps=WorkspaceDeps.from_workspace_root(workspace_root),
+            deps=workspace_deps(workspace_root),
             available_tool_names=("ls",),
         )
     ]
@@ -1410,7 +1411,7 @@ async def test_stream_run_events_recovers_from_invalid_tool_args_within_one_run(
         async for event in stream_run_events(
             agent=agent,
             prompt="go",
-            deps=WorkspaceDeps.from_workspace_root(workspace_root),
+            deps=workspace_deps(workspace_root),
             available_tool_names=("ls",),
         )
     ]
@@ -1466,7 +1467,7 @@ async def test_stream_run_events_recovers_from_write_directory_error_within_one_
         async for event in stream_run_events(
             agent=agent,
             prompt="go",
-            deps=WorkspaceDeps.from_workspace_root(workspace_root),
+            deps=workspace_deps(workspace_root),
         )
     ]
 
@@ -1506,7 +1507,7 @@ async def test_stream_run_events_recovers_from_bash_timeout_within_one_run(
         async for event in stream_run_events(
             agent=agent,
             prompt="go",
-            deps=WorkspaceDeps.from_workspace_root(workspace_root),
+            deps=workspace_deps(workspace_root),
         )
     ]
 
@@ -1589,7 +1590,7 @@ async def test_stream_run_events_recovers_from_non_zero_bash_exit_within_one_run
         async for event in stream_run_events(
             agent=agent,
             prompt="go",
-            deps=WorkspaceDeps.from_workspace_root(workspace_root),
+            deps=workspace_deps(workspace_root),
         )
     ]
 
@@ -1636,7 +1637,7 @@ async def test_stream_run_events_emits_bash_tool_updates(tmp_path) -> None:
         async for event in stream_run_events(
             agent=agent,
             prompt="go",
-            deps=WorkspaceDeps.from_workspace_root(workspace_root),
+            deps=workspace_deps(workspace_root),
         )
     ]
 
@@ -1678,7 +1679,7 @@ async def test_stream_run_events_ignores_stale_tool_update_after_result(
         async for event in stream_run_events(
             agent=LateToolUpdateAgent(),
             prompt="go",
-            deps=WorkspaceDeps.from_workspace_root(workspace_root),
+            deps=workspace_deps(workspace_root),
         )
     ]
 
@@ -1738,7 +1739,7 @@ async def test_stream_run_events_injects_pending_steer_after_tool_phase_complete
             async for event in stream_run_events(
                 agent=agent,
                 prompt="go",
-                deps=WorkspaceDeps.from_workspace_root(workspace_root),
+                deps=workspace_deps(workspace_root),
                 activate_steer_boundary=activate_steer_boundary,
                 submit_steer_boundary=submit_steer_boundary,
                 deactivate_steer_boundary=deactivate_steer_boundary,
@@ -1779,7 +1780,7 @@ async def test_stream_run_events_emits_bash_tool_updates_during_steer_boundary(
     stream = stream_run_events(
         agent=agent,
         prompt="go",
-        deps=WorkspaceDeps.from_workspace_root(workspace_root),
+        deps=workspace_deps(workspace_root),
         activate_steer_boundary=activate_steer_boundary,
         submit_steer_boundary=submit_steer_boundary,
         deactivate_steer_boundary=deactivate_steer_boundary,

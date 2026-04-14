@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -28,6 +27,7 @@ from just_another_coding_agent.tools.read_only_worker.protocol import (
     encode_worker_message,
     parse_worker_response_line,
 )
+from tests.read_only_worker_test_support import ensure_built_read_only_worker
 
 
 def _ripgrep_is_runnable() -> bool:
@@ -48,19 +48,13 @@ def _ripgrep_is_runnable() -> bool:
 
 
 class _GoWorkerProcess:
-    def __init__(self, repo_root: Path, *, go_cache_dir: Path) -> None:
-        self._repo_root = repo_root
-        self._go_cache_dir = go_cache_dir
+    def __init__(self, *, worker_path: Path) -> None:
+        self._worker_path = worker_path
         self._process: subprocess.Popen[str] | None = None
 
     def __enter__(self) -> _GoWorkerProcess:
-        self._go_cache_dir.mkdir(parents=True, exist_ok=True)
-        env = dict(os.environ)
-        env["GOCACHE"] = str(self._go_cache_dir)
         self._process = subprocess.Popen(
-            ["go", "run", "./cmd/jaca-read-only-worker"],
-            cwd=self._repo_root,
-            env=env,
+            [str(self._worker_path)],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -132,14 +126,12 @@ class _GoWorkerProcess:
 
 
 def test_go_read_only_worker_handles_handshake_read_and_ls(tmp_path: Path) -> None:
-    repo_root = Path(__file__).resolve().parents[2]
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
     (workspace_root / "note.txt").write_text("one\ntwo\nthree\n", encoding="utf-8")
     (workspace_root / "src").mkdir()
-    go_cache_dir = tmp_path / "gocache"
 
-    with _GoWorkerProcess(repo_root, go_cache_dir=go_cache_dir) as worker:
+    with _GoWorkerProcess(worker_path=ensure_built_read_only_worker()) as worker:
         hello = worker.send(HelloWorkerRequest(request_id="hello-1"))
         assert isinstance(hello, HelloWorkerResponse)
         assert hello.supported_operations == READ_ONLY_WORKER_OPERATIONS
@@ -182,7 +174,6 @@ def test_go_read_only_worker_handles_handshake_read_and_ls(tmp_path: Path) -> No
 def test_go_read_only_worker_grep_returns_after_limit_hit(tmp_path: Path) -> None:
     if not _ripgrep_is_runnable():
         pytest.skip("a runnable ripgrep (rg) is required for grep worker tests")
-    repo_root = Path(__file__).resolve().parents[2]
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
     for index in range(700):
@@ -192,9 +183,7 @@ def test_go_read_only_worker_grep_returns_after_limit_hit(tmp_path: Path) -> Non
             + "'\n",
             encoding="utf-8",
         )
-    go_cache_dir = tmp_path / "gocache"
-
-    with _GoWorkerProcess(repo_root, go_cache_dir=go_cache_dir) as worker:
+    with _GoWorkerProcess(worker_path=ensure_built_read_only_worker()) as worker:
         hello = worker.send(HelloWorkerRequest(request_id="hello-limit"))
         assert isinstance(hello, HelloWorkerResponse)
 
@@ -225,7 +214,6 @@ def test_go_read_only_worker_grep_returns_after_byte_limit_hit(
 ) -> None:
     if not _ripgrep_is_runnable():
         pytest.skip("a runnable ripgrep (rg) is required for grep worker tests")
-    repo_root = Path(__file__).resolve().parents[2]
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
     for index in range(700):
@@ -233,9 +221,7 @@ def test_go_read_only_worker_grep_returns_after_byte_limit_hit(
             "needle = '" + ("x" * 120) + "'\n",
             encoding="utf-8",
         )
-    go_cache_dir = tmp_path / "gocache"
-
-    with _GoWorkerProcess(repo_root, go_cache_dir=go_cache_dir) as worker:
+    with _GoWorkerProcess(worker_path=ensure_built_read_only_worker()) as worker:
         hello = worker.send(HelloWorkerRequest(request_id="hello-byte-limit"))
         assert isinstance(hello, HelloWorkerResponse)
 
@@ -265,14 +251,9 @@ async def test_go_read_only_worker_rejects_binary_read_input(tmp_path: Path) -> 
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
     (workspace_root / "weights.pt").write_bytes(b"\x80\n" * 40000)
-    go_cache_dir = tmp_path / "gocache"
-    go_cache_dir.mkdir(parents=True, exist_ok=True)
-    env = dict(os.environ)
-    env["GOCACHE"] = str(go_cache_dir)
 
     async with ReadOnlyWorkerClient(
-        ["go", "run", "./cmd/jaca-read-only-worker"],
-        env=env,
+        [str(ensure_built_read_only_worker())],
     ) as client:
         with pytest.raises(ToolEncodingError, match="not valid UTF-8 text"):
             await client.send(
