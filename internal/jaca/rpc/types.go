@@ -1,6 +1,7 @@
 package rpc
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 )
@@ -321,31 +322,94 @@ type RunTranscriptSummary struct {
 	ActivityGroups               []ActivityGroupSummary `json:"activity_groups"`
 }
 
+// DecodeError wraps a JSON decode failure from the backend stdout stream
+// with a preview of the offending bytes. Without this, a parse failure
+// surfaces to the user as a raw "invalid character 'N' looking for
+// beginning of value" with no context — you cannot tell which layer
+// wrote the bad bytes, what the bytes were, or how much of the line
+// was readable. The extra context converts "we will never know what
+// caused this" into "the user's bug report has a definitive smoking
+// gun in one copy-paste."
+type DecodeError struct {
+	// Err is the underlying error returned by encoding/json.
+	Err error
+	// Line is a defensive copy of the offending stdout line. Callers
+	// must not mutate this slice; the DecodeError keeps a reference.
+	Line []byte
+}
+
+// decodeErrorMaxPreviewBytes caps how many bytes of an offending line
+// we inline into the error message. 256 is enough to identify a
+// leaked log statement, traceback header, or framework banner without
+// paging long binary blobs into the user's terminal.
+const decodeErrorMaxPreviewBytes = 256
+
+// decodeErrorHexBytes is the number of leading bytes we include as a
+// hex dump alongside the preview. 32 is enough to fingerprint any
+// printable-or-binary prefix while keeping the error message compact.
+const decodeErrorHexBytes = 32
+
+func (e *DecodeError) Error() string {
+	line := e.Line
+	previewLen := len(line)
+	truncated := ""
+	if previewLen > decodeErrorMaxPreviewBytes {
+		line = line[:decodeErrorMaxPreviewBytes]
+		truncated = fmt.Sprintf(" (truncated from %d)", previewLen)
+	}
+	hexLen := len(line)
+	if hexLen > decodeErrorHexBytes {
+		hexLen = decodeErrorHexBytes
+	}
+	return fmt.Sprintf(
+		"backend stdout decode failed: %v (line=%d bytes%s, first %d bytes hex: %s, preview: %q)",
+		e.Err,
+		previewLen,
+		truncated,
+		hexLen,
+		hex.EncodeToString(line[:hexLen]),
+		string(line),
+	)
+}
+
+// Unwrap lets errors.Is / errors.As reach the underlying json error.
+func (e *DecodeError) Unwrap() error {
+	return e.Err
+}
+
 func decodeEnvelope(line []byte) (any, error) {
 	var header envelopeHeader
 	if err := json.Unmarshal(line, &header); err != nil {
-		return nil, err
+		return nil, newDecodeError(err, line)
 	}
 	switch header.Type {
 	case EnvelopeResponse:
 		var envelope ResponseEnvelope
 		if err := json.Unmarshal(line, &envelope); err != nil {
-			return nil, err
+			return nil, newDecodeError(err, line)
 		}
 		return envelope, nil
 	case EnvelopeEvent:
 		var envelope EventEnvelope
 		if err := json.Unmarshal(line, &envelope); err != nil {
-			return nil, err
+			return nil, newDecodeError(err, line)
 		}
 		return envelope, nil
 	case EnvelopeError:
 		var envelope ErrorEnvelope
 		if err := json.Unmarshal(line, &envelope); err != nil {
-			return nil, err
+			return nil, newDecodeError(err, line)
 		}
 		return envelope, nil
 	default:
 		return nil, fmt.Errorf("unknown envelope type: %s", header.Type)
 	}
+}
+
+func newDecodeError(err error, line []byte) *DecodeError {
+	// Defensive copy: the caller's buffer (bufio.Scanner.Bytes) is
+	// reused across Scan() calls, so we must not hold a reference.
+	copied := make([]byte, len(line))
+	copy(copied, line)
+	return &DecodeError{Err: err, Line: copied}
 }

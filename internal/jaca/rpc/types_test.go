@@ -1,6 +1,10 @@
 package rpc
 
-import "testing"
+import (
+	"errors"
+	"strings"
+	"testing"
+)
 
 func TestDecodeEnvelopePreservesRunSucceededUsageFields(t *testing.T) {
 	line := []byte(`{
@@ -254,5 +258,105 @@ func TestDecodeEnvelopePreservesSessionCompactionWarningFields(t *testing.T) {
 	}
 	if envelope.Event.Message != "Session has been compacted multiple times; continuity quality may degrade." {
 		t.Fatalf("Message = %q, want repeated compaction warning", envelope.Event.Message)
+	}
+}
+
+func TestDecodeEnvelopeWrapsParseErrorWithBytePreview(t *testing.T) {
+	// Regression: a parse failure on the backend stdout stream used to
+	// surface as a raw encoding/json error with no context. The enriched
+	// DecodeError now carries the offending line length, a hex dump of
+	// the leading bytes, and a printable preview so a single bug report
+	// identifies the bad bytes unambiguously.
+	line := []byte("Not a JSON line at all\n")
+
+	_, err := decodeEnvelope(line)
+	if err == nil {
+		t.Fatal("decodeEnvelope() returned nil error for a non-JSON line")
+	}
+
+	var decodeErr *DecodeError
+	if !errors.As(err, &decodeErr) {
+		t.Fatalf("err type = %T, want *DecodeError", err)
+	}
+	if decodeErr.Err == nil {
+		t.Fatal("DecodeError.Err must wrap the underlying json error")
+	}
+	if string(decodeErr.Line) != string(line) {
+		t.Errorf("DecodeError.Line = %q, want %q", decodeErr.Line, line)
+	}
+
+	msg := decodeErr.Error()
+	// "Not" in ASCII is 4e 6f 74 — verify the hex dump is in the message.
+	if !strings.Contains(msg, "4e6f74") {
+		t.Errorf("error message missing hex prefix 4e6f74: %s", msg)
+	}
+	// The printable preview should include the original string so
+	// a reader can tell at a glance what leaked.
+	if !strings.Contains(msg, "Not a JSON line at all") {
+		t.Errorf("error message missing printable preview: %s", msg)
+	}
+	// Length must be reported.
+	if !strings.Contains(msg, "line=23 bytes") {
+		t.Errorf("error message missing line length: %s", msg)
+	}
+}
+
+func TestDecodeEnvelopeTruncatesLongPreview(t *testing.T) {
+	// A pathological leak (e.g., a multi-megabyte traceback printed to
+	// stdout) must not dump the whole thing into the error message.
+	long := make([]byte, 10_000)
+	for i := range long {
+		long[i] = 'A'
+	}
+
+	_, err := decodeEnvelope(long)
+	if err == nil {
+		t.Fatal("decodeEnvelope() returned nil error for a non-JSON line")
+	}
+
+	var decodeErr *DecodeError
+	if !errors.As(err, &decodeErr) {
+		t.Fatalf("err type = %T, want *DecodeError", err)
+	}
+	msg := decodeErr.Error()
+	if !strings.Contains(msg, "truncated from 10000") {
+		t.Errorf("error message missing truncation notice: %s", msg)
+	}
+	// The preview string length in the error message should be capped
+	// at the max preview window plus framing overhead, not the full
+	// 10 KB.
+	if len(msg) > 1024 {
+		t.Errorf("error message too large (%d bytes); expected capped preview", len(msg))
+	}
+}
+
+func TestDecodeErrorUnwrapsForErrorsIs(t *testing.T) {
+	sentinel := errors.New("boom")
+	decodeErr := &DecodeError{Err: sentinel, Line: []byte("bad")}
+	if !errors.Is(decodeErr, sentinel) {
+		t.Error("errors.Is should see the wrapped error via Unwrap")
+	}
+}
+
+func TestDecodeEnvelopeDoesNotShareReferenceWithCallerSlice(t *testing.T) {
+	// bufio.Scanner.Bytes reuses its backing buffer between Scan() calls.
+	// If DecodeError holds a reference instead of a defensive copy, the
+	// captured line will be corrupted the next time the scanner advances.
+	original := []byte("Not JSON")
+	_, err := decodeEnvelope(original)
+
+	var decodeErr *DecodeError
+	if !errors.As(err, &decodeErr) {
+		t.Fatalf("err type = %T, want *DecodeError", err)
+	}
+	// Mutate the caller's slice to simulate bufio reuse.
+	for i := range original {
+		original[i] = 'X'
+	}
+	if string(decodeErr.Line) != "Not JSON" {
+		t.Errorf(
+			"DecodeError.Line was corrupted by caller mutation: %q (expected %q)",
+			decodeErr.Line, "Not JSON",
+		)
 	}
 }
