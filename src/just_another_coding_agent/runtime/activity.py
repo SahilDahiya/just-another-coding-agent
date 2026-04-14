@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
+from dataclasses import dataclass
+from time import monotonic
 from typing import Any
 
 from pydantic import TypeAdapter
 
 from just_another_coding_agent.contracts.run_events import (
+    JsonValue,
+    ToolCallFailedEvent,
     ToolActivity,
     ToolActivityDetails,
 )
@@ -34,6 +39,15 @@ _SUBAGENT_DISPLAY_LABEL_BY_ROLE = {
     "explore": "Explore",
     "verification": "Verify",
 }
+
+
+@dataclass(frozen=True)
+class PendingToolCall:
+    tool_call_id: str
+    tool_name: str
+    args: JsonValue | None
+    args_valid: bool | None
+    started_at: float
 
 
 def _group_kind_for_tool(tool_name: str) -> str | None:
@@ -190,6 +204,32 @@ def build_failed_tool_activity(
     )
 
 
+def synthesize_tool_failed_events_for_pending(
+    *,
+    run_id: str,
+    pending: Iterable[PendingToolCall],
+    error_type: str,
+    message: str,
+) -> list[ToolCallFailedEvent]:
+    return [
+        ToolCallFailedEvent(
+            run_id=run_id,
+            tool_call_id=pending_tool_call.tool_call_id,
+            tool_name=pending_tool_call.tool_name,
+            error_type=error_type,
+            message=message,
+            activity=build_failed_tool_activity(
+                tool_name=pending_tool_call.tool_name,
+                args=pending_tool_call.args,
+                args_valid=pending_tool_call.args_valid,
+                message=message,
+                duration_ms=_duration_ms_since(pending_tool_call.started_at),
+            ),
+        )
+        for pending_tool_call in pending
+    ]
+
+
 def _build_tool_title(*, tool_name: str, args: Any, args_valid: bool | None) -> str:
     if args_valid is False or not isinstance(args, dict):
         return tool_name
@@ -246,6 +286,12 @@ def _build_fallback_success_summary(*, tool_name: str, result: Any) -> str | Non
     return summaries.get(tool_name)
 
 
+def _duration_ms_since(started_at: float) -> int:
+    if started_at <= 0:
+        return 0
+    return max(0, int((monotonic() - started_at) * 1000))
+
+
 def _build_tool_activity_from_metadata(
     *,
     result_metadata: Any,
@@ -281,8 +327,10 @@ def _build_tool_activity_from_metadata(
 
 
 __all__ = [
+    "PendingToolCall",
     "build_failed_tool_activity",
     "build_started_tool_activity",
     "build_succeeded_tool_activity",
     "build_updated_tool_activity",
+    "synthesize_tool_failed_events_for_pending",
 ]

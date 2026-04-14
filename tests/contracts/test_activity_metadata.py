@@ -3,12 +3,15 @@ from just_another_coding_agent.contracts.run_events import (
     GrepActivityDetails,
     LsActivityDetails,
     ReadActivityDetails,
+    ToolCallFailedEvent,
     ToolActivity,
 )
 from just_another_coding_agent.contracts.tools import CANONICAL_TOOL_NAMES
 from just_another_coding_agent.runtime.activity import (
+    PendingToolCall,
     build_started_tool_activity,
     build_succeeded_tool_activity,
+    synthesize_tool_failed_events_for_pending,
     build_updated_tool_activity,
 )
 from just_another_coding_agent.tools._activity import shorten_path
@@ -153,6 +156,39 @@ def test_updated_subagent_activity_uses_backend_owned_preview_details() -> None:
             "preview_terminal": False,
         },
     )
+
+
+def test_synthesize_tool_failed_events_for_pending_uses_pending_payload() -> None:
+    events = synthesize_tool_failed_events_for_pending(
+        run_id="run-123",
+        pending=[
+            PendingToolCall(
+                tool_call_id="call-1",
+                tool_name="shell",
+                args={"command": "pytest", "timeout": 5},
+                args_valid=True,
+                started_at=0,
+            )
+        ],
+        error_type="RuntimeError",
+        message="stream aborted",
+    )
+
+    assert events == [
+        ToolCallFailedEvent(
+            run_id="run-123",
+            tool_call_id="call-1",
+            tool_name="shell",
+            error_type="RuntimeError",
+            message="stream aborted",
+            activity=ToolActivity(
+                title="shell pytest",
+                display_label="Shell",
+                summary="stream aborted",
+                duration_ms=0,
+            ),
+        )
+    ]
 
 
 def test_short_path_is_workspace_relative_for_exploration_tools() -> None:

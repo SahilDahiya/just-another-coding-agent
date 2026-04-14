@@ -52,10 +52,12 @@ from just_another_coding_agent.contracts.run_events import (
 from just_another_coding_agent.contracts.thinking import ThinkingSetting
 from just_another_coding_agent.contracts.tools import CANONICAL_TOOL_NAMES
 from just_another_coding_agent.runtime.activity import (
+    PendingToolCall,
     build_failed_tool_activity,
     build_started_tool_activity,
     build_succeeded_tool_activity,
     build_updated_tool_activity,
+    synthesize_tool_failed_events_for_pending,
 )
 from just_another_coding_agent.runtime.agent import (
     CANONICAL_AGENT_TOOL_CORRECTION_RETRIES,
@@ -849,21 +851,22 @@ async def _stream_run_events_with_steer(
                 recovery_attempts += 1
                 continue
 
-            for tool_call_id, pending_tool_call in pending_tool_calls.items():
-                yield ToolCallFailedEvent(
-                    run_id=run_id,
-                    tool_call_id=tool_call_id,
-                    tool_name=pending_tool_call.tool_name,
-                    error_type=type(error).__name__,
-                    message=str(error),
-                    activity=build_failed_tool_activity(
+            for event in synthesize_tool_failed_events_for_pending(
+                run_id=run_id,
+                pending=(
+                    PendingToolCall(
+                        tool_call_id=tool_call_id,
                         tool_name=pending_tool_call.tool_name,
                         args=pending_tool_call.args,
                         args_valid=pending_tool_call.args_valid,
-                        message=str(error),
-                        duration_ms=_duration_ms_since(pending_tool_call.started_at),
-                    ),
-                )
+                        started_at=pending_tool_call.started_at,
+                    )
+                    for tool_call_id, pending_tool_call in pending_tool_calls.items()
+                ),
+                error_type=type(error).__name__,
+                message=str(error),
+            ):
+                yield event
 
             terminal_emitted = True
             if message_history_sink is not None:
@@ -1285,23 +1288,22 @@ async def _stream_run_events_inner(
                     recovery_attempts += 1
                     continue
 
-                for tool_call_id, pending_tool_call in pending_tool_calls.items():
-                    yield ToolCallFailedEvent(
-                        run_id=run_id,
-                        tool_call_id=tool_call_id,
-                        tool_name=pending_tool_call.tool_name,
-                        error_type=type(error).__name__,
-                        message=str(error),
-                        activity=build_failed_tool_activity(
+                for event in synthesize_tool_failed_events_for_pending(
+                    run_id=run_id,
+                    pending=(
+                        PendingToolCall(
+                            tool_call_id=tool_call_id,
                             tool_name=pending_tool_call.tool_name,
                             args=pending_tool_call.args,
                             args_valid=pending_tool_call.args_valid,
-                            message=str(error),
-                            duration_ms=_duration_ms_since(
-                                pending_tool_call.started_at
-                            ),
-                        ),
-                    )
+                            started_at=pending_tool_call.started_at,
+                        )
+                        for tool_call_id, pending_tool_call in pending_tool_calls.items()
+                    ),
+                    error_type=type(error).__name__,
+                    message=str(error),
+                ):
+                    yield event
 
                 terminal_emitted = True
                 if message_history_sink is not None:
