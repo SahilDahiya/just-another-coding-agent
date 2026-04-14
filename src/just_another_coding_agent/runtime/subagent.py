@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Callable, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic_ai.messages import ModelMessage, ToolCallPart, ToolReturnPart
+from pydantic_ai.messages import ModelMessage
 
 from just_another_coding_agent.contracts.platform import (
     ShellFamily,
@@ -22,6 +22,7 @@ from just_another_coding_agent.runtime.prompt_layers import (
 )
 from just_another_coding_agent.session.replacement_history import (
     strip_internal_prompt_state,
+    strip_unpaired_tool_parts,
 )
 from just_another_coding_agent.tools._workspace import normalize_workspace_root
 from just_another_coding_agent.tools.deps import RunSessionScope, WorkspaceDeps
@@ -240,7 +241,9 @@ def _build_ephemeral_subagent_message_history(
             )
         return tuple(
             strip_internal_prompt_state(
-                _strip_unresolved_tool_calls_from_messages(parent_message_history)
+                # Parent histories here come from canonical runtime/session paths,
+                # so no stray tool-id-bearing retry parts survive to this layer.
+                strip_unpaired_tool_parts(parent_message_history)
             )
         )
 
@@ -257,42 +260,6 @@ def _build_ephemeral_subagent_message_history(
         *layers.before_history_messages,
         *layers.after_history_messages,
     )
-
-
-def _strip_unresolved_tool_calls_from_messages(
-    messages: Sequence[ModelMessage],
-) -> list[ModelMessage]:
-    pending_tool_call_ids: set[str] = set()
-
-    for message in messages:
-        for part in message.parts:
-            if isinstance(part, ToolCallPart):
-                pending_tool_call_ids.add(part.tool_call_id)
-            elif isinstance(part, ToolReturnPart):
-                pending_tool_call_ids.discard(part.tool_call_id)
-
-    if not pending_tool_call_ids:
-        return list(messages)
-
-    sanitized: list[ModelMessage] = []
-    for message in messages:
-        kept_parts = [
-            part
-            for part in message.parts
-            if not (
-                hasattr(part, "tool_call_id")
-                and part.tool_call_id in pending_tool_call_ids
-            )
-        ]
-        if not kept_parts:
-            continue
-        if len(kept_parts) == len(message.parts):
-            sanitized.append(message)
-            continue
-        sanitized.append(replace(message, parts=kept_parts))
-
-    return sanitized
-
 
 async def stream_run_events(**kwargs) -> AsyncIterator[RunEvent]:
     from just_another_coding_agent.runtime.run import stream_run_events as _stream

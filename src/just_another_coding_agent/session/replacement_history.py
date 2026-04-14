@@ -249,6 +249,62 @@ def strip_thinking_parts(
     return sanitized
 
 
+def strip_failed_correction_tail(
+    messages: Sequence[ModelMessage],
+) -> list[ModelMessage]:
+    sanitized = list(messages)
+
+    while sanitized:
+        last_message = sanitized[-1]
+        if not isinstance(last_message, ModelRequest):
+            break
+
+        retry_parts = [
+            part for part in last_message.parts if isinstance(part, RetryPromptPart)
+        ]
+        if not retry_parts or len(retry_parts) != len(last_message.parts):
+            break
+
+        retry_tool_call_ids = {part.tool_call_id for part in retry_parts}
+        sanitized.pop()
+
+        if not sanitized:
+            break
+
+        previous_message = sanitized[-1]
+        if not isinstance(previous_message, ModelResponse):
+            break
+
+        kept_parts = [
+            part
+            for part in previous_message.parts
+            if not (
+                isinstance(part, ToolCallPart)
+                and part.tool_call_id in retry_tool_call_ids
+            )
+        ]
+
+        if not kept_parts:
+            sanitized.pop()
+            continue
+
+        if len(kept_parts) != len(previous_message.parts):
+            sanitized[-1] = replace(previous_message, parts=kept_parts)
+
+    return sanitized
+
+
+def sanitize_failed_run_messages(
+    messages: Sequence[ModelMessage],
+) -> list[ModelMessage]:
+    # Canonical runtime/session histories reach this layer with ordered
+    # ToolCallPart/ToolReturnPart pairs, and failed-correction RetryPromptPart
+    # tails are removed separately below. On that input, strip_unpaired_tool_parts
+    # is equivalent to the older pending-id sweep that lived in run.py and
+    # subagent.py, without re-encoding that broader malformed-history repair.
+    return strip_failed_correction_tail(strip_unpaired_tool_parts(messages))
+
+
 def _is_real_user_prompt_message(message: ModelMessage) -> bool:
     if not isinstance(message, ModelRequest):
         return False
@@ -478,6 +534,8 @@ __all__ = [
     "extract_compaction_summary_text",
     "is_compaction_summary_message",
     "reconcile_synthetic_prompt_counts",
+    "sanitize_failed_run_messages",
+    "strip_failed_correction_tail",
     "strip_internal_prompt_state",
     "strip_thinking_parts",
     "strip_unpaired_tool_parts",

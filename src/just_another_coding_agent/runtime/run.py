@@ -30,7 +30,6 @@ from pydantic_ai.messages import (
     TextPart,
     TextPartDelta,
     ToolCallPart,
-    ToolReturnPart,
     UserPromptPart,
 )
 from pydantic_ai.usage import UsageLimits
@@ -81,6 +80,7 @@ from just_another_coding_agent.runtime.transcript_summary import (
 from just_another_coding_agent.session.replacement_history import (
     build_in_run_truncated_history,
     reconcile_synthetic_prompt_counts,
+    sanitize_failed_run_messages,
 )
 from just_another_coding_agent.tools.deps import WorkspaceDeps
 
@@ -821,7 +821,7 @@ async def _stream_run_events_with_steer(
                     list(captured_messages)[attempt_history_count:],
                     prompt=current_prompt,
                 )
-                carried_messages.extend(_sanitize_failed_run_messages(attempt_messages))
+                carried_messages.extend(sanitize_failed_run_messages(attempt_messages))
                 current_message_history = [
                     *current_message_history,
                     *carried_messages[len(current_message_history) :],
@@ -1259,7 +1259,7 @@ async def _stream_run_events_inner(
                         prompt=current_prompt,
                     )
                     current_message_history.extend(
-                        _sanitize_failed_run_messages(attempt_messages)
+                        sanitize_failed_run_messages(attempt_messages)
                     )
                     current_prompt = error.message
                     correction_attempts += 1
@@ -1509,94 +1509,6 @@ def _tool_correction_exhausted_message(tool_name: str) -> str:
     return (
         f"Tool {tool_name!r} exceeded max retries count of "
         f"{CANONICAL_AGENT_TOOL_CORRECTION_RETRIES}"
-    )
-
-
-def _strip_unresolved_tool_calls_from_messages(
-    messages: Sequence[ModelMessage],
-) -> list[ModelMessage]:
-    pending_tool_call_ids: set[str] = set()
-
-    for message in messages:
-        for part in message.parts:
-            if isinstance(part, ToolCallPart):
-                pending_tool_call_ids.add(part.tool_call_id)
-            elif isinstance(part, ToolReturnPart):
-                pending_tool_call_ids.discard(part.tool_call_id)
-
-    if not pending_tool_call_ids:
-        return list(messages)
-
-    sanitized: list[ModelMessage] = []
-    for message in messages:
-        kept_parts = [
-            part
-            for part in message.parts
-            if not (
-                hasattr(part, "tool_call_id")
-                and part.tool_call_id in pending_tool_call_ids
-            )
-        ]
-        if not kept_parts:
-            continue
-        if len(kept_parts) == len(message.parts):
-            sanitized.append(message)
-            continue
-        sanitized.append(replace(message, parts=kept_parts))
-
-    return sanitized
-
-
-def _strip_failed_correction_tail_from_messages(
-    messages: Sequence[ModelMessage],
-) -> list[ModelMessage]:
-    sanitized = list(messages)
-
-    while sanitized:
-        last_message = sanitized[-1]
-        if not isinstance(last_message, ModelRequest):
-            break
-
-        retry_parts = [
-            part for part in last_message.parts if isinstance(part, RetryPromptPart)
-        ]
-        if not retry_parts or len(retry_parts) != len(last_message.parts):
-            break
-
-        retry_tool_call_ids = {part.tool_call_id for part in retry_parts}
-        sanitized.pop()
-
-        if not sanitized:
-            break
-
-        previous_message = sanitized[-1]
-        if not isinstance(previous_message, ModelResponse):
-            break
-
-        kept_parts = [
-            part
-            for part in previous_message.parts
-            if not (
-                isinstance(part, ToolCallPart)
-                and part.tool_call_id in retry_tool_call_ids
-            )
-        ]
-
-        if not kept_parts:
-            sanitized.pop()
-            continue
-
-        if len(kept_parts) != len(previous_message.parts):
-            sanitized[-1] = replace(previous_message, parts=kept_parts)
-
-    return sanitized
-
-
-def _sanitize_failed_run_messages(
-    messages: Sequence[ModelMessage],
-) -> list[ModelMessage]:
-    return _strip_failed_correction_tail_from_messages(
-        _strip_unresolved_tool_calls_from_messages(messages)
     )
 
 

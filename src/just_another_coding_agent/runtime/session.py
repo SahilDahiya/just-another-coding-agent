@@ -2,18 +2,11 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
-from dataclasses import replace
 from datetime import date
 from pathlib import Path
 from typing import Any
 
-from pydantic_ai.messages import (
-    ModelMessage,
-    ModelRequest,
-    ModelResponse,
-    RetryPromptPart,
-    ToolCallPart,
-)
+from pydantic_ai.messages import ModelMessage
 
 from just_another_coding_agent.contracts.platform import detect_default_shell_family
 from just_another_coding_agent.contracts.run_events import (
@@ -67,8 +60,8 @@ from just_another_coding_agent.session.jsonl import (
     update_session_auto_compaction_failures,
 )
 from just_another_coding_agent.session.replacement_history import (
+    sanitize_failed_run_messages,
     strip_internal_prompt_state,
-    strip_unpaired_tool_parts,
 )
 from just_another_coding_agent.tools._workspace import normalize_workspace_root
 from just_another_coding_agent.tools.deps import (
@@ -168,65 +161,6 @@ def _estimate_next_request_context_window_used(
     if report.context_window_tokens is None or report.context_window_tokens <= 0:
         return None
     return round(report.estimated_pre_run_tokens / report.context_window_tokens, 3)
-
-
-def _strip_unresolved_tool_calls_from_messages(
-    messages: Sequence[ModelMessage],
-) -> list[ModelMessage]:
-    return strip_unpaired_tool_parts(messages)
-
-
-def _strip_failed_correction_tail_from_messages(
-    messages: Sequence[ModelMessage],
-) -> list[ModelMessage]:
-    sanitized = list(messages)
-
-    while sanitized:
-        last_message = sanitized[-1]
-        if not isinstance(last_message, ModelRequest):
-            break
-
-        retry_parts = [
-            part for part in last_message.parts if isinstance(part, RetryPromptPart)
-        ]
-        if not retry_parts or len(retry_parts) != len(last_message.parts):
-            break
-
-        retry_tool_call_ids = {part.tool_call_id for part in retry_parts}
-        sanitized.pop()
-
-        if not sanitized:
-            break
-
-        previous_message = sanitized[-1]
-        if not isinstance(previous_message, ModelResponse):
-            break
-
-        kept_parts = [
-            part
-            for part in previous_message.parts
-            if not (
-                isinstance(part, ToolCallPart)
-                and part.tool_call_id in retry_tool_call_ids
-            )
-        ]
-
-        if not kept_parts:
-            sanitized.pop()
-            continue
-
-        if len(kept_parts) != len(previous_message.parts):
-            sanitized[-1] = replace(previous_message, parts=kept_parts)
-
-    return sanitized
-
-
-def _sanitize_failed_run_messages(
-    messages: Sequence[ModelMessage],
-) -> list[ModelMessage]:
-    return _strip_failed_correction_tail_from_messages(
-        _strip_unresolved_tool_calls_from_messages(messages)
-    )
 
 
 async def stream_session_run_events(
@@ -585,7 +519,7 @@ async def stream_session_run_events(
                 )
             finalized_messages: list[ModelMessage] = list(authoritative_messages)
             if failed_terminal:
-                finalized_messages = _sanitize_failed_run_messages(
+                finalized_messages = sanitize_failed_run_messages(
                     finalized_messages
                 )
             finalized_messages = strip_internal_prompt_state(finalized_messages)
