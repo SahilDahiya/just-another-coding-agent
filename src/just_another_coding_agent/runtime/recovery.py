@@ -18,6 +18,7 @@ def _get_retryable_run_error_types() -> tuple[type[BaseException], ...]:
 
         types.append(openai.APIConnectionError)
         types.append(openai.APITimeoutError)
+        types.append(openai.InternalServerError)
     except ImportError:
         pass
     return tuple(types)
