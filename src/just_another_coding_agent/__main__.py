@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, TextIO
 
+from just_another_coding_agent._pdeathsig import set_pdeathsig_in_child
 from just_another_coding_agent.config import (
     apply_config_to_env,
     apply_trace_mode_to_env,
@@ -588,13 +589,19 @@ def _run_tui(
         command.extend(["--forked-from-session-id", forked_from_session_id])
     if forked_from_session_name is not None:
         command.extend(["--forked-from-session-name", forked_from_session_name])
+    subprocess_kwargs: dict[str, object] = dict(
+        check=False,
+        cwd=None if launch_cwd is None else str(launch_cwd),
+        env=env,
+    )
+    # preexec_fn is POSIX-only; on Windows passing it raises ValueError and
+    # the launch-block detection below handles the parallel concern there.
+    # On Linux we set PR_SET_PDEATHSIG=SIGTERM so the Go TUI cannot outlive
+    # this wrapper under any failure mode (abandoned PTY, SIGKILL, crash).
+    if os.name != "nt":
+        subprocess_kwargs["preexec_fn"] = set_pdeathsig_in_child
     try:
-        completed = subprocess.run(
-            command,
-            check=False,
-            cwd=None if launch_cwd is None else str(launch_cwd),
-            env=env,
-        )
+        completed = subprocess.run(command, **subprocess_kwargs)
     except OSError as error:
         if _is_windows_launch_policy_error(error, launch_command=launch_command):
             raise RuntimeError(
@@ -654,7 +661,8 @@ def _format_windows_launch_policy_error(
     if repo_root is not None and shutil.which("go") is not None:
         lines.append("Repo workaround: JACA_GO_RUN=1 uv run jaca")
     lines.append(
-        "Release fix: publish a verified Windows wheel whose bundled jaca-go.exe launches after uv tool install."
+        "Release fix: publish a verified Windows wheel whose bundled "
+        "jaca-go.exe launches after uv tool install."
     )
     return "\n".join(lines)
 

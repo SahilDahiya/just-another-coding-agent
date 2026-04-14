@@ -55,7 +55,7 @@ def test_main_launches_go_tui_for_interactive_mode(
     )
     monkeypatch.setattr(entry, "package_version", lambda: "0.1.5")
 
-    def fake_run(command, *, check, cwd=None, env=None):
+    def fake_run(command, *, check, cwd=None, env=None, preexec_fn=None):
         captured["command"] = command
         captured["check"] = check
         captured["cwd"] = cwd
@@ -134,7 +134,7 @@ def test_main_resume_launches_go_tui_with_resolved_session(
         ),
     )
 
-    def fake_run(command, *, check, cwd=None, env=None):
+    def fake_run(command, *, check, cwd=None, env=None, preexec_fn=None):
         captured["command"] = command
         captured["check"] = check
         captured["cwd"] = cwd
@@ -227,7 +227,7 @@ def test_main_resume_launches_go_tui_with_parent_fork_context(
         fake_resolve_session_reference,
     )
 
-    def fake_run(command, *, check, cwd=None, env=None):
+    def fake_run(command, *, check, cwd=None, env=None, preexec_fn=None):
         captured["command"] = command
         captured["check"] = check
         captured["cwd"] = cwd
@@ -319,7 +319,7 @@ def test_main_fork_launches_go_tui_with_new_session_and_parent_context(
         ),
     )
 
-    def fake_run(command, *, check, cwd=None, env=None):
+    def fake_run(command, *, check, cwd=None, env=None, preexec_fn=None):
         captured["command"] = command
         captured["check"] = check
         captured["cwd"] = cwd
@@ -417,7 +417,7 @@ def test_main_resume_without_reference_prompts_for_recent_session_selection(
     keys = iter(["down", "enter"])
     monkeypatch.setattr(entry, "_read_resume_picker_key", lambda: next(keys))
 
-    def fake_run(command, *, check, cwd=None, env=None):
+    def fake_run(command, *, check, cwd=None, env=None, preexec_fn=None):
         captured["command"] = command
         return SimpleNamespace(returncode=29)
 
@@ -611,7 +611,7 @@ def test_main_resume_without_reference_uses_first_prompt_as_session_name(
     keys = iter(["enter"])
     monkeypatch.setattr(entry, "_read_resume_picker_key", lambda: next(keys))
 
-    def fake_run(command, *, check, cwd=None, env=None):
+    def fake_run(command, *, check, cwd=None, env=None, preexec_fn=None):
         captured["command"] = command
         return SimpleNamespace(returncode=29)
 
@@ -739,7 +739,7 @@ def test_main_uses_saved_default_model_and_trace_mode(
     )
     monkeypatch.setattr(entry, "package_version", lambda: "0.1.5")
 
-    def fake_run(command, *, check, cwd=None, env=None):
+    def fake_run(command, *, check, cwd=None, env=None, preexec_fn=None):
         captured["command"] = command
         captured["trace_mode"] = env.get("JACA_TRACE_MODE") if env is not None else None
         return SimpleNamespace(returncode=0)
@@ -810,7 +810,7 @@ def test_main_restores_config_applied_environment_after_return(
     )
     monkeypatch.setattr(entry, "package_version", lambda: "0.1.5")
 
-    def fake_run(command, *, check, cwd=None, env=None):
+    def fake_run(command, *, check, cwd=None, env=None, preexec_fn=None):
         captured["command"] = command
         captured["trace_mode"] = env.get("JACA_TRACE_MODE") if env is not None else None
         captured["openai_base_url"] = (
@@ -911,7 +911,7 @@ def test_main_launches_repo_local_go_tui_when_installed_binary_is_missing(
     )
     monkeypatch.setattr(entry, "package_version", lambda: "0.1.5")
 
-    def fake_run(command, *, check, cwd=None, env=None):
+    def fake_run(command, *, check, cwd=None, env=None, preexec_fn=None):
         captured["command"] = command
         captured["check"] = check
         captured["cwd"] = cwd
@@ -991,7 +991,7 @@ def test_run_tui_passes_available_update_to_go_tui(
         lambda *, repo_root: captured.setdefault("refresh_repo_root", repo_root),
     )
 
-    def fake_run(command, *, check, cwd=None, env=None):
+    def fake_run(command, *, check, cwd=None, env=None, preexec_fn=None):
         captured["command"] = command
         captured["check"] = check
         captured["cwd"] = cwd
@@ -1057,7 +1057,7 @@ def test_run_tui_omits_available_update_flags_when_none_are_available(
         lambda *, repo_root: captured.setdefault("refresh_repo_root", repo_root),
     )
 
-    def fake_run(command, *, check, cwd=None, env=None):
+    def fake_run(command, *, check, cwd=None, env=None, preexec_fn=None):
         captured["command"] = command
         captured["check"] = check
         captured["cwd"] = cwd
@@ -1132,7 +1132,7 @@ def test_run_tui_bootstraps_windows_search_tools_before_launch(
         lambda *, writer: captured.setdefault("writer", writer),
     )
 
-    def fake_run(command, *, check, cwd=None, env=None):
+    def fake_run(command, *, check, cwd=None, env=None, preexec_fn=None):
         captured["command"] = command
         return SimpleNamespace(returncode=0)
 
@@ -1177,9 +1177,15 @@ def test_run_tui_reports_explicit_windows_policy_block_for_installed_binary(
         lambda: ["/tmp/fake-python", "-m", "just_another_coding_agent"],
     )
     monkeypatch.setattr(entry, "find_go_tui_repo_root", lambda: None)
+    # Exercise the launch-block detection path regardless of host OS.
+    monkeypatch.setattr(
+        entry,
+        "_is_windows_launch_policy_error",
+        lambda error, *, launch_command: True,
+    )
 
-    def fake_run(command, *, check, cwd=None, env=None):
-        del command, check, cwd, env
+    def fake_run(command, *, check, cwd=None, env=None, preexec_fn=None):
+        del command, check, cwd, env, preexec_fn
         error = OSError("Application Control policy has blocked this file")
         error.winerror = 216
         raise error
@@ -1228,11 +1234,24 @@ def test_run_tui_reports_repo_go_run_workaround_for_windows_policy_block(
         lambda: ["/tmp/fake-python", "-m", "just_another_coding_agent"],
     )
     monkeypatch.setattr(entry, "find_go_tui_repo_root", lambda: repo_root)
-    monkeypatch.setattr(entry.shutil, "which", lambda name: "C:/Go/bin/go.exe" if name == "go" else None)
+    monkeypatch.setattr(
+        entry.shutil,
+        "which",
+        lambda name: "C:/Go/bin/go.exe" if name == "go" else None,
+    )
+    # Exercise the launch-block detection path regardless of host OS.
+    monkeypatch.setattr(
+        entry,
+        "_is_windows_launch_policy_error",
+        lambda error, *, launch_command: True,
+    )
 
-    def fake_run(command, *, check, cwd=None, env=None):
-        del command, check, cwd, env
-        error = OSError("This version of %1 is not compatible with the version of Windows you're running")
+    def fake_run(command, *, check, cwd=None, env=None, preexec_fn=None):
+        del command, check, cwd, env, preexec_fn
+        error = OSError(
+            "This version of %1 is not compatible with the version of "
+            "Windows you're running"
+        )
         error.winerror = 216
         raise error
 
@@ -1241,7 +1260,10 @@ def test_run_tui_reports_repo_go_run_workaround_for_windows_policy_block(
         fake_run,
     )
 
-    with pytest.raises(RuntimeError, match="Repo workaround: JACA_GO_RUN=1 uv run jaca") as excinfo:
+    with pytest.raises(
+        RuntimeError,
+        match="Repo workaround: JACA_GO_RUN=1 uv run jaca",
+    ) as excinfo:
         entry._run_tui(
             model="openai:test-model",
             workspace_root=workspace_root.resolve(),
@@ -1250,6 +1272,7 @@ def test_run_tui_reports_repo_go_run_workaround_for_windows_policy_block(
         )
 
     assert (
-        "Release fix: publish a verified Windows wheel whose bundled jaca-go.exe launches after uv tool install."
+        "Release fix: publish a verified Windows wheel whose bundled "
+        "jaca-go.exe launches after uv tool install."
         in str(excinfo.value)
     )

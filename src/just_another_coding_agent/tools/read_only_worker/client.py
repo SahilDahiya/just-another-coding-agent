@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import os
 from collections.abc import Sequence
 from typing import Any
 from uuid import uuid4
 
+from just_another_coding_agent._pdeathsig import set_pdeathsig_in_child
 from just_another_coding_agent.tools.read_only_worker.protocol import (
     READ_ONLY_WORKER_KIND,
     HelloWorkerRequest,
@@ -54,13 +56,22 @@ class ReadOnlyWorkerClient:
             return self
 
         try:
-            self._process = await asyncio.create_subprocess_exec(
-                *self._command,
+            # preexec_fn is POSIX-only; on Windows it raises ValueError and
+            # parent-death propagation is handled differently (not covered
+            # here). On Linux we set PR_SET_PDEATHSIG=SIGTERM so the worker
+            # cannot outlive this Python backend under any failure mode.
+            spawn_kwargs: dict[str, Any] = dict(
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 env=self._env,
                 limit=_WORKER_STREAM_BUFFER_LIMIT,
+            )
+            if os.name != "nt":
+                spawn_kwargs["preexec_fn"] = set_pdeathsig_in_child
+            self._process = await asyncio.create_subprocess_exec(
+                *self._command,
+                **spawn_kwargs,
             )
             self._reader_task = asyncio.create_task(self._reader_loop())
             hello = await self.send(HelloWorkerRequest(request_id=uuid4().hex))

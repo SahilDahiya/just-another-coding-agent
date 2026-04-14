@@ -12,6 +12,7 @@ from typing import Annotated, Protocol
 from pydantic import Field
 from pydantic_ai import RunContext, Tool
 
+from just_another_coding_agent._pdeathsig import set_pdeathsig_in_child
 from just_another_coding_agent.contracts.platform import ShellFamily
 from just_another_coding_agent.contracts.run_events import ShellActivityDetails
 from just_another_coding_agent.tools._activity import (
@@ -203,9 +204,12 @@ async def execute_shell(
     if os.name == "nt":
         ensure_windows_search_tool("fd", silent=True)
         ensure_windows_search_tool("rg", silent=True)
-    process = await asyncio.create_subprocess_exec(
-        *_shell_command_prefix(shell_family),
-        command,
+    # start_new_session=True puts the shell child into its own session so it
+    # cannot steal the parent's raw-mode stdin, but that also removes it
+    # from the parent's signal chain. preexec_fn sets PR_SET_PDEATHSIG on
+    # Linux so a shell command still dies if this backend dies abnormally,
+    # which the new-session isolation would otherwise prevent.
+    spawn_kwargs: dict[str, object] = dict(
         cwd=str(workspace_root),
         # Detach the child from the parent's stdin. When jaca runs in a TUI
         # the parent's stdin is a raw-mode console handle; powershell.exe
@@ -217,6 +221,13 @@ async def execute_shell(
         env=build_tool_process_env(),
         start_new_session=(shell_family == "posix"),
         **_shell_process_kwargs(shell_family),
+    )
+    if os.name != "nt":
+        spawn_kwargs["preexec_fn"] = set_pdeathsig_in_child
+    process = await asyncio.create_subprocess_exec(
+        *_shell_command_prefix(shell_family),
+        command,
+        **spawn_kwargs,
     )
     if process.stdout is None:
         raise RuntimeError("shell subprocess must expose stdout")
