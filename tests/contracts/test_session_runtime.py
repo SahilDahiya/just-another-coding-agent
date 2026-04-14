@@ -2394,7 +2394,7 @@ async def test_stream_session_run_events_persists_incomplete_partial_consumption
         load_session(path=session_path, workspace_root=workspace_root)
 
 
-async def test_stream_session_run_events_closes_non_finalized_appender_on_partial_consumption(
+async def test_stream_session_run_events_closes_non_finalized_appender_on_abort(
     tmp_path,
     monkeypatch,
 ) -> None:

@@ -401,7 +401,9 @@ def _combine_prompt_batch(prompts: list[str]) -> str:
     return "\n\n".join(prompts)
 
 
-def _rpc_error_handler(*mappings: _RpcErrorMapping) -> Callable[[RpcHandler], RpcHandler]:
+def _rpc_error_handler(
+    *mappings: _RpcErrorMapping,
+) -> Callable[[RpcHandler], RpcHandler]:
     exception_types = tuple(mapping.exception for mapping in mappings)
 
     def decorator(handler: RpcHandler) -> RpcHandler:

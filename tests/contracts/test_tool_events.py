@@ -20,6 +20,7 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 from pydantic_ai.models.function import DeltaToolCall, FunctionModel
+from pydantic_graph import End
 
 from just_another_coding_agent.contracts.platform import detect_default_shell_family
 from just_another_coding_agent.contracts.run_events import (
@@ -41,7 +42,6 @@ from just_another_coding_agent.tools.deps import (
     WorkspaceDeps,
 )
 from tests.read_only_worker_test_support import workspace_deps
-from pydantic_graph import End
 
 _SHELL_FAMILY = detect_default_shell_family()
 

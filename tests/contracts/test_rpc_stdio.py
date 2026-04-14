@@ -29,8 +29,8 @@ from just_another_coding_agent.rpc.session_store import (
 )
 from just_another_coding_agent.rpc.stdio import (
     _OPENAI_CODEX_LOGIN_FLOWS,
-    _OpenAICodexLoginFlowState,
     _FollowUpState,
+    _OpenAICodexLoginFlowState,
     _prune_stale_login_flows,
     handle_rpc_json_line,
 )

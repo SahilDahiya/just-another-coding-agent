@@ -3,16 +3,16 @@ from just_another_coding_agent.contracts.run_events import (
     GrepActivityDetails,
     LsActivityDetails,
     ReadActivityDetails,
-    ToolCallFailedEvent,
     ToolActivity,
+    ToolCallFailedEvent,
 )
 from just_another_coding_agent.contracts.tools import CANONICAL_TOOL_NAMES
 from just_another_coding_agent.runtime.activity import (
     PendingToolCall,
     build_started_tool_activity,
     build_succeeded_tool_activity,
-    synthesize_tool_failed_events_for_pending,
     build_updated_tool_activity,
+    synthesize_tool_failed_events_for_pending,
 )
 from just_another_coding_agent.tools._activity import shorten_path
 

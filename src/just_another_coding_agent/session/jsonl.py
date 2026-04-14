@@ -169,7 +169,8 @@ class SessionRunAppender:
             if turn_context is not None:
                 if turn_context.run_id != self._run_id:
                     raise SessionFormatError(
-                        "Session turn context entry run_id must belong to the current run"
+                        "Session turn context entry run_id must belong to "
+                        "the current run"
                     )
                 if turn_context.workspace_root != str(self._workspace_root):
                     raise SessionFormatError(
@@ -178,7 +179,8 @@ class SessionRunAppender:
                     )
                 if turn_context.shell_family != self._shell_family:
                     raise SessionFormatError(
-                        "Session turn context shell_family must match session shell_family"
+                        "Session turn context shell_family must match "
+                        "session shell_family"
                     )
                 _write_entry(file_handle, turn_context)
             _flush_file_handle(file_handle, sync_to_disk=True)

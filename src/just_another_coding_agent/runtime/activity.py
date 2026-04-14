@@ -9,9 +9,9 @@ from pydantic import TypeAdapter
 
 from just_another_coding_agent.contracts.run_events import (
     JsonValue,
-    ToolCallFailedEvent,
     ToolActivity,
     ToolActivityDetails,
+    ToolCallFailedEvent,
 )
 from just_another_coding_agent.tools._activity import truncate_activity_label
 

@@ -259,7 +259,7 @@ for line in sys.stdin:
     assert len(response.window_text) == payload_size
 
 
-async def test_read_only_worker_client_handles_in_contract_payload_that_expands_past_64kb_after_json_encoding(
+async def test_read_only_worker_client_handles_in_contract_payload_after_json_expansion(
     tmp_path: Path,
 ) -> None:
     # Regression: a tool call that fully honors our own max_bytes contract
