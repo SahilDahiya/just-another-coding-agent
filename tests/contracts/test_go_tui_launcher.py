@@ -13,6 +13,7 @@ import pytest
 import just_another_coding_agent.__main__ as entry
 from just_another_coding_agent.__main__ import main
 from just_another_coding_agent.go_tui import GO_TUI_BINARY, AvailableUpdate
+from just_another_coding_agent.session.jsonl import SessionFormatError
 
 
 class _TTYBuffer(StringIO):
@@ -514,6 +515,46 @@ def test_build_resume_selection_options_uses_first_prompt_for_unnamed_sessions(
     )
     assert "1" * 32 not in rendered
     assert "2" * 32 not in rendered
+
+
+def test_build_resume_selection_options_tolerates_invalid_session_file(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    sessions_root = tmp_path / "sessions"
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    updated_at = datetime(2026, 4, 13, 1, 15, tzinfo=UTC)
+
+    monkeypatch.setattr(
+        entry,
+        "session_path_for_id",
+        lambda **kwargs: (
+            Path(kwargs["sessions_root"]) / f'{kwargs["session_id"]}.jsonl'
+        ),
+    )
+
+    def fake_load_session(*, path, workspace_root):
+        del workspace_root
+        raise SessionFormatError(f"Session ended with incomplete run: {path}")
+
+    monkeypatch.setattr(entry, "load_session", fake_load_session)
+
+    options = entry._build_resume_selection_options(
+        sessions_root=sessions_root,
+        workspace_root=workspace_root,
+        sessions=[
+            SimpleNamespace(
+                session_id="1" * 32,
+                name=None,
+                created_at=updated_at,
+                updated_at=updated_at,
+            )
+        ],
+    )
+
+    assert options[0].label == "Unnamed session"
+    assert options[0].subtitle == entry._format_resume_timestamp(updated_at)
 
 
 def test_main_resume_without_reference_uses_first_prompt_as_session_name(

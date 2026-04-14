@@ -40,6 +40,7 @@ from just_another_coding_agent.runtime.observability import (
     configure_observability,
 )
 from just_another_coding_agent.session import load_session
+from just_another_coding_agent.session.jsonl import SessionFormatError
 from just_another_coding_agent.tools._workspace import normalize_workspace_root
 from just_another_coding_agent.tools.windows_search_tools import (
     apply_managed_tool_path,
@@ -300,7 +301,10 @@ def _first_prompt_for_session(
         workspace_root=workspace_root,
         session_id=session_id,
     )
-    loaded = load_session(path=path, workspace_root=workspace_root)
+    try:
+        loaded = load_session(path=path, workspace_root=workspace_root)
+    except SessionFormatError:
+        return None
     for run in loaded.runs:
         prompt = _truncate_resume_text(
             run.prompt,
