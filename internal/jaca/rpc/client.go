@@ -316,6 +316,10 @@ func StartClient(cfg BackendConfig) (*Client, error) {
 	)
 	cmd := exec.Command(cfg.Command[0], args...)
 	cmd.Env = cfg.Env
+	// Kernel-enforced parent-death propagation on Linux: when this Go TUI
+	// exits for any reason the backend is guaranteed to receive SIGTERM
+	// from the kernel, closing the zombie-backend class of failures.
+	setParentDeathSignal(cmd)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
