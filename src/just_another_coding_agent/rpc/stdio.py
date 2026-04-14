@@ -75,14 +75,9 @@ from just_another_coding_agent.contracts.rpc import (
 )
 from just_another_coding_agent.contracts.run_events import (
     RunEvent,
-    RunFailedEvent,
-    RunSucceededEvent,
     SessionLifecycleEvent,
     SessionQueuedPromptBatchSubmittedEvent,
     SessionQueueStateEvent,
-    ToolCallFailedEvent,
-    ToolCallStartedEvent,
-    ToolCallSucceededEvent,
 )
 from just_another_coding_agent.contracts.tools import CANONICAL_TOOL_NAMES
 from just_another_coding_agent.provider_readiness import ProviderReadinessError
@@ -90,7 +85,6 @@ from just_another_coding_agent.rpc.session_store import (
     create_session,
     session_path_for_id,
 )
-from just_another_coding_agent.runtime.activity import build_failed_tool_activity
 from just_another_coding_agent.runtime.compaction import (
     summarize_and_append_compaction_to_session,
 )
@@ -899,16 +893,6 @@ async def handle_rpc_json_line(
     try:
         prompt = request.payload.prompt
         while True:
-            # Track started-but-not-finalized work so we can synthesize
-            # terminal events for the TUI if the iteration exits early
-            # (cancellation, exception, or generator close) without
-            # emitting a run terminal event itself. Without this, the TUI
-            # would stay stuck on "running" forever.
-            pending_tool_calls: dict[str, ToolCallStartedEvent] = {}
-            run_terminal_emitted = False
-            current_run_id: str | None = None
-            iteration_error_message: str | None = None
-            iteration_error_type: str | None = None
             try:
                 async for event in stream_session_run_events(
                     model=model,
@@ -925,20 +909,6 @@ async def handle_rpc_json_line(
                         )
                     ),
                 ):
-                    if isinstance(event, ToolCallStartedEvent):
-                        pending_tool_calls[event.tool_call_id] = event
-                        current_run_id = event.run_id
-                    elif isinstance(
-                        event, (ToolCallSucceededEvent, ToolCallFailedEvent)
-                    ):
-                        pending_tool_calls.pop(event.tool_call_id, None)
-                    elif isinstance(
-                        event, (RunSucceededEvent, RunFailedEvent)
-                    ):
-                        run_terminal_emitted = True
-                        current_run_id = event.run_id
-                    elif hasattr(event, "run_id"):
-                        current_run_id = getattr(event, "run_id", None)
                     yield RpcEventEnvelope(
                         id=request.id,
                         event=event,
@@ -951,17 +921,11 @@ async def handle_rpc_json_line(
                 ).model_dump_json()
                 return
             except asyncio.CancelledError:
-                iteration_error_type = "CancelledError"
-                iteration_error_message = "run cancelled"
                 # Consume the cancellation so the follow-up batch check
-                # and the terminal-event synthesis below can actually
-                # run. Without this, Python 3.11+ keeps the cancelling
-                # flag set and the very next `await` re-raises
-                # CancelledError, which is exactly the path that left
-                # the TUI stuck on "running": the iteration was
-                # cancelled, the catch ran, but everything after it
-                # (including any cleanup that would have informed the
-                # TUI) was bypassed by the re-raised cancellation.
+                # can actually run. Without this, Python 3.11+ keeps the
+                # cancelling flag set and the very next `await`
+                # re-raises CancelledError, which would bypass the
+                # handoff to a queued follow-up batch.
                 current_task = asyncio.current_task()
                 if current_task is not None:
                     current_task.uncancel()
@@ -986,59 +950,6 @@ async def handle_rpc_json_line(
             prompt_batch = await _FOLLOW_UP_STATE.take_next_follow_up_batch(
                 request.payload.session_id
             )
-
-            # Defense in depth: if the iteration started a run / tool call
-            # but never produced a terminal event for it, AND no follow-up
-            # batch is going to continue the conversation, synthesize a
-            # terminal event so the TUI is never stuck on "running".
-            # Cancellation due to a steer/follow-up is legitimate and the
-            # follow-up batch will produce its own events; we only
-            # synthesize when there's no follow-up to take over.
-            if (
-                prompt_batch is None
-                and not run_terminal_emitted
-                and current_run_id is not None
-            ):
-                error_type = iteration_error_type or "RuntimeError"
-                message = iteration_error_message or (
-                    "run ended without a terminal event"
-                )
-                for pending in list(pending_tool_calls.values()):
-                    try:
-                        tool_failed = ToolCallFailedEvent(
-                            run_id=pending.run_id,
-                            tool_call_id=pending.tool_call_id,
-                            tool_name=pending.tool_name,
-                            error_type=error_type,
-                            message=message,
-                            activity=build_failed_tool_activity(
-                                tool_name=pending.tool_name,
-                                args=pending.args,
-                                args_valid=pending.args_valid,
-                                message=message,
-                                duration_ms=0,
-                            ),
-                        )
-                        yield RpcEventEnvelope(
-                            id=request.id,
-                            event=tool_failed,
-                        ).model_dump_json()
-                    except Exception:
-                        pass
-                pending_tool_calls.clear()
-                try:
-                    synthesized_run_failed = RunFailedEvent(
-                        run_id=current_run_id,
-                        error_type=error_type,
-                        message=message,
-                    )
-                    yield RpcEventEnvelope(
-                        id=request.id,
-                        event=synthesized_run_failed,
-                    ).model_dump_json()
-                except Exception:
-                    pass
-
             if prompt_batch is None:
                 break
             await emit_submitted_prompt_batch("later", prompt_batch)
