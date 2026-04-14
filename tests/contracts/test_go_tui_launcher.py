@@ -54,7 +54,7 @@ def test_main_launches_go_tui_for_interactive_mode(
     )
     monkeypatch.setattr(entry, "package_version", lambda: "0.1.5")
 
-    def fake_run(command, *, check, cwd=None):
+    def fake_run(command, *, check, cwd=None, env=None):
         captured["command"] = command
         captured["check"] = check
         captured["cwd"] = cwd
@@ -133,7 +133,7 @@ def test_main_resume_launches_go_tui_with_resolved_session(
         ),
     )
 
-    def fake_run(command, *, check, cwd=None):
+    def fake_run(command, *, check, cwd=None, env=None):
         captured["command"] = command
         captured["check"] = check
         captured["cwd"] = cwd
@@ -226,7 +226,7 @@ def test_main_resume_launches_go_tui_with_parent_fork_context(
         fake_resolve_session_reference,
     )
 
-    def fake_run(command, *, check, cwd=None):
+    def fake_run(command, *, check, cwd=None, env=None):
         captured["command"] = command
         captured["check"] = check
         captured["cwd"] = cwd
@@ -318,7 +318,7 @@ def test_main_fork_launches_go_tui_with_new_session_and_parent_context(
         ),
     )
 
-    def fake_run(command, *, check, cwd=None):
+    def fake_run(command, *, check, cwd=None, env=None):
         captured["command"] = command
         captured["check"] = check
         captured["cwd"] = cwd
@@ -416,7 +416,7 @@ def test_main_resume_without_reference_prompts_for_recent_session_selection(
     keys = iter(["down", "enter"])
     monkeypatch.setattr(entry, "_read_resume_picker_key", lambda: next(keys))
 
-    def fake_run(command, *, check, cwd=None):
+    def fake_run(command, *, check, cwd=None, env=None):
         captured["command"] = command
         return SimpleNamespace(returncode=29)
 
@@ -570,7 +570,7 @@ def test_main_resume_without_reference_uses_first_prompt_as_session_name(
     keys = iter(["enter"])
     monkeypatch.setattr(entry, "_read_resume_picker_key", lambda: next(keys))
 
-    def fake_run(command, *, check, cwd=None):
+    def fake_run(command, *, check, cwd=None, env=None):
         captured["command"] = command
         return SimpleNamespace(returncode=29)
 
@@ -698,9 +698,9 @@ def test_main_uses_saved_default_model_and_trace_mode(
     )
     monkeypatch.setattr(entry, "package_version", lambda: "0.1.5")
 
-    def fake_run(command, *, check, cwd=None):
+    def fake_run(command, *, check, cwd=None, env=None):
         captured["command"] = command
-        captured["trace_mode"] = os.environ.get("JACA_TRACE_MODE")
+        captured["trace_mode"] = env.get("JACA_TRACE_MODE") if env is not None else None
         return SimpleNamespace(returncode=0)
 
     monkeypatch.setattr(
@@ -769,10 +769,12 @@ def test_main_restores_config_applied_environment_after_return(
     )
     monkeypatch.setattr(entry, "package_version", lambda: "0.1.5")
 
-    def fake_run(command, *, check, cwd=None):
+    def fake_run(command, *, check, cwd=None, env=None):
         captured["command"] = command
-        captured["trace_mode"] = os.environ.get("JACA_TRACE_MODE")
-        captured["openai_base_url"] = os.environ.get("OPENAI_BASE_URL")
+        captured["trace_mode"] = env.get("JACA_TRACE_MODE") if env is not None else None
+        captured["openai_base_url"] = (
+            env.get("OPENAI_BASE_URL") if env is not None else None
+        )
         return SimpleNamespace(returncode=0)
 
     monkeypatch.setattr(
@@ -868,7 +870,7 @@ def test_main_launches_repo_local_go_tui_when_installed_binary_is_missing(
     )
     monkeypatch.setattr(entry, "package_version", lambda: "0.1.5")
 
-    def fake_run(command, *, check, cwd=None):
+    def fake_run(command, *, check, cwd=None, env=None):
         captured["command"] = command
         captured["check"] = check
         captured["cwd"] = cwd
@@ -948,7 +950,7 @@ def test_run_tui_passes_available_update_to_go_tui(
         lambda *, repo_root: captured.setdefault("refresh_repo_root", repo_root),
     )
 
-    def fake_run(command, *, check, cwd=None):
+    def fake_run(command, *, check, cwd=None, env=None):
         captured["command"] = command
         captured["check"] = check
         captured["cwd"] = cwd
@@ -1014,7 +1016,7 @@ def test_run_tui_omits_available_update_flags_when_none_are_available(
         lambda *, repo_root: captured.setdefault("refresh_repo_root", repo_root),
     )
 
-    def fake_run(command, *, check, cwd=None):
+    def fake_run(command, *, check, cwd=None, env=None):
         captured["command"] = command
         captured["check"] = check
         captured["cwd"] = cwd
@@ -1089,7 +1091,7 @@ def test_run_tui_bootstraps_windows_search_tools_before_launch(
         lambda *, writer: captured.setdefault("writer", writer),
     )
 
-    def fake_run(command, *, check, cwd=None):
+    def fake_run(command, *, check, cwd=None, env=None):
         captured["command"] = command
         return SimpleNamespace(returncode=0)
 

@@ -269,6 +269,7 @@ async def _stream_run_events(
         terminal_emitted = False
         compaction_restarting = False
         attempt_history_count = len(current_message_history)
+        model_requests_in_attempt = 0
         queue: asyncio.Queue[object] = asyncio.Queue()
         queued_deps = deps
         if isinstance(deps, WorkspaceDeps):
@@ -311,6 +312,7 @@ async def _stream_run_events(
                     node = agent_run.next_node
                     while True:
                         if isinstance(node, ModelRequestNode):
+                            model_requests_in_attempt += 1
                             if (
                                 in_run_compact_failures
                                 < MAX_IN_RUN_COMPACT_FAILURES
@@ -320,15 +322,8 @@ async def _stream_run_events(
                                     *current_message_history,
                                     *captured_now[attempt_history_count:],
                                 ]
-                                # pending_prompt is only the pending user turn
-                                # on the FIRST model request of this agent.iter
-                                # call. After any stream has run, pydantic-ai
-                                # has already appended the prompt to
-                                # captured_messages and subsequent requests
-                                # build their input from tool results, not
-                                # from current_prompt.
                                 is_first_request_of_iter = (
-                                    len(captured_now) == attempt_history_count
+                                    model_requests_in_attempt == 1
                                 )
                                 pending_prompt_for_check = (
                                     current_prompt

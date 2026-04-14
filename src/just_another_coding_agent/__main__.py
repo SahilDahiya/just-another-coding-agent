@@ -61,36 +61,39 @@ def main(
     output_stream: TextIO | None = None,
 ) -> int:
     config = load_config()
-    with _scoped_config_env(config):
-        default_model = resolve_default_model(config)
-        raw_args = list(argv) if argv is not None else sys.argv[1:]
+    default_model = resolve_default_model(config)
+    subprocess_env = _build_subprocess_env(config)
+    raw_args = list(argv) if argv is not None else sys.argv[1:]
 
-        if raw_args and raw_args[0] == "resume":
-            return _run_resume_mode(
-                argv=raw_args[1:],
-                default_model=default_model,
-            )
-        if raw_args and raw_args[0] == "fork":
-            return _run_fork_mode(
-                argv=raw_args[1:],
-                default_model=default_model,
-            )
-
-        parser = argparse.ArgumentParser(
-            prog="jaca",
-            description="Interactive coding agent with optional headless RPC mode.",
+    if raw_args and raw_args[0] == "resume":
+        return _run_resume_mode(
+            argv=raw_args[1:],
+            default_model=default_model,
+            subprocess_env=subprocess_env,
         )
-        _add_common_interactive_args(parser, default_model=default_model)
-        parser.add_argument(
-            "--headless",
-            action="store_true",
-            help="Run as a headless JSON-over-stdio RPC server",
+    if raw_args and raw_args[0] == "fork":
+        return _run_fork_mode(
+            argv=raw_args[1:],
+            default_model=default_model,
+            subprocess_env=subprocess_env,
         )
-        args = parser.parse_args(raw_args)
-        workspace_root = normalize_workspace_root(args.workspace_root)
-        sessions_root = _resolve_sessions_root(args.sessions_root)
 
-        if args.headless:
+    parser = argparse.ArgumentParser(
+        prog="jaca",
+        description="Interactive coding agent with optional headless RPC mode.",
+    )
+    _add_common_interactive_args(parser, default_model=default_model)
+    parser.add_argument(
+        "--headless",
+        action="store_true",
+        help="Run as a headless JSON-over-stdio RPC server",
+    )
+    args = parser.parse_args(raw_args)
+    workspace_root = normalize_workspace_root(args.workspace_root)
+    sessions_root = _resolve_sessions_root(args.sessions_root)
+
+    if args.headless:
+        with _apply_config_env_for_in_process(config):
             return _run_headless(
                 model=args.model,
                 workspace_root=workspace_root,
@@ -99,20 +102,22 @@ def main(
                 output_stream=output_stream,
             )
 
-        return _run_tui(
-            model=args.model,
-            workspace_root=workspace_root,
-            sessions_root=sessions_root,
-            thinking=args.thinking,
-            input_stream=input_stream,
-            output_stream=output_stream,
-        )
+    return _run_tui(
+        model=args.model,
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+        thinking=args.thinking,
+        env=subprocess_env,
+        input_stream=input_stream,
+        output_stream=output_stream,
+    )
 
 
 def _run_resume_mode(
     *,
     argv: Sequence[str],
     default_model: str,
+    subprocess_env: dict[str, str],
 ) -> int:
     parser = argparse.ArgumentParser(
         prog="jaca resume",
@@ -148,6 +153,7 @@ def _run_resume_mode(
         workspace_root=workspace_root,
         sessions_root=sessions_root,
         thinking=args.thinking,
+        env=subprocess_env,
         session_id=resolved.session_id,
         session_name=resolved.name,
         forked_from_session_id=forked_from_session_id,
@@ -159,6 +165,7 @@ def _run_fork_mode(
     *,
     argv: Sequence[str],
     default_model: str,
+    subprocess_env: dict[str, str],
 ) -> int:
     parser = argparse.ArgumentParser(
         prog="jaca fork",
@@ -200,6 +207,7 @@ def _run_fork_mode(
         workspace_root=workspace_root,
         sessions_root=sessions_root,
         thinking=args.thinking,
+        env=subprocess_env,
         session_id=forked.session_id,
         session_name=forked.name,
         forked_from_session_id=source.session_id,
@@ -519,6 +527,7 @@ def _run_tui(
     workspace_root: Path,
     sessions_root: Path,
     thinking: str | None,
+    env: dict[str, str] | None = None,
     input_stream: TextIO | None = None,
     output_stream: TextIO | None = None,
     session_id: str | None = None,
@@ -576,6 +585,7 @@ def _run_tui(
         command,
         check=False,
         cwd=None if launch_cwd is None else str(launch_cwd),
+        env=env,
     )
     return completed.returncode
 
@@ -610,14 +620,25 @@ def _resolve_sessions_root(raw_sessions_root: str | None) -> Path:
     return sessions_root
 
 
+def _build_subprocess_env(config: dict[str, str]) -> dict[str, str]:
+    env = os.environ.copy()
+    if "OPENAI_BASE_URL" in config and "OPENAI_BASE_URL" not in env:
+        env["OPENAI_BASE_URL"] = config["OPENAI_BASE_URL"]
+    trace_mode = config.get("trace_mode", "").strip().lower()
+    if trace_mode in {"", "off"}:
+        env.pop("JACA_TRACE_MODE", None)
+    elif trace_mode in {"local", "logfire"}:
+        env["JACA_TRACE_MODE"] = trace_mode
+    else:
+        raise RuntimeError(
+            "Invalid trace_mode in ~/.jaca/config.json: expected off, local, or logfire"
+        )
+    return env
+
+
 @contextmanager
-def _scoped_config_env(config: dict[str, str]):
-    managed_keys = {
-        "OPENAI_API_KEY",
-        "OPENAI_BASE_URL",
-        "ANTHROPIC_API_KEY",
-        "JACA_TRACE_MODE",
-    }
+def _apply_config_env_for_in_process(config: dict[str, str]):
+    managed_keys = {"OPENAI_BASE_URL", "JACA_TRACE_MODE"}
     original_env = {key: os.environ.get(key) for key in managed_keys}
     apply_config_to_env(config)
     apply_trace_mode_to_env(config)
