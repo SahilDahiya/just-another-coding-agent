@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import subprocess
 import sys
+import textwrap
+import time
 from pathlib import Path
 
 import pytest
@@ -325,3 +328,142 @@ for line in sys.stdin:
     assert isinstance(response, ReadCallResult)
     assert len(response.window_text) == payload_size
     assert response.window_text == '"' * payload_size
+
+
+def _process_alive(pid: int) -> bool:
+    """Return True iff a process with the given PID still exists.
+
+    Uses /proc/<pid> on Linux because os.kill(pid, 0) returns True even
+    for zombie processes that have exited but not yet been reaped. The
+    lifecycle test needs to distinguish a worker that actually exited
+    (its /proc entry is gone) from one that is still running.
+    """
+    return Path(f"/proc/{pid}").exists()
+
+
+@pytest.mark.skipif(
+    sys.platform != "linux",
+    reason="PR_SET_PDEATHSIG is Linux-only",
+)
+def test_read_only_worker_dies_when_python_parent_dies(tmp_path: Path) -> None:
+    # Kernel-enforced parent-death propagation: when a Python process that
+    # holds a ReadOnlyWorkerClient dies for any reason (clean exit, crash,
+    # SIGKILL, abandonment), the worker subprocess must receive SIGTERM
+    # from the kernel via PR_SET_PDEATHSIG and exit promptly. This closes
+    # the failure mode where abandoned parents left worker subprocesses
+    # running for hours or days.
+    fake_worker_script = tmp_path / "fake_worker.py"
+    fake_worker_script.write_text(
+        textwrap.dedent(
+            """
+            import json
+            import sys
+            import time
+
+            for line in sys.stdin:
+                request = json.loads(line)
+                if request["type"] == "hello":
+                    print(json.dumps({
+                        "request_id": request["request_id"],
+                        "type": "hello_ok",
+                        "protocol_version": 1,
+                        "worker_kind": "read_only",
+                        "supported_operations": ["read", "ls"],
+                        "supports_cancel": True,
+                        "supports_parallel_calls": True,
+                    }), flush=True)
+                    # Hello handshake complete; sit idle forever so the
+                    # test's parent-death signal is what kills us, not
+                    # natural EOF on stdin.
+                    time.sleep(3600)
+            """
+        ),
+        encoding="utf-8",
+    )
+
+    intermediate_script = tmp_path / "intermediate.py"
+    intermediate_script.write_text(
+        textwrap.dedent(
+            f"""
+            import asyncio
+            import os
+            import sys
+
+            from just_another_coding_agent.tools.read_only_worker.client import (
+                ReadOnlyWorkerClient,
+            )
+
+            async def main():
+                client = ReadOnlyWorkerClient(
+                    [sys.executable, "-u", {str(fake_worker_script)!r}]
+                )
+                await client.start()
+                # Print our PID then the worker's PID so the test can
+                # identify which subprocess to watch for death.
+                print(os.getpid(), flush=True)
+                print(client._process.pid, flush=True)
+                # Wait forever; the test will SIGKILL us.
+                await asyncio.sleep(3600)
+
+            asyncio.run(main())
+            """
+        ),
+        encoding="utf-8",
+    )
+
+    intermediate = subprocess.Popen(
+        [sys.executable, "-u", str(intermediate_script)],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    try:
+        assert intermediate.stdout is not None
+        intermediate_pid_line = intermediate.stdout.readline().decode().strip()
+        worker_pid_line = intermediate.stdout.readline().decode().strip()
+        if not (intermediate_pid_line and worker_pid_line):
+            # Only read stderr when the PIDs are missing, because
+            # .read() on a live pipe blocks until EOF and the
+            # intermediate stays alive for the happy path.
+            intermediate.kill()
+            intermediate.wait(timeout=2)
+            stderr_tail = (
+                intermediate.stderr.read().decode()
+                if intermediate.stderr
+                else ""
+            )
+            raise AssertionError(
+                "intermediate process did not emit PID lines: "
+                f"stderr={stderr_tail}"
+            )
+        worker_pid = int(worker_pid_line)
+
+        # Sanity check: worker is alive right now.
+        assert _process_alive(worker_pid), (
+            f"worker pid {worker_pid} should be alive before parent death"
+        )
+
+        # SIGKILL the intermediate so there is no chance of a graceful
+        # cleanup path running. This is the strongest test of
+        # PR_SET_PDEATHSIG: even with no userland cleanup, the kernel
+        # must deliver SIGTERM to the worker.
+        intermediate.kill()
+        intermediate.wait(timeout=5)
+
+        # Poll for worker death. On Linux PDEATHSIG is delivered
+        # synchronously when the parent dies, so the worker should
+        # exit within a few hundred milliseconds. Allow 3 seconds to
+        # absorb scheduler jitter and /proc reaping latency.
+        deadline = time.monotonic() + 3.0
+        while time.monotonic() < deadline:
+            if not _process_alive(worker_pid):
+                return  # Worker died as expected — test passes.
+            time.sleep(0.05)
+
+        raise AssertionError(
+            f"worker pid {worker_pid} still alive 3s after parent death; "
+            "PR_SET_PDEATHSIG is not reaching the worker subprocess"
+        )
+    finally:
+        if intermediate.poll() is None:
+            intermediate.kill()
+            intermediate.wait(timeout=2)
