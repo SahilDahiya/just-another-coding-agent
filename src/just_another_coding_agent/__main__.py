@@ -39,6 +39,8 @@ from just_another_coding_agent.rpc.session_store import (
 )
 from just_another_coding_agent.runtime.observability import (
     configure_observability,
+    flush_observability,
+    use_inherited_trace_context,
 )
 from just_another_coding_agent.session import load_session
 from just_another_coding_agent.session.jsonl import SessionFormatError
@@ -515,17 +517,20 @@ def _run_headless(
     apply_managed_tool_path()
     configure_observability()
     try:
-        asyncio.run(
-            serve_rpc_stdio(
-                input_stream=sys.stdin if input_stream is None else input_stream,
-                output_stream=sys.stdout if output_stream is None else output_stream,
-                model=model,
-                workspace_root=workspace_root,
-                sessions_root=sessions_root,
+        with use_inherited_trace_context():
+            asyncio.run(
+                serve_rpc_stdio(
+                    input_stream=sys.stdin if input_stream is None else input_stream,
+                    output_stream=sys.stdout if output_stream is None else output_stream,
+                    model=model,
+                    workspace_root=workspace_root,
+                    sessions_root=sessions_root,
+                )
             )
-        )
     except KeyboardInterrupt:
         return 130
+    finally:
+        flush_observability()
     return 0
 
 

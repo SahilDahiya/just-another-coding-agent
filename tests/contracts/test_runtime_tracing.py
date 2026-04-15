@@ -4,9 +4,11 @@ from collections.abc import AsyncIterator
 from contextlib import nullcontext
 from dataclasses import dataclass
 
+from pydantic_ai import Agent
 from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 from pydantic_ai.models.instrumented import InstrumentationSettings, InstrumentedModel
 
+from just_another_coding_agent.runtime import stream_run_events
 from just_another_coding_agent.runtime import stream_session_run_events
 
 AGENT_NAME_ATTRIBUTE = "gen_ai.agent.name"
@@ -194,3 +196,58 @@ async def test_stream_session_run_events_emits_pydanticai_agent_and_tool_spans(
     assert agent_spans[0].ended is True
     assert tool_spans[0].ended is True
     assert tool_spans[0].attributes[TOOL_CALL_ID_ATTRIBUTE] == "call-write"
+
+
+async def test_stream_run_events_emits_jaca_run_model_and_tool_spans(
+    monkeypatch,
+) -> None:
+    tracer = _FakeTracer()
+    agent = Agent(
+        FunctionModel(stream_function=make_write_stream()),
+        output_type=str,
+    )
+
+    @agent.tool_plain
+    async def write(path: str, content: str) -> str:
+        return f"wrote {path}:{content}"
+
+    monkeypatch.setattr(
+        "just_another_coding_agent.runtime.run._get_observability_tracer",
+        lambda: tracer,
+    )
+
+    events = [
+        event
+        async for event in stream_run_events(
+            agent=agent,
+            prompt="write the note",
+            available_tool_names=("write",),
+        )
+    ]
+
+    assert [event.type for event in events] == [
+        "run_started",
+        "tool_call_started",
+        "tool_call_succeeded",
+        "assistant_text_delta",
+        "run_succeeded",
+    ]
+
+    run_spans = [span for span in tracer.spans if span.name == "jaca.run"]
+    model_spans = [
+        span for span in tracer.spans if span.name == "jaca.model_request"
+    ]
+    tool_spans = [span for span in tracer.spans if span.name == "jaca.tool"]
+
+    assert len(run_spans) == 1
+    assert len(model_spans) == 2
+    assert len(tool_spans) == 1
+    assert run_spans[0].ended is True
+    assert tool_spans[0].ended is True
+    assert tool_spans[0].attributes[TOOL_CALL_ID_ATTRIBUTE] == "call-write"
+    assert tool_spans[0].attributes[TOOL_NAME_ATTRIBUTE] == "write"
+    assert tool_spans[0].attributes["jaca.tool.status"] == "succeeded"
+    assert [span.attributes["jaca.model_request.index"] for span in model_spans] == [
+        1,
+        2,
+    ]

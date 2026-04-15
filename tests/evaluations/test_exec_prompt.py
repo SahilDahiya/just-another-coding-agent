@@ -2,6 +2,7 @@ import io
 import json
 import sys
 import time
+from pathlib import Path
 
 import pytest
 
@@ -68,6 +69,46 @@ class BlockingStdout:
             return self._lines[0]
         time.sleep(self._delay_seconds)
         return ""
+
+
+class _FakeLogfireSpan:
+    def __init__(
+        self,
+        *,
+        name: str,
+        attributes: dict[str, object],
+        calls: list[dict[str, object]],
+    ) -> None:
+        self.name = name
+        self.attributes = attributes
+        self._calls = calls
+
+    def __enter__(self) -> "_FakeLogfireSpan":
+        self._calls.append({"type": "span_enter", "name": self.name, "span": self})
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        self._calls.append({"type": "span_exit", "name": self.name, "span": self})
+        return None
+
+    def set_attribute(self, key: str, value: object) -> None:
+        self.attributes[key] = value
+
+
+class _FakeLogfireModule:
+    def __init__(self, calls: list[dict[str, object]]) -> None:
+        self._calls = calls
+
+    def span(self, name: str, **attributes: object) -> _FakeLogfireSpan:
+        self._calls.append({"type": "span_created", "name": name, "attrs": attributes})
+        return _FakeLogfireSpan(
+            name=name,
+            attributes=dict(attributes),
+            calls=self._calls,
+        )
+
+    def force_flush(self, *, timeout_millis: int) -> None:
+        self._calls.append({"type": "force_flush", "timeout_millis": timeout_millis})
 
 
 def _make_popen(stdout_lines: list[dict[str, object] | str], *, returncode: int = 0):
@@ -288,6 +329,185 @@ def test_run_exec_prompt_emits_liveness_markers_to_status_stream(tmp_path) -> No
         "[exec_prompt] first assistant text delta received",
         "[exec_prompt] run succeeded",
     ]
+
+
+def test_run_exec_prompt_emits_logfire_task_span_and_flushes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, object]] = []
+    fake_logfire = _FakeLogfireModule(calls)
+    monkeypatch.setenv("JACA_TRACE_MODE", "logfire")
+    monkeypatch.setenv("JACA_HARBOR_JOB_NAME", "job-123")
+    monkeypatch.setenv("JACA_HARBOR_SUBMISSION_ID", "submission-abc")
+    monkeypatch.setattr(
+        "evaluations.bench.exec_prompt.configure_observability",
+        lambda: calls.append({"type": "configure_observability"}),
+    )
+    monkeypatch.setattr(
+        "evaluations.bench.exec_prompt.importlib.import_module",
+        lambda name: fake_logfire
+        if name == "logfire"
+        else pytest.fail(f"unexpected module import: {name}"),
+    )
+    popen_factory, _process, _captured = _make_popen(
+        [
+            {
+                "type": "rpc_response",
+                "id": "req-create",
+                "response": {"session_id": "0" * 32},
+            },
+            {
+                "type": "rpc_event",
+                "id": "req-run",
+                "event": {"run_id": "run-1", "type": "run_started"},
+            },
+            {
+                "type": "rpc_event",
+                "id": "req-run",
+                "event": {
+                    "run_id": "run-1",
+                    "type": "run_succeeded",
+                    "output_text": "done",
+                },
+            },
+        ]
+    )
+
+    output = run_exec_prompt(
+        prompt="solve it",
+        model="openai-responses:gpt-5.4-chatgpt",
+        workspace_root=tmp_path,
+        thinking="high",
+        sessions_root=tmp_path / "sessions",
+        popen_factory=popen_factory,
+    )
+
+    assert output == "done"
+    assert calls[0] == {"type": "configure_observability"}
+    span_enter = next(call for call in calls if call["type"] == "span_enter")
+    span = span_enter["span"]
+    assert isinstance(span, _FakeLogfireSpan)
+    assert span.name == "jaca.exec_prompt"
+    assert span.attributes["jaca.exec_prompt.model"] == "openai-responses:gpt-5.4-chatgpt"
+    assert span.attributes["jaca.exec_prompt.thinking"] == "high"
+    assert span.attributes["jaca.exec_prompt.prompt_preview"] == "solve it"
+    assert span.attributes["jaca.exec_prompt.env.jaca_harbor_job_name"] == "job-123"
+    assert (
+        span.attributes["jaca.exec_prompt.env.jaca_harbor_submission_id"]
+        == "submission-abc"
+    )
+    assert span.attributes["jaca.exec_prompt.session_id"] == "0" * 32
+    assert span.attributes["jaca.exec_prompt.terminal_event_type"] == "run_succeeded"
+    assert span.attributes["jaca.exec_prompt.status"] == "succeeded"
+    assert {"type": "force_flush", "timeout_millis": 5000} in calls
+
+
+def test_run_exec_prompt_marks_logfire_task_span_failed_on_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, object]] = []
+    fake_logfire = _FakeLogfireModule(calls)
+    monkeypatch.setenv("JACA_TRACE_MODE", "logfire")
+    monkeypatch.setattr(
+        "evaluations.bench.exec_prompt.configure_observability",
+        lambda: None,
+    )
+    monkeypatch.setattr(
+        "evaluations.bench.exec_prompt.importlib.import_module",
+        lambda name: fake_logfire
+        if name == "logfire"
+        else pytest.fail(f"unexpected module import: {name}"),
+    )
+    popen_factory, _process, _captured = _make_popen(
+        [
+            {
+                "type": "rpc_response",
+                "id": "req-create",
+                "response": {"session_id": "0" * 32},
+            },
+            {
+                "type": "rpc_event",
+                "id": "req-run",
+                "event": {
+                    "run_id": "run-1",
+                    "type": "run_failed",
+                    "error_type": "RuntimeError",
+                    "message": "boom",
+                },
+            },
+        ]
+    )
+
+    with pytest.raises(ExecPromptError, match="RuntimeError: boom"):
+        run_exec_prompt(
+            prompt="solve it",
+            model="openai-responses:gpt-5.4-chatgpt",
+            workspace_root=tmp_path,
+            sessions_root=tmp_path / "sessions",
+            popen_factory=popen_factory,
+        )
+
+    span_enter = next(call for call in calls if call["type"] == "span_enter")
+    span = span_enter["span"]
+    assert isinstance(span, _FakeLogfireSpan)
+    assert span.attributes["jaca.exec_prompt.status"] == "failed"
+    assert span.attributes["jaca.exec_prompt.error_type"] == "ExecPromptError"
+    assert span.attributes["jaca.exec_prompt.error_message"] == "RuntimeError: boom"
+    assert span.attributes["jaca.exec_prompt.terminal_event_type"] == "run_failed"
+    assert {"type": "force_flush", "timeout_millis": 5000} in calls
+
+
+def test_run_exec_prompt_forwards_trace_context_to_backend(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    popen_factory, _process, captured = _make_popen(
+        [
+            {
+                "type": "rpc_response",
+                "id": "req-create",
+                "response": {"session_id": "0" * 32},
+            },
+            {
+                "type": "rpc_event",
+                "id": "req-run",
+                "event": {"run_id": "run-1", "type": "run_started"},
+            },
+            {
+                "type": "rpc_event",
+                "id": "req-run",
+                "event": {
+                    "run_id": "run-1",
+                    "type": "run_succeeded",
+                    "output_text": "done",
+                },
+            },
+        ]
+    )
+    monkeypatch.setattr(
+        "evaluations.bench.exec_prompt.export_trace_context_env",
+        lambda: {
+            "JACA_TRACEPARENT": "00-11111111111111111111111111111111-2222222222222222-01",
+            "JACA_TRACESTATE": "vendor=value",
+        },
+    )
+
+    output = run_exec_prompt(
+        prompt="solve it",
+        model="openai-responses:gpt-5.4-chatgpt",
+        workspace_root=tmp_path,
+        sessions_root=tmp_path / "sessions",
+        popen_factory=popen_factory,
+    )
+
+    assert output == "done"
+    env = captured["kwargs"]["env"]
+    assert env["JACA_TRACEPARENT"] == (
+        "00-11111111111111111111111111111111-2222222222222222-01"
+    )
+    assert env["JACA_TRACESTATE"] == "vendor=value"
 
 
 def test_build_benchmark_prompt_wraps_user_prompt() -> None:

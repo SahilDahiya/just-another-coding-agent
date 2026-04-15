@@ -4,6 +4,8 @@ import importlib
 import os
 import shutil
 import tomllib
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -16,6 +18,8 @@ from just_another_coding_agent.runtime.local_traces import (
 
 _configured = False
 _DEFAULT_SERVICE_NAME = "jaca"
+_TRACEPARENT_ENV_VAR = "JACA_TRACEPARENT"
+_TRACESTATE_ENV_VAR = "JACA_TRACESTATE"
 
 
 @dataclass(frozen=True)
@@ -55,6 +59,65 @@ def configure_observability() -> None:
         raise AssertionError(f"unsupported trace mode: {mode}")
 
     _configured = True
+
+
+def flush_observability(*, timeout_millis: int = 5000) -> None:
+    if not _configured:
+        return
+    if trace_mode() != "logfire":
+        return
+    logfire = _import_logfire()
+    logfire.force_flush(timeout_millis=timeout_millis)
+
+
+def export_trace_context_env() -> dict[str, str]:
+    if trace_mode() == "off":
+        return {}
+
+    inject = _import_otel_propagate_inject()
+    carrier: dict[str, str] = {}
+    inject(carrier)
+    traceparent = carrier.get("traceparent", "").strip()
+    if not traceparent:
+        return {}
+
+    env = {_TRACEPARENT_ENV_VAR: traceparent}
+    tracestate = carrier.get("tracestate", "").strip()
+    if tracestate:
+        env[_TRACESTATE_ENV_VAR] = tracestate
+    return env
+
+
+@contextmanager
+def use_inherited_trace_context() -> Iterator[None]:
+    if trace_mode() == "off":
+        yield
+        return
+
+    traceparent = os.environ.get(_TRACEPARENT_ENV_VAR, "").strip()
+    if not traceparent:
+        yield
+        return
+
+    extract = _import_otel_propagate_extract()
+    attach, detach = _import_otel_context_attach_detach()
+    carrier = {"traceparent": traceparent}
+    tracestate = os.environ.get(_TRACESTATE_ENV_VAR, "").strip()
+    if tracestate:
+        carrier["tracestate"] = tracestate
+
+    token = attach(extract(carrier))
+    try:
+        yield
+    finally:
+        detach(token)
+
+
+def get_tracer(name: str) -> Any | None:
+    if trace_mode() == "off":
+        return None
+    get_tracer = _import_otel_trace_get_tracer()
+    return get_tracer(name)
 
 
 _API_KEY_PATTERNS = frozenset(
@@ -97,6 +160,46 @@ def _import_logfire() -> Any:
             "`logfire auth`, and run `logfire projects use <project>` or set "
             "`LOGFIRE_TOKEN`."
         ) from error
+
+
+def _import_otel_trace_get_tracer() -> Any:
+    try:
+        from opentelemetry import trace
+    except ModuleNotFoundError as error:
+        raise RuntimeError(
+            "Tracing requires the `opentelemetry-api` package in this environment."
+        ) from error
+    return trace.get_tracer
+
+
+def _import_otel_propagate_inject() -> Any:
+    try:
+        from opentelemetry.propagate import inject
+    except ModuleNotFoundError as error:
+        raise RuntimeError(
+            "Tracing requires the `opentelemetry-api` package in this environment."
+        ) from error
+    return inject
+
+
+def _import_otel_propagate_extract() -> Any:
+    try:
+        from opentelemetry.propagate import extract
+    except ModuleNotFoundError as error:
+        raise RuntimeError(
+            "Tracing requires the `opentelemetry-api` package in this environment."
+        ) from error
+    return extract
+
+
+def _import_otel_context_attach_detach() -> tuple[Any, Any]:
+    try:
+        from opentelemetry.context import attach, detach
+    except ModuleNotFoundError as error:
+        raise RuntimeError(
+            "Tracing requires the `opentelemetry-api` package in this environment."
+        ) from error
+    return attach, detach
 
 
 def _configure_local_tracing(service_name: str) -> None:
@@ -163,4 +266,12 @@ def _is_logfire_installed() -> bool:
     return shutil.which("logfire") is not None
 
 
-__all__ = ["LogfireSetupStatus", "configure_observability", "logfire_setup_status"]
+__all__ = [
+    "LogfireSetupStatus",
+    "configure_observability",
+    "export_trace_context_env",
+    "flush_observability",
+    "get_tracer",
+    "logfire_setup_status",
+    "use_inherited_trace_context",
+]

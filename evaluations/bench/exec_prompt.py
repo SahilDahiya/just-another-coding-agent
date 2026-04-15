@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import importlib
 import json
+import os
 import subprocess
 import sys
 from collections.abc import Sequence
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from queue import Empty, Queue
@@ -13,6 +17,11 @@ from threading import Thread
 from typing import Any, TextIO
 
 from just_another_coding_agent.contracts.thinking import ThinkingSetting
+from just_another_coding_agent.runtime.env import trace_mode
+from just_another_coding_agent.runtime.observability import (
+    configure_observability,
+    export_trace_context_env,
+)
 
 
 class ExecPromptError(RuntimeError):
@@ -50,6 +59,8 @@ BENCHMARK_WORKFLOW_PROMPT = "\n".join(
 _PHASES_FILENAME = "exec-prompt-phases.json"
 _RPC_TRANSCRIPT_FILENAME = "exec-prompt-rpc-transcript.jsonl"
 _DEFAULT_FIRST_RPC_EVENT_TIMEOUT_SEC = 10.0
+_EXEC_PROMPT_SPAN_NAME = "jaca.exec_prompt"
+_EXEC_PROMPT_FLUSH_TIMEOUT_MILLIS = 5000
 
 
 def build_server_command(
@@ -108,27 +119,45 @@ def run_exec_prompt(
         with TemporaryDirectory(
             prefix="just-another-coding-agent-sessions."
         ) as temporary_root:
-            return _run_exec_prompt(
+            resolved_sessions_root = Path(temporary_root)
+            with _trace_exec_prompt_run(
                 prompt=prompt,
                 model=model,
                 workspace_root=resolved_workspace_root,
+                sessions_root=resolved_sessions_root,
                 thinking=thinking,
-                sessions_root=Path(temporary_root),
-                first_rpc_event_timeout_sec=first_rpc_event_timeout_sec,
-                status_stream=status_stream,
-                popen_factory=popen_factory,
-            )
+            ) as trace:
+                return _run_exec_prompt(
+                    prompt=prompt,
+                    model=model,
+                    workspace_root=resolved_workspace_root,
+                    thinking=thinking,
+                    sessions_root=resolved_sessions_root,
+                    first_rpc_event_timeout_sec=first_rpc_event_timeout_sec,
+                    status_stream=status_stream,
+                    popen_factory=popen_factory,
+                    trace=trace,
+                )
 
-    return _run_exec_prompt(
+    resolved_sessions_root = Path(sessions_root).expanduser().resolve()
+    with _trace_exec_prompt_run(
         prompt=prompt,
         model=model,
         workspace_root=resolved_workspace_root,
+        sessions_root=resolved_sessions_root,
         thinking=thinking,
-        sessions_root=Path(sessions_root).expanduser().resolve(),
-        first_rpc_event_timeout_sec=first_rpc_event_timeout_sec,
-        status_stream=status_stream,
-        popen_factory=popen_factory,
-    )
+    ) as trace:
+        return _run_exec_prompt(
+            prompt=prompt,
+            model=model,
+            workspace_root=resolved_workspace_root,
+            thinking=thinking,
+            sessions_root=resolved_sessions_root,
+            first_rpc_event_timeout_sec=first_rpc_event_timeout_sec,
+            status_stream=status_stream,
+            popen_factory=popen_factory,
+            trace=trace,
+        )
 
 
 def _run_exec_prompt(
@@ -141,6 +170,7 @@ def _run_exec_prompt(
     first_rpc_event_timeout_sec: float,
     status_stream: TextIO | None,
     popen_factory: Any,
+    trace: "_ExecPromptTrace | None",
 ) -> str:
     diagnostics = _ExecPromptDiagnostics(root=sessions_root)
     command = build_server_command(
@@ -155,6 +185,7 @@ def _run_exec_prompt(
         stderr=subprocess.PIPE,
         text=True,
         bufsize=1,
+        env={**os.environ, **export_trace_context_env()},
     )
     diagnostics.record_phase("subprocess_started_at")
     _write_status(status_stream, "subprocess started")
@@ -179,6 +210,8 @@ def _run_exec_prompt(
         diagnostics.record_phase("session_create_received_at")
         session_id = _extract_session_id(session_create_response)
         diagnostics.set_session_id(session_id)
+        if trace is not None:
+            trace.set_attribute("jaca.exec_prompt.session_id", session_id)
         _write_status(status_stream, "session created")
 
         _write_json_line(
@@ -251,6 +284,10 @@ def _run_exec_prompt(
             if event_type == "run_succeeded":
                 diagnostics.record_phase("terminal_event_at")
                 diagnostics.record_phase("terminal_event_type", value="run_succeeded")
+                if trace is not None:
+                    trace.set_attribute(
+                        "jaca.exec_prompt.terminal_event_type", "run_succeeded"
+                    )
                 _write_status(status_stream, "run succeeded")
                 output_text = event.get("output_text")
                 if not isinstance(output_text, str):
@@ -262,6 +299,10 @@ def _run_exec_prompt(
             if event_type == "run_failed":
                 diagnostics.record_phase("terminal_event_at")
                 diagnostics.record_phase("terminal_event_type", value="run_failed")
+                if trace is not None:
+                    trace.set_attribute(
+                        "jaca.exec_prompt.terminal_event_type", "run_failed"
+                    )
                 _write_status(status_stream, "run failed")
                 raise ExecPromptError(
                     f"{event.get('error_type')}: {event.get('message')}"
@@ -426,6 +467,84 @@ class _ExecPromptDiagnostics:
 
 def _timestamp() -> str:
     return datetime.now(tz=UTC).isoformat()
+
+
+class _ExecPromptTrace:
+    def __init__(self, span: Any) -> None:
+        self._span = span
+
+    def set_attribute(self, key: str, value: object) -> None:
+        self._span.set_attribute(key, value)
+
+
+@contextmanager
+def _trace_exec_prompt_run(
+    *,
+    prompt: str,
+    model: str,
+    workspace_root: Path,
+    sessions_root: Path,
+    thinking: ThinkingSetting | None,
+):
+    if trace_mode() != "logfire":
+        yield None
+        return
+
+    try:
+        configure_observability()
+        logfire = importlib.import_module("logfire")
+    except RuntimeError as error:
+        raise ExecPromptError(str(error)) from error
+    except ModuleNotFoundError as error:
+        raise ExecPromptError(
+            "JACA_TRACE_MODE=logfire requires the `logfire` package in this "
+            "environment."
+        ) from error
+
+    metadata = {
+        "jaca.exec_prompt.model": model,
+        "jaca.exec_prompt.workspace_root": str(workspace_root),
+        "jaca.exec_prompt.sessions_root": str(sessions_root),
+        "jaca.exec_prompt.prompt_sha256": hashlib.sha256(
+            prompt.encode("utf-8")
+        ).hexdigest(),
+        "jaca.exec_prompt.prompt_preview": _build_prompt_preview(prompt),
+        "jaca.exec_prompt.prompt_chars": len(prompt),
+    }
+    if thinking is not None:
+        metadata["jaca.exec_prompt.thinking"] = str(thinking)
+    for env_key in (
+        "JACA_HARBOR_JOB_NAME",
+        "JACA_HARBOR_SUBMISSION_ID",
+        "JACA_HARBOR_SLICE_NAME",
+        "TASK_NAME",
+        "HARBOR_TASK_NAME",
+    ):
+        value = os.environ.get(env_key, "").strip()
+        if value:
+            metadata[f"jaca.exec_prompt.env.{env_key.lower()}"] = value
+
+    with logfire.span(_EXEC_PROMPT_SPAN_NAME, **metadata) as span:
+        trace = _ExecPromptTrace(span)
+        trace.set_attribute("jaca.exec_prompt.status", "running")
+        try:
+            yield trace
+        except Exception as error:
+            trace.set_attribute("jaca.exec_prompt.status", "failed")
+            trace.set_attribute("jaca.exec_prompt.error_type", type(error).__name__)
+            trace.set_attribute("jaca.exec_prompt.error_message", str(error))
+            raise
+        else:
+            trace.set_attribute("jaca.exec_prompt.status", "succeeded")
+        finally:
+            logfire.force_flush(timeout_millis=_EXEC_PROMPT_FLUSH_TIMEOUT_MILLIS)
+
+
+def _build_prompt_preview(prompt: str, *, limit: int = 160) -> str:
+    single_line = " ".join(prompt.split())
+    if len(single_line) <= limit:
+        return single_line
+    return single_line[: limit - 3] + "..."
 
 
 def main(
