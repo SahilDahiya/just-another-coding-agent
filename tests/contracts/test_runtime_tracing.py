@@ -303,3 +303,56 @@ async def test_stream_run_events_binds_session_id_into_jaca_spans(
     assert traced_spans
     for span in traced_spans:
         assert span.attributes["jaca.session_id"] == "a" * 32
+
+
+async def test_stream_run_events_binds_harbor_metadata_into_jaca_spans(
+    monkeypatch,
+) -> None:
+    tracer = _FakeTracer()
+    agent = Agent(
+        FunctionModel(stream_function=make_write_stream()),
+        output_type=str,
+    )
+
+    @agent.tool_plain
+    async def write(path: str, content: str) -> str:
+        return f"wrote {path}:{content}"
+
+    monkeypatch.setattr(
+        "just_another_coding_agent.runtime.run._get_observability_tracer",
+        lambda: tracer,
+    )
+    monkeypatch.setenv("JACA_HARBOR_JOB_NAME", "job-123")
+    monkeypatch.setenv("JACA_HARBOR_SUBMISSION_ID", "submission-abc")
+    monkeypatch.setenv("JACA_HARBOR_SLICE_NAME", "xhigh-a")
+    monkeypatch.setenv("TASK_NAME", "log-summary-date-ranges")
+
+    events = [
+        event
+        async for event in stream_run_events(
+            agent=agent,
+            prompt="write the note",
+            available_tool_names=("write",),
+        )
+    ]
+
+    assert [event.type for event in events] == [
+        "run_started",
+        "tool_call_started",
+        "tool_call_succeeded",
+        "assistant_text_delta",
+        "run_succeeded",
+    ]
+
+    traced_spans = [
+        span
+        for span in tracer.spans
+        if span.name in {"jaca.run", "jaca.model_request", "jaca.tool"}
+    ]
+
+    assert traced_spans
+    for span in traced_spans:
+        assert span.attributes["jaca.harbor.job_name"] == "job-123"
+        assert span.attributes["jaca.harbor.submission_id"] == "submission-abc"
+        assert span.attributes["jaca.harbor.slice_name"] == "xhigh-a"
+        assert span.attributes["jaca.harbor.task_name"] == "log-summary-date-ranges"

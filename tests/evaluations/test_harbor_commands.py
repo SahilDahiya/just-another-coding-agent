@@ -142,6 +142,29 @@ def test_build_provider_env_uses_explicit_service_name_override() -> None:
     }
 
 
+def test_build_provider_env_forwards_harbor_job_metadata() -> None:
+    env = build_provider_env(
+        model="openai-responses:gpt-5.4",
+        environ={
+            "OPENAI_API_KEY": "openai-secret",
+            "LOGFIRE_TOKEN": "logfire-secret",
+            "JACA_HARBOR_JOB_NAME": "job-123",
+            "JACA_HARBOR_SUBMISSION_ID": "submission-abc",
+            "JACA_HARBOR_SLICE_NAME": "xhigh-a",
+        },
+    )
+
+    assert env == {
+        "OPENAI_API_KEY": "openai-secret",
+        "JACA_HARBOR_JOB_NAME": "job-123",
+        "JACA_HARBOR_SUBMISSION_ID": "submission-abc",
+        "JACA_HARBOR_SLICE_NAME": "xhigh-a",
+        "JACA_TRACE_MODE": "logfire",
+        "LOGFIRE_SERVICE_NAME": "jaca-harbor",
+        "LOGFIRE_TOKEN": "logfire-secret",
+    }
+
+
 def test_build_provider_env_reads_logfire_token_from_default_credentials_file(
     monkeypatch, tmp_path
 ) -> None:

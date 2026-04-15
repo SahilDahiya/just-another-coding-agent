@@ -4,6 +4,7 @@ import json
 import sys
 from datetime import datetime
 from pathlib import Path
+from contextlib import contextmanager
 from types import SimpleNamespace
 
 import pytest
@@ -18,7 +19,7 @@ from just_another_coding_agent.runtime.local_traces import (
 def _fake_logfire_module(calls: list[dict[str, object]]) -> SimpleNamespace:
     return SimpleNamespace(
         configure=lambda **kwargs: calls.append(kwargs),
-        ScrubbingOptions=lambda **kwargs: {"_scrubbing": True, **kwargs},
+        force_flush=lambda **kwargs: calls.append({"force_flush": kwargs}),
     )
 
 
@@ -120,11 +121,106 @@ def test_configure_observability_accepts_default_logfire_toml_credentials(
             "send_to_logfire": True,
             "console": False,
             "service_name": "jaca",
-            "scrubbing": {
-                "_scrubbing": True,
-                "callback": observability._scrub_only_api_keys,
-            },
+            "scrubbing": False,
         }
+    ]
+
+
+def test_flush_observability_flushes_logfire_after_configuration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, object]] = []
+    monkeypatch.setenv("JACA_TRACE_MODE", "logfire")
+    monkeypatch.setenv("LOGFIRE_TOKEN", "test-token")
+    monkeypatch.setitem(
+        sys.modules,
+        "logfire",
+        _fake_logfire_module(calls),
+    )
+    monkeypatch.setattr(observability, "_configured", False)
+
+    observability.configure_observability()
+    observability.flush_observability(timeout_millis=1234)
+
+    assert calls[-1] == {"force_flush": {"timeout_millis": 1234}}
+
+
+def test_export_trace_context_env_uses_logfire_context_in_logfire_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("JACA_TRACE_MODE", "logfire")
+    monkeypatch.setitem(
+        sys.modules,
+        "logfire",
+        SimpleNamespace(
+            get_context=lambda: {
+                "traceparent": "00-11111111111111111111111111111111-2222222222222222-01",
+                "tracestate": "vendor=value",
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        observability,
+        "_import_otel_propagate_inject",
+        lambda: pytest.fail("otel inject should not be used in logfire mode"),
+    )
+
+    env = observability.export_trace_context_env()
+
+    assert env == {
+        "JACA_TRACEPARENT": "00-11111111111111111111111111111111-2222222222222222-01",
+        "JACA_TRACESTATE": "vendor=value",
+    }
+
+
+def test_use_inherited_trace_context_uses_logfire_attach_context_in_logfire_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, object]] = []
+
+    @contextmanager
+    def fake_attach_context(carrier: dict[str, str]):
+        calls.append({"type": "enter", "carrier": dict(carrier)})
+        try:
+            yield
+        finally:
+            calls.append({"type": "exit"})
+
+    monkeypatch.setenv("JACA_TRACE_MODE", "logfire")
+    monkeypatch.setenv(
+        "JACA_TRACEPARENT",
+        "00-11111111111111111111111111111111-2222222222222222-01",
+    )
+    monkeypatch.setenv("JACA_TRACESTATE", "vendor=value")
+    monkeypatch.setitem(
+        sys.modules,
+        "logfire",
+        SimpleNamespace(attach_context=fake_attach_context),
+    )
+    monkeypatch.setattr(
+        observability,
+        "_import_otel_propagate_extract",
+        lambda: pytest.fail("otel extract should not be used in logfire mode"),
+    )
+    monkeypatch.setattr(
+        observability,
+        "_import_otel_context_attach_detach",
+        lambda: pytest.fail("otel attach/detach should not be used in logfire mode"),
+    )
+
+    with observability.use_inherited_trace_context():
+        calls.append({"type": "inside"})
+
+    assert calls == [
+        {
+            "type": "enter",
+            "carrier": {
+                "traceparent": "00-11111111111111111111111111111111-2222222222222222-01",
+                "tracestate": "vendor=value",
+            },
+        },
+        {"type": "inside"},
+        {"type": "exit"},
     ]
 
 

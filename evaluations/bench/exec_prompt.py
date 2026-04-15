@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import importlib
 import json
 import os
 import subprocess
@@ -21,6 +20,8 @@ from just_another_coding_agent.runtime.env import trace_mode
 from just_another_coding_agent.runtime.observability import (
     configure_observability,
     export_trace_context_env,
+    flush_observability,
+    get_tracer,
 )
 
 
@@ -237,6 +238,8 @@ def _run_exec_prompt(
         saw_first_rpc_event = False
         saw_first_tool_event = False
         saw_first_assistant_text_delta = False
+        terminal_output: str | None = None
+        terminal_error: ExecPromptError | None = None
         while True:
             try:
                 response = _read_json_line(
@@ -260,6 +263,20 @@ def _run_exec_prompt(
                 raise ExecPromptError(
                     f"{response.get('error_type')}: {response.get('message')}"
                 )
+
+            if response_type == "rpc_response":
+                if response.get("id") != "req-run":
+                    raise ExecPromptError(
+                        "Unexpected RPC response after run.start: "
+                        f"{response.get('id')!r}"
+                    )
+                if terminal_error is not None:
+                    raise terminal_error
+                if terminal_output is None:
+                    raise ExecPromptError(
+                        "run.start completed without a terminal run event"
+                    )
+                return terminal_output
 
             if response_type != "rpc_event":
                 raise ExecPromptError(
@@ -294,7 +311,8 @@ def _run_exec_prompt(
                     raise ExecPromptError(
                         "run_succeeded must include string output_text"
                     )
-                return output_text
+                terminal_output = output_text
+                continue
 
             if event_type == "run_failed":
                 diagnostics.record_phase("terminal_event_at")
@@ -304,9 +322,10 @@ def _run_exec_prompt(
                         "jaca.exec_prompt.terminal_event_type", "run_failed"
                     )
                 _write_status(status_stream, "run failed")
-                raise ExecPromptError(
+                terminal_error = ExecPromptError(
                     f"{event.get('error_type')}: {event.get('message')}"
                 )
+                continue
     finally:
         process.stdin.close()
         _wait_for_process(process)
@@ -492,14 +511,13 @@ def _trace_exec_prompt_run(
 
     try:
         configure_observability()
-        logfire = importlib.import_module("logfire")
     except RuntimeError as error:
         raise ExecPromptError(str(error)) from error
-    except ModuleNotFoundError as error:
-        raise ExecPromptError(
-            "JACA_TRACE_MODE=logfire requires the `logfire` package in this "
-            "environment."
-        ) from error
+
+    tracer = get_tracer(__name__)
+    if tracer is None:
+        yield None
+        return
 
     metadata = {
         "jaca.exec_prompt.model": model,
@@ -524,7 +542,10 @@ def _trace_exec_prompt_run(
         if value:
             metadata[f"jaca.exec_prompt.env.{env_key.lower()}"] = value
 
-    with logfire.span(_EXEC_PROMPT_SPAN_NAME, **metadata) as span:
+    with tracer.start_as_current_span(
+        _EXEC_PROMPT_SPAN_NAME,
+        attributes=metadata,
+    ) as span:
         trace = _ExecPromptTrace(span)
         trace.set_attribute("jaca.exec_prompt.status", "running")
         try:
@@ -537,7 +558,7 @@ def _trace_exec_prompt_run(
         else:
             trace.set_attribute("jaca.exec_prompt.status", "succeeded")
         finally:
-            logfire.force_flush(timeout_millis=_EXEC_PROMPT_FLUSH_TIMEOUT_MILLIS)
+            flush_observability(timeout_millis=_EXEC_PROMPT_FLUSH_TIMEOUT_MILLIS)
 
 
 def _build_prompt_preview(prompt: str, *, limit: int = 160) -> str:

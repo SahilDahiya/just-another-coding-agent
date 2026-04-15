@@ -4,6 +4,11 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_ROOT"
 
+# Ensure Harbor trials land in Logfire under the project pinned by
+# this repo's .logfire/ credentials.
+. "$(dirname "${BASH_SOURCE[0]}")/logfire_env.sh"
+. "$(dirname "${BASH_SOURCE[0]}")/docker_env.sh"
+
 MODEL="${MODEL:-openai-responses:gpt-5.4-chatgpt}"
 THINKING="${JUST_ANOTHER_CODING_AGENT_THINKING:-high}"
 SUBMISSION_ID="${SUBMISSION_ID:-gpt54-chatgpt-high}"

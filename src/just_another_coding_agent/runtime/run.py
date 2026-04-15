@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import os
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from dataclasses import dataclass, replace
 from time import monotonic
@@ -90,6 +91,13 @@ logger = logging.getLogger(__name__)
 _RUN_SPAN_NAME = "jaca.run"
 _MODEL_REQUEST_SPAN_NAME = "jaca.model_request"
 _TOOL_SPAN_NAME = "jaca.tool"
+_HARBOR_SPAN_ENV_KEYS = (
+    ("JACA_HARBOR_JOB_NAME", "jaca.harbor.job_name"),
+    ("JACA_HARBOR_SUBMISSION_ID", "jaca.harbor.submission_id"),
+    ("JACA_HARBOR_SLICE_NAME", "jaca.harbor.slice_name"),
+    ("TASK_NAME", "jaca.harbor.task_name"),
+    ("HARBOR_TASK_NAME", "jaca.harbor.task_name"),
+)
 
 
 @dataclass(frozen=True)
@@ -133,6 +141,15 @@ def _get_observability_tracer() -> Any | None:
     return get_tracer(__name__)
 
 
+def _harbor_span_attributes_from_env() -> dict[str, str]:
+    attributes: dict[str, str] = {}
+    for env_key, attribute_key in _HARBOR_SPAN_ENV_KEYS:
+        value = os.environ.get(env_key, "").strip()
+        if value:
+            attributes[attribute_key] = value
+    return attributes
+
+
 @contextlib.contextmanager
 def _start_run_span(
     *,
@@ -153,6 +170,7 @@ def _start_run_span(
         "jaca.run.tool_names": list(available_tool_names),
         "jaca.run.status": "running",
     }
+    attributes.update(_harbor_span_attributes_from_env())
     if session_id is not None:
         attributes["jaca.session_id"] = session_id
 
@@ -183,6 +201,7 @@ def _start_model_request_span(
         "jaca.model_request.index": request_index,
         "jaca.model_request.status": "running",
     }
+    attributes.update(_harbor_span_attributes_from_env())
     if session_id is not None:
         attributes["jaca.session_id"] = session_id
     if external_model_id is not None:
@@ -215,6 +234,7 @@ def _start_tool_span(
         else "unknown",
         "jaca.tool.status": "running",
     }
+    attributes.update(_harbor_span_attributes_from_env())
     if session_id is not None:
         attributes["jaca.session_id"] = session_id
     return tracer.start_span(

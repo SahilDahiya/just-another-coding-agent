@@ -32,8 +32,12 @@ def apply_config_to_env(config: dict[str, str]) -> None:
 
 
 def apply_trace_mode_to_env(config: dict[str, str]) -> None:
+    if "JACA_TRACE_MODE" in os.environ:
+        return
     trace_mode = config.get("trace_mode", "").strip().lower()
-    if trace_mode in {"", "off"}:
+    if trace_mode == "":
+        return
+    if trace_mode == "off":
         os.environ.pop("JACA_TRACE_MODE", None)
         return
     if trace_mode in {"local", "logfire"}:

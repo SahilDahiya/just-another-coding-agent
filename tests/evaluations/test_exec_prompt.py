@@ -111,6 +111,60 @@ class _FakeLogfireModule:
         self._calls.append({"type": "force_flush", "timeout_millis": timeout_millis})
 
 
+class _FakeTracerSpan:
+    def __init__(
+        self,
+        *,
+        name: str,
+        attributes: dict[str, object],
+        calls: list[dict[str, object]],
+        current_span_stack: list[str],
+    ) -> None:
+        self.name = name
+        self.attributes = attributes
+        self._calls = calls
+        self._current_span_stack = current_span_stack
+
+    def __enter__(self) -> "_FakeTracerSpan":
+        self._current_span_stack.append(self.name)
+        self._calls.append({"type": "span_enter", "name": self.name, "span": self})
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        self._calls.append({"type": "span_exit", "name": self.name, "span": self})
+        popped = self._current_span_stack.pop()
+        assert popped == self.name
+        return None
+
+    def set_attribute(self, key: str, value: object) -> None:
+        self.attributes[key] = value
+
+
+class _FakeTracer:
+    def __init__(
+        self,
+        *,
+        calls: list[dict[str, object]],
+        current_span_stack: list[str],
+    ) -> None:
+        self._calls = calls
+        self._current_span_stack = current_span_stack
+
+    def start_as_current_span(
+        self,
+        name: str,
+        *,
+        attributes: dict[str, object] | None = None,
+    ) -> _FakeTracerSpan:
+        self._calls.append({"type": "span_created", "name": name, "attrs": attributes})
+        return _FakeTracerSpan(
+            name=name,
+            attributes=dict(attributes or {}),
+            calls=self._calls,
+            current_span_stack=self._current_span_stack,
+        )
+
+
 def _make_popen(stdout_lines: list[dict[str, object] | str], *, returncode: int = 0):
     process = FakeProcess(
         stdout_text="\n".join(
@@ -151,6 +205,11 @@ def test_run_exec_prompt_returns_terminal_output(tmp_path) -> None:
                     "type": "run_succeeded",
                     "output_text": "done",
                 },
+            },
+            {
+                "type": "rpc_response",
+                "id": "req-run",
+                "response": {"session_id": "0" * 32},
             },
         ]
     )
@@ -253,7 +312,69 @@ def test_run_exec_prompt_returns_terminal_output(tmp_path) -> None:
                 },
             },
         },
+        {
+            "timestamp": transcript[5]["timestamp"],
+            "direction": "recv",
+            "payload": {
+                "type": "rpc_response",
+                "id": "req-run",
+                "response": {"session_id": "0" * 32},
+            },
+        },
     ]
+
+
+def test_run_exec_prompt_waits_for_run_response_after_terminal_event(
+    tmp_path: Path,
+) -> None:
+    popen_factory, process, _captured = _make_popen(
+        [
+            {
+                "type": "rpc_response",
+                "id": "req-create",
+                "response": {"session_id": "0" * 32},
+            },
+            {
+                "type": "rpc_event",
+                "id": "req-run",
+                "event": {"run_id": "run-1", "type": "run_started"},
+            },
+            {
+                "type": "rpc_event",
+                "id": "req-run",
+                "event": {
+                    "run_id": "run-1",
+                    "type": "run_succeeded",
+                    "output_text": "done",
+                },
+            },
+            {
+                "type": "rpc_response",
+                "id": "req-run",
+                "response": {"session_id": "0" * 32},
+            },
+        ]
+    )
+
+    output = run_exec_prompt(
+        prompt="solve it",
+        model="openai-responses:gpt-5.4-chatgpt",
+        workspace_root=tmp_path,
+        sessions_root=tmp_path / "sessions",
+        popen_factory=popen_factory,
+    )
+
+    assert output == "done"
+    transcript_path = tmp_path / "sessions" / "exec-prompt-rpc-transcript.jsonl"
+    transcript = [
+        json.loads(line) for line in transcript_path.read_text().splitlines() if line
+    ]
+    assert transcript[-1]["payload"] == {
+        "type": "rpc_response",
+        "id": "req-run",
+        "response": {"session_id": "0" * 32},
+    }
+    assert process.stdin.closed is True
 
 
 def test_run_exec_prompt_emits_liveness_markers_to_status_stream(tmp_path) -> None:
@@ -307,6 +428,11 @@ def test_run_exec_prompt_emits_liveness_markers_to_status_stream(tmp_path) -> No
                     "output_text": "done",
                 },
             },
+            {
+                "type": "rpc_response",
+                "id": "req-run",
+                "response": {"session_id": "0" * 32},
+            },
         ]
     )
 
@@ -336,7 +462,11 @@ def test_run_exec_prompt_emits_logfire_task_span_and_flushes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     calls: list[dict[str, object]] = []
-    fake_logfire = _FakeLogfireModule(calls)
+    current_span_stack: list[str] = []
+    fake_tracer = _FakeTracer(
+        calls=calls,
+        current_span_stack=current_span_stack,
+    )
     monkeypatch.setenv("JACA_TRACE_MODE", "logfire")
     monkeypatch.setenv("JACA_HARBOR_JOB_NAME", "job-123")
     monkeypatch.setenv("JACA_HARBOR_SUBMISSION_ID", "submission-abc")
@@ -345,10 +475,14 @@ def test_run_exec_prompt_emits_logfire_task_span_and_flushes(
         lambda: calls.append({"type": "configure_observability"}),
     )
     monkeypatch.setattr(
-        "evaluations.bench.exec_prompt.importlib.import_module",
-        lambda name: fake_logfire
-        if name == "logfire"
-        else pytest.fail(f"unexpected module import: {name}"),
+        "evaluations.bench.exec_prompt.get_tracer",
+        lambda _name: fake_tracer,
+    )
+    monkeypatch.setattr(
+        "evaluations.bench.exec_prompt.flush_observability",
+        lambda *, timeout_millis: calls.append(
+            {"type": "force_flush", "timeout_millis": timeout_millis}
+        ),
     )
     popen_factory, _process, _captured = _make_popen(
         [
@@ -371,7 +505,20 @@ def test_run_exec_prompt_emits_logfire_task_span_and_flushes(
                     "output_text": "done",
                 },
             },
+            {
+                "type": "rpc_response",
+                "id": "req-run",
+                "response": {"session_id": "0" * 32},
+            },
         ]
+    )
+    monkeypatch.setattr(
+        "evaluations.bench.exec_prompt.export_trace_context_env",
+        lambda: (
+            {"JACA_TRACEPARENT": "00-1234567890abcdef1234567890abcdef-1234567890abcdef-01"}
+            if current_span_stack == ["jaca.exec_prompt"]
+            else pytest.fail("wrapper span was not current during trace export")
+        ),
     )
 
     output = run_exec_prompt(
@@ -387,7 +534,7 @@ def test_run_exec_prompt_emits_logfire_task_span_and_flushes(
     assert calls[0] == {"type": "configure_observability"}
     span_enter = next(call for call in calls if call["type"] == "span_enter")
     span = span_enter["span"]
-    assert isinstance(span, _FakeLogfireSpan)
+    assert isinstance(span, _FakeTracerSpan)
     assert span.name == "jaca.exec_prompt"
     assert span.attributes["jaca.exec_prompt.model"] == "openai-responses:gpt-5.4-chatgpt"
     assert span.attributes["jaca.exec_prompt.thinking"] == "high"
@@ -408,17 +555,33 @@ def test_run_exec_prompt_marks_logfire_task_span_failed_on_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     calls: list[dict[str, object]] = []
-    fake_logfire = _FakeLogfireModule(calls)
+    current_span_stack: list[str] = []
+    fake_tracer = _FakeTracer(
+        calls=calls,
+        current_span_stack=current_span_stack,
+    )
     monkeypatch.setenv("JACA_TRACE_MODE", "logfire")
     monkeypatch.setattr(
         "evaluations.bench.exec_prompt.configure_observability",
         lambda: None,
     )
     monkeypatch.setattr(
-        "evaluations.bench.exec_prompt.importlib.import_module",
-        lambda name: fake_logfire
-        if name == "logfire"
-        else pytest.fail(f"unexpected module import: {name}"),
+        "evaluations.bench.exec_prompt.get_tracer",
+        lambda _name: fake_tracer,
+    )
+    monkeypatch.setattr(
+        "evaluations.bench.exec_prompt.flush_observability",
+        lambda *, timeout_millis: calls.append(
+            {"type": "force_flush", "timeout_millis": timeout_millis}
+        ),
+    )
+    monkeypatch.setattr(
+        "evaluations.bench.exec_prompt.export_trace_context_env",
+        lambda: (
+            {"JACA_TRACEPARENT": "00-1234567890abcdef1234567890abcdef-1234567890abcdef-01"}
+            if current_span_stack == ["jaca.exec_prompt"]
+            else pytest.fail("wrapper span was not current during trace export")
+        ),
     )
     popen_factory, _process, _captured = _make_popen(
         [
@@ -437,6 +600,11 @@ def test_run_exec_prompt_marks_logfire_task_span_failed_on_error(
                     "message": "boom",
                 },
             },
+            {
+                "type": "rpc_response",
+                "id": "req-run",
+                "response": {"session_id": "0" * 32},
+            },
         ]
     )
 
@@ -451,7 +619,7 @@ def test_run_exec_prompt_marks_logfire_task_span_failed_on_error(
 
     span_enter = next(call for call in calls if call["type"] == "span_enter")
     span = span_enter["span"]
-    assert isinstance(span, _FakeLogfireSpan)
+    assert isinstance(span, _FakeTracerSpan)
     assert span.attributes["jaca.exec_prompt.status"] == "failed"
     assert span.attributes["jaca.exec_prompt.error_type"] == "ExecPromptError"
     assert span.attributes["jaca.exec_prompt.error_message"] == "RuntimeError: boom"
@@ -483,6 +651,11 @@ def test_run_exec_prompt_forwards_trace_context_to_backend(
                     "type": "run_succeeded",
                     "output_text": "done",
                 },
+            },
+            {
+                "type": "rpc_response",
+                "id": "req-run",
+                "response": {"session_id": "0" * 32},
             },
         ]
     )
@@ -540,6 +713,11 @@ def test_run_exec_prompt_forwards_thinking(tmp_path) -> None:
                     "output_text": "done",
                 },
             },
+            {
+                "type": "rpc_response",
+                "id": "req-run",
+                "response": {"session_id": "0" * 32},
+            },
         ]
     )
 
@@ -582,6 +760,11 @@ def test_run_exec_prompt_raises_on_run_failed(tmp_path) -> None:
                     "error_type": "RuntimeError",
                     "message": "boom",
                 },
+            },
+            {
+                "type": "rpc_response",
+                "id": "req-run",
+                "response": {"session_id": "0" * 32},
             },
         ]
     )

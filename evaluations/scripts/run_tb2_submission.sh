@@ -3,6 +3,13 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_ROOT"
+
+# Ensure every Harbor trial under this launcher lands in Logfire under
+# the project pinned by this repo's .logfire/ credentials. No-op if
+# LOGFIRE_TOKEN is already set.
+. "$(dirname "${BASH_SOURCE[0]}")/logfire_env.sh"
+. "$(dirname "${BASH_SOURCE[0]}")/docker_env.sh"
+
 VALIDATOR_SCRIPT="$REPO_ROOT/evaluations/scripts/validate_tb2_bundle.py"
 PYTHON_BIN="${PYTHON_BIN:-}"
 
@@ -133,6 +140,8 @@ run_pass() {
   echo "  note: authenticate Docker pulls first to avoid Harbor image pull rate limits"
 
   set +e
+  JACA_HARBOR_JOB_NAME="$job_name" \
+  JACA_HARBOR_SUBMISSION_ID="$SUBMISSION_ID" \
   PYTHONPATH="$REPO_ROOT/src:$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}" \
   harbor run \
     --dataset "$DATASET" \

@@ -719,6 +719,7 @@ def test_main_uses_saved_default_model_and_trace_mode(
     go_binary = tmp_path / ("jaca-go.exe" if os.name == "nt" else "jaca-go")
     captured: dict[str, object] = {}
 
+    monkeypatch.delenv("JACA_TRACE_MODE", raising=False)
     monkeypatch.setattr(
         entry,
         "load_config",

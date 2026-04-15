@@ -42,7 +42,6 @@ def configure_observability() -> None:
         _configure_local_tracing(service_name)
     elif mode == "logfire":
         logfire = _import_logfire()
-        scrubbing = logfire.ScrubbingOptions(callback=_scrub_only_api_keys)
         if not _has_logfire_credentials():
             raise RuntimeError(
                 "JACA_TRACE_MODE=logfire requires Logfire project credentials. "
@@ -53,7 +52,7 @@ def configure_observability() -> None:
             send_to_logfire=True,
             console=False,
             service_name=service_name,
-            scrubbing=scrubbing,
+            scrubbing=False,
         )
     else:
         raise AssertionError(f"unsupported trace mode: {mode}")
@@ -74,9 +73,13 @@ def export_trace_context_env() -> dict[str, str]:
     if trace_mode() == "off":
         return {}
 
-    inject = _import_otel_propagate_inject()
-    carrier: dict[str, str] = {}
-    inject(carrier)
+    if trace_mode() == "logfire":
+        logfire = _import_logfire()
+        carrier = dict(logfire.get_context())
+    else:
+        inject = _import_otel_propagate_inject()
+        carrier: dict[str, str] = {}
+        inject(carrier)
     traceparent = carrier.get("traceparent", "").strip()
     if not traceparent:
         return {}
@@ -99,13 +102,19 @@ def use_inherited_trace_context() -> Iterator[None]:
         yield
         return
 
-    extract = _import_otel_propagate_extract()
-    attach, detach = _import_otel_context_attach_detach()
     carrier = {"traceparent": traceparent}
     tracestate = os.environ.get(_TRACESTATE_ENV_VAR, "").strip()
     if tracestate:
         carrier["tracestate"] = tracestate
 
+    if trace_mode() == "logfire":
+        logfire = _import_logfire()
+        with logfire.attach_context(carrier):
+            yield
+        return
+
+    extract = _import_otel_propagate_extract()
+    attach, detach = _import_otel_context_attach_detach()
     token = attach(extract(carrier))
     try:
         yield
@@ -118,36 +127,6 @@ def get_tracer(name: str) -> Any | None:
         return None
     get_tracer = _import_otel_trace_get_tracer()
     return get_tracer(name)
-
-
-_API_KEY_PATTERNS = frozenset(
-    {
-        "api_key",
-        "api-key",
-        "apikey",
-        "secret",
-        "secret_key",
-        "token",
-        "password",
-        "passwd",
-        "authorization",
-        "openai_api_key",
-        "openrouter_api_key",
-        "anthropic_api_key",
-        "ollama_api_key",
-        "google_api_key",
-        "logfire_token",
-    }
-)
-
-
-def _scrub_only_api_keys(match: Any) -> Any:
-    path = match.path
-    if isinstance(path, str):
-        key = path.rsplit(".", 1)[-1].lower().replace("-", "_")
-        if key in _API_KEY_PATTERNS:
-            return "[Redacted]"
-    return None
 
 
 def _import_logfire() -> Any:

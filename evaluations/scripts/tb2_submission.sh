@@ -4,6 +4,12 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_ROOT"
 
+# Ensure every Harbor trial under this wrapper lands in Logfire under
+# the project pinned by this repo's .logfire/ credentials. No-op if
+# LOGFIRE_TOKEN is already set.
+. "$(dirname "${BASH_SOURCE[0]}")/logfire_env.sh"
+. "$(dirname "${BASH_SOURCE[0]}")/docker_env.sh"
+
 FULL_LAUNCHER="$REPO_ROOT/evaluations/scripts/run_tb2_submission.sh"
 SLICE_LAUNCHER="$REPO_ROOT/evaluations/scripts/run_tb2_submission_slice.sh"
 

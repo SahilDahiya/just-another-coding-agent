@@ -61,9 +61,9 @@ For ChatGPT subscription runs:
 - log in interactively first with `/login openai-codex`
 - Harbor will forward the current `openai-codex` OAuth credentials from the host into the task container for `openai-responses:* -chatgpt` models
 
-Harbor tasks always export traces to Logfire. The adapter forces `JACA_TRACE_MODE=logfire` inside the task container and forwards a Logfire token from the Harbor host. By default, Harbor traces use `service.name=jaca-harbor`, which separates them from normal interactive chat traces that use the default backend service name. The one-shot wrapper emits one explicit `jaca.exec_prompt` span per Harbor task with model, workspace, prompt hash, bounded prompt preview, session id, and terminal status metadata, then flushes Logfire before the task process exits so short-lived Harbor tasks are visible reliably.
+Harbor tasks always export traces to Logfire. The adapter forces `JACA_TRACE_MODE=logfire` inside the task container and forwards a Logfire token from the Harbor host. By default, Harbor traces use `service.name=jaca-harbor`, which separates them from normal interactive chat traces that use the default backend service name. Logfire scrubbing is disabled for this path, so trace attributes are sent exactly as emitted by the wrapper and backend. The one-shot wrapper emits one explicit `jaca.exec_prompt` span per Harbor task with model, workspace, prompt hash, bounded prompt preview, session id, and terminal status metadata, then flushes Logfire before the task process exits so short-lived Harbor tasks are visible reliably.
 
-The wrapper now also forwards W3C trace context into the headless backend process. A healthy Harbor trace should therefore include:
+The wrapper span is created from the active OpenTelemetry tracer, and the wrapper forwards W3C trace context into the headless backend process. A healthy Harbor trace should therefore include:
 
 - `jaca.exec_prompt` for the one-shot wrapper lifetime
 - `jaca.run` for the canonical backend run
@@ -73,6 +73,17 @@ The wrapper now also forwards W3C trace context into the headless backend proces
 For session-backed backend runs, the `jaca.run`, `jaca.model_request`, and
 `jaca.tool` spans also carry `jaca.session_id`, which makes it possible to
 group multiple traces that belong to the same durable session.
+
+When Harbor metadata is present in the task environment, those same backend
+spans also carry:
+
+- `jaca.harbor.job_name`
+- `jaca.harbor.submission_id`
+- `jaca.harbor.slice_name`
+- `jaca.harbor.task_name`
+
+That makes it possible to filter child spans directly by Harbor labels instead
+of only through the root `jaca.exec_prompt` span.
 
 If you want a different Harbor-specific service name, set `LOGFIRE_SERVICE_NAME` in the Harbor host process before launching `harbor run`.
 
