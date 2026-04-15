@@ -29,8 +29,13 @@ _UNSET = object()
 CANONICAL_AGENT_INSTRUCTIONS = build_base_product_prompt()
 
 
-def build_static_agent_instructions() -> str:
-    return CANONICAL_AGENT_INSTRUCTIONS
+def build_static_agent_instructions(
+    *,
+    tool_names: Sequence[str] = CANONICAL_TOOL_NAMES,
+) -> str:
+    if tuple(tool_names) == CANONICAL_TOOL_NAMES:
+        return CANONICAL_AGENT_INSTRUCTIONS
+    return build_base_product_prompt(tool_names=tool_names)
 
 
 def _shell_family_prompt_label(shell_family: ShellFamily) -> str:
@@ -108,10 +113,11 @@ def build_canonical_instructions(
     workspace_root: Path | str,
     current_date: date | None = None,
     shell_family: ShellFamily | None = None,
+    tool_names: Sequence[str] = CANONICAL_TOOL_NAMES,
 ) -> str:
     return "\n".join(
         [
-            build_static_agent_instructions(),
+            build_static_agent_instructions(tool_names=tool_names),
             build_runtime_context_text(
                 workspace_root=workspace_root,
                 current_date=current_date,
@@ -149,7 +155,7 @@ def build_canonical_agent(
         retries=0,
         output_retries=CANONICAL_AGENT_OUTPUT_RETRIES,
         instructions=(
-            build_static_agent_instructions()
+            build_static_agent_instructions(tool_names=tool_names)
             if instructions is None
             else instructions
         ),

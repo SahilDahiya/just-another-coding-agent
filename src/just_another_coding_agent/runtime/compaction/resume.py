@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -9,6 +10,7 @@ from pydantic_ai.messages import ModelMessage
 from just_another_coding_agent.contracts.platform import ShellFamily
 from just_another_coding_agent.contracts.session import LoadedSession
 from just_another_coding_agent.contracts.thinking import ThinkingSetting
+from just_another_coding_agent.contracts.tools import CANONICAL_TOOL_NAMES
 from just_another_coding_agent.runtime.compaction.boundary import run_index_for_id
 from just_another_coding_agent.runtime.prompt_layers import build_prompt_context_layers
 from just_another_coding_agent.runtime.turn_context import (
@@ -48,6 +50,7 @@ def build_runtime_framed_resume_message_history(
     shell_family: ShellFamily | None = None,
     timezone: str | None = None,
     thinking: ThinkingSetting | None = None,
+    tool_names: Sequence[str] = CANONICAL_TOOL_NAMES,
 ) -> list[ModelMessage]:
     resume_history = (
         build_resume_message_history(loaded_session)
@@ -62,6 +65,7 @@ def build_runtime_framed_resume_message_history(
         shell_family=shell_family,
         timezone=timezone,
         thinking=thinking,
+        tool_names=tool_names,
     )
     return [
         *prompt_context.before_history_messages,

@@ -411,6 +411,7 @@ async def test_stream_session_run_events_resumes_session_created_on_other_shell_
         thinking=None,
         deps=None,
         message_history_sink=None,
+        available_tool_names=None,
     ):
         del (
             agent,
@@ -488,6 +489,7 @@ async def test_stream_session_run_events_passes_root_session_id_in_deps(
         thinking=None,
         deps=None,
         message_history_sink=None,
+        available_tool_names=None,
     ):
         del (
             agent,
@@ -874,6 +876,7 @@ async def test_stream_session_run_events_emits_runtime_context_diff_on_shell_cha
         thinking=None,
         deps=None,
         message_history_sink=None,
+        available_tool_names=None,
     ):
         del agent, prompt, instructions, thinking, deps
         captured["message_history"] = message_history
@@ -1199,6 +1202,7 @@ async def test_stream_session_run_events_persists_partial_run_before_completion(
         thinking=None,
         deps=None,
         message_history_sink=None,
+        available_tool_names=None,
     ):
         del (
             agent,
@@ -1280,6 +1284,7 @@ async def test_stream_session_run_events_inherits_last_persisted_thinking_when_o
         thinking=None,
         deps=None,
         message_history_sink=None,
+        available_tool_names=None,
     ):
         captured["prompt"] = prompt
         captured["instructions"] = instructions
@@ -1366,6 +1371,7 @@ async def test_stream_session_run_events_injects_workspace_project_docs(
         thinking=None,
         deps=None,
         message_history_sink=None,
+        available_tool_names=None,
     ):
         captured["message_history"] = message_history
         yield RunStartedEvent(run_id="run-1")
@@ -1968,6 +1974,7 @@ async def test_stream_session_run_events_auto_compacts_stale_session_before_resu
         thinking=None,
         deps=None,
         message_history_sink=None,
+        available_tool_names=None,
     ):
         del agent, thinking, deps
         captured["prompt"] = prompt
@@ -2097,6 +2104,7 @@ async def test_stream_session_run_events_continues_after_repeated_auto_compactio
         thinking=None,
         deps=None,
         message_history_sink=None,
+        available_tool_names=None,
     ):
         del agent, prompt, message_history, instructions, thinking, deps
         if message_history_sink is not None:
@@ -2222,6 +2230,7 @@ async def test_stream_session_run_events_resets_auto_compaction_failures_on_succ
         thinking=None,
         deps=None,
         message_history_sink=None,
+        available_tool_names=None,
     ):
         del agent, prompt, message_history, instructions, thinking, deps
         if message_history_sink is not None:
@@ -2327,6 +2336,7 @@ async def test_stream_session_run_events_does_not_recompact_without_new_complete
         thinking=None,
         deps=None,
         message_history_sink=None,
+        available_tool_names=None,
     ):
         del agent, prompt, message_history, instructions, thinking, deps
         if message_history_sink is not None:
@@ -2478,6 +2488,7 @@ async def test_stream_session_run_events_finalizes_cancelled_run(
         thinking=None,
         deps=None,
         message_history_sink=None,
+        available_tool_names=None,
     ):
         del (
             agent,
@@ -2557,6 +2568,7 @@ async def test_stream_session_run_events_yields_cancelled_run_failed_event(
         thinking=None,
         deps=None,
         message_history_sink=None,
+        available_tool_names=None,
     ):
         del (
             agent,
@@ -2641,6 +2653,7 @@ async def test_stream_session_run_events_sanitize_cancelled_run_messages(
         thinking=None,
         deps=None,
         message_history_sink=None,
+        available_tool_names=None,
     ):
         del (
             agent,
@@ -2737,6 +2750,7 @@ async def test_stream_session_run_events_trim_failed_correction_tail_from_histor
         thinking=None,
         deps=None,
         message_history_sink=None,
+        available_tool_names=None,
     ):
         del (
             agent,
@@ -2858,6 +2872,7 @@ async def test_stream_session_run_events_resume_after_failed_correction_is_clean
         thinking=None,
         deps=None,
         message_history_sink=None,
+        available_tool_names=None,
     ):
         del (
             agent,

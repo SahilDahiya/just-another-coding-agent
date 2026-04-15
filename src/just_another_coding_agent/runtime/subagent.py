@@ -226,6 +226,7 @@ def build_ephemeral_subagent_workspace_deps(
 def _build_ephemeral_subagent_message_history(
     *,
     spawn_mode: SubagentSpawnMode,
+    capability: SubagentCapability,
     parent_message_history: Sequence[ModelMessage] | None,
     model: Any,
     workspace_root: Path | str,
@@ -255,6 +256,7 @@ def _build_ephemeral_subagent_message_history(
         shell_family=shell_family,
         timezone=timezone,
         thinking=thinking,
+        tool_names=build_ephemeral_subagent_tool_names(capability),
     )
     return (
         *layers.before_history_messages,
@@ -298,6 +300,7 @@ async def stream_ephemeral_subagent_run_events(
     )
     message_history = _build_ephemeral_subagent_message_history(
         spawn_mode=spec.spawn_mode,
+        capability=spec.capability,
         parent_message_history=parent_message_history,
         model=model,
         workspace_root=normalized_workspace_root,

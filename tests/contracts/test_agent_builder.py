@@ -46,7 +46,9 @@ async def test_build_canonical_agent_sets_default_instructions(tmp_path) -> None
 
     first_request = messages[0]
     assert isinstance(first_request, ModelRequest)
-    assert first_request.instructions == build_static_agent_instructions()
+    assert first_request.instructions == build_static_agent_instructions(
+        tool_names=[]
+    )
     assert isinstance(first_request.parts[0], UserPromptPart)
     assert first_request.parts[0].content == "hi"
 

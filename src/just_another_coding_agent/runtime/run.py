@@ -712,11 +712,46 @@ async def _stream_run_events(
                                     "stream_run_events requires text output, got "
                                     f"{output_type}"
                                 )
+                            terminal_messages = [
+                                *carried_messages,
+                                *result.new_messages(),
+                            ]
+                            if pending_tool_calls:
+                                if message_history_sink is not None:
+                                    message_history_sink(terminal_messages)
+                                unresolved_message = (
+                                    "Run cannot terminate with unresolved tool calls"
+                                )
+                                for event in synthesize_tool_failed_events_for_pending(
+                                    run_id=run_id,
+                                    pending=(
+                                        PendingToolCall(
+                                            tool_call_id=tool_call_id,
+                                            tool_name=pending_tool_call.tool_name,
+                                            args=pending_tool_call.args,
+                                            args_valid=pending_tool_call.args_valid,
+                                            started_at=pending_tool_call.started_at,
+                                        )
+                                        for tool_call_id, pending_tool_call in (
+                                            pending_tool_calls.items()
+                                        )
+                                    ),
+                                    error_type="SessionFormatError",
+                                    message=unresolved_message,
+                                ):
+                                    yield event
+                                pending_tool_calls.clear()
+                                completed_tool_calls.clear()
+                                terminal_emitted = True
+                                yield RunFailedEvent(
+                                    run_id=run_id,
+                                    error_type="SessionFormatError",
+                                    message=unresolved_message,
+                                )
+                                return
                             terminal_emitted = True
                             if message_history_sink is not None:
-                                message_history_sink(
-                                    [*carried_messages, *result.new_messages()]
-                                )
+                                message_history_sink(terminal_messages)
                             _raise_if_buffered_tool_updates_remain(
                                 buffered_tool_updates
                             )

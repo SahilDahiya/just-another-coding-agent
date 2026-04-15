@@ -292,6 +292,7 @@ def build_prompt_context_layers(
     shell_family: "ShellFamily | None" = None,
     timezone: str | None = None,
     thinking: "ThinkingSetting | None" = None,
+    tool_names: Sequence[str] = CANONICAL_TOOL_NAMES,
     project_doc_total_byte_budget: int = PROJECT_DOC_TOTAL_BYTE_BUDGET,
 ) -> PromptContextLayers:
     from just_another_coding_agent.runtime.turn_context import (
@@ -312,7 +313,7 @@ def build_prompt_context_layers(
         thinking=thinking,
     )
     return PromptContextLayers(
-        base_instructions=build_base_product_prompt(),
+        base_instructions=build_base_product_prompt(tool_names=tool_names),
         project_messages=project_messages,
         runtime_before_history_messages=runtime_plan.before_history_messages,
         runtime_after_history_messages=runtime_plan.after_history_messages,

@@ -1313,6 +1313,61 @@ async def test_stream_run_events_marks_all_pending_tool_calls_failed_before_run_
     assert events[5].message == "stream boom"
 
 
+async def test_stream_run_events_rejects_terminal_success_with_unresolved_tool_call(
+) -> None:
+    agent = StubStreamAgent(
+        events=[
+            FunctionToolCallEvent(
+                part=ToolCallPart(
+                    "read",
+                    '{"path":"README.md"}',
+                    tool_call_id="call-read",
+                )
+            ),
+            FunctionToolCallEvent(
+                part=ToolCallPart(
+                    "shell",
+                    '{"command":"pwd"}',
+                    tool_call_id="call-shell",
+                )
+            ),
+            FunctionToolResultEvent(
+                result=ToolReturnPart(
+                    tool_name="read",
+                    content="# README",
+                    tool_call_id="call-read",
+                )
+            ),
+            AgentRunResultEvent(result=AgentRunResult("done")),
+        ]
+    )
+
+    events = [
+        event
+        async for event in stream_run_events(
+            agent=agent,
+            prompt="go",
+        )
+    ]
+
+    assert [event.type for event in events] == [
+        "run_started",
+        "tool_call_started",
+        "tool_call_started",
+        "tool_call_succeeded",
+        "tool_call_failed",
+        "run_failed",
+    ]
+    assert isinstance(events[4], ToolCallFailedEvent)
+    assert events[4].tool_call_id == "call-shell"
+    assert events[4].tool_name == "shell"
+    assert events[4].error_type == "SessionFormatError"
+    assert events[4].message == "Run cannot terminate with unresolved tool calls"
+    assert isinstance(events[5], RunFailedEvent)
+    assert events[5].error_type == "SessionFormatError"
+    assert events[5].message == "Run cannot terminate with unresolved tool calls"
+
+
 async def test_stream_run_events_recovers_from_edit_mismatch_within_one_run(
     tmp_path,
 ) -> None:

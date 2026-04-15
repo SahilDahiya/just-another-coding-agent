@@ -318,6 +318,7 @@ async def stream_session_run_events(
         current_date=current_date,
         shell_family=shell_family,
         thinking=resolved_thinking,
+        tool_names=tool_names,
     )
     agent = build_canonical_agent(
         model=model,
@@ -357,6 +358,7 @@ async def stream_session_run_events(
                 ),
             ),
             message_history_sink=_record_message_history,
+            available_tool_names=tool_names,
         )
         if (
             activate_steer_boundary is not None
