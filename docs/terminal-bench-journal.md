@@ -13,6 +13,10 @@ It is intentionally narrow:
 - whether the run was green
 - what was learned from the run
 
+For cross-run aggregates (pass-rate spreads, per-task history
+matrices, the sahildahiya.me dashboard refresh), see
+[tbench-slice-analysis.md](tbench-slice-analysis.md).
+
 ## Kimi K2 via Ollama Cloud
 
 ### Completed

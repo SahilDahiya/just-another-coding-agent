@@ -21,6 +21,7 @@ read_when: start here, onboarding, or you need to find the right doc quickly
 - Stateful orchestration boundary and plan: [stateful-orchestration.md](stateful-orchestration.md)
 - Harbor and Terminal Bench workflow: [harbor-terminal-bench.md](harbor-terminal-bench.md)
 - Terminal Bench run journal: [terminal-bench-journal.md](terminal-bench-journal.md)
+- Terminal Bench slice analysis pipeline and dashboard: [tbench-slice-analysis.md](tbench-slice-analysis.md)
 - Terminal Bench baseline checklist: [learning/terminal-bench-checklist.md](learning/terminal-bench-checklist.md)
 - Subagent Terminal Bench eval cohort: [learning/subagent-terminal-bench-eval-set.md](learning/subagent-terminal-bench-eval-set.md)
 - Architectural decisions: [adr/](adr/)
@@ -44,6 +45,7 @@ read_when: start here, onboarding, or you need to find the right doc quickly
 - [stateful-orchestration.md](stateful-orchestration.md) - boundary between PydanticAI seams and our own session/orchestration contract
 - [harbor-terminal-bench.md](harbor-terminal-bench.md) - Harbor adapter usage and Terminal Bench workflow
 - [terminal-bench-journal.md](terminal-bench-journal.md) - running record of benchmark outcomes and task-picking learnings
+- [tbench-slice-analysis.md](tbench-slice-analysis.md) - single-pipeline analyzer over `jobs/` and the dashboard refresh workflow
 - [learning/terminal-bench-checklist.md](learning/terminal-bench-checklist.md) - full Terminal Bench task checklist with current pass, fail, and untried status
 - [learning/subagent-terminal-bench-eval-set.md](learning/subagent-terminal-bench-eval-set.md) - curated GPT-5.4 high-failure cohort for subagent Harbor reruns
 - [adr/0001-use-pydanticai-as-engine.md](adr/0001-use-pydanticai-as-engine.md) - engine choice

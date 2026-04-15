@@ -21,6 +21,10 @@ The benchmark-specific workflow guidance lives in this adapter layer, not in the
 repo-root `AGENTS.md`. The one-shot wrapper prepends a small benchmark workflow section
 to the user prompt before `run.start`, so Terminal Bench behavior stays adapter-owned.
 
+After runs finish, aggregate analysis across repeated runs of the same
+slice (pass-rate spread, per-task history, dashboard refresh) goes
+through [tbench-slice-analysis.md](tbench-slice-analysis.md).
+
 ## Prerequisites
 
 - `harbor` is installed locally
