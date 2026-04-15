@@ -75,6 +75,7 @@ class RunSummary:
     model_name: str | None = None
     agent_kwargs: dict[str, Any] = field(default_factory=dict)
     task_walls: dict[str, float] = field(default_factory=dict)
+    task_tokens: dict[str, dict[str, int]] = field(default_factory=dict)
 
     @property
     def cohort(self) -> str:
@@ -150,6 +151,13 @@ class RunSummary:
             # subdirectory's result.json; missing for trials that
             # errored before producing a timestamped result.
             "task_walls": {k: round(v, 1) for k, v in self.task_walls.items()},
+            # Per-task prompt token usage keyed by task name. Each
+            # value is {"input": int, "output": int, "total": int}.
+            # Populated from the run_succeeded event in each trial's
+            # exec-prompt-rpc-transcript.jsonl artifact — only
+            # available on the post-exec-prompt-wrapper cohort, so
+            # many older trials will be absent.
+            "task_tokens": self.task_tokens,
         }
 
 
@@ -205,11 +213,16 @@ def load_run(job_dir: Path) -> RunSummary | None:
             pass
 
     # Walk every trial directory in this job to pull per-task
-    # wall-clock. A trial subdirectory contains its own result.json
-    # with started_at and finished_at. Missing or malformed files are
-    # skipped silently — latency data is best-effort and the dashboard
-    # renders fine without it.
+    # wall-clock and token usage. A trial subdirectory contains its
+    # own result.json with started_at/finished_at (for wall-clock)
+    # and — on the recent post-exec-prompt-wrapper cohort — an
+    # artifacts/harbor-sessions/exec-prompt-rpc-transcript.jsonl file
+    # whose run_succeeded event carries input/output/total token
+    # counts. Missing or malformed files are skipped silently; both
+    # latency and tokens are best-effort and the dashboard renders
+    # fine without them.
     task_walls: dict[str, float] = {}
+    task_tokens: dict[str, dict[str, int]] = {}
     for trial_dir in job_dir.iterdir():
         if not trial_dir.is_dir():
             continue
@@ -226,11 +239,44 @@ def load_run(job_dir: Path) -> RunSummary | None:
             task_name = strip_trial_suffix(trial_dir.name)
         started = _parse_iso(trial_data.get("started_at"))
         finished = _parse_iso(trial_data.get("finished_at"))
-        if not started or not finished:
-            continue
-        wall = (finished - started).total_seconds()
-        if wall > 0:
-            task_walls[task_name] = wall
+        if started and finished:
+            wall = (finished - started).total_seconds()
+            if wall > 0:
+                task_walls[task_name] = wall
+
+        # Pull token usage from the RPC transcript artifact if
+        # present. The harbor-sessions directory is only uploaded by
+        # recent runs of the exec-prompt wrapper.
+        transcript = (
+            trial_dir
+            / "artifacts"
+            / "harbor-sessions"
+            / "exec-prompt-rpc-transcript.jsonl"
+        )
+        if transcript.exists():
+            try:
+                with transcript.open() as fh:
+                    for line in fh:
+                        try:
+                            rec = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        event = rec.get("payload", {}).get("event")
+                        if not isinstance(event, dict):
+                            continue
+                        if event.get("type") != "run_succeeded":
+                            continue
+                        total = event.get("total_tokens")
+                        if not isinstance(total, int) or total <= 0:
+                            continue
+                        task_tokens[task_name] = {
+                            "input": int(event.get("input_tokens", 0) or 0),
+                            "output": int(event.get("output_tokens", 0) or 0),
+                            "total": int(total),
+                        }
+                        break
+            except OSError:
+                pass
 
     return RunSummary(
         job_name=job_dir.name,
@@ -247,6 +293,7 @@ def load_run(job_dir: Path) -> RunSummary | None:
         model_name=model_name,
         agent_kwargs=agent_kwargs,
         task_walls=task_walls,
+        task_tokens=task_tokens,
     )
 
 
