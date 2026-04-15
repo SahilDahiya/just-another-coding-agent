@@ -328,4 +328,6 @@ __all__ = [
     "build_base_product_prompt",
     "build_default_mode_messages",
     "build_prompt_context_layers",
+    "build_tool_policy_lines",
+    "build_verification_policy_lines",
 ]
