@@ -61,7 +61,20 @@ For ChatGPT subscription runs:
 - log in interactively first with `/login openai-codex`
 - Harbor will forward the current `openai-codex` OAuth credentials from the host into the task container for `openai-responses:* -chatgpt` models
 
-Harbor tasks always export traces to Logfire. The adapter forces `JACA_TRACE_MODE=logfire` inside the task container and forwards a Logfire token from the Harbor host. By default, Harbor traces use `service.name=jaca-harbor`, which separates them from normal interactive chat traces that use the default backend service name. If you want a different Harbor-specific service name, set `LOGFIRE_SERVICE_NAME` in the Harbor host process before launching `harbor run`.
+Harbor tasks always export traces to Logfire. The adapter forces `JACA_TRACE_MODE=logfire` inside the task container and forwards a Logfire token from the Harbor host. By default, Harbor traces use `service.name=jaca-harbor`, which separates them from normal interactive chat traces that use the default backend service name. The one-shot wrapper emits one explicit `jaca.exec_prompt` span per Harbor task with model, workspace, prompt hash, bounded prompt preview, session id, and terminal status metadata, then flushes Logfire before the task process exits so short-lived Harbor tasks are visible reliably.
+
+The wrapper now also forwards W3C trace context into the headless backend process. A healthy Harbor trace should therefore include:
+
+- `jaca.exec_prompt` for the one-shot wrapper lifetime
+- `jaca.run` for the canonical backend run
+- `jaca.model_request` for each model round-trip inside that run
+- `jaca.tool` for each tool call started by the backend
+
+For session-backed backend runs, the `jaca.run`, `jaca.model_request`, and
+`jaca.tool` spans also carry `jaca.session_id`, which makes it possible to
+group multiple traces that belong to the same durable session.
+
+If you want a different Harbor-specific service name, set `LOGFIRE_SERVICE_NAME` in the Harbor host process before launching `harbor run`.
 
 ## Canonical Model String
 
@@ -141,6 +154,85 @@ python -m evaluations.bench.exec_prompt \
   -C /abs/path/to/workspace \
   "solve it"
 ```
+
+## Local A/B
+
+Use this when you want one small before/after experiment on the same prompt
+without starting a full Harbor job:
+
+```bash
+TMP_ROOT="$(mktemp -d)"
+PROMPT="Inspect docs/contracts.md and summarize the top-level tool surface."
+
+uv run python -m evaluations.bench.exec_prompt \
+  --model openai-responses:gpt-5.3-codex \
+  --thinking high \
+  --sessions-root "$TMP_ROOT/baseline" \
+  -C "$PWD" \
+  "$PROMPT"
+
+MY_FEATURE_FLAG=on uv run python -m evaluations.bench.exec_prompt \
+  --model openai-responses:gpt-5.3-codex \
+  --thinking high \
+  --sessions-root "$TMP_ROOT/candidate" \
+  -C "$PWD" \
+  "$PROMPT"
+
+uv run python -m evaluations.bench.exec_prompt_report \
+  --compare \
+  "$TMP_ROOT/baseline" \
+  "$TMP_ROOT/candidate"
+```
+
+What the report compares:
+
+- terminal success or failure
+- wrapper wall-clock time from `run.start` to the terminal event
+- backend transcript elapsed time when the terminal event includes it
+- tool-call count
+- token usage from the terminal `run_succeeded` event
+
+For Harbor-backed runs, download the `/tmp/.jaca/harbor-sessions` artifact from
+each job and point `evaluations.bench.exec_prompt_report` at those extracted
+session roots the same way.
+
+For a more reusable local or Harbor-side feature-experiment workflow, see
+[ab-testing-harness.md](ab-testing-harness.md).
+
+## Local Prompt Slice A/B
+
+Use this when you want a repeatable local prompt cohort instead of a one-off
+A/B:
+
+```bash
+OUT_ROOT="$(mktemp -d)"
+
+uv run python -m evaluations.bench.prompt_ab_harness \
+  /tmp/example-slice.json \
+  --model openai-responses:gpt-5.4-chatgpt \
+  -C "$PWD" \
+  --output-root "$OUT_ROOT" \
+  --candidate-env MY_FEATURE_FLAG=on \
+  --candidate-label feature-on
+```
+
+Artifacts:
+
+- one folder per prompt under `--output-root`
+- `baseline/` and candidate subfolders for each prompt
+- `summary.json` at the output root with aggregate counts and per-prompt
+  comparisons
+- aggregate totals in `summary.json` for tool calls, wall clock, transcript
+  elapsed time, and total tokens when available
+
+Recommended use:
+
+- start with one or two prompts
+- use candidate env overrides only for the feature under test
+- only grow to a Harbor slice after the local signal is directionally stable
+- treat a single Harbor task as a probe, not a promotion decision
+- after the probe looks good, freeze the prompt and run a user-selected
+  multi-task holdout slice before claiming a win
 
 ## Terminal Bench Run
 

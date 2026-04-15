@@ -139,21 +139,26 @@ def _start_run_span(
     run_id: str,
     prompt: str,
     available_tool_names: Sequence[str],
+    session_id: str | None,
 ) -> Any:
     tracer = _get_observability_tracer()
     if tracer is None:
         yield None
         return
 
+    attributes: dict[str, object] = {
+        "gen_ai.agent.name": "agent",
+        "jaca.run.id": run_id,
+        "jaca.run.prompt_chars": len(prompt),
+        "jaca.run.tool_names": list(available_tool_names),
+        "jaca.run.status": "running",
+    }
+    if session_id is not None:
+        attributes["jaca.session_id"] = session_id
+
     with tracer.start_as_current_span(
         _RUN_SPAN_NAME,
-        attributes={
-            "gen_ai.agent.name": "agent",
-            "jaca.run.id": run_id,
-            "jaca.run.prompt_chars": len(prompt),
-            "jaca.run.tool_names": list(available_tool_names),
-            "jaca.run.status": "running",
-        },
+        attributes=attributes,
     ) as span:
         yield span
 
@@ -164,6 +169,7 @@ def _start_model_request_span(
     agent: Agent[Any, Any],
     run_id: str,
     request_index: int,
+    session_id: str | None,
 ) -> Any:
     tracer = _get_observability_tracer()
     if tracer is None:
@@ -177,6 +183,8 @@ def _start_model_request_span(
         "jaca.model_request.index": request_index,
         "jaca.model_request.status": "running",
     }
+    if session_id is not None:
+        attributes["jaca.session_id"] = session_id
     if external_model_id is not None:
         attributes["gen_ai.request.model"] = external_model_id
 
@@ -193,21 +201,25 @@ def _start_tool_span(
     tool_call_id: str,
     tool_name: str,
     args_valid: bool | None,
+    session_id: str | None,
 ) -> Any | None:
     tracer = _get_observability_tracer()
     if tracer is None:
         return None
+    attributes: dict[str, object] = {
+        "gen_ai.tool.call.id": tool_call_id,
+        "gen_ai.tool.name": tool_name,
+        "jaca.run.id": run_id,
+        "jaca.tool.args_valid": args_valid
+        if isinstance(args_valid, bool)
+        else "unknown",
+        "jaca.tool.status": "running",
+    }
+    if session_id is not None:
+        attributes["jaca.session_id"] = session_id
     return tracer.start_span(
         _TOOL_SPAN_NAME,
-        attributes={
-            "gen_ai.tool.call.id": tool_call_id,
-            "gen_ai.tool.name": tool_name,
-            "jaca.run.id": run_id,
-            "jaca.tool.args_valid": args_valid
-            if isinstance(args_valid, bool)
-            else "unknown",
-            "jaca.tool.status": "running",
-        },
+        attributes=attributes,
     )
 
 
@@ -407,11 +419,17 @@ async def _stream_run_events(
     last_response_usage: LastResponseUsageSnapshot | None = None
     synthetic_prompt_counts: dict[str, int] = {}
     active_tool_spans: dict[str, Any] = {}
+    session_id = (
+        deps.session_scope.session_id
+        if isinstance(deps, WorkspaceDeps)
+        else None
+    )
 
     with _start_run_span(
         run_id=run_id,
         prompt=prompt,
         available_tool_names=available_tool_names,
+        session_id=session_id,
     ) as run_span:
         yield RunStartedEvent(run_id=run_id)
 
@@ -468,6 +486,7 @@ async def _stream_run_events(
                                     agent=agent,
                                     run_id=run_id,
                                     request_index=model_requests_in_attempt,
+                                    session_id=session_id,
                                 ) as model_request_span:
                                     try:
                                         if (
@@ -678,6 +697,7 @@ async def _stream_run_events(
                                                             tool_call_id=event.tool_call_id,
                                                             tool_name=event.part.tool_name,
                                                             args_valid=args_valid,
+                                                            session_id=session_id,
                                                         )
                                                         yield ToolCallStartedEvent(
                                                             run_id=run_id,

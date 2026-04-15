@@ -10,6 +10,7 @@ from pydantic_ai.models.instrumented import InstrumentationSettings, Instrumente
 
 from just_another_coding_agent.runtime import stream_run_events
 from just_another_coding_agent.runtime import stream_session_run_events
+from just_another_coding_agent.tools.deps import RunSessionScope, WorkspaceDeps
 
 AGENT_NAME_ATTRIBUTE = "gen_ai.agent.name"
 TOOL_CALL_ID_ATTRIBUTE = "gen_ai.tool.call.id"
@@ -251,3 +252,54 @@ async def test_stream_run_events_emits_jaca_run_model_and_tool_spans(
         1,
         2,
     ]
+
+
+async def test_stream_run_events_binds_session_id_into_jaca_spans(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    tracer = _FakeTracer()
+    agent = Agent(
+        FunctionModel(stream_function=make_write_stream()),
+        output_type=str,
+    )
+
+    @agent.tool_plain
+    async def write(path: str, content: str) -> str:
+        return f"wrote {path}:{content}"
+
+    monkeypatch.setattr(
+        "just_another_coding_agent.runtime.run._get_observability_tracer",
+        lambda: tracer,
+    )
+
+    events = [
+        event
+        async for event in stream_run_events(
+            agent=agent,
+            prompt="write the note",
+            deps=WorkspaceDeps(
+                workspace_root=tmp_path,
+                session_scope=RunSessionScope(session_id="a" * 32),
+            ),
+            available_tool_names=("write",),
+        )
+    ]
+
+    assert [event.type for event in events] == [
+        "run_started",
+        "tool_call_started",
+        "tool_call_succeeded",
+        "assistant_text_delta",
+        "run_succeeded",
+    ]
+
+    traced_spans = [
+        span
+        for span in tracer.spans
+        if span.name in {"jaca.run", "jaca.model_request", "jaca.tool"}
+    ]
+
+    assert traced_spans
+    for span in traced_spans:
+        assert span.attributes["jaca.session_id"] == "a" * 32
