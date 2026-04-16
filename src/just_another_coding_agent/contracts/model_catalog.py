@@ -42,63 +42,48 @@ SHIPPED_MODELS: tuple[ShippedModel, ...] = (
     ),
     ShippedModel(
         provider="openai",
-        model_id="openai-responses:gpt-5-codex",
-        description="Experimental ChatGPT subscription Codex path",
-    ),
-    ShippedModel(
-        provider="openai",
-        model_id="openai-responses:gpt-5-chatgpt",
-        description="Experimental ChatGPT subscription GPT-5 path",
-    ),
-    ShippedModel(
-        provider="openai",
-        model_id="openai-responses:gpt-5-mini-chatgpt",
-        description="Experimental ChatGPT subscription GPT-5 mini path",
-    ),
-    ShippedModel(
-        provider="openai",
         model_id="openai-responses:gpt-5.1-chatgpt",
-        description="Experimental ChatGPT subscription GPT-5.1 path",
+        description="OAuth GPT-5.1 path",
     ),
     ShippedModel(
         provider="openai",
         model_id="openai-responses:gpt-5.1-codex-chatgpt",
-        description="Experimental ChatGPT subscription GPT-5.1 Codex path",
+        description="OAuth GPT-5.1 Codex path",
     ),
     ShippedModel(
         provider="openai",
         model_id="openai-responses:gpt-5.1-codex-mini-chatgpt",
-        description="Experimental ChatGPT subscription GPT-5.1 Codex Mini path",
+        description="OAuth GPT-5.1 Codex Mini path",
     ),
     ShippedModel(
         provider="openai",
         model_id="openai-responses:gpt-5.1-codex-max-chatgpt",
-        description="Experimental ChatGPT subscription GPT-5.1 Codex Max path",
+        description="OAuth GPT-5.1 Codex Max path",
     ),
     ShippedModel(
         provider="openai",
         model_id="openai-responses:gpt-5.2-chatgpt",
-        description="Experimental ChatGPT subscription GPT-5.2 path",
+        description="OAuth GPT-5.2 path",
     ),
     ShippedModel(
         provider="openai",
         model_id="openai-responses:gpt-5.2-codex-chatgpt",
-        description="Experimental ChatGPT subscription GPT-5.2 Codex path",
+        description="OAuth GPT-5.2 Codex path",
     ),
     ShippedModel(
         provider="openai",
         model_id="openai-responses:gpt-5.3-codex-chatgpt",
-        description="Experimental ChatGPT subscription GPT-5.3 Codex path",
+        description="OAuth GPT-5.3 Codex path",
     ),
     ShippedModel(
         provider="openai",
         model_id="openai-responses:gpt-5.4-chatgpt",
-        description="Experimental ChatGPT subscription GPT-5.4 path",
+        description="OAuth GPT-5.4 path",
     ),
     ShippedModel(
         provider="openai",
         model_id="openai-responses:gpt-5.4-mini-chatgpt",
-        description="Experimental ChatGPT subscription GPT-5.4 mini path",
+        description="OAuth GPT-5.4 mini path",
     ),
     ShippedModel(
         provider="anthropic",
