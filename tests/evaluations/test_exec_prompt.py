@@ -17,6 +17,11 @@ from evaluations.bench.exec_prompt import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _default_exec_prompt_trace_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("JACA_TRACE_MODE", "off")
+
+
 class RecordingStdin:
     def __init__(self) -> None:
         self._chunks: list[str] = []
