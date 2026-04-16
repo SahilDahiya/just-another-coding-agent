@@ -23,11 +23,16 @@ CANONICAL_PROVIDER_ORDER: tuple[ProviderName, ...] = (
     "anthropic",
 )
 
-REMOVED_LEGACY_OPENAI_MODEL_NAMES = frozenset(
+REMOVED_OPENAI_MODEL_NAMES = frozenset(
     {
         "gpt-5-codex",
         "gpt-5-chatgpt",
         "gpt-5-mini-chatgpt",
+        "gpt-5.1-chatgpt",
+        "gpt-5.1-codex-chatgpt",
+        "gpt-5.1-codex-mini-chatgpt",
+        "gpt-5.1-codex-max-chatgpt",
+        "gpt-5.2-codex-chatgpt",
     }
 )
 
@@ -50,33 +55,8 @@ SHIPPED_MODELS: tuple[ShippedModel, ...] = (
     ),
     ShippedModel(
         provider="openai",
-        model_id="openai-responses:gpt-5.1-chatgpt",
-        description="OAuth GPT-5.1 path",
-    ),
-    ShippedModel(
-        provider="openai",
-        model_id="openai-responses:gpt-5.1-codex-chatgpt",
-        description="OAuth GPT-5.1 Codex path",
-    ),
-    ShippedModel(
-        provider="openai",
-        model_id="openai-responses:gpt-5.1-codex-mini-chatgpt",
-        description="OAuth GPT-5.1 Codex Mini path",
-    ),
-    ShippedModel(
-        provider="openai",
-        model_id="openai-responses:gpt-5.1-codex-max-chatgpt",
-        description="OAuth GPT-5.1 Codex Max path",
-    ),
-    ShippedModel(
-        provider="openai",
         model_id="openai-responses:gpt-5.2-chatgpt",
         description="OAuth GPT-5.2 path",
-    ),
-    ShippedModel(
-        provider="openai",
-        model_id="openai-responses:gpt-5.2-codex-chatgpt",
-        description="OAuth GPT-5.2 Codex path",
     ),
     ShippedModel(
         provider="openai",
@@ -138,14 +118,14 @@ def _validate_context_windows() -> None:
         )
 
 
-def is_removed_legacy_openai_model_name(model_name: str) -> bool:
-    return model_name in REMOVED_LEGACY_OPENAI_MODEL_NAMES
+def is_removed_openai_model_name(model_name: str) -> bool:
+    return model_name in REMOVED_OPENAI_MODEL_NAMES
 
 
-def is_removed_legacy_openai_model_id(model_id: str) -> bool:
+def is_removed_openai_model_id(model_id: str) -> bool:
     if not model_id.startswith(("openai:", "openai-chat:", "openai-responses:")):
         return False
-    return is_removed_legacy_openai_model_name(model_id.split(":", 1)[1])
+    return is_removed_openai_model_name(model_id.split(":", 1)[1])
 
 
 __all__ = [

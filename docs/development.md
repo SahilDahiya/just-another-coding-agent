@@ -39,6 +39,7 @@ commands, or docs that treat them as supported lanes.
 - Force repo-local Go TUI execution: `JACA_GO_RUN=1 uv run jaca`
 - Run the Python headless backend directly: `uv run just-another-coding-agent --headless`
 - Run the Go TUI client directly: `go run ./cmd/jaca --backend-command-json='["uv","run","python","-m","just_another_coding_agent"]'`
+- Probe backend-owned model ids against live provider APIs without touching the normal test stack: `uv run python evaluations/scripts/probe_model_support.py`
 
 ## Go TUI
 
@@ -92,6 +93,10 @@ canonical Python headless backend.
 - Copy `.env.example` to `.env` if you need local provider credentials.
 - For interactive local use, API keys belong in `~/.jaca/auth.json`, not in
   `~/.jaca/config.json`.
+- `evaluations/scripts/probe_model_support.py` loads `.env` automatically by
+  default, probes the shipped model catalog plus legacy GPT-5 OpenAI
+  candidates against live provider APIs, and also reads `~/.jaca/oauth.json`
+  for `openai-codex` OAuth.
 - On Windows interactive startup, JACA now bootstraps missing `fd.exe` and
   `rg.exe` into `~/.jaca/bin` before normal use and prepends that directory to
   the PATH used for JACA-managed subprocesses.

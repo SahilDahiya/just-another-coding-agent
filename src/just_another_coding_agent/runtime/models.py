@@ -24,8 +24,8 @@ from just_another_coding_agent.auth import (
     resolve_provider_secret,
 )
 from just_another_coding_agent.contracts.model_catalog import (
-    is_removed_legacy_openai_model_id,
-    is_removed_legacy_openai_model_name,
+    is_removed_openai_model_id,
+    is_removed_openai_model_name,
 )
 from just_another_coding_agent.contracts.thinking import ThinkingSetting
 from just_another_coding_agent.provider_readiness import (
@@ -40,12 +40,7 @@ OPENAI_COMPATIBLE_RETRYABLE_STATUS_CODES = frozenset(
 OPENAI_COMPATIBLE_HTTP_RETRY_ATTEMPTS = 3
 OPENAI_COMPATIBLE_HTTP_RETRY_MAX_WAIT_SECONDS = 30
 OPENAI_CODEX_MODEL_NAME_BY_ID: dict[str, str] = {
-    "gpt-5.1-chatgpt": "gpt-5.1",
-    "gpt-5.1-codex-chatgpt": "gpt-5.1-codex",
-    "gpt-5.1-codex-mini-chatgpt": "gpt-5.1-codex-mini",
-    "gpt-5.1-codex-max-chatgpt": "gpt-5.1-codex-max",
     "gpt-5.2-chatgpt": "gpt-5.2",
-    "gpt-5.2-codex-chatgpt": "gpt-5.2-codex",
     "gpt-5.3-codex-chatgpt": "gpt-5.3-codex",
     "gpt-5.4-chatgpt": "gpt-5.4",
     "gpt-5.4-mini-chatgpt": "gpt-5.4-mini",
@@ -54,12 +49,7 @@ OPENAI_CONTEXT_WINDOW_TOKENS_BY_PREFIX: tuple[tuple[str, int], ...] = (
     ("gpt-5.4-mini-chatgpt", 400_000),
     ("gpt-5.4-chatgpt", 400_000),
     ("gpt-5.3-codex-chatgpt", 400_000),
-    ("gpt-5.2-codex-chatgpt", 400_000),
     ("gpt-5.2-chatgpt", 264_000),
-    ("gpt-5.1-codex-max-chatgpt", 400_000),
-    ("gpt-5.1-codex-mini-chatgpt", 400_000),
-    ("gpt-5.1-codex-chatgpt", 400_000),
-    ("gpt-5.1-chatgpt", 264_000),
     ("gpt-5.4-mini", 400_000),
     ("gpt-5.4", 1_050_000),
     ("gpt-5-mini", 264_000),
@@ -287,7 +277,7 @@ def _openai_codex_model_name(model_name: str) -> str | None:
 
 
 def _reject_removed_model_variant(model_name: str) -> None:
-    if is_removed_legacy_openai_model_name(model_name):
+    if is_removed_openai_model_name(model_name):
         raise ValueError(f"unsupported model id: {model_name}")
     if model_name.endswith("-copilot"):
         raise ValueError(f"unsupported model id: {model_name}")
@@ -319,7 +309,7 @@ def get_external_model_id(model: Any) -> str | None:
 
 def get_model_context_window_tokens(model: Any) -> int | None:
     if isinstance(model, str):
-        if is_removed_legacy_openai_model_id(model):
+        if is_removed_openai_model_id(model):
             return None
         if model.endswith("-copilot"):
             return None

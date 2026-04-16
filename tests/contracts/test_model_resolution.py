@@ -100,9 +100,14 @@ def test_resolve_canonical_model_uses_env_defaults_when_base_url_is_unset(
         "openai-responses:gpt-5-codex",
         "openai-responses:gpt-5-chatgpt",
         "openai-responses:gpt-5-mini-chatgpt",
+        "openai-responses:gpt-5.1-chatgpt",
+        "openai-responses:gpt-5.1-codex-chatgpt",
+        "openai-responses:gpt-5.1-codex-mini-chatgpt",
+        "openai-responses:gpt-5.1-codex-max-chatgpt",
+        "openai-responses:gpt-5.2-codex-chatgpt",
     ],
 )
-def test_compute_model_readiness_rejects_removed_legacy_openai_models(
+def test_compute_model_readiness_rejects_removed_openai_models(
     model_id: str,
 ) -> None:
     with pytest.raises(ValueError, match=rf"unsupported model id: {model_id}"):
@@ -153,9 +158,20 @@ def test_compute_model_readiness_uses_env_oauth_for_openai_chatgpt_variant(
         ("openai-responses:gpt-5-codex", "gpt-5-codex"),
         ("openai-responses:gpt-5-chatgpt", "gpt-5-chatgpt"),
         ("openai-responses:gpt-5-mini-chatgpt", "gpt-5-mini-chatgpt"),
+        ("openai-responses:gpt-5.1-chatgpt", "gpt-5.1-chatgpt"),
+        ("openai-responses:gpt-5.1-codex-chatgpt", "gpt-5.1-codex-chatgpt"),
+        (
+            "openai-responses:gpt-5.1-codex-mini-chatgpt",
+            "gpt-5.1-codex-mini-chatgpt",
+        ),
+        (
+            "openai-responses:gpt-5.1-codex-max-chatgpt",
+            "gpt-5.1-codex-max-chatgpt",
+        ),
+        ("openai-responses:gpt-5.2-codex-chatgpt", "gpt-5.2-codex-chatgpt"),
     ],
 )
-def test_resolve_canonical_model_rejects_removed_legacy_openai_models(
+def test_resolve_canonical_model_rejects_removed_openai_models(
     model_id: str,
     model_name: str,
 ) -> None:
@@ -352,12 +368,29 @@ def test_get_model_context_window_tokens_for_supported_models(monkeypatch) -> No
     assert (
         get_model_context_window_tokens("openai-responses:gpt-5-mini-chatgpt") is None
     )
-    assert (
-        get_model_context_window_tokens("openai-responses:gpt-5.4-chatgpt")
-        == 400_000
-    )
+    assert get_model_context_window_tokens("openai-responses:gpt-5.1-chatgpt") is None
     assert (
         get_model_context_window_tokens("openai-responses:gpt-5.1-codex-chatgpt")
+        is None
+    )
+    assert (
+        get_model_context_window_tokens(
+            "openai-responses:gpt-5.1-codex-mini-chatgpt"
+        )
+        is None
+    )
+    assert (
+        get_model_context_window_tokens(
+            "openai-responses:gpt-5.1-codex-max-chatgpt"
+        )
+        is None
+    )
+    assert (
+        get_model_context_window_tokens("openai-responses:gpt-5.2-codex-chatgpt")
+        is None
+    )
+    assert (
+        get_model_context_window_tokens("openai-responses:gpt-5.4-chatgpt")
         == 400_000
     )
     assert get_model_context_window_tokens("openai:gpt-5.4") == 1_050_000
