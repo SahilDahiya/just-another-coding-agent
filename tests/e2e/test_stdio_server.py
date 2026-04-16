@@ -33,6 +33,11 @@ from just_another_coding_agent.runtime.turn_context import (
 from just_another_coding_agent.session import load_session
 
 
+@pytest.fixture(autouse=True)
+def _default_stdio_trace_mode(monkeypatch) -> None:
+    monkeypatch.setenv("JACA_TRACE_MODE", "off")
+
+
 def _all_parts(messages: list[ModelMessage]):
     for message in messages:
         for part in message.parts:
