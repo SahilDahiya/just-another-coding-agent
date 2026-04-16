@@ -1,3 +1,11 @@
+"""Accurate token counting via tiktoken.
+
+Tokenizes text using the model-appropriate BPE encoding and applies
+provider-specific bias corrections.  Used where precision matters
+(compaction threshold decisions, budget reports).  For cheap O(1)
+estimates, use ``runtime.token_estimation`` instead.
+"""
+
 from __future__ import annotations
 
 import json as _json

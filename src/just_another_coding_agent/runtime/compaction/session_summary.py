@@ -1,23 +1,18 @@
 from __future__ import annotations
 
-from datetime import date
-from pathlib import Path
 from typing import Any
 
 from pydantic_ai import Agent
 
 from just_another_coding_agent.contracts.platform import (
-    ShellFamily,
     detect_default_shell_family,
 )
 from just_another_coding_agent.contracts.session import (
     LoadedSession,
     SessionCompactionEntry,
 )
-from just_another_coding_agent.contracts.thinking import ThinkingSetting
 from just_another_coding_agent.runtime.models import (
     build_canonical_model_settings,
-    get_model_context_window_tokens,
     resolve_canonical_model,
 )
 from just_another_coding_agent.session.jsonl import (
@@ -30,7 +25,6 @@ from just_another_coding_agent.session.replacement_history import (
 )
 
 from . import source_builder as source_builder_module
-from . import trigger as trigger_module
 from .constants import SESSION_AUTO_COMPACTION_RETAINED_TAIL_TOKENS
 from .resume import build_resume_message_history
 
@@ -98,7 +92,9 @@ async def summarize_session_for_compaction(
 
     return await summarize_compaction_source(
         model=model,
-        source_text=_build_compaction_source(loaded_session, model=model),
+        source_text=source_builder_module.build_compaction_source(
+            loaded_session, model=model
+        ),
     )
 
 
@@ -139,65 +135,8 @@ def _normalize_compaction_summary_text(summary_text: str) -> str:
     return "\n".join(kept_lines)
 
 
-def should_auto_compact_session(
-    loaded_session: LoadedSession,
-    *,
-    model: Any,
-    workspace_root: Path | str | None = None,
-    current_date: date | None = None,
-    shell_family: ShellFamily | None = None,
-    thinking: ThinkingSetting | None = None,
-) -> bool:
-    return trigger_module.should_auto_compact_session(
-        loaded_session,
-        model=model,
-        workspace_root=workspace_root,
-        current_date=current_date,
-        shell_family=shell_family,
-        thinking=thinking,
-        get_context_window_tokens=get_model_context_window_tokens,
-    )
-
-
-def build_auto_compact_session_budget_report(
-    loaded_session: LoadedSession,
-    *,
-    model: Any,
-    workspace_root: Path | str | None = None,
-    current_date: date | None = None,
-    shell_family: ShellFamily | None = None,
-    thinking: ThinkingSetting | None = None,
-):
-    return trigger_module.build_auto_compact_session_budget_report(
-        loaded_session,
-        model=model,
-        workspace_root=workspace_root,
-        current_date=current_date,
-        shell_family=shell_family,
-        thinking=thinking,
-        get_context_window_tokens=get_model_context_window_tokens,
-    )
-
-
-def _build_compaction_source(loaded_session: LoadedSession, *, model: Any) -> str:
-    return source_builder_module.build_compaction_source(loaded_session, model=model)
-
-
-def _build_bounded_compaction_source(
-    loaded_session: LoadedSession,
-    *,
-    max_chars: int,
-) -> str:
-    return source_builder_module._build_bounded_compaction_source(
-        loaded_session,
-        max_chars=max_chars,
-    )
-
-
 __all__ = [
-    "build_auto_compact_session_budget_report",
     "COMPACTION_SUMMARY_INSTRUCTIONS",
-    "should_auto_compact_session",
     "summarize_and_append_compaction_to_session",
     "summarize_compaction_source",
     "summarize_session_for_compaction",

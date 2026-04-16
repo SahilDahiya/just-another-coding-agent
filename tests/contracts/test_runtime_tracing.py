@@ -213,7 +213,7 @@ async def test_stream_run_events_emits_jaca_run_model_and_tool_spans(
         return f"wrote {path}:{content}"
 
     monkeypatch.setattr(
-        "just_another_coding_agent.runtime.run._get_observability_tracer",
+        "just_another_coding_agent.runtime.spans._get_observability_tracer",
         lambda: tracer,
     )
 
@@ -269,7 +269,7 @@ async def test_stream_run_events_binds_session_id_into_jaca_spans(
         return f"wrote {path}:{content}"
 
     monkeypatch.setattr(
-        "just_another_coding_agent.runtime.run._get_observability_tracer",
+        "just_another_coding_agent.runtime.spans._get_observability_tracer",
         lambda: tracer,
     )
 
@@ -319,7 +319,7 @@ async def test_stream_run_events_binds_harbor_metadata_into_jaca_spans(
         return f"wrote {path}:{content}"
 
     monkeypatch.setattr(
-        "just_another_coding_agent.runtime.run._get_observability_tracer",
+        "just_another_coding_agent.runtime.spans._get_observability_tracer",
         lambda: tracer,
     )
     monkeypatch.setenv("JACA_HARBOR_JOB_NAME", "job-123")

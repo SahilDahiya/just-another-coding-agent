@@ -134,6 +134,22 @@ def get_tracer(name: str) -> Any | None:
     return otel_get_tracer(name)
 
 
+def _import_optional(
+    module: str, attr: str | None = None, *, package_label: str
+) -> Any:
+    """Import *module* (optionally extracting *attr*), raising if missing."""
+    try:
+        mod = importlib.import_module(module)
+    except ModuleNotFoundError as error:
+        raise RuntimeError(
+            f"Tracing requires the `{package_label}` package in this "
+            "environment."
+        ) from error
+    if attr is not None:
+        return getattr(mod, attr)
+    return mod
+
+
 def _import_logfire() -> Any:
     try:
         return importlib.import_module("logfire")
@@ -147,43 +163,28 @@ def _import_logfire() -> Any:
 
 
 def _import_otel_trace_get_tracer() -> Any:
-    try:
-        from opentelemetry import trace
-    except ModuleNotFoundError as error:
-        raise RuntimeError(
-            "Tracing requires the `opentelemetry-api` package in this environment."
-        ) from error
-    return trace.get_tracer
+    return _import_optional(
+        "opentelemetry.trace", "get_tracer", package_label="opentelemetry-api"
+    )
 
 
 def _import_otel_propagate_inject() -> Any:
-    try:
-        from opentelemetry.propagate import inject
-    except ModuleNotFoundError as error:
-        raise RuntimeError(
-            "Tracing requires the `opentelemetry-api` package in this environment."
-        ) from error
-    return inject
+    return _import_optional(
+        "opentelemetry.propagate", "inject", package_label="opentelemetry-api"
+    )
 
 
 def _import_otel_propagate_extract() -> Any:
-    try:
-        from opentelemetry.propagate import extract
-    except ModuleNotFoundError as error:
-        raise RuntimeError(
-            "Tracing requires the `opentelemetry-api` package in this environment."
-        ) from error
-    return extract
+    return _import_optional(
+        "opentelemetry.propagate", "extract", package_label="opentelemetry-api"
+    )
 
 
 def _import_otel_context_attach_detach() -> tuple[Any, Any]:
-    try:
-        from opentelemetry.context import attach, detach
-    except ModuleNotFoundError as error:
-        raise RuntimeError(
-            "Tracing requires the `opentelemetry-api` package in this environment."
-        ) from error
-    return attach, detach
+    mod = _import_optional(
+        "opentelemetry.context", package_label="opentelemetry-api"
+    )
+    return mod.attach, mod.detach
 
 
 def _configure_local_tracing(service_name: str) -> None:

@@ -30,6 +30,19 @@ def _copy_harness(tmp_path: Path) -> tuple[Path, Path]:
         newline="\n",
     )
     harness_path.chmod(0o755)
+    real_scripts_dir = Path(__file__).resolve().parents[2] / "evaluations" / "scripts"
+    for sh_file in real_scripts_dir.glob("*.sh"):
+        if sh_file.name == SCRIPT_PATH.name:
+            continue
+        dst = scripts_dir / sh_file.name
+        if dst.exists():
+            continue
+        dst.write_text(
+            sh_file.read_text(encoding="utf-8").replace("\r\n", "\n"),
+            encoding="utf-8",
+            newline="\n",
+        )
+        dst.chmod(0o755)
     _write_executable(
         delegated_path,
         (

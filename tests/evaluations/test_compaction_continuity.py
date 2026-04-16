@@ -328,7 +328,7 @@ async def test_auto_compaction_preserves_multi_compaction_continuity(
         fake_summarize_and_append_compaction_to_session,
     )
     monkeypatch.setattr(
-        "just_another_coding_agent.runtime.compaction.session_summary.get_model_context_window_tokens",
+        "just_another_coding_agent.runtime.compaction.trigger.get_model_context_window_tokens",
         lambda _model: 100_000,
     )
 

@@ -1,3 +1,18 @@
+"""Unified public API for provider authentication.
+
+Single entry point for all auth concerns: API-key resolution, OAuth
+flows, secret-store access, and provider readiness.  Implementation
+is split across backing modules:
+
+- ``secret_store``: file-backed secret persistence
+- ``oauth_openai_codex``: OpenAI Codex OAuth protocol
+- ``oauth_store``: credential persistence for OAuth tokens
+- ``provider_readiness``: readiness / status computation
+
+Callers should import from this module, not from the backing modules
+directly.
+"""
+
 from __future__ import annotations
 
 import json

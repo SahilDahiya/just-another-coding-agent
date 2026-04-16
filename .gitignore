@@ -216,4 +216,5 @@ __marimo__/
 # SWE-bench evaluation artifacts
 /logs/
 *.jaca-*.json
+/.tmp-release-artifacts-tests/
 /.claude

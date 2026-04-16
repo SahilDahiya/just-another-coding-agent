@@ -8,11 +8,13 @@ from .resume import (
 )
 from .session_summary import (
     COMPACTION_SUMMARY_INSTRUCTIONS,
-    build_auto_compact_session_budget_report,
-    should_auto_compact_session,
     summarize_and_append_compaction_to_session,
     summarize_compaction_source,
     summarize_session_for_compaction,
+)
+from .trigger import (
+    build_auto_compact_session_budget_report,
+    should_auto_compact_session,
 )
 
 __all__ = [

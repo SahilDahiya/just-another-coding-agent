@@ -4,7 +4,6 @@ import asyncio
 import contextlib
 import json
 import logging
-import os
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from dataclasses import dataclass, replace
 from time import monotonic
@@ -70,12 +69,18 @@ from just_another_coding_agent.runtime.compaction.trigger import (
 )
 from just_another_coding_agent.runtime.models import (
     build_canonical_model_settings,
-    get_external_model_id,
     get_model_context_window_tokens,
 )
-from just_another_coding_agent.runtime.observability import get_tracer
 from just_another_coding_agent.runtime.prompt_layers import build_prompt_context_layers
 from just_another_coding_agent.runtime.recovery import should_retry_run_error
+from just_another_coding_agent.runtime.spans import (
+    _finish_all_tool_spans,
+    _finish_tool_span,
+    _set_span_attributes,
+    _start_model_request_span,
+    _start_run_span,
+    _start_tool_span,
+)
 from just_another_coding_agent.runtime.transcript_summary import (
     build_run_transcript_summary,
 )
@@ -88,16 +93,6 @@ from just_another_coding_agent.tools.deps import WorkspaceDeps
 
 _JSON_VALUE_ADAPTER = TypeAdapter(JsonValue)
 logger = logging.getLogger(__name__)
-_RUN_SPAN_NAME = "jaca.run"
-_MODEL_REQUEST_SPAN_NAME = "jaca.model_request"
-_TOOL_SPAN_NAME = "jaca.tool"
-_HARBOR_SPAN_ENV_KEYS = (
-    ("JACA_HARBOR_JOB_NAME", "jaca.harbor.job_name"),
-    ("JACA_HARBOR_SUBMISSION_ID", "jaca.harbor.submission_id"),
-    ("JACA_HARBOR_SLICE_NAME", "jaca.harbor.slice_name"),
-    ("TASK_NAME", "jaca.harbor.task_name"),
-    ("HARBOR_TASK_NAME", "jaca.harbor.task_name"),
-)
 
 
 @dataclass(frozen=True)
@@ -121,173 +116,15 @@ class _QueuedToolUpdate:
     partial_result: JsonValue | None
 
 
-def _set_span_attributes(span: Any | None, attributes: dict[str, object]) -> None:
-    if span is None:
-        return
-    if hasattr(span, "set_attributes"):
-        span.set_attributes(attributes)
-        return
-    for key, value in attributes.items():
-        span.set_attribute(key, value)
-
-
-def _end_span(span: Any | None) -> None:
-    if span is None:
-        return
-    span.end()
-
-
-def _get_observability_tracer() -> Any | None:
-    return get_tracer(__name__)
-
-
-def _harbor_span_attributes_from_env() -> dict[str, str]:
-    attributes: dict[str, str] = {}
-    for env_key, attribute_key in _HARBOR_SPAN_ENV_KEYS:
-        value = os.environ.get(env_key, "").strip()
-        if value:
-            attributes[attribute_key] = value
-    return attributes
-
-
-@contextlib.contextmanager
-def _start_run_span(
-    *,
-    run_id: str,
-    prompt: str,
-    available_tool_names: Sequence[str],
-    session_id: str | None,
-) -> Any:
-    tracer = _get_observability_tracer()
-    if tracer is None:
-        yield None
-        return
-
-    attributes: dict[str, object] = {
-        "gen_ai.agent.name": "agent",
-        "jaca.run.id": run_id,
-        "jaca.run.prompt_chars": len(prompt),
-        "jaca.run.tool_names": list(available_tool_names),
-        "jaca.run.status": "running",
-    }
-    attributes.update(_harbor_span_attributes_from_env())
-    if session_id is not None:
-        attributes["jaca.session_id"] = session_id
-
-    with tracer.start_as_current_span(
-        _RUN_SPAN_NAME,
-        attributes=attributes,
-    ) as span:
-        yield span
-
-
-@contextlib.contextmanager
-def _start_model_request_span(
-    *,
-    agent: Agent[Any, Any],
-    run_id: str,
-    request_index: int,
-    session_id: str | None,
-) -> Any:
-    tracer = _get_observability_tracer()
-    if tracer is None:
-        yield None
-        return
-
-    external_model_id = get_external_model_id(getattr(agent, "model", None))
-    attributes: dict[str, object] = {
-        "gen_ai.operation.name": "chat",
-        "jaca.run.id": run_id,
-        "jaca.model_request.index": request_index,
-        "jaca.model_request.status": "running",
-    }
-    attributes.update(_harbor_span_attributes_from_env())
-    if session_id is not None:
-        attributes["jaca.session_id"] = session_id
-    if external_model_id is not None:
-        attributes["gen_ai.request.model"] = external_model_id
-
-    with tracer.start_as_current_span(
-        _MODEL_REQUEST_SPAN_NAME,
-        attributes=attributes,
-    ) as span:
-        yield span
-
-
-def _start_tool_span(
-    *,
-    run_id: str,
-    tool_call_id: str,
-    tool_name: str,
-    args_valid: bool | None,
-    session_id: str | None,
-) -> Any | None:
-    tracer = _get_observability_tracer()
-    if tracer is None:
-        return None
-    attributes: dict[str, object] = {
-        "gen_ai.tool.call.id": tool_call_id,
-        "gen_ai.tool.name": tool_name,
-        "jaca.run.id": run_id,
-        "jaca.tool.args_valid": args_valid
-        if isinstance(args_valid, bool)
-        else "unknown",
-        "jaca.tool.status": "running",
-    }
-    attributes.update(_harbor_span_attributes_from_env())
-    if session_id is not None:
-        attributes["jaca.session_id"] = session_id
-    return tracer.start_span(
-        _TOOL_SPAN_NAME,
-        attributes=attributes,
-    )
-
-
-def _finish_tool_span(
-    *,
-    active_tool_spans: dict[str, Any],
-    tool_call_id: str,
-    status: str,
-    duration_ms: int | None = None,
-    error_type: str | None = None,
-    error_message: str | None = None,
-) -> None:
-    span = active_tool_spans.pop(tool_call_id, None)
-    if span is None:
-        return
-
-    attributes: dict[str, object] = {"jaca.tool.status": status}
-    if duration_ms is not None:
-        attributes["jaca.tool.duration_ms"] = duration_ms
-    if error_type is not None:
-        attributes["jaca.tool.error_type"] = error_type
-    if error_message is not None:
-        attributes["jaca.tool.error_message"] = error_message
-    _set_span_attributes(span, attributes)
-    _end_span(span)
-
-
-def _finish_all_tool_spans(
-    *,
-    active_tool_spans: dict[str, Any],
-    status: str,
-    error_type: str | None = None,
-    error_message: str | None = None,
-) -> None:
-    for tool_call_id in list(active_tool_spans):
-        _finish_tool_span(
-            active_tool_spans=active_tool_spans,
-            tool_call_id=tool_call_id,
-            status=status,
-            error_type=error_type,
-            error_message=error_message,
-        )
-
-
 class _RestartRunWithCorrection(Exception):
-    def __init__(self, message: str) -> None:
+    def __init__(
+        self,
+        message: str,
+        pre_raise_events: list[RunEvent] | None = None,
+    ) -> None:
         super().__init__(message)
         self.message = message
+        self.pre_raise_events: list[RunEvent] = pre_raise_events or []
 
 
 class _InRunCompactRequested(Exception):
@@ -401,6 +238,386 @@ def _build_run_succeeded_event(
 
 def _call_tools_node_has_tool_calls(node: CallToolsNode[Any, Any]) -> bool:
     return any(isinstance(part, ToolCallPart) for part in node.model_response.parts)
+
+
+# ---------------------------------------------------------------------------
+# Extracted helpers for _stream_run_events inner-loop event processing.
+# Each returns a list of RunEvent objects that the caller yields, plus
+# signals for control flow (terminal return, duplicate skip).
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class _ToolCallResult:
+    """Result of processing a single FunctionToolCallEvent."""
+
+    events: list[RunEvent]
+    is_duplicate: bool = False
+    terminal: bool = False  # caller should return after yielding events
+
+
+def _process_tool_call_event(
+    *,
+    event: FunctionToolCallEvent,
+    run_id: str,
+    session_id: str | None,
+    pending_tool_calls: dict[str, _PendingToolCall],
+    buffered_tool_updates: dict[str, list[_QueuedToolUpdate]],
+    completed_tool_calls: dict[str, str],
+    active_tool_spans: dict[str, Any],
+    available_tool_names: Sequence[str],
+    correction_attempts: int,
+    run_span: Any,
+) -> _ToolCallResult:
+    """Process a FunctionToolCallEvent, returning events to yield.
+
+    Mutates ``pending_tool_calls``, ``active_tool_spans``,
+    ``completed_tool_calls``, and ``buffered_tool_updates`` in place.
+    May raise ``_RestartRunWithCorrection``.
+    """
+    normalized_args = _normalize_tool_args(
+        event.part.args, args_valid=event.args_valid,
+    )
+    args = normalized_args.args
+    args_valid = normalized_args.args_valid
+
+    # --- Duplicate tool-call ID: skip silently. -------------------------
+    existing = pending_tool_calls.get(event.tool_call_id)
+    if existing is not None:
+        if (
+            existing.tool_name != event.part.tool_name
+            or existing.args != args
+        ):
+            raise RuntimeError(
+                f"Duplicate tool call mismatch for "
+                f"tool_call_id {event.tool_call_id!r}"
+            )
+        return _ToolCallResult(events=[], is_duplicate=True)
+
+    # --- Register new pending call. ------------------------------------
+    pending = _PendingToolCall(
+        tool_name=event.part.tool_name,
+        args=args,
+        args_valid=args_valid,
+        started_at=monotonic(),
+    )
+    pending_tool_calls[event.tool_call_id] = pending
+    active_tool_spans[event.tool_call_id] = _start_tool_span(
+        run_id=run_id,
+        tool_call_id=event.tool_call_id,
+        tool_name=event.part.tool_name,
+        args_valid=args_valid,
+        session_id=session_id,
+    )
+
+    events: list[RunEvent] = [
+        ToolCallStartedEvent(
+            run_id=run_id,
+            tool_call_id=event.tool_call_id,
+            tool_name=event.part.tool_name,
+            args=args,
+            args_valid=args_valid,
+            activity=build_started_tool_activity(
+                tool_name=event.part.tool_name,
+                args=args,
+                args_valid=args_valid,
+            ),
+        ),
+    ]
+    events.extend(
+        _drain_buffered_tool_updates(
+            run_id=run_id,
+            pending_tool_call=pending,
+            tool_call_id=event.tool_call_id,
+            buffered_tool_updates=buffered_tool_updates,
+        )
+    )
+
+    # --- Malformed tool correction. ------------------------------------
+    malformed_message = _malformed_tool_correction_message(
+        tool_name=event.part.tool_name,
+        raw_args=event.part.args,
+        args_valid=args_valid,
+        available_tool_names=available_tool_names,
+    )
+    if malformed_message is None:
+        return _ToolCallResult(events=events)
+
+    pending_tool_call = pending_tool_calls.pop(event.tool_call_id)
+    completed_tool_calls[event.tool_call_id] = pending_tool_call.tool_name
+
+    if correction_attempts >= CANONICAL_AGENT_TOOL_CORRECTION_RETRIES:
+        exhausted_message = _tool_correction_exhausted_message(
+            pending_tool_call.tool_name
+        )
+        events.append(
+            ToolCallFailedEvent(
+                run_id=run_id,
+                tool_call_id=event.tool_call_id,
+                tool_name=pending_tool_call.tool_name,
+                error_type="RuntimeError",
+                message=exhausted_message,
+                activity=build_failed_tool_activity(
+                    tool_name=pending_tool_call.tool_name,
+                    args=pending_tool_call.args,
+                    args_valid=pending_tool_call.args_valid,
+                    message=exhausted_message,
+                    duration_ms=_duration_ms_since(
+                        pending_tool_call.started_at
+                    ),
+                ),
+            )
+        )
+        _finish_tool_span(
+            active_tool_spans=active_tool_spans,
+            tool_call_id=event.tool_call_id,
+            status="failed",
+            duration_ms=_duration_ms_since(pending_tool_call.started_at),
+            error_type="RuntimeError",
+            error_message=exhausted_message,
+        )
+        _set_span_attributes(
+            run_span,
+            {
+                "jaca.run.status": "failed",
+                "jaca.run.error_type": "RuntimeError",
+                "jaca.run.error_message": exhausted_message,
+            },
+        )
+        events.append(
+            RunFailedEvent(
+                run_id=run_id,
+                error_type="RuntimeError",
+                message=exhausted_message,
+            )
+        )
+        return _ToolCallResult(events=events, terminal=True)
+
+    retry_result = _tool_error_result(
+        error_type="RetryPromptPart",
+        message=malformed_message,
+    )
+    events.append(
+        ToolCallSucceededEvent(
+            run_id=run_id,
+            tool_call_id=event.tool_call_id,
+            tool_name=pending_tool_call.tool_name,
+            result=retry_result,
+            activity=build_succeeded_tool_activity(
+                tool_name=pending_tool_call.tool_name,
+                args=pending_tool_call.args,
+                args_valid=pending_tool_call.args_valid,
+                result=retry_result,
+                duration_ms=_duration_ms_since(
+                    pending_tool_call.started_at
+                ),
+            ),
+        )
+    )
+    _finish_tool_span(
+        active_tool_spans=active_tool_spans,
+        tool_call_id=event.tool_call_id,
+        status="succeeded",
+        duration_ms=_duration_ms_since(pending_tool_call.started_at),
+    )
+    raise _RestartRunWithCorrection(
+        malformed_message, pre_raise_events=events,
+    )
+
+
+def _process_tool_result_event(
+    *,
+    event: FunctionToolResultEvent,
+    run_id: str,
+    pending_tool_calls: dict[str, _PendingToolCall],
+    completed_tool_calls: dict[str, str],
+    active_tool_spans: dict[str, Any],
+) -> list[RunEvent]:
+    """Process a FunctionToolResultEvent, returning events to yield.
+
+    Mutates ``pending_tool_calls``, ``completed_tool_calls``, and
+    ``active_tool_spans`` in place.  May raise
+    ``_RestartRunWithCorrection`` for RetryPromptPart results.
+    """
+    if isinstance(event.result, RetryPromptPart):
+        pending_tool_call = _resolve_pending_tool_call(
+            pending_tool_calls=pending_tool_calls,
+            tool_call_id=event.tool_call_id,
+            result_tool_name=event.result.tool_name,
+        )
+        completed_tool_calls[
+            event.tool_call_id
+        ] = pending_tool_call.tool_name
+        retry_message = _retry_prompt_message(event.result)
+        retry_result = _tool_error_result(
+            error_type="RetryPromptPart",
+            message=retry_message,
+        )
+        pre_events: list[RunEvent] = [
+            ToolCallSucceededEvent(
+                run_id=run_id,
+                tool_call_id=event.tool_call_id,
+                tool_name=pending_tool_call.tool_name,
+                result=retry_result,
+                activity=build_succeeded_tool_activity(
+                    tool_name=pending_tool_call.tool_name,
+                    args=pending_tool_call.args,
+                    args_valid=pending_tool_call.args_valid,
+                    result=retry_result,
+                    duration_ms=_duration_ms_since(
+                        pending_tool_call.started_at
+                    ),
+                ),
+            )
+        ]
+        _finish_tool_span(
+            active_tool_spans=active_tool_spans,
+            tool_call_id=event.tool_call_id,
+            status="succeeded",
+            duration_ms=_duration_ms_since(pending_tool_call.started_at),
+        )
+        raise _RestartRunWithCorrection(
+            retry_message, pre_raise_events=pre_events,
+        )
+
+    # --- Normal tool result. -------------------------------------------
+    pending_tool_call = _resolve_pending_tool_call(
+        pending_tool_calls=pending_tool_calls,
+        tool_call_id=event.tool_call_id,
+        result_tool_name=event.result.tool_name,
+    )
+    completed_tool_calls[event.tool_call_id] = pending_tool_call.tool_name
+    result = _normalize_json_value(event.result.content)
+    result_metadata = getattr(event.result, "metadata", None)
+    events = [
+        ToolCallSucceededEvent(
+            run_id=run_id,
+            tool_call_id=event.tool_call_id,
+            tool_name=pending_tool_call.tool_name,
+            result=result,
+            activity=build_succeeded_tool_activity(
+                tool_name=pending_tool_call.tool_name,
+                args=pending_tool_call.args,
+                args_valid=pending_tool_call.args_valid,
+                result=result,
+                result_metadata=result_metadata,
+                duration_ms=_duration_ms_since(
+                    pending_tool_call.started_at
+                ),
+            ),
+        )
+    ]
+    _finish_tool_span(
+        active_tool_spans=active_tool_spans,
+        tool_call_id=event.tool_call_id,
+        status="succeeded",
+        duration_ms=_duration_ms_since(pending_tool_call.started_at),
+    )
+    return events
+
+
+@dataclass
+class _InRunCompactionOutcome:
+    """Result of attempting in-run compaction."""
+
+    succeeded: bool
+    new_message_history: list[ModelMessage] | None = None
+    new_carried_messages: list[ModelMessage] | None = None
+    new_synthetic_prompt_counts: dict[str, int] | None = None
+    new_prompt: str | None = None
+    event: InRunCompactionCompletedEvent | None = None
+
+
+def _attempt_in_run_compaction(
+    *,
+    run_id: str,
+    live_messages: list[ModelMessage],
+    synthetic_prompt_counts: dict[str, int],
+    agent: Any,
+    deps: WorkspaceDeps | None,
+    thinking: ThinkingSetting | None,
+    in_run_compact_failures: int,
+    active_tool_spans: dict[str, Any],
+) -> _InRunCompactionOutcome:
+    """Try to compact the live message history mid-run.
+
+    Returns an outcome indicating success or failure. On failure the
+    caller should increment ``in_run_compact_failures`` and continue.
+    On success the caller should apply the new state and yield the
+    event.
+    """
+    try:
+        compact_model = getattr(agent, "model", None)
+        replacement_tail = build_in_run_truncated_history(
+            messages=live_messages,
+            model=compact_model,
+            token_budget=SESSION_AUTO_COMPACTION_RETAINED_TAIL_TOKENS,
+            synthetic_prompt_counts=synthetic_prompt_counts,
+        )
+        initial_context: list[ModelMessage] = []
+        if isinstance(deps, WorkspaceDeps):
+            run_frame = deps.run_frame
+            prompt_context = build_prompt_context_layers(
+                model=compact_model,
+                workspace_root=deps.workspace_root,
+                shell_family=deps.shell_family,
+                current_date=(
+                    run_frame.current_date if run_frame else None
+                ),
+                timezone=(
+                    run_frame.timezone if run_frame else None
+                ),
+                thinking=(
+                    run_frame.thinking if run_frame else thinking
+                ),
+            )
+            initial_context = [
+                *prompt_context.before_history_messages,
+            ]
+        replacement = [*initial_context, *replacement_tail]
+    except Exception:
+        logger.warning(
+            "In-run compaction failed: run_id=%s attempt=%s",
+            run_id,
+            in_run_compact_failures + 1,
+            exc_info=True,
+        )
+        return _InRunCompactionOutcome(succeeded=False)
+
+    new_history = replacement
+    new_synth = reconcile_synthetic_prompt_counts(
+        synthetic_prompt_counts, new_history
+    )
+    new_carried = list(new_history)
+    new_prompt = IN_RUN_COMPACTION_CONTINUATION_PROMPT
+    new_synth[IN_RUN_COMPACTION_CONTINUATION_PROMPT] = (
+        new_synth.get(IN_RUN_COMPACTION_CONTINUATION_PROMPT, 0) + 1
+    )
+    _finish_all_tool_spans(
+        active_tool_spans=active_tool_spans,
+        status="aborted",
+        error_type="InRunCompactionCompletedEvent",
+        error_message="In-run compaction restarted the run",
+    )
+    logger.info(
+        "In-run compaction completed: run_id=%s "
+        "live_messages=%d replacement_messages=%d",
+        run_id,
+        len(live_messages),
+        len(replacement),
+    )
+    return _InRunCompactionOutcome(
+        succeeded=True,
+        new_message_history=new_history,
+        new_carried_messages=new_carried,
+        new_synthetic_prompt_counts=new_synth,
+        new_prompt=new_prompt,
+        event=InRunCompactionCompletedEvent(
+            run_id=run_id,
+            live_message_count=len(live_messages),
+            replacement_message_count=len(replacement),
+        ),
+    )
 
 
 async def _stream_run_events(
@@ -666,297 +883,57 @@ async def _stream_run_events(
                                                     if isinstance(
                                                         event, FunctionToolCallEvent
                                                     ):
-                                                        normalized_args = (
-                                                            _normalize_tool_args(
-                                                            event.part.args,
-                                                            args_valid=event.args_valid,
+                                                        try:
+                                                            tcr = _process_tool_call_event(
+                                                                event=event,
+                                                                run_id=run_id,
+                                                                session_id=session_id,
+                                                                pending_tool_calls=pending_tool_calls,
+                                                                buffered_tool_updates=buffered_tool_updates,
+                                                                completed_tool_calls=completed_tool_calls,
+                                                                active_tool_spans=active_tool_spans,
+                                                                available_tool_names=available_tool_names,
+                                                                correction_attempts=correction_attempts,
+                                                                run_span=run_span,
                                                             )
-                                                        )
-                                                        args = normalized_args.args
-                                                        args_valid = (
-                                                            normalized_args.args_valid
-                                                        )
-                                                        existing_tool_call = (
-                                                            pending_tool_calls.get(
-                                                                event.tool_call_id
-                                                            )
-                                                        )
-                                                        if existing_tool_call is not None:
-                                                            if (
-                                                                existing_tool_call.tool_name
-                                                                != event.part.tool_name
-                                                                or existing_tool_call.args
-                                                                != args
-                                                            ):
-                                                                raise RuntimeError(
-                                                                    "Duplicate tool call "
-                                                                    "mismatch for "
-                                                                    "tool_call_id "
-                                                                    f"{event.tool_call_id!r}"
-                                                                )
+                                                        except _RestartRunWithCorrection as exc:
+                                                            for ev in exc.pre_raise_events:
+                                                                yield ev
+                                                            raise
+                                                        for ev in tcr.events:
+                                                            yield ev
+                                                        if tcr.terminal:
+                                                            return
+                                                        if tcr.is_duplicate:
                                                             stream_task = (
                                                                 asyncio.create_task(
-                                                                    anext(
-                                                                        stream_iterator
-                                                                    )
+                                                                    anext(stream_iterator)
                                                                 )
                                                             )
                                                             continue
-                                                        pending_tool_calls[
-                                                            event.tool_call_id
-                                                        ] = _PendingToolCall(
-                                                            tool_name=event.part.tool_name,
-                                                            args=args,
-                                                            args_valid=args_valid,
-                                                            started_at=monotonic(),
-                                                        )
-                                                        active_tool_spans[
-                                                            event.tool_call_id
-                                                        ] = _start_tool_span(
-                                                            run_id=run_id,
-                                                            tool_call_id=event.tool_call_id,
-                                                            tool_name=event.part.tool_name,
-                                                            args_valid=args_valid,
-                                                            session_id=session_id,
-                                                        )
-                                                        yield ToolCallStartedEvent(
-                                                            run_id=run_id,
-                                                            tool_call_id=event.tool_call_id,
-                                                            tool_name=event.part.tool_name,
-                                                            args=args,
-                                                            args_valid=args_valid,
-                                                            activity=build_started_tool_activity(
-                                                                tool_name=event.part.tool_name,
-                                                                args=args,
-                                                                args_valid=args_valid,
-                                                            ),
-                                                        )
-                                                        updates = (
-                                                            _drain_buffered_tool_updates(
-                                                                run_id=run_id,
-                                                                pending_tool_call=(
-                                                                    pending_tool_calls[
-                                                                        event.tool_call_id
-                                                                    ]
-                                                                ),
-                                                                tool_call_id=event.tool_call_id,
-                                                                buffered_tool_updates=buffered_tool_updates,
-                                                            )
-                                                        )
-                                                        for update in updates:
-                                                            yield update
-                                                        malformed_message = (
-                                                            _malformed_tool_correction_message(
-                                                                tool_name=event.part.tool_name,
-                                                                raw_args=event.part.args,
-                                                                args_valid=args_valid,
-                                                                available_tool_names=available_tool_names,
-                                                            )
-                                                        )
-                                                        if malformed_message is not None:
-                                                            pending_tool_call = (
-                                                                pending_tool_calls.pop(
-                                                                    event.tool_call_id
-                                                                )
-                                                            )
-                                                            completed_tool_calls[
-                                                                event.tool_call_id
-                                                            ] = pending_tool_call.tool_name
-                                                            if correction_attempts >= (
-                                                                CANONICAL_AGENT_TOOL_CORRECTION_RETRIES
-                                                            ):
-                                                                exhausted_message = (
-                                                                    _tool_correction_exhausted_message(
-                                                                        pending_tool_call.tool_name
-                                                                    )
-                                                                )
-                                                                yield ToolCallFailedEvent(
-                                                                    run_id=run_id,
-                                                                    tool_call_id=event.tool_call_id,
-                                                                    tool_name=pending_tool_call.tool_name,
-                                                                    error_type="RuntimeError",
-                                                                    message=exhausted_message,
-                                                                    activity=build_failed_tool_activity(
-                                                                        tool_name=pending_tool_call.tool_name,
-                                                                        args=pending_tool_call.args,
-                                                                        args_valid=pending_tool_call.args_valid,
-                                                                        message=exhausted_message,
-                                                                        duration_ms=_duration_ms_since(
-                                                                            pending_tool_call.started_at
-                                                                        ),
-                                                                    ),
-                                                                )
-                                                                _finish_tool_span(
-                                                                    active_tool_spans=active_tool_spans,
-                                                                    tool_call_id=event.tool_call_id,
-                                                                    status="failed",
-                                                                    duration_ms=_duration_ms_since(
-                                                                        pending_tool_call.started_at
-                                                                    ),
-                                                                    error_type="RuntimeError",
-                                                                    error_message=exhausted_message,
-                                                                )
-                                                                _set_span_attributes(
-                                                                    run_span,
-                                                                    {
-                                                                        "jaca.run.status": "failed",
-                                                                        "jaca.run.error_type": "RuntimeError",
-                                                                        "jaca.run.error_message": exhausted_message,
-                                                                    },
-                                                                )
-                                                                yield RunFailedEvent(
-                                                                    run_id=run_id,
-                                                                    error_type="RuntimeError",
-                                                                    message=exhausted_message,
-                                                                )
-                                                                return
-                                                            retry_result = (
-                                                                _tool_error_result(
-                                                                error_type="RetryPromptPart",
-                                                                message=malformed_message,
-                                                                )
-                                                            )
-                                                            yield ToolCallSucceededEvent(
-                                                                run_id=run_id,
-                                                                tool_call_id=event.tool_call_id,
-                                                                tool_name=pending_tool_call.tool_name,
-                                                                result=retry_result,
-                                                                activity=build_succeeded_tool_activity(
-                                                                    tool_name=pending_tool_call.tool_name,
-                                                                    args=pending_tool_call.args,
-                                                                    args_valid=pending_tool_call.args_valid,
-                                                                    result=retry_result,
-                                                                    duration_ms=_duration_ms_since(
-                                                                        pending_tool_call.started_at
-                                                                    ),
-                                                                ),
-                                                            )
-                                                            _finish_tool_span(
-                                                                active_tool_spans=active_tool_spans,
-                                                                tool_call_id=event.tool_call_id,
-                                                                status="succeeded",
-                                                                duration_ms=_duration_ms_since(
-                                                                    pending_tool_call.started_at
-                                                                ),
-                                                            )
-                                                            raise _RestartRunWithCorrection(
-                                                                malformed_message
-                                                            )
                                                         stream_task = asyncio.create_task(
                                                             anext(stream_iterator)
                                                         )
                                                         continue
-    
+
                                                     if isinstance(
                                                         event, FunctionToolResultEvent
                                                     ):
-                                                        if isinstance(
-                                                            event.result, RetryPromptPart
-                                                        ):
-                                                            # Defensive only:
-                                                            # malformed tool correction
-                                                            # is runtime-owned now, but
-                                                            # keep honoring an unexpected
-                                                            # RetryPromptPart if one
-                                                            # still surfaces from the
-                                                            # framework.
-                                                            pending_tool_call = (
-                                                                _resolve_pending_tool_call(
-                                                                    pending_tool_calls=(
-                                                                        pending_tool_calls
-                                                                    ),
-                                                                    tool_call_id=event.tool_call_id,
-                                                                    result_tool_name=(
-                                                                        event.result.tool_name
-                                                                    ),
-                                                                )
-                                                            )
-                                                            completed_tool_calls[
-                                                                event.tool_call_id
-                                                            ] = pending_tool_call.tool_name
-                                                            retry_message = (
-                                                                _retry_prompt_message(
-                                                                    event.result
-                                                                )
-                                                            )
-                                                            retry_result = (
-                                                                _tool_error_result(
-                                                                error_type="RetryPromptPart",
-                                                                message=retry_message,
-                                                                )
-                                                            )
-                                                            yield ToolCallSucceededEvent(
+                                                        try:
+                                                            result_events = _process_tool_result_event(
+                                                                event=event,
                                                                 run_id=run_id,
-                                                                tool_call_id=event.tool_call_id,
-                                                                tool_name=pending_tool_call.tool_name,
-                                                                result=retry_result,
-                                                                activity=build_succeeded_tool_activity(
-                                                                    tool_name=pending_tool_call.tool_name,
-                                                                    args=pending_tool_call.args,
-                                                                    args_valid=pending_tool_call.args_valid,
-                                                                    result=retry_result,
-                                                                    duration_ms=_duration_ms_since(
-                                                                        pending_tool_call.started_at
-                                                                    ),
-                                                                ),
-                                                            )
-                                                            _finish_tool_span(
+                                                                pending_tool_calls=pending_tool_calls,
+                                                                completed_tool_calls=completed_tool_calls,
                                                                 active_tool_spans=active_tool_spans,
-                                                                tool_call_id=event.tool_call_id,
-                                                                status="succeeded",
-                                                                duration_ms=_duration_ms_since(
-                                                                    pending_tool_call.started_at
-                                                                ),
                                                             )
+                                                        except _RestartRunWithCorrection as exc:
+                                                            for ev in exc.pre_raise_events:
+                                                                yield ev
                                                             await _submit_if_ready()
-                                                            raise _RestartRunWithCorrection(
-                                                                retry_message
-                                                            )
-    
-                                                        pending_tool_call = (
-                                                            _resolve_pending_tool_call(
-                                                                pending_tool_calls=(
-                                                                    pending_tool_calls
-                                                                ),
-                                                                tool_call_id=event.tool_call_id,
-                                                                result_tool_name=(
-                                                                    event.result.tool_name
-                                                                ),
-                                                            )
-                                                        )
-                                                        completed_tool_calls[
-                                                            event.tool_call_id
-                                                        ] = pending_tool_call.tool_name
-                                                        result = _normalize_json_value(
-                                                            event.result.content
-                                                        )
-                                                        result_metadata = getattr(
-                                                            event.result, "metadata", None
-                                                        )
-                                                        yield ToolCallSucceededEvent(
-                                                            run_id=run_id,
-                                                            tool_call_id=event.tool_call_id,
-                                                            tool_name=pending_tool_call.tool_name,
-                                                            result=result,
-                                                            activity=build_succeeded_tool_activity(
-                                                                tool_name=pending_tool_call.tool_name,
-                                                                args=pending_tool_call.args,
-                                                                args_valid=pending_tool_call.args_valid,
-                                                                result=result,
-                                                                result_metadata=result_metadata,
-                                                                duration_ms=_duration_ms_since(
-                                                                    pending_tool_call.started_at
-                                                                ),
-                                                            ),
-                                                        )
-                                                        _finish_tool_span(
-                                                            active_tool_spans=active_tool_spans,
-                                                            tool_call_id=event.tool_call_id,
-                                                            status="succeeded",
-                                                            duration_ms=_duration_ms_since(
-                                                                pending_tool_call.started_at
-                                                            ),
-                                                        )
+                                                            raise
+                                                        for ev in result_events:
+                                                            yield ev
                                                         await _submit_if_ready()
                                                     stream_task = asyncio.create_task(
                                                         anext(stream_iterator)
@@ -1070,90 +1047,34 @@ async def _stream_run_events(
                         *current_message_history,
                         *list(captured_messages)[attempt_history_count:],
                     ]
-                    try:
-                        compact_model = getattr(agent, "model", None)
-                        replacement_tail = build_in_run_truncated_history(
-                            messages=live_messages,
-                            model=compact_model,
-                            token_budget=SESSION_AUTO_COMPACTION_RETAINED_TAIL_TOKENS,
-                            synthetic_prompt_counts=synthetic_prompt_counts,
-                        )
-                        initial_context: list[ModelMessage] = []
-                        if isinstance(deps, WorkspaceDeps):
-                            run_frame = deps.run_frame
-                            prompt_context = build_prompt_context_layers(
-                                model=compact_model,
-                                workspace_root=deps.workspace_root,
-                                shell_family=deps.shell_family,
-                                current_date=(
-                                    run_frame.current_date if run_frame else None
-                                ),
-                                timezone=(
-                                    run_frame.timezone if run_frame else None
-                                ),
-                                thinking=(
-                                    run_frame.thinking if run_frame else thinking
-                                ),
-                            )
-                            initial_context = [
-                                *prompt_context.before_history_messages,
-                            ]
-                        replacement = [*initial_context, *replacement_tail]
-                    except Exception:
-                        logger.warning(
-                            "In-run compaction failed: run_id=%s attempt=%s",
-                            run_id,
-                            in_run_compact_failures + 1,
-                            exc_info=True,
-                        )
+                    outcome = _attempt_in_run_compaction(
+                        run_id=run_id,
+                        live_messages=live_messages,
+                        synthetic_prompt_counts=synthetic_prompt_counts,
+                        agent=agent,
+                        deps=deps,
+                        thinking=thinking,
+                        in_run_compact_failures=in_run_compact_failures,
+                        active_tool_spans=active_tool_spans,
+                    )
+                    if not outcome.succeeded:
                         in_run_compact_failures += 1
                         compaction_restarting = True
                         continue
-    
-                    current_message_history = replacement
-                    # After truncation, some synthetic prompts may no longer be
-                    # present in the new history. Drop their stale counts so a
-                    # later real user prompt with the same text is not
-                    # misclassified as synthetic.
-                    synthetic_prompt_counts = reconcile_synthetic_prompt_counts(
-                        synthetic_prompt_counts, current_message_history
-                    )
-                    # Preserve the invariant carried_messages == current_message_history
-                    # that the terminal sink relies on. result.new_messages() from
-                    # the next agent.iter() only returns messages created *within*
-                    # that iter, not the passed message_history, so carried_messages
-                    # must hold the compacted history for the sink output to be
-                    # complete.
-                    carried_messages[:] = list(current_message_history)
-                    current_prompt = IN_RUN_COMPACTION_CONTINUATION_PROMPT
-                    synthetic_prompt_counts[IN_RUN_COMPACTION_CONTINUATION_PROMPT] = (
-                        synthetic_prompt_counts.get(
-                            IN_RUN_COMPACTION_CONTINUATION_PROMPT, 0
-                        )
-                        + 1
-                    )
-                    _finish_all_tool_spans(
-                        active_tool_spans=active_tool_spans,
-                        status="aborted",
-                        error_type="InRunCompactionCompletedEvent",
-                        error_message="In-run compaction restarted the run",
-                    )
+                    assert outcome.new_message_history is not None
+                    assert outcome.new_synthetic_prompt_counts is not None
+                    assert outcome.new_carried_messages is not None
+                    assert outcome.new_prompt is not None
+                    assert outcome.event is not None
+                    current_message_history = outcome.new_message_history
+                    synthetic_prompt_counts = outcome.new_synthetic_prompt_counts
+                    carried_messages[:] = outcome.new_carried_messages
+                    current_prompt = outcome.new_prompt
                     pending_tool_calls.clear()
                     completed_tool_calls.clear()
                     recovery_attempts = 0
                     last_response_usage = None
-                    logger.info(
-                        "In-run compaction completed: run_id=%s "
-                        "live_messages=%d replacement_messages=%d",
-                        run_id,
-                        len(live_messages),
-                        len(replacement),
-                    )
-                    yield InRunCompactionCompletedEvent(
-                        run_id=run_id,
-                        live_message_count=len(live_messages),
-                        replacement_message_count=len(replacement),
-                    )
+                    yield outcome.event
                     compaction_restarting = True
                     continue
     

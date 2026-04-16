@@ -51,7 +51,7 @@ def test_compaction_public_api_is_split_across_submodules() -> None:
         session_summary.summarize_and_append_compaction_to_session
         is summarize_and_append_compaction_to_session
     )
-    assert session_summary.should_auto_compact_session is should_auto_compact_session
+    assert trigger.should_auto_compact_session is should_auto_compact_session
 
 
 def test_summarize_compaction_source_is_exported_through_package() -> None:
@@ -81,8 +81,8 @@ async def test_summarize_session_delegates_through_summarize_compaction_source(
     )
 
     monkeypatch.setattr(
-        session_summary,
-        "_build_compaction_source",
+        session_summary.source_builder_module,
+        "build_compaction_source",
         lambda loaded, *, model: "fake source text",
     )
 

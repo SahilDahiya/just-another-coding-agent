@@ -43,6 +43,9 @@ from just_another_coding_agent.runtime.compaction import (
     session_summary as session_summary_module,
 )
 from just_another_coding_agent.runtime.compaction import (
+    source_builder as source_builder_module,
+)
+from just_another_coding_agent.runtime.compaction import (
     trigger as trigger_module,
 )
 from just_another_coding_agent.runtime.project_docs import (
@@ -1886,7 +1889,7 @@ def test_session_compaction_source_trims_oldest_runs_and_uses_previous_summary(
         )
 
     loaded = load_session(path=session_path, workspace_root=workspace_root)
-    source = session_summary_module._build_bounded_compaction_source(
+    source = source_builder_module._build_bounded_compaction_source(
         loaded,
         max_chars=360,
     )
@@ -1922,7 +1925,7 @@ def test_session_compaction_source_fails_when_source_cannot_fit(
         SessionFormatError,
         match="Compaction source does not fit within the active model context window",
     ):
-        session_summary_module._build_bounded_compaction_source(
+        source_builder_module._build_bounded_compaction_source(
             loaded,
             max_chars=10,
         )

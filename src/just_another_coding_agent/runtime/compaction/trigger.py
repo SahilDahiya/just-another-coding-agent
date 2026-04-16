@@ -70,10 +70,10 @@ def should_auto_compact_session(
     current_date: date | None = None,
     shell_family: ShellFamily | None = None,
     thinking: ThinkingSetting | None = None,
-    get_context_window_tokens: Callable[[Any], int | None] = (
-        get_model_context_window_tokens
-    ),
+    get_context_window_tokens: Callable[[Any], int | None] | None = None,
 ) -> bool:
+    if get_context_window_tokens is None:
+        get_context_window_tokens = get_model_context_window_tokens
     return build_auto_compact_session_budget_report(
         loaded_session,
         model=model,
@@ -93,10 +93,10 @@ def build_auto_compact_session_budget_report(
     current_date: date | None = None,
     shell_family: ShellFamily | None = None,
     thinking: ThinkingSetting | None = None,
-    get_context_window_tokens: Callable[[Any], int | None] = (
-        get_model_context_window_tokens
-    ),
+    get_context_window_tokens: Callable[[Any], int | None] | None = None,
 ) -> CompactionBudgetReport:
+    if get_context_window_tokens is None:
+        get_context_window_tokens = get_model_context_window_tokens
     runs_since_compaction = runs_since_latest_compaction(loaded_session)
     budget_estimate = _estimate_resume_history_budget_components(
         loaded_session,

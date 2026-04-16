@@ -1,3 +1,11 @@
+"""Fast token estimation using a chars-per-token heuristic.
+
+Provides O(1) cost estimates suitable for budget checks in compaction
+triggers and replacement-history sizing.  For accurate token counts
+(e.g. precise compaction threshold decisions), use
+``runtime.compaction.token_counting`` instead.
+"""
+
 from __future__ import annotations
 
 import json
