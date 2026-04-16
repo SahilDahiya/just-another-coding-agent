@@ -48,6 +48,11 @@ def configure_observability() -> None:
                 "Run `logfire auth` and `logfire projects use "
                 "<project>` or set `LOGFIRE_TOKEN`."
             )
+        # Scrubbing is disabled so trace attributes are sent exactly as
+        # emitted.  Any new span attribute must NOT carry secrets (API keys,
+        # tokens, passwords).  See _start_run_span / _start_model_request_span
+        # / _start_tool_span in runtime/run.py and _trace_exec_prompt_run in
+        # evaluations/bench/exec_prompt.py for the current attribute surface.
         logfire.configure(
             send_to_logfire=True,
             console=False,
@@ -125,8 +130,8 @@ def use_inherited_trace_context() -> Iterator[None]:
 def get_tracer(name: str) -> Any | None:
     if trace_mode() == "off":
         return None
-    get_tracer = _import_otel_trace_get_tracer()
-    return get_tracer(name)
+    otel_get_tracer = _import_otel_trace_get_tracer()
+    return otel_get_tracer(name)
 
 
 def _import_logfire() -> Any:
