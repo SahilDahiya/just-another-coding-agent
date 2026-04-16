@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Mapping
 from pathlib import Path
 
 from just_another_coding_agent.contracts.model_catalog import default_model_for_provider
@@ -31,9 +32,14 @@ def apply_config_to_env(config: dict[str, str]) -> None:
             os.environ[key] = config[key]
 
 
+def _has_explicit_trace_mode(env: Mapping[str, str]) -> bool:
+    return env.get("JACA_TRACE_MODE", "").strip() != ""
+
+
 def apply_trace_mode_to_env(config: dict[str, str]) -> None:
-    if "JACA_TRACE_MODE" in os.environ:
+    if _has_explicit_trace_mode(os.environ):
         return
+    os.environ.pop("JACA_TRACE_MODE", None)
     trace_mode = config.get("trace_mode", "").strip().lower()
     if trace_mode == "":
         return

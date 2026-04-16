@@ -73,10 +73,11 @@ Rules:
   tool path in this repo is the Responses API.
 - The shipped provider surface currently includes only `openai` and
   `anthropic`. Subscription-backed OAuth model lanes such as
-  `openai-responses:gpt-5-codex`,
+  `openai-responses:gpt-5.1-chatgpt`,
   `openai-responses:gpt-5.4-chatgpt`, and
   `openai-responses:gpt-5.4-mini-chatgpt` remain backend-owned model ids under
-  the `openai` provider catalog.
+  the `openai` provider catalog, while older pre-5.1 GPT-5 subscription lanes
+  are removed and must fail fast if referenced.
 - Auth status and local secret-store shapes are backend-owned contract types in
   `contracts/auth.py`; runtime auth code and RPC models both import those
   shared contract models rather than defining or mirroring them locally.

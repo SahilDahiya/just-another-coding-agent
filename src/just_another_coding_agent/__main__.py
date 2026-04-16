@@ -15,6 +15,7 @@ from typing import Callable, TextIO
 
 from just_another_coding_agent._pdeathsig import set_pdeathsig_in_child
 from just_another_coding_agent.config import (
+    _has_explicit_trace_mode,
     apply_config_to_env,
     apply_trace_mode_to_env,
     load_config,
@@ -706,18 +707,20 @@ def _build_subprocess_env(config: dict[str, str]) -> dict[str, str]:
     env = os.environ.copy()
     if "OPENAI_BASE_URL" in config and "OPENAI_BASE_URL" not in env:
         env["OPENAI_BASE_URL"] = config["OPENAI_BASE_URL"]
-    if "JACA_TRACE_MODE" not in env:
-        trace_mode = config.get("trace_mode", "").strip().lower()
-        if trace_mode == "":
-            return env
-        if trace_mode == "off":
-            env.pop("JACA_TRACE_MODE", None)
-        elif trace_mode in {"local", "logfire"}:
-            env["JACA_TRACE_MODE"] = trace_mode
-        else:
-            raise RuntimeError(
-                "Invalid trace_mode in ~/.jaca/config.json: expected off, local, or logfire"
-            )
+    if _has_explicit_trace_mode(env):
+        return env
+    env.pop("JACA_TRACE_MODE", None)
+    trace_mode = config.get("trace_mode", "").strip().lower()
+    if trace_mode == "":
+        return env
+    if trace_mode == "off":
+        env.pop("JACA_TRACE_MODE", None)
+    elif trace_mode in {"local", "logfire"}:
+        env["JACA_TRACE_MODE"] = trace_mode
+    else:
+        raise RuntimeError(
+            "Invalid trace_mode in ~/.jaca/config.json: expected off, local, or logfire"
+        )
     return env
 
 

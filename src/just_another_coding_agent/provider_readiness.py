@@ -8,7 +8,10 @@ from just_another_coding_agent.contracts.auth import (
     AuthSource,
     ProviderAuthStatus,
 )
-from just_another_coding_agent.contracts.model_catalog import ProviderName
+from just_another_coding_agent.contracts.model_catalog import (
+    ProviderName,
+    is_removed_legacy_openai_model_id,
+)
 from just_another_coding_agent.oauth_store import (
     get_openai_codex_credentials,
 )
@@ -62,6 +65,8 @@ def compute_provider_readiness(
 
 
 def compute_model_readiness(model_id: str) -> ProviderAuthStatus:
+    if is_removed_legacy_openai_model_id(model_id):
+        raise ValueError(f"unsupported model id: {model_id}")
     provider = _provider_for_model(model_id)
     if provider is None:
         raise ValueError(f"unsupported model id: {model_id}")

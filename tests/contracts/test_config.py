@@ -24,6 +24,24 @@ def test_apply_trace_mode_to_env_uses_config_when_env_missing(monkeypatch) -> No
     assert os.environ["JACA_TRACE_MODE"] == "logfire"
 
 
+def test_apply_trace_mode_to_env_treats_blank_env_as_unset(monkeypatch) -> None:
+    monkeypatch.setenv("JACA_TRACE_MODE", "")
+
+    apply_trace_mode_to_env({"trace_mode": "logfire"})
+
+    assert os.environ["JACA_TRACE_MODE"] == "logfire"
+
+
+def test_apply_trace_mode_to_env_allows_config_off_when_env_is_blank(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("JACA_TRACE_MODE", "")
+
+    apply_trace_mode_to_env({"trace_mode": "off"})
+
+    assert "JACA_TRACE_MODE" not in os.environ
+
+
 def test_build_subprocess_env_preserves_explicit_trace_mode(monkeypatch) -> None:
     monkeypatch.setenv("JACA_TRACE_MODE", "logfire")
 
@@ -40,3 +58,23 @@ def test_build_subprocess_env_uses_config_trace_mode_when_env_missing(
     env = _build_subprocess_env({"trace_mode": "logfire"})
 
     assert env["JACA_TRACE_MODE"] == "logfire"
+
+
+def test_build_subprocess_env_treats_blank_trace_mode_env_as_unset(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("JACA_TRACE_MODE", "")
+
+    env = _build_subprocess_env({"trace_mode": "logfire"})
+
+    assert env["JACA_TRACE_MODE"] == "logfire"
+
+
+def test_build_subprocess_env_allows_config_off_when_env_is_blank(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("JACA_TRACE_MODE", "")
+
+    env = _build_subprocess_env({"trace_mode": "off"})
+
+    assert "JACA_TRACE_MODE" not in env
