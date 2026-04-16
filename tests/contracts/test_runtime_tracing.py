@@ -8,8 +8,10 @@ from pydantic_ai import Agent
 from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 from pydantic_ai.models.instrumented import InstrumentationSettings, InstrumentedModel
 
-from just_another_coding_agent.runtime import stream_run_events
-from just_another_coding_agent.runtime import stream_session_run_events
+from just_another_coding_agent.runtime import (
+    stream_run_events,
+    stream_session_run_events,
+)
 from just_another_coding_agent.tools.deps import RunSessionScope, WorkspaceDeps
 
 AGENT_NAME_ATTRIBUTE = "gen_ai.agent.name"
@@ -235,9 +237,7 @@ async def test_stream_run_events_emits_jaca_run_model_and_tool_spans(
     ]
 
     run_spans = [span for span in tracer.spans if span.name == "jaca.run"]
-    model_spans = [
-        span for span in tracer.spans if span.name == "jaca.model_request"
-    ]
+    model_spans = [span for span in tracer.spans if span.name == "jaca.model_request"]
     tool_spans = [span for span in tracer.spans if span.name == "jaca.tool"]
 
     assert len(run_spans) == 1

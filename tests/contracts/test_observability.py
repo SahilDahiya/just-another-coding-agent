@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import json
 import sys
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from contextlib import contextmanager
 from types import SimpleNamespace
 
 import pytest
@@ -154,7 +154,9 @@ def test_export_trace_context_env_uses_logfire_context_in_logfire_mode(
         "logfire",
         SimpleNamespace(
             get_context=lambda: {
-                "traceparent": "00-11111111111111111111111111111111-2222222222222222-01",
+                "traceparent": (
+                    "00-11111111111111111111111111111111-2222222222222222-01"
+                ),
                 "tracestate": "vendor=value",
             }
         ),
@@ -215,7 +217,9 @@ def test_use_inherited_trace_context_uses_logfire_attach_context_in_logfire_mode
         {
             "type": "enter",
             "carrier": {
-                "traceparent": "00-11111111111111111111111111111111-2222222222222222-01",
+                "traceparent": (
+                    "00-11111111111111111111111111111111-2222222222222222-01"
+                ),
                 "tracestate": "vendor=value",
             },
         },

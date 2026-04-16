@@ -522,7 +522,9 @@ def _run_headless(
             asyncio.run(
                 serve_rpc_stdio(
                     input_stream=sys.stdin if input_stream is None else input_stream,
-                    output_stream=sys.stdout if output_stream is None else output_stream,
+                    output_stream=sys.stdout
+                    if output_stream is None
+                    else output_stream,
                     model=model,
                     workspace_root=workspace_root,
                     sessions_root=sessions_root,

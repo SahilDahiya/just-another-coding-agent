@@ -515,7 +515,11 @@ def test_run_exec_prompt_emits_logfire_task_span_and_flushes(
     monkeypatch.setattr(
         "evaluations.bench.exec_prompt.export_trace_context_env",
         lambda: (
-            {"JACA_TRACEPARENT": "00-1234567890abcdef1234567890abcdef-1234567890abcdef-01"}
+            {
+                "JACA_TRACEPARENT": (
+                    "00-1234567890abcdef1234567890abcdef-1234567890abcdef-01"
+                )
+            }
             if current_span_stack == ["jaca.exec_prompt"]
             else pytest.fail("wrapper span was not current during trace export")
         ),
@@ -536,7 +540,9 @@ def test_run_exec_prompt_emits_logfire_task_span_and_flushes(
     span = span_enter["span"]
     assert isinstance(span, _FakeTracerSpan)
     assert span.name == "jaca.exec_prompt"
-    assert span.attributes["jaca.exec_prompt.model"] == "openai-responses:gpt-5.4-chatgpt"
+    assert (
+        span.attributes["jaca.exec_prompt.model"] == "openai-responses:gpt-5.4-chatgpt"
+    )
     assert span.attributes["jaca.exec_prompt.thinking"] == "high"
     assert span.attributes["jaca.exec_prompt.prompt_preview"] == "solve it"
     assert span.attributes["jaca.exec_prompt.env.jaca_harbor_job_name"] == "job-123"
@@ -578,7 +584,11 @@ def test_run_exec_prompt_marks_logfire_task_span_failed_on_error(
     monkeypatch.setattr(
         "evaluations.bench.exec_prompt.export_trace_context_env",
         lambda: (
-            {"JACA_TRACEPARENT": "00-1234567890abcdef1234567890abcdef-1234567890abcdef-01"}
+            {
+                "JACA_TRACEPARENT": (
+                    "00-1234567890abcdef1234567890abcdef-1234567890abcdef-01"
+                )
+            }
             if current_span_stack == ["jaca.exec_prompt"]
             else pytest.fail("wrapper span was not current during trace export")
         ),
@@ -662,7 +672,9 @@ def test_run_exec_prompt_forwards_trace_context_to_backend(
     monkeypatch.setattr(
         "evaluations.bench.exec_prompt.export_trace_context_env",
         lambda: {
-            "JACA_TRACEPARENT": "00-11111111111111111111111111111111-2222222222222222-01",
+            "JACA_TRACEPARENT": (
+                "00-11111111111111111111111111111111-2222222222222222-01"
+            ),
             "JACA_TRACESTATE": "vendor=value",
         },
     )

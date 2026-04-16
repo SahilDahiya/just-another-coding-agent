@@ -183,8 +183,7 @@ def _raise_if_buffered_tool_updates_remain(
         return
     stale_tool_call_id = next(iter(buffered_tool_updates))
     raise RuntimeError(
-        "Tool update must match a pending tool_call_started: "
-        f"{stale_tool_call_id}"
+        f"Tool update must match a pending tool_call_started: {stale_tool_call_id}"
     )
 
 
@@ -276,7 +275,8 @@ def _process_tool_call_event(
     May raise ``_RestartRunWithCorrection``.
     """
     normalized_args = _normalize_tool_args(
-        event.part.args, args_valid=event.args_valid,
+        event.part.args,
+        args_valid=event.args_valid,
     )
     args = normalized_args.args
     args_valid = normalized_args.args_valid
@@ -284,13 +284,9 @@ def _process_tool_call_event(
     # --- Duplicate tool-call ID: skip silently. -------------------------
     existing = pending_tool_calls.get(event.tool_call_id)
     if existing is not None:
-        if (
-            existing.tool_name != event.part.tool_name
-            or existing.args != args
-        ):
+        if existing.tool_name != event.part.tool_name or existing.args != args:
             raise RuntimeError(
-                f"Duplicate tool call mismatch for "
-                f"tool_call_id {event.tool_call_id!r}"
+                f"Duplicate tool call mismatch for tool_call_id {event.tool_call_id!r}"
             )
         return _ToolCallResult(events=[], is_duplicate=True)
 
@@ -362,9 +358,7 @@ def _process_tool_call_event(
                     args=pending_tool_call.args,
                     args_valid=pending_tool_call.args_valid,
                     message=exhausted_message,
-                    duration_ms=_duration_ms_since(
-                        pending_tool_call.started_at
-                    ),
+                    duration_ms=_duration_ms_since(pending_tool_call.started_at),
                 ),
             )
         )
@@ -408,9 +402,7 @@ def _process_tool_call_event(
                 args=pending_tool_call.args,
                 args_valid=pending_tool_call.args_valid,
                 result=retry_result,
-                duration_ms=_duration_ms_since(
-                    pending_tool_call.started_at
-                ),
+                duration_ms=_duration_ms_since(pending_tool_call.started_at),
             ),
         )
     )
@@ -421,7 +413,8 @@ def _process_tool_call_event(
         duration_ms=_duration_ms_since(pending_tool_call.started_at),
     )
     raise _RestartRunWithCorrection(
-        malformed_message, pre_raise_events=events,
+        malformed_message,
+        pre_raise_events=events,
     )
 
 
@@ -445,9 +438,7 @@ def _process_tool_result_event(
             tool_call_id=event.tool_call_id,
             result_tool_name=event.result.tool_name,
         )
-        completed_tool_calls[
-            event.tool_call_id
-        ] = pending_tool_call.tool_name
+        completed_tool_calls[event.tool_call_id] = pending_tool_call.tool_name
         retry_message = _retry_prompt_message(event.result)
         retry_result = _tool_error_result(
             error_type="RetryPromptPart",
@@ -464,9 +455,7 @@ def _process_tool_result_event(
                     args=pending_tool_call.args,
                     args_valid=pending_tool_call.args_valid,
                     result=retry_result,
-                    duration_ms=_duration_ms_since(
-                        pending_tool_call.started_at
-                    ),
+                    duration_ms=_duration_ms_since(pending_tool_call.started_at),
                 ),
             )
         ]
@@ -477,7 +466,8 @@ def _process_tool_result_event(
             duration_ms=_duration_ms_since(pending_tool_call.started_at),
         )
         raise _RestartRunWithCorrection(
-            retry_message, pre_raise_events=pre_events,
+            retry_message,
+            pre_raise_events=pre_events,
         )
 
     # --- Normal tool result. -------------------------------------------
@@ -501,9 +491,7 @@ def _process_tool_result_event(
                 args_valid=pending_tool_call.args_valid,
                 result=result,
                 result_metadata=result_metadata,
-                duration_ms=_duration_ms_since(
-                    pending_tool_call.started_at
-                ),
+                duration_ms=_duration_ms_since(pending_tool_call.started_at),
             ),
         )
     ]
@@ -561,15 +549,9 @@ def _attempt_in_run_compaction(
                 model=compact_model,
                 workspace_root=deps.workspace_root,
                 shell_family=deps.shell_family,
-                current_date=(
-                    run_frame.current_date if run_frame else None
-                ),
-                timezone=(
-                    run_frame.timezone if run_frame else None
-                ),
-                thinking=(
-                    run_frame.thinking if run_frame else thinking
-                ),
+                current_date=(run_frame.current_date if run_frame else None),
+                timezone=(run_frame.timezone if run_frame else None),
+                thinking=(run_frame.thinking if run_frame else thinking),
             )
             initial_context = [
                 *prompt_context.before_history_messages,
@@ -585,9 +567,7 @@ def _attempt_in_run_compaction(
         return _InRunCompactionOutcome(succeeded=False)
 
     new_history = replacement
-    new_synth = reconcile_synthetic_prompt_counts(
-        synthetic_prompt_counts, new_history
-    )
+    new_synth = reconcile_synthetic_prompt_counts(synthetic_prompt_counts, new_history)
     new_carried = list(new_history)
     new_prompt = IN_RUN_COMPACTION_CONTINUATION_PROMPT
     new_synth[IN_RUN_COMPACTION_CONTINUATION_PROMPT] = (
@@ -631,9 +611,8 @@ async def _stream_run_events(
     deps: WorkspaceDeps | None = None,
     message_history_sink: Callable[[Sequence[ModelMessage]], None] | None = None,
     available_tool_names: Sequence[str] = CANONICAL_TOOL_NAMES,
-    activate_steer_boundary: (
-        Callable[[Callable[[list[str]], None]], Awaitable[None]]
-    ) | None = None,
+    activate_steer_boundary: (Callable[[Callable[[list[str]], None]], Awaitable[None]])
+    | None = None,
     submit_steer_boundary: Callable[[], Awaitable[None]] | None = None,
     deactivate_steer_boundary: Callable[[], Awaitable[None]] | None = None,
 ) -> AsyncIterator[RunEvent]:
@@ -657,9 +636,7 @@ async def _stream_run_events(
     synthetic_prompt_counts: dict[str, int] = {}
     active_tool_spans: dict[str, Any] = {}
     session_id = (
-        deps.session_scope.session_id
-        if isinstance(deps, WorkspaceDeps)
-        else None
+        deps.session_scope.session_id if isinstance(deps, WorkspaceDeps) else None
     )
 
     with _start_run_span(
@@ -679,6 +656,7 @@ async def _stream_run_events(
             queue: asyncio.Queue[object] = asyncio.Queue()
             queued_deps = deps
             if isinstance(deps, WorkspaceDeps):
+
                 async def _queue_tool_update(
                     tool_call_id: str,
                     tool_name: str,
@@ -691,6 +669,7 @@ async def _stream_run_events(
                             partial_result=partial_result,
                         )
                     )
+
                 queued_deps = _bind_workspace_deps_to_run(
                     deps=deps,
                     run_id=run_id,
@@ -743,11 +722,14 @@ async def _stream_run_events(
                                                 if is_first_request_of_iter
                                                 else None
                                             )
-                                            if live_messages and check_in_run_compaction_needed(
-                                                live_messages,
-                                                model=getattr(agent, "model", None),
-                                                last_response_usage=last_response_usage,
-                                                pending_prompt=pending_prompt_for_check,
+                                            if (
+                                                live_messages
+                                                and check_in_run_compaction_needed(
+                                                    live_messages,
+                                                    model=getattr(agent, "model", None),
+                                                    last_response_usage=last_response_usage,
+                                                    pending_prompt=pending_prompt_for_check,
+                                                )
                                             ):
                                                 raise _InRunCompactRequested()
                                         async with node.stream(agent_run.ctx) as stream:
@@ -776,23 +758,34 @@ async def _stream_run_events(
                                                 else 0
                                             )
                                             if input_tokens:
-                                                last_response_usage = LastResponseUsageSnapshot(
-                                                    input_tokens=input_tokens,
-                                                    output_tokens=output_tokens,
-                                                    messages_prefix_count=(
-                                                        len(current_message_history)
-                                                        + len(captured_now)
-                                                    ),
+                                                last_response_usage = (
+                                                    LastResponseUsageSnapshot(
+                                                        input_tokens=input_tokens,
+                                                        output_tokens=output_tokens,
+                                                        messages_prefix_count=(
+                                                            len(current_message_history)
+                                                            + len(captured_now)
+                                                        ),
+                                                    )
                                                 )
                                             _set_span_attributes(
                                                 model_request_span,
                                                 {
-                                                    "jaca.model_request.status": "succeeded",
-                                                    "jaca.model_request.input_tokens": input_tokens,
-                                                    "jaca.model_request.output_tokens": output_tokens,
-                                                    "jaca.model_request.total_tokens": getattr(
-                                                        usage, "total_tokens", 0
-                                                    )
+                                                    (
+                                                        "jaca.model_request.status"
+                                                    ): "succeeded",
+                                                    (
+                                                        "jaca.model_request."
+                                                        "input_tokens"
+                                                    ): input_tokens,
+                                                    (
+                                                        "jaca.model_request."
+                                                        "output_tokens"
+                                                    ): output_tokens,
+                                                    (
+                                                        "jaca.model_request."
+                                                        "total_tokens"
+                                                    ): getattr(usage, "total_tokens", 0)
                                                     if usage
                                                     else 0,
                                                 },
@@ -800,15 +793,23 @@ async def _stream_run_events(
                                         else:
                                             _set_span_attributes(
                                                 model_request_span,
-                                                {"jaca.model_request.status": "succeeded"},
+                                                {
+                                                    (
+                                                        "jaca.model_request.status"
+                                                    ): "succeeded"
+                                                },
                                             )
                                     except Exception as error:
                                         _set_span_attributes(
                                             model_request_span,
                                             {
                                                 "jaca.model_request.status": "failed",
-                                                "jaca.model_request.error_type": type(error).__name__,
-                                                "jaca.model_request.error_message": str(error),
+                                                "jaca.model_request.error_type": type(
+                                                    error
+                                                ).__name__,
+                                                "jaca.model_request.error_message": str(
+                                                    error
+                                                ),
                                             },
                                         )
                                         raise
@@ -816,9 +817,8 @@ async def _stream_run_events(
                             elif isinstance(node, CallToolsNode):
                                 steer_boundary_active = False
                                 steer_boundary_submitted = False
-                                if (
-                                    steer_enabled
-                                    and _call_tools_node_has_tool_calls(node)
+                                if steer_enabled and _call_tools_node_has_tool_calls(
+                                    node
                                 ):
                                     steer_boundary_active = True
                                     assert activate_steer_boundary is not None
@@ -827,7 +827,7 @@ async def _stream_run_events(
                                             node, "user_prompt", prompts
                                         )
                                     )
-    
+
                                 async def _submit_if_ready() -> None:
                                     nonlocal steer_boundary_submitted
                                     if (
@@ -838,7 +838,7 @@ async def _stream_run_events(
                                         assert submit_steer_boundary is not None
                                         await submit_steer_boundary()
                                         steer_boundary_submitted = True
-    
+
                                 try:
                                     async with node.stream(agent_run.ctx) as stream:
                                         stream_iterator = stream.__aiter__()
@@ -852,16 +852,14 @@ async def _stream_run_events(
                                                     {stream_task, update_task},
                                                     return_when=asyncio.FIRST_COMPLETED,
                                                 )
-    
+
                                                 if update_task in done:
                                                     event = update_task.result()
-                                                    pending_tool_call = (
-                                                        _resolve_tool_update(
-                                                            pending_tool_calls=pending_tool_calls,
-                                                            buffered_tool_updates=buffered_tool_updates,
-                                                            completed_tool_calls=completed_tool_calls,
-                                                            queued_update=event,
-                                                        )
+                                                    pending_tool_call = _resolve_tool_update(  # noqa: E501
+                                                        pending_tool_calls=pending_tool_calls,
+                                                        buffered_tool_updates=buffered_tool_updates,
+                                                        completed_tool_calls=completed_tool_calls,
+                                                        queued_update=event,
                                                     )
                                                     if pending_tool_call is not None:
                                                         yield _build_tool_updated_event(
@@ -872,19 +870,19 @@ async def _stream_run_events(
                                                     update_task = asyncio.create_task(
                                                         queue.get()
                                                     )
-    
+
                                                 if stream_task in done:
                                                     try:
                                                         event = stream_task.result()
                                                     except StopAsyncIteration:
                                                         break
-    
+
                                                     saw_streamed_event = True
                                                     if isinstance(
                                                         event, FunctionToolCallEvent
                                                     ):
                                                         try:
-                                                            tcr = _process_tool_call_event(
+                                                            tcr = _process_tool_call_event(  # noqa: E501
                                                                 event=event,
                                                                 run_id=run_id,
                                                                 session_id=session_id,
@@ -896,8 +894,12 @@ async def _stream_run_events(
                                                                 correction_attempts=correction_attempts,
                                                                 run_span=run_span,
                                                             )
-                                                        except _RestartRunWithCorrection as exc:
-                                                            for ev in exc.pre_raise_events:
+                                                        except (
+                                                            _RestartRunWithCorrection
+                                                        ) as exc:
+                                                            for (
+                                                                ev
+                                                            ) in exc.pre_raise_events:
                                                                 yield ev
                                                             raise
                                                         for ev in tcr.events:
@@ -907,12 +909,16 @@ async def _stream_run_events(
                                                         if tcr.is_duplicate:
                                                             stream_task = (
                                                                 asyncio.create_task(
-                                                                    anext(stream_iterator)
+                                                                    anext(
+                                                                        stream_iterator
+                                                                    )
                                                                 )
                                                             )
                                                             continue
-                                                        stream_task = asyncio.create_task(
-                                                            anext(stream_iterator)
+                                                        stream_task = (
+                                                            asyncio.create_task(
+                                                                anext(stream_iterator)
+                                                            )
                                                         )
                                                         continue
 
@@ -920,15 +926,19 @@ async def _stream_run_events(
                                                         event, FunctionToolResultEvent
                                                     ):
                                                         try:
-                                                            result_events = _process_tool_result_event(
+                                                            result_events = _process_tool_result_event(  # noqa: E501
                                                                 event=event,
                                                                 run_id=run_id,
                                                                 pending_tool_calls=pending_tool_calls,
                                                                 completed_tool_calls=completed_tool_calls,
                                                                 active_tool_spans=active_tool_spans,
                                                             )
-                                                        except _RestartRunWithCorrection as exc:
-                                                            for ev in exc.pre_raise_events:
+                                                        except (
+                                                            _RestartRunWithCorrection
+                                                        ) as exc:
+                                                            for (
+                                                                ev
+                                                            ) in exc.pre_raise_events:
                                                                 yield ev
                                                             await _submit_if_ready()
                                                             raise
@@ -950,16 +960,19 @@ async def _stream_run_events(
                                     if steer_boundary_active:
                                         assert deactivate_steer_boundary is not None
                                         await deactivate_steer_boundary()
-    
+
                                 node = await agent_run.next(node)
                             else:
                                 node = await agent_run.next(node)
-    
+
                             if isinstance(node, End):
                                 result = agent_run.result
                                 if result is None:
                                     raise RuntimeError(
-                                        "PydanticAI stream ended without a terminal result"
+                                        (
+                                            "PydanticAI stream ended without a "
+                                            "terminal result"
+                                        )
                                     )
                                 output = result.output
                                 if not isinstance(output, str):
@@ -976,9 +989,12 @@ async def _stream_run_events(
                                     if message_history_sink is not None:
                                         message_history_sink(terminal_messages)
                                     unresolved_message = (
-                                        "Run cannot terminate with unresolved tool calls"
+                                        "Run cannot terminate with unresolved "
+                                        "tool calls"
                                     )
-                                    for event in synthesize_tool_failed_events_for_pending(
+                                    for (
+                                        event
+                                    ) in synthesize_tool_failed_events_for_pending(
                                         run_id=run_id,
                                         pending=(
                                             PendingToolCall(
@@ -1010,7 +1026,9 @@ async def _stream_run_events(
                                         {
                                             "jaca.run.status": "failed",
                                             "jaca.run.error_type": "SessionFormatError",
-                                            "jaca.run.error_message": unresolved_message,
+                                            "jaca.run.error_message": (
+                                                unresolved_message
+                                            ),
                                         },
                                     )
                                     yield RunFailedEvent(
@@ -1041,7 +1059,7 @@ async def _stream_run_events(
                     raise RuntimeError(
                         "stream_run_events received an error after terminal success"
                     ) from error
-    
+
                 if isinstance(error, _InRunCompactRequested):
                     live_messages = [
                         *current_message_history,
@@ -1077,13 +1095,15 @@ async def _stream_run_events(
                     yield outcome.event
                     compaction_restarting = True
                     continue
-    
+
                 if isinstance(error, _RestartRunWithCorrection):
                     attempt_messages = _fallback_attempt_messages(
                         list(captured_messages)[attempt_history_count:],
                         prompt=current_prompt,
                     )
-                    carried_messages.extend(sanitize_failed_run_messages(attempt_messages))
+                    carried_messages.extend(
+                        sanitize_failed_run_messages(attempt_messages)
+                    )
                     current_message_history = [
                         *current_message_history,
                         *carried_messages[len(current_message_history) :],
@@ -1109,8 +1129,10 @@ async def _stream_run_events(
                     attempts=recovery_attempts,
                 ):
                     logger.debug(
-                        "Retrying transient pre-stream run failure: run_id=%s attempt=%s "
-                        "error_type=%s message=%s",
+                        (
+                            "Retrying transient pre-stream run failure: "
+                            "run_id=%s attempt=%s error_type=%s message=%s"
+                        ),
                         run_id,
                         recovery_attempts + 1,
                         type(error).__name__,
@@ -1118,7 +1140,7 @@ async def _stream_run_events(
                     )
                     recovery_attempts += 1
                     continue
-    
+
                 for event in synthesize_tool_failed_events_for_pending(
                     run_id=run_id,
                     pending=(
@@ -1129,13 +1151,15 @@ async def _stream_run_events(
                             args_valid=pending_tool_call.args_valid,
                             started_at=pending_tool_call.started_at,
                         )
-                        for tool_call_id, pending_tool_call in pending_tool_calls.items()
+                        for tool_call_id, pending_tool_call in (
+                            pending_tool_calls.items()
+                        )
                     ),
                     error_type=type(error).__name__,
                     message=str(error),
                 ):
                     yield event
-    
+
                 _finish_all_tool_spans(
                     active_tool_spans=active_tool_spans,
                     status="failed",
@@ -1187,7 +1211,9 @@ async def _stream_run_events(
                         {
                             "jaca.run.status": "aborted",
                             "jaca.run.error_type": "CancelledError",
-                            "jaca.run.error_message": "Run terminated before a terminal event",
+                            "jaca.run.error_message": (
+                                "Run terminated before a terminal event"
+                            ),
                         },
                     )
                 _finish_all_tool_spans(
@@ -1200,7 +1226,6 @@ async def _stream_run_events(
                 await queued_deps.read_only_worker.close()
 
 
-
 async def stream_run_events(
     *,
     agent: Agent[Any, Any],
@@ -1211,9 +1236,8 @@ async def stream_run_events(
     deps: WorkspaceDeps | None = None,
     message_history_sink: Callable[[Sequence[ModelMessage]], None] | None = None,
     available_tool_names: Sequence[str] = CANONICAL_TOOL_NAMES,
-    activate_steer_boundary: (
-        Callable[[Callable[[list[str]], None]], Awaitable[None]]
-    ) | None = None,
+    activate_steer_boundary: (Callable[[Callable[[list[str]], None]], Awaitable[None]])
+    | None = None,
     submit_steer_boundary: Callable[[], Awaitable[None]] | None = None,
     deactivate_steer_boundary: Callable[[], Awaitable[None]] | None = None,
 ) -> AsyncIterator[RunEvent]:
@@ -1422,7 +1446,4 @@ def _malformed_tool_correction_message(
                 f"Invalid JSON for tool {tool_name!r}: {error.msg} at line "
                 f"{error.lineno} column {error.colno}. Fix the errors and try again."
             )
-    return (
-        f"Invalid arguments for tool {tool_name!r}. "
-        "Fix the errors and try again."
-    )
+    return f"Invalid arguments for tool {tool_name!r}. Fix the errors and try again."
