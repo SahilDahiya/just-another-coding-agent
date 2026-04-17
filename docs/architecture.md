@@ -17,6 +17,11 @@ provider-specific readiness rules, secret-store resolution order, and
 effective endpoint auth requirements. Go may render `/auth` and `/login` UX,
 but it must not become a second owner of secret storage or provider-auth
 policy.
+Sandbox and approval semantics follow the same rule too: Python owns sandbox
+policy, approval policy, effective-capability meaning, approval lifecycle, and
+the boundary between control-plane policy and data-plane executor backends. Go
+may render approval prompts and effective sandbox posture, but it must not
+infer sandbox meaning locally or grow backend-specific policy logic of its own.
 
 The same risk exists when a non-Python execution helper is introduced for
 performance. The current read-only worker is a separate Go helper for

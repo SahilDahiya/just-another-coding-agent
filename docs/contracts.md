@@ -132,6 +132,76 @@ Canonical session resume authority:
 - the canonical session runtime does not rely on provider-side server history for continuation
 - provider-native history settings remain an internal model-seam capability, not part of the public session contract
 
+## Sandbox And Approval Contract
+
+Initial canonical control-plane slice:
+
+- `SandboxPolicy`
+- `ApprovalPolicy`
+- `EffectiveCapabilities`
+- `ApprovalRequest`
+- `ApprovalDecision`
+
+Rules:
+
+- Sandbox and approval are explicit backend-owned policies, not ambient runtime
+  facts inferred from UI mode or local process state.
+- Omitted sandbox or approval settings mean "use backend defaults"; explicit
+  policy values must validate fail-fast instead of degrading silently.
+- Sandboxing is an explicit policy or mode, not silent narrowing of canonical
+  tool behavior behind the same name.
+- `EffectiveCapabilities` is the normalized contract view of what is actually
+  true for the current run: filesystem posture, network posture, execution
+  isolation posture, and approval posture.
+- Capability changes that materially affect what the model can do must be made
+  explicit through backend-owned effective capabilities rather than inferred in
+  Go or hidden inside executor implementation detail.
+- Approval is control-plane policy. Executor backends are data-plane
+  implementation detail.
+- The canonical backend must not grow a side-channel unsandboxed shell path
+  parallel to the main sandboxed tool contract.
+- Executor-specific detail such as container ids, VM handles, or transport
+  wiring stays internal unless it changes the public contract.
+
+Initial sandbox policy modes:
+
+- `read_only`
+  - read-only filesystem posture
+  - restricted network posture
+  - sandboxed execution posture
+- `workspace_write`
+  - workspace-write filesystem posture
+  - restricted or enabled network posture
+  - sandboxed execution posture
+- `danger_full_access`
+  - full-access filesystem posture
+  - enabled network posture
+  - unsandboxed execution posture
+- `external`
+  - full-access filesystem posture from JACA's point of view
+  - restricted or enabled network posture
+  - sandboxed execution posture enforced outside JACA
+
+Initial approval policy modes:
+
+- `never`
+  - the backend must not pause for approval; if approval would otherwise be
+    required, the action fails explicitly
+- `on_escalation`
+  - the backend pauses only when requested capabilities exceed the current
+    allowed posture
+- `always`
+  - the backend requires approval before high-risk execution even when the
+    requested capabilities are otherwise allowed
+
+Approval carrier rules:
+
+- approval requests and decisions are backend-owned typed contract models
+- approval decisions must refer to one request id and produce one explicit
+  result
+- approval lifecycle semantics belong to Python-owned RPC and streamed-event
+  contracts, not to Go-local state machines
+
 ## Tool Contract
 
 Canonical tool set for the first maintained version:
