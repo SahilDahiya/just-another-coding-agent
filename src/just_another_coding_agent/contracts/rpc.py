@@ -2,13 +2,20 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    model_validator,
+)
 
 from .auth import LocalSecretStoreStatus as RpcLocalSecretStoreStatus
 from .auth import OAuthProviderStatus
 from .auth import ProviderAuthStatus as AuthProviderStatus
 from .model_catalog import ProviderName
 from .run_events import RunEvent, SessionLifecycleEvent
+from .sandbox import ApprovalDecision, ApprovalPolicy, PermissionState, SandboxPolicy
 from .session import SessionName
 from .session import SessionPreview as SessionPreviewResponse
 from .thinking import ThinkingSetting
@@ -193,6 +200,47 @@ class RunInterruptRequest(_RpcModel):
     payload: RunInterruptPayload
 
 
+class PermissionGetPayload(_RpcModel):
+    session_id: SessionId
+
+
+class PermissionGetRequest(_RpcModel):
+    id: str
+    command: Literal["permission.get"]
+    payload: PermissionGetPayload
+
+
+class PermissionSetPayload(_RpcModel):
+    session_id: SessionId
+    sandbox_policy: SandboxPolicy | None = None
+    approval_policy: ApprovalPolicy | None = None
+
+    @model_validator(mode="after")
+    def _validate_non_empty(self) -> "PermissionSetPayload":
+        if self.sandbox_policy is None and self.approval_policy is None:
+            raise ValueError(
+                "permission.set requires at least one explicit policy override"
+            )
+        return self
+
+
+class PermissionSetRequest(_RpcModel):
+    id: str
+    command: Literal["permission.set"]
+    payload: PermissionSetPayload
+
+
+class ApprovalSubmitPayload(_RpcModel):
+    session_id: SessionId
+    decision: ApprovalDecision
+
+
+class ApprovalSubmitRequest(_RpcModel):
+    id: str
+    command: Literal["approval.submit"]
+    payload: ApprovalSubmitPayload
+
+
 class WorkspaceProjectDocsPayload(_RpcModel):
     pass
 
@@ -220,6 +268,9 @@ RpcRequest = Annotated[
     | RunStartRequest
     | RunEnqueueRequest
     | RunInterruptRequest
+    | PermissionGetRequest
+    | PermissionSetRequest
+    | ApprovalSubmitRequest
     | WorkspaceProjectDocsRequest,
     Field(discriminator="command"),
 ]
@@ -307,6 +358,21 @@ class RunInterruptResponse(_RpcModel):
     promoted_count: int
 
 
+class PermissionGetResponse(_RpcModel):
+    session_id: SessionId
+    permission_state: PermissionState
+
+
+class PermissionSetResponse(_RpcModel):
+    session_id: SessionId
+    permission_state: PermissionState
+
+
+class ApprovalSubmitResponse(_RpcModel):
+    session_id: SessionId
+    decision: ApprovalDecision
+
+
 class WorkspaceProjectDoc(_RpcModel):
     path: str
     filename: str
@@ -337,6 +403,9 @@ class RpcResponseEnvelope(_RpcModel):
         | RunStartResponse
         | RunEnqueueResponse
         | RunInterruptResponse
+        | PermissionGetResponse
+        | PermissionSetResponse
+        | ApprovalSubmitResponse
         | WorkspaceProjectDocsResponse
     )
 
@@ -399,6 +468,15 @@ __all__ = [
     "RunInterruptPayload",
     "RunInterruptRequest",
     "RunInterruptResponse",
+    "PermissionGetPayload",
+    "PermissionGetRequest",
+    "PermissionGetResponse",
+    "PermissionSetPayload",
+    "PermissionSetRequest",
+    "PermissionSetResponse",
+    "ApprovalSubmitPayload",
+    "ApprovalSubmitRequest",
+    "ApprovalSubmitResponse",
     "SessionId",
     "SessionCompactPayload",
     "SessionCompactRequest",
