@@ -322,7 +322,7 @@ Model-specific convenience wrappers are also available:
 - `evaluations/scripts/tb2_glm5.sh`
 - `evaluations/scripts/tb2_gpt54_chatgpt.sh`
 
-Starter slice files can live at:
+The repo ships starter slice files at:
 
 - `tasks/a.txt`
 - `tasks/b.txt`
