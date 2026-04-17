@@ -316,6 +316,13 @@ func StartClient(cfg BackendConfig) (*Client, error) {
 	)
 	cmd := exec.Command(cfg.Command[0], args...)
 	cmd.Env = cfg.Env
+	// The backend command can be a launcher like `uv` that spawns a
+	// descendant Python process. On shutdown, descendants may briefly keep the
+	// stdout/stderr pipe file descriptors open even after the tracked process
+	// exits, which can otherwise make Cmd.Wait() block indefinitely in
+	// awaitGoroutines. Bound that pipe-drain wait so client shutdown stays
+	// finite.
+	cmd.WaitDelay = 500 * time.Millisecond
 	// Kernel-enforced parent-death propagation on Linux: when this Go TUI
 	// exits for any reason the backend is guaranteed to receive SIGTERM
 	// from the kernel, closing the zombie-backend class of failures.
@@ -420,7 +427,10 @@ func (c *Client) waitExit(ctx context.Context) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	case err := <-waitCh:
-		if err != nil && !strings.Contains(err.Error(), "signal: killed") && !strings.Contains(err.Error(), "signal: interrupt") {
+		if err != nil &&
+			!errors.Is(err, exec.ErrWaitDelay) &&
+			!strings.Contains(err.Error(), "signal: killed") &&
+			!strings.Contains(err.Error(), "signal: interrupt") {
 			return err
 		}
 		return nil

@@ -6,6 +6,8 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -76,6 +78,77 @@ func TestClientInterruptSendsSIGINT(t *testing.T) {
 	}
 	if string(data) != "interrupt" {
 		t.Fatalf("helper marker = %q, want %q", data, "interrupt")
+	}
+}
+
+func TestClientCloseDoesNotHangWhenDescendantKeepsPipesOpen(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell-based helper is unix-only")
+	}
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+
+	tmpDir := t.TempDir()
+	markerPath := tmpDir + "/descendant-close.txt"
+	readyPath := tmpDir + "/ready.txt"
+	childPIDPath := tmpDir + "/child.pid"
+	cfg := BackendConfig{
+		Model:         "test-model",
+		WorkspaceRoot: t.TempDir(),
+		SessionsRoot:  t.TempDir(),
+		Command: []string{
+			"python3",
+			"-c",
+			"import os, pathlib, subprocess, sys; ready = pathlib.Path(os.environ['JACA_RPC_HELPER_READY']); marker = pathlib.Path(os.environ['JACA_RPC_HELPER_MARKER']); child_pid = pathlib.Path(os.environ['JACA_RPC_HELPER_CHILD_PID']); ready.write_text('ready'); sys.stdin.read(); child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)']); child_pid.write_text(str(child.pid)); marker.write_text('spawned')",
+		},
+		Env: append(
+			os.Environ(),
+			"JACA_RPC_HELPER_MARKER="+markerPath,
+			"JACA_RPC_HELPER_READY="+readyPath,
+			"JACA_RPC_HELPER_CHILD_PID="+childPIDPath,
+		),
+	}
+
+	client, err := StartClient(cfg)
+	if err != nil {
+		t.Fatalf("StartClient() returned error: %v", err)
+	}
+	waitForHelperReady(t, readyPath)
+	t.Cleanup(func() {
+		if data, err := os.ReadFile(childPIDPath); err == nil {
+			pid, convErr := strconv.Atoi(strings.TrimSpace(string(data)))
+			if convErr == nil && pid > 0 {
+				if process, findErr := os.FindProcess(pid); findErr == nil {
+					_ = process.Kill()
+				}
+			}
+		}
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- client.Close(ctx)
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Close() returned error: %v", err)
+		}
+	case <-time.After(1500 * time.Millisecond):
+		t.Fatal("Close() hung while descendant kept backend pipes open")
+	}
+
+	data, err := os.ReadFile(markerPath)
+	if err != nil {
+		t.Fatalf("ReadFile() returned error: %v", err)
+	}
+	if string(data) != "spawned" {
+		t.Fatalf("helper marker = %q, want %q", data, "spawned")
 	}
 }
 
