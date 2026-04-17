@@ -5,6 +5,7 @@ from pydantic_ai.messages import ModelMessage, ModelRequest, UserPromptPart
 from pydantic_ai.models.function import FunctionModel
 from pydantic_ai.models.openai import OpenAIResponsesModel
 
+from just_another_coding_agent.contracts.sandbox import EffectiveCapabilities
 from just_another_coding_agent.runtime import (
     CANONICAL_AGENT_INSTRUCTIONS,
     CANONICAL_AGENT_OUTPUT_RETRIES,
@@ -249,6 +250,37 @@ def test_build_runtime_context_text_includes_visible_model_framing_when_given(
             "Current shell family: powershell",
             "Current model: openai-responses:gpt-5.3-codex",
             "Current thinking setting: high",
+        ]
+    )
+
+
+def test_build_runtime_context_text_includes_effective_capabilities_when_given(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    runtime_context_text = build_runtime_context_text(
+        workspace_root=workspace_root,
+        current_date=date(2026, 3, 26),
+        shell_family="powershell",
+        effective_capabilities=EffectiveCapabilities(
+            filesystem_access="workspace_write",
+            network_access="restricted",
+            execution_isolation="sandboxed",
+            approval_mode="on_escalation",
+        ),
+    )
+
+    assert runtime_context_text == "\n".join(
+        [
+            "Current date: 2026-03-26",
+            f"Current workspace root: {workspace_root.resolve()}",
+            "Current shell family: powershell",
+            "Current filesystem access: workspace_write",
+            "Current network access: restricted",
+            "Current execution isolation: sandboxed",
+            "Current approval policy: on_escalation",
         ]
     )
 

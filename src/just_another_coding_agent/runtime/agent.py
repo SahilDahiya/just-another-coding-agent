@@ -11,6 +11,7 @@ from just_another_coding_agent.contracts.platform import (
     ShellFamily,
     detect_default_shell_family,
 )
+from just_another_coding_agent.contracts.sandbox import EffectiveCapabilities
 from just_another_coding_agent.contracts.thinking import ThinkingSetting
 from just_another_coding_agent.contracts.tools import CANONICAL_TOOL_NAMES
 from just_another_coding_agent.runtime.models import resolve_canonical_model
@@ -80,6 +81,7 @@ def build_runtime_context_text(
     timezone: str | None | object = _UNSET,
     model_label: str | object = _UNSET,
     thinking: ThinkingSetting | None | object = _UNSET,
+    effective_capabilities: EffectiveCapabilities | None | object = _UNSET,
 ) -> str:
     root = normalize_workspace_root(workspace_root)
     resolved_date = current_date or date.today()
@@ -103,6 +105,20 @@ def build_runtime_context_text(
     if thinking is not _UNSET:
         sections.append(
             f"Current thinking setting: {_thinking_prompt_label(thinking)}"
+        )
+    if (
+        effective_capabilities is not _UNSET
+        and effective_capabilities is not None
+    ):
+        sections.extend(
+            [
+                "Current filesystem access: "
+                f"{effective_capabilities.filesystem_access}",
+                f"Current network access: {effective_capabilities.network_access}",
+                "Current execution isolation: "
+                f"{effective_capabilities.execution_isolation}",
+                f"Current approval policy: {effective_capabilities.approval_mode}",
+            ]
         )
 
     return "\n".join(sections)
