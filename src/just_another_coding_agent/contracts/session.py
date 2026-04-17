@@ -8,6 +8,7 @@ from pydantic_ai.messages import ModelMessage
 
 from .platform import ShellFamily
 from .run_events import RunEvent
+from .sandbox import EffectiveCapabilities
 from .thinking import ThinkingSetting
 
 SESSION_FORMAT_VERSION = 10
@@ -73,6 +74,7 @@ class SessionTurnContextEntry(_SessionEntryBase):
     run_id: str
     model: str
     thinking: ThinkingSetting | None = None
+    effective_capabilities: EffectiveCapabilities | None = None
     workspace_root: str
     shell_family: ShellFamily = "posix"
     current_date: str | None = None

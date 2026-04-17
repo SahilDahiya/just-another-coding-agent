@@ -33,6 +33,7 @@ from just_another_coding_agent.contracts.run_events import (
     ToolCallStartedEvent,
     ToolCallSucceededEvent,
 )
+from just_another_coding_agent.contracts.sandbox import EffectiveCapabilities
 from just_another_coding_agent.contracts.session import SessionTurnContextEntry
 from just_another_coding_agent.runtime import stream_session_run_events
 from just_another_coding_agent.runtime.compaction import (
@@ -1013,6 +1014,44 @@ def test_evaluate_turn_context_baseline_clears_on_current_date_mismatch(
     assert decision.entry == entry
 
 
+def test_evaluate_turn_context_baseline_clears_on_effective_capabilities_mismatch(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    model = FunctionModel(stream_function=text_only_stream)
+    entry = build_session_turn_context_entry(
+        run_id="run-1",
+        model=model,
+        workspace_root=workspace_root,
+        current_date=date.today(),
+        effective_capabilities=EffectiveCapabilities(
+            filesystem_access="read_only",
+            network_access="restricted",
+            execution_isolation="sandboxed",
+            approval_mode="never",
+        ),
+    )
+
+    decision = evaluate_turn_context_baseline(
+        entry=entry,
+        model=model,
+        workspace_root=workspace_root,
+        current_date=date.today(),
+        effective_capabilities=EffectiveCapabilities(
+            filesystem_access="workspace_write",
+            network_access="restricted",
+            execution_isolation="sandboxed",
+            approval_mode="on_escalation",
+        ),
+        has_persisted_history=True,
+    )
+
+    assert decision.status == "cleared"
+    assert decision.reason == "effective_capabilities_mismatch"
+    assert decision.entry == entry
+
+
 def test_build_runtime_context_injection_plan_uses_diff_for_date_change(
     tmp_path,
 ) -> None:
@@ -1137,6 +1176,63 @@ def test_build_runtime_context_injection_plan_uses_diff_for_thinking_change(
                 workspace_root=workspace_root,
                 current_date=date.today(),
                 thinking="low",
+            )
+        ).parts[0].content
+    ]
+
+
+def test_build_runtime_context_injection_plan_uses_diff_for_capability_change(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    model = FunctionModel(stream_function=text_only_stream)
+    entry = build_session_turn_context_entry(
+        run_id="run-1",
+        model=model,
+        workspace_root=workspace_root,
+        current_date=date.today(),
+        effective_capabilities=EffectiveCapabilities(
+            filesystem_access="read_only",
+            network_access="restricted",
+            execution_isolation="sandboxed",
+            approval_mode="never",
+        ),
+    )
+    new_capabilities = EffectiveCapabilities(
+        filesystem_access="workspace_write",
+        network_access="enabled",
+        execution_isolation="sandboxed",
+        approval_mode="always",
+    )
+    decision = evaluate_turn_context_baseline(
+        entry=entry,
+        model=model,
+        workspace_root=workspace_root,
+        current_date=date.today(),
+        effective_capabilities=new_capabilities,
+        has_persisted_history=True,
+    )
+
+    plan = build_runtime_context_injection_plan(
+        baseline_decision=decision,
+        model=model,
+        workspace_root=workspace_root,
+        current_date=date.today(),
+        effective_capabilities=new_capabilities,
+    )
+
+    assert [message.parts[0].content for message in plan.before_history_messages] == [
+        build_runtime_context_message(entry.runtime_context_text).parts[0].content
+    ]
+    assert [message.parts[0].content for message in plan.after_history_messages] == [
+        build_runtime_context_update_message(
+            build_runtime_context_update_text(
+                entry=entry,
+                model=model,
+                workspace_root=workspace_root,
+                current_date=date.today(),
+                effective_capabilities=new_capabilities,
             )
         ).parts[0].content
     ]

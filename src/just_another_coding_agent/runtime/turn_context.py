@@ -16,6 +16,7 @@ from just_another_coding_agent.contracts.platform import (
     ShellFamily,
     detect_default_shell_family,
 )
+from just_another_coding_agent.contracts.sandbox import EffectiveCapabilities
 from just_another_coding_agent.contracts.session import SessionTurnContextEntry
 from just_another_coding_agent.contracts.thinking import ThinkingSetting
 from just_another_coding_agent.runtime.agent import (
@@ -38,6 +39,7 @@ _DIFFABLE_TURN_CONTEXT_CLEAR_REASONS = frozenset(
         "shell_family_mismatch",
         "current_date_mismatch",
         "timezone_mismatch",
+        "effective_capabilities_mismatch",
         "runtime_context_mismatch",
     }
 )
@@ -65,6 +67,7 @@ def evaluate_turn_context_baseline(
     shell_family: ShellFamily | None = None,
     timezone: str | None = None,
     thinking: ThinkingSetting | None = None,
+    effective_capabilities: EffectiveCapabilities | None = None,
     has_persisted_history: bool = False,
 ) -> TurnContextBaselineDecision:
     if entry is None:
@@ -91,6 +94,7 @@ def evaluate_turn_context_baseline(
         timezone=resolved_timezone,
         model_label=resolved_model,
         thinking=thinking,
+        effective_capabilities=effective_capabilities,
     )
 
     if entry.workspace_root != str(resolved_workspace_root):
@@ -129,6 +133,12 @@ def evaluate_turn_context_baseline(
             reason="timezone_mismatch",
             entry=entry,
         )
+    if entry.effective_capabilities != effective_capabilities:
+        return TurnContextBaselineDecision(
+            status="cleared",
+            reason="effective_capabilities_mismatch",
+            entry=entry,
+        )
     if entry.runtime_context_text != expected_runtime_context_text:
         return TurnContextBaselineDecision(
             status="cleared",
@@ -152,6 +162,7 @@ def build_session_turn_context_entry(
     shell_family: ShellFamily | None = None,
     timezone: str | None = None,
     thinking: ThinkingSetting | None = None,
+    effective_capabilities: EffectiveCapabilities | None = None,
 ) -> SessionTurnContextEntry:
     resolved_workspace_root = normalize_workspace_root(workspace_root)
     resolved_shell_family = shell_family or detect_default_shell_family()
@@ -167,12 +178,14 @@ def build_session_turn_context_entry(
         timezone=resolved_timezone,
         model_label=resolved_model,
         thinking=thinking,
+        effective_capabilities=effective_capabilities,
     )
 
     return SessionTurnContextEntry(
         run_id=run_id,
         model=resolved_model,
         thinking=thinking,
+        effective_capabilities=effective_capabilities,
         workspace_root=str(resolved_workspace_root),
         shell_family=resolved_shell_family,
         current_date=resolved_current_date.isoformat(),
@@ -222,6 +235,7 @@ def build_runtime_context_prefix_messages(
     timezone: str | None = None,
     model: Any | None = None,
     thinking: ThinkingSetting | None = None,
+    effective_capabilities: EffectiveCapabilities | None = None,
 ) -> list[ModelMessage]:
     if entry is not None:
         return [build_runtime_context_message(entry.runtime_context_text)]
@@ -237,6 +251,7 @@ def build_runtime_context_prefix_messages(
         "shell_family": shell_family,
         "timezone": timezone,
         "thinking": thinking,
+        "effective_capabilities": effective_capabilities,
     }
     if model is not None:
         runtime_context_kwargs["model_label"] = _describe_turn_context_model(model)
@@ -257,6 +272,7 @@ def build_runtime_context_injection_plan(
     shell_family: ShellFamily | None = None,
     timezone: str | None = None,
     thinking: ThinkingSetting | None = None,
+    effective_capabilities: EffectiveCapabilities | None = None,
 ) -> RuntimeContextInjectionPlan:
     resolved_timezone = (
         detect_current_timezone_label() if timezone is None else timezone
@@ -269,6 +285,7 @@ def build_runtime_context_injection_plan(
         timezone=resolved_timezone,
         model_label=resolved_model,
         thinking=thinking,
+        effective_capabilities=effective_capabilities,
     )
     current_message = build_runtime_context_message(current_runtime_context_text)
 
@@ -313,6 +330,7 @@ def build_runtime_context_injection_plan(
         shell_family=shell_family,
         timezone=resolved_timezone,
         thinking=thinking,
+        effective_capabilities=effective_capabilities,
     )
     return RuntimeContextInjectionPlan(
         before_history_messages=(previous_message,),
@@ -331,6 +349,7 @@ def build_runtime_context_update_text(
     shell_family: ShellFamily | None = None,
     timezone: str | None = None,
     thinking: ThinkingSetting | None = None,
+    effective_capabilities: EffectiveCapabilities | None = None,
 ) -> str:
     resolved_workspace_root = normalize_workspace_root(workspace_root)
     resolved_shell_family = shell_family or detect_default_shell_family()
@@ -363,6 +382,45 @@ def build_runtime_context_update_text(
             "Current thinking setting changed to "
             f"{_thinking_update_label(thinking)}"
         )
+    if entry.effective_capabilities != effective_capabilities:
+        if (
+            entry.effective_capabilities is None
+            or effective_capabilities is None
+        ):
+            update_lines.append("Execution capability posture changed")
+        else:
+            if (
+                entry.effective_capabilities.filesystem_access
+                != effective_capabilities.filesystem_access
+            ):
+                update_lines.append(
+                    "Current filesystem access changed to "
+                    f"{effective_capabilities.filesystem_access}"
+                )
+            if (
+                entry.effective_capabilities.network_access
+                != effective_capabilities.network_access
+            ):
+                update_lines.append(
+                    "Current network access changed to "
+                    f"{effective_capabilities.network_access}"
+                )
+            if (
+                entry.effective_capabilities.execution_isolation
+                != effective_capabilities.execution_isolation
+            ):
+                update_lines.append(
+                    "Current execution isolation changed to "
+                    f"{effective_capabilities.execution_isolation}"
+                )
+            if (
+                entry.effective_capabilities.approval_mode
+                != effective_capabilities.approval_mode
+            ):
+                update_lines.append(
+                    "Current approval policy changed to "
+                    f"{effective_capabilities.approval_mode}"
+                )
     if (
         not update_lines
         and entry.runtime_context_text
@@ -373,6 +431,7 @@ def build_runtime_context_update_text(
             timezone=resolved_timezone,
             model_label=resolved_model,
             thinking=thinking,
+            effective_capabilities=effective_capabilities,
         )
     ):
         update_lines.append("Runtime context framing changed")
