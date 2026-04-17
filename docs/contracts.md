@@ -140,6 +140,7 @@ Initial canonical control-plane slice:
 - `SandboxPolicy`
 - `ApprovalPolicy`
 - `EffectiveCapabilities`
+- `PermissionState`
 - `ApprovalRequest`
 - `ApprovalDecision`
 
@@ -154,6 +155,9 @@ Rules:
 - `EffectiveCapabilities` is the normalized contract view of what is actually
   true for the current run: filesystem posture, network posture, execution
   isolation posture, and approval posture.
+- `PermissionState` is the live backend-owned control-plane snapshot composed
+  of the current sandbox policy, approval policy, and normalized effective
+  capabilities.
 - Capability changes that materially affect what the model can do must be made
   explicit through backend-owned effective capabilities rather than inferred in
   Go or hidden inside executor implementation detail.
@@ -202,6 +206,10 @@ Approval carrier rules:
   result
 - approval lifecycle semantics belong to Python-owned RPC and streamed-event
   contracts, not to Go-local state machines
+- live permission state is distinct from durable turn-context history:
+  - `PermissionState` is live control-plane state for RPC and approval flows
+  - `session_turn_context.effective_capabilities` remains the durable
+    model-visible snapshot written after completed runs
 
 ## Tool Contract
 
@@ -793,6 +801,9 @@ Rules:
 - No hidden fallback commands.
 - Protocol changes require an ADR and tests.
 - RPC exposes the backend contract only; UI-specific command surfaces are out of scope unless deliberately added later.
+- Typed permission and approval carrier models may land in the Python-owned RPC
+  contract before the first executable handler slice is wired; executable RPC
+  behavior is defined only by the commands explicitly listed below.
 
 Initial executable RPC slice:
 

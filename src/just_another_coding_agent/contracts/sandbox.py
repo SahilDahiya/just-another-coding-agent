@@ -71,6 +71,12 @@ class EffectiveCapabilities(_SandboxContractModel):
     approval_mode: ApprovalMode
 
 
+class PermissionState(_SandboxContractModel):
+    sandbox_policy: SandboxPolicy
+    approval_policy: ApprovalPolicy
+    effective_capabilities: EffectiveCapabilities
+
+
 class ApprovalRequest(_SandboxContractModel):
     request_id: str
     reason: str
@@ -108,6 +114,21 @@ def derive_effective_capabilities(
     )
 
 
+def build_permission_state(
+    *,
+    sandbox_policy: SandboxPolicy,
+    approval_policy: ApprovalPolicy,
+) -> PermissionState:
+    return PermissionState(
+        sandbox_policy=sandbox_policy,
+        approval_policy=approval_policy,
+        effective_capabilities=derive_effective_capabilities(
+            sandbox_policy=sandbox_policy,
+            approval_policy=approval_policy,
+        ),
+    )
+
+
 __all__ = [
     "ApprovalDecision",
     "ApprovalDecisionValue",
@@ -119,9 +140,11 @@ __all__ = [
     "ExecutionIsolation",
     "ExternalSandboxPolicy",
     "FilesystemAccess",
+    "PermissionState",
     "ReadOnlySandboxPolicy",
     "SandboxNetworkAccess",
     "SandboxPolicy",
     "WorkspaceWriteSandboxPolicy",
+    "build_permission_state",
     "derive_effective_capabilities",
 ]

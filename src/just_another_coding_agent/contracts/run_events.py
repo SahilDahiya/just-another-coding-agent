@@ -6,6 +6,10 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from just_another_coding_agent.contracts.compaction import CompactionBudgetReport
 from just_another_coding_agent.contracts.platform import ShellFamily
+from just_another_coding_agent.contracts.sandbox import (
+    ApprovalDecision,
+    ApprovalRequest,
+)
 
 type JsonValue = (
     None | bool | int | float | str | list[JsonValue] | dict[str, JsonValue]
@@ -162,6 +166,18 @@ class AssistantTextDeltaEvent(_RunEventBase):
     delta: str
 
 
+class ApprovalRequestedEvent(_RunEventBase):
+    type: Literal["approval_requested"] = "approval_requested"
+    request: ApprovalRequest
+    tool_name: str | None = None
+    tool_call_id: str | None = None
+
+
+class ApprovalResolvedEvent(_RunEventBase):
+    type: Literal["approval_resolved"] = "approval_resolved"
+    decision: ApprovalDecision
+
+
 class ToolCallStartedEvent(_RunEventBase):
     type: Literal["tool_call_started"] = "tool_call_started"
     tool_call_id: str
@@ -278,6 +294,8 @@ SessionLifecycleEvent = (
 RunEvent = Annotated[
     RunStartedEvent
     | AssistantTextDeltaEvent
+    | ApprovalRequestedEvent
+    | ApprovalResolvedEvent
     | ToolCallStartedEvent
     | ToolCallUpdatedEvent
     | ToolCallSucceededEvent
@@ -291,6 +309,8 @@ RunEvent = Annotated[
 __all__ = [
     "ActivityGroupCounts",
     "ActivityGroupSummary",
+    "ApprovalRequestedEvent",
+    "ApprovalResolvedEvent",
     "AssistantTextDeltaEvent",
     "EditActivityDetails",
     "FindActivityDetails",
