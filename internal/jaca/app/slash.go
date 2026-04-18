@@ -281,10 +281,14 @@ func (m *model) traceSlashSuggestions() []slashSuggestion {
 
 func (m *model) permissionSlashSuggestions() []slashSuggestion {
 	return []slashSuggestion{
-		{Value: "show", Description: "Show current permission state"},
-		{Value: "default", Description: "Recommended mode: full local access with approval prompts"},
-		{Value: "read_only", Description: "Stage the read-only preset and require approval prompts"},
-		{Value: "full_access", Description: "Full local access with no approval prompts"},
+		{
+			Value:       "default",
+			Description: "Read and edit files in the current workspace, and run commands. Approval is required to access the internet or edit other files.",
+		},
+		{
+			Value:       "full_access",
+			Description: "Edit files outside this workspace and access the internet without asking for approval. Exercise caution when using.",
+		},
 	}
 }
 
@@ -497,12 +501,10 @@ func permissionStateLines(
 
 func permissionPresetFromState(state rpc.PermissionState) string {
 	switch {
+	case state.SandboxPolicy.Mode == "workspace_write" && state.ApprovalPolicy.Mode == "on_escalation":
+		return "default"
 	case state.SandboxPolicy.Mode == "danger_full_access" && state.ApprovalPolicy.Mode == "never":
 		return "full_access"
-	case state.SandboxPolicy.Mode == "danger_full_access" && state.ApprovalPolicy.Mode == "always":
-		return "default"
-	case state.SandboxPolicy.Mode == "read_only" && state.ApprovalPolicy.Mode == "always":
-		return "read_only"
 	default:
 		return "custom"
 	}
@@ -517,9 +519,7 @@ func parsePermissionCommand(
 	}
 	switch value {
 	case "default":
-		return &rpc.SandboxPolicy{Mode: "danger_full_access"}, &rpc.ApprovalPolicy{Mode: "always"}, true
-	case "read_only":
-		return &rpc.SandboxPolicy{Mode: "read_only"}, &rpc.ApprovalPolicy{Mode: "always"}, true
+		return &rpc.SandboxPolicy{Mode: "workspace_write"}, &rpc.ApprovalPolicy{Mode: "on_escalation"}, true
 	case "full_access":
 		return &rpc.SandboxPolicy{Mode: "danger_full_access"}, &rpc.ApprovalPolicy{Mode: "never"}, true
 	default:
@@ -537,7 +537,7 @@ func (m *model) handlePermissionCommand(arg string) (tea.Model, tea.Cmd) {
 	sandboxPolicy, approvalPolicy, ok := parsePermissionCommand(arg)
 	if !ok {
 		m.transcript.WriteError(
-			"invalid. use: /permission [show|default|read_only|full_access]",
+			"invalid. use /permission to show current mode, or /permission [default|full_access] to switch",
 		)
 		m.refreshViewport()
 		return m, nil

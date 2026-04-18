@@ -697,17 +697,21 @@ func TestPermissionSlashUpdatesBackendPolicy(t *testing.T) {
 	if backend.lastPermissionSet.SessionID != "session-123" {
 		t.Fatalf("lastPermissionSet.SessionID = %q", backend.lastPermissionSet.SessionID)
 	}
-	if backend.lastPermissionSet.ApprovalPolicy == nil || backend.lastPermissionSet.ApprovalPolicy.Mode != "always" {
+	if backend.lastPermissionSet.SandboxPolicy == nil || backend.lastPermissionSet.SandboxPolicy.Mode != "workspace_write" {
+		t.Fatalf("lastPermissionSet.SandboxPolicy = %#v", backend.lastPermissionSet.SandboxPolicy)
+	}
+	if backend.lastPermissionSet.ApprovalPolicy == nil || backend.lastPermissionSet.ApprovalPolicy.Mode != "on_escalation" {
 		t.Fatalf("lastPermissionSet.ApprovalPolicy = %#v", backend.lastPermissionSet.ApprovalPolicy)
 	}
-	if m.permissionState == nil || m.permissionState.ApprovalPolicy.Mode != "always" {
+	if m.permissionState == nil || m.permissionState.ApprovalPolicy.Mode != "on_escalation" {
 		t.Fatalf("cached permission state = %#v", m.permissionState)
 	}
 	rendered := stripANSI(m.transcript.Render())
 	for _, want := range []string{
 		"permission state updated",
 		"permission: default",
-		"effective capabilities: filesystem=full_access network=enabled isolation=unsandboxed approval=always",
+		"effective capabilities: filesystem=full_access network=enabled isolation=unsandboxed approval=on_escalation",
+		"selected sandbox policy is staged; the restricted local executor backend is not wired yet",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("permission render missing %q in %q", want, rendered)
@@ -731,17 +735,21 @@ func TestPermissionSlashUpdatesWorkspaceDefaultPolicyWithoutSession(t *testing.T
 	if backend.lastPermissionSet.SessionID != "" {
 		t.Fatalf("lastPermissionSet.SessionID = %q, want empty", backend.lastPermissionSet.SessionID)
 	}
-	if backend.lastPermissionSet.ApprovalPolicy == nil || backend.lastPermissionSet.ApprovalPolicy.Mode != "always" {
+	if backend.lastPermissionSet.SandboxPolicy == nil || backend.lastPermissionSet.SandboxPolicy.Mode != "workspace_write" {
+		t.Fatalf("lastPermissionSet.SandboxPolicy = %#v", backend.lastPermissionSet.SandboxPolicy)
+	}
+	if backend.lastPermissionSet.ApprovalPolicy == nil || backend.lastPermissionSet.ApprovalPolicy.Mode != "on_escalation" {
 		t.Fatalf("lastPermissionSet.ApprovalPolicy = %#v", backend.lastPermissionSet.ApprovalPolicy)
 	}
-	if m.permissionState == nil || m.permissionState.ApprovalPolicy.Mode != "always" {
+	if m.permissionState == nil || m.permissionState.ApprovalPolicy.Mode != "on_escalation" {
 		t.Fatalf("cached permission state = %#v", m.permissionState)
 	}
 	rendered := stripANSI(m.transcript.Render())
 	for _, want := range []string{
 		"permission state updated",
 		"permission: default",
-		"effective capabilities: filesystem=full_access network=enabled isolation=unsandboxed approval=always",
+		"effective capabilities: filesystem=full_access network=enabled isolation=unsandboxed approval=on_escalation",
+		"selected sandbox policy is staged; the restricted local executor backend is not wired yet",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("permission render missing %q in %q", want, rendered)
@@ -749,25 +757,30 @@ func TestPermissionSlashUpdatesWorkspaceDefaultPolicyWithoutSession(t *testing.T
 	}
 }
 
-func TestPermissionSlashShowsReadOnlySelectionAsStagedUntilRestrictedBackendExists(t *testing.T) {
+func TestPermissionSlashUpdatesFullAccessPolicy(t *testing.T) {
 	backend := newStubBackend()
 	m := newTestModelWithBackend(backend)
 
-	updated, cmd := m.submitSlashCommand("/permission read_only", false)
+	updated, cmd := m.submitSlashCommand("/permission full_access", false)
 	m = updated.(*model)
 	if cmd == nil {
-		t.Fatal("/permission read_only should call backend")
+		t.Fatal("/permission full_access should call backend")
 	}
 	msg := cmd()
 	updated, _ = m.Update(msg)
 	m = updated.(*model)
 
+	if backend.lastPermissionSet.SandboxPolicy == nil || backend.lastPermissionSet.SandboxPolicy.Mode != "danger_full_access" {
+		t.Fatalf("lastPermissionSet.SandboxPolicy = %#v", backend.lastPermissionSet.SandboxPolicy)
+	}
+	if backend.lastPermissionSet.ApprovalPolicy == nil || backend.lastPermissionSet.ApprovalPolicy.Mode != "never" {
+		t.Fatalf("lastPermissionSet.ApprovalPolicy = %#v", backend.lastPermissionSet.ApprovalPolicy)
+	}
 	rendered := stripANSI(m.transcript.Render())
 	for _, want := range []string{
 		"permission state updated",
-		"permission: read_only",
-		"effective capabilities: filesystem=full_access network=enabled isolation=unsandboxed approval=always",
-		"selected sandbox policy is staged; the restricted local executor backend is not wired yet",
+		"permission: full_access",
+		"effective capabilities: filesystem=full_access network=enabled isolation=unsandboxed approval=never",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("permission render missing %q in %q", want, rendered)
