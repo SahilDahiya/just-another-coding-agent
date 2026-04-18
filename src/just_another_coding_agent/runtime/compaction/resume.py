@@ -8,6 +8,7 @@ from typing import Any
 from pydantic_ai.messages import ModelMessage
 
 from just_another_coding_agent.contracts.platform import ShellFamily
+from just_another_coding_agent.contracts.sandbox import EffectiveCapabilities
 from just_another_coding_agent.contracts.session import LoadedSession
 from just_another_coding_agent.contracts.thinking import ThinkingSetting
 from just_another_coding_agent.contracts.tools import CANONICAL_TOOL_NAMES
@@ -50,6 +51,7 @@ def build_runtime_framed_resume_message_history(
     shell_family: ShellFamily | None = None,
     timezone: str | None = None,
     thinking: ThinkingSetting | None = None,
+    effective_capabilities: EffectiveCapabilities | None = None,
     tool_names: Sequence[str] = CANONICAL_TOOL_NAMES,
 ) -> list[ModelMessage]:
     resume_history = (
@@ -65,6 +67,7 @@ def build_runtime_framed_resume_message_history(
         shell_family=shell_family,
         timezone=timezone,
         thinking=thinking,
+        effective_capabilities=effective_capabilities,
         tool_names=tool_names,
     )
     return [

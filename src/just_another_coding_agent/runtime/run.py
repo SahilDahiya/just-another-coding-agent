@@ -35,6 +35,8 @@ from pydantic_ai.usage import UsageLimits
 from pydantic_graph import End
 
 from just_another_coding_agent.contracts.run_events import (
+    ApprovalRequestedEvent,
+    ApprovalResolvedEvent,
     AssistantTextDeltaEvent,
     InRunCompactionCompletedEvent,
     JsonValue,
@@ -46,6 +48,10 @@ from just_another_coding_agent.contracts.run_events import (
     ToolCallStartedEvent,
     ToolCallSucceededEvent,
     ToolCallUpdatedEvent,
+)
+from just_another_coding_agent.contracts.sandbox import (
+    ApprovalDecision,
+    ApprovalRequest,
 )
 from just_another_coding_agent.contracts.thinking import ThinkingSetting
 from just_another_coding_agent.contracts.tools import CANONICAL_TOOL_NAMES
@@ -116,6 +122,12 @@ class _QueuedToolUpdate:
     partial_result: JsonValue | None
 
 
+@dataclass(frozen=True)
+class _QueuedApprovalRequest:
+    request: ApprovalRequest
+    response_future: asyncio.Future[ApprovalDecision]
+
+
 class _RestartRunWithCorrection(Exception):
     def __init__(
         self,
@@ -129,6 +141,12 @@ class _RestartRunWithCorrection(Exception):
 
 class _InRunCompactRequested(Exception):
     pass
+
+
+class ApprovalDenied(RuntimeError):
+    def __init__(self, *, request: ApprovalRequest) -> None:
+        super().__init__(f"Approval denied: {request.reason}")
+        self.request = request
 
 
 MAX_IN_RUN_COMPACT_FAILURES = 3
@@ -202,6 +220,8 @@ def _bind_workspace_deps_to_run(
     deps: WorkspaceDeps,
     run_id: str,
     tool_update_sink: Callable[[str, str, JsonValue | None], Awaitable[None]] | None,
+    approval_requester: Callable[[ApprovalRequest], Awaitable[ApprovalDecision]]
+    | None,
 ) -> WorkspaceDeps:
     return replace(
         deps,
@@ -210,6 +230,7 @@ def _bind_workspace_deps_to_run(
             run_id=run_id,
         ),
         tool_update_sink=tool_update_sink,
+        approval_requester=approval_requester,
     )
 
 
@@ -615,6 +636,9 @@ async def _stream_run_events(
     | None = None,
     submit_steer_boundary: Callable[[], Awaitable[None]] | None = None,
     deactivate_steer_boundary: Callable[[], Awaitable[None]] | None = None,
+    resolve_approval_request: (
+        Callable[[ApprovalRequest], Awaitable[ApprovalDecision]] | None
+    ) = None,
 ) -> AsyncIterator[RunEvent]:
     """Translate one PydanticAI run into the canonical streamed event contract.
 
@@ -670,10 +694,25 @@ async def _stream_run_events(
                         )
                     )
 
+                async def _queue_approval_request(
+                    request: ApprovalRequest,
+                ) -> ApprovalDecision:
+                    response_future: asyncio.Future[ApprovalDecision] = (
+                        asyncio.get_running_loop().create_future()
+                    )
+                    await queue.put(
+                        _QueuedApprovalRequest(
+                            request=request,
+                            response_future=response_future,
+                        )
+                    )
+                    return await response_future
+
                 queued_deps = _bind_workspace_deps_to_run(
                     deps=deps,
                     run_id=run_id,
                     tool_update_sink=_queue_tool_update,
+                    approval_requester=_queue_approval_request,
                 )
             else:
                 queue = asyncio.Queue()
@@ -855,18 +894,82 @@ async def _stream_run_events(
 
                                                 if update_task in done:
                                                     event = update_task.result()
-                                                    pending_tool_call = _resolve_tool_update(  # noqa: E501
-                                                        pending_tool_calls=pending_tool_calls,
-                                                        buffered_tool_updates=buffered_tool_updates,
-                                                        completed_tool_calls=completed_tool_calls,
-                                                        queued_update=event,
-                                                    )
-                                                    if pending_tool_call is not None:
-                                                        yield _build_tool_updated_event(
+                                                    if isinstance(
+                                                        event,
+                                                        _QueuedApprovalRequest,
+                                                    ):
+                                                        yield ApprovalRequestedEvent(
                                                             run_id=run_id,
-                                                            queued_update=event,
-                                                            pending_tool_call=pending_tool_call,
+                                                            request=event.request,
                                                         )
+                                                        if (
+                                                            resolve_approval_request
+                                                            is None
+                                                        ):
+                                                            error = RuntimeError(
+                                                                (
+                                                                    "Approval "
+                                                                    "request "
+                                                                    "emitted "
+                                                                    "without "
+                                                                    "a "
+                                                                    "resolver"
+                                                                )
+                                                            )
+                                                            event.response_future.set_exception(
+                                                                error
+                                                            )
+                                                            raise error
+                                                        try:
+                                                            decision = await (
+                                                                resolve_approval_request(
+                                                                    event.request
+                                                                )
+                                                            )
+                                                        except Exception as error:
+                                                            if not (
+                                                                event.response_future.done()
+                                                            ):
+                                                                event.response_future.set_exception(
+                                                                    error
+                                                                )
+                                                            raise
+                                                        yield ApprovalResolvedEvent(
+                                                            run_id=run_id,
+                                                            decision=decision,
+                                                        )
+                                                        if (
+                                                            decision.decision
+                                                            == "denied"
+                                                        ):
+                                                            denial = ApprovalDenied(
+                                                                request=event.request
+                                                            )
+                                                            event.response_future.set_exception(
+                                                                denial
+                                                            )
+                                                            raise denial
+                                                        event.response_future.set_result(
+                                                            decision
+                                                        )
+                                                    else:
+                                                        pending_tool_call = _resolve_tool_update(  # noqa: E501
+                                                            pending_tool_calls=pending_tool_calls,
+                                                            buffered_tool_updates=buffered_tool_updates,
+                                                            completed_tool_calls=completed_tool_calls,
+                                                            queued_update=event,
+                                                        )
+                                                        if (
+                                                            pending_tool_call
+                                                            is not None
+                                                        ):
+                                                            yield (
+                                                                _build_tool_updated_event(
+                                                                    run_id=run_id,
+                                                                    queued_update=event,
+                                                                    pending_tool_call=pending_tool_call,
+                                                                )
+                                                            )
                                                     update_task = asyncio.create_task(
                                                         queue.get()
                                                     )
@@ -1240,6 +1343,9 @@ async def stream_run_events(
     | None = None,
     submit_steer_boundary: Callable[[], Awaitable[None]] | None = None,
     deactivate_steer_boundary: Callable[[], Awaitable[None]] | None = None,
+    resolve_approval_request: (
+        Callable[[ApprovalRequest], Awaitable[ApprovalDecision]] | None
+    ) = None,
 ) -> AsyncIterator[RunEvent]:
     """Translate one PydanticAI run into the canonical streamed event contract."""
     steer_callbacks_present = (
@@ -1270,6 +1376,7 @@ async def stream_run_events(
         activate_steer_boundary=activate_steer_boundary,
         submit_steer_boundary=submit_steer_boundary,
         deactivate_steer_boundary=deactivate_steer_boundary,
+        resolve_approval_request=resolve_approval_request,
     ):
         if isinstance(event, RunSucceededEvent):
             event = event.model_copy(

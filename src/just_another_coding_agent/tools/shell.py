@@ -2,9 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import os
-import signal
-import subprocess
 import tempfile
 from pathlib import Path
 from typing import Annotated, Protocol
@@ -12,7 +9,6 @@ from typing import Annotated, Protocol
 from pydantic import Field
 from pydantic_ai import RunContext, Tool
 
-from just_another_coding_agent._pdeathsig import set_pdeathsig_in_child
 from just_another_coding_agent.contracts.platform import ShellFamily
 from just_another_coding_agent.contracts.run_events import ShellActivityDetails
 from just_another_coding_agent.tools._activity import (
@@ -24,13 +20,14 @@ from just_another_coding_agent.tools.errors import (
     ToolCommandError,
     ToolEncodingError,
 )
+from just_another_coding_agent.tools.sandbox_executor import (
+    HostSandboxExecutor,
+    SandboxCommandHandle,
+    SandboxCommandRequest,
+)
 from just_another_coding_agent.tools.truncation import (
     append_tool_note,
     truncate_tail_text,
-)
-from just_another_coding_agent.tools.windows_search_tools import (
-    build_tool_process_env,
-    ensure_windows_search_tool,
 )
 
 SHELL_MAX_LINES = 2000
@@ -119,39 +116,6 @@ def _truncate_shell_output(output: str, *, partial: bool) -> str:
     return append_tool_note(window.text, note)
 
 
-async def _terminate_process(
-    process: asyncio.subprocess.Process,
-    *,
-    shell_family: ShellFamily,
-) -> None:
-    if process.returncode is not None:
-        return
-
-    if shell_family == "powershell" and os.name == "nt":
-        taskkill = await asyncio.create_subprocess_exec(
-            "taskkill",
-            "/PID",
-            str(process.pid),
-            "/T",
-            "/F",
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL,
-        )
-        await taskkill.wait()
-    else:
-        try:
-            os.killpg(process.pid, signal.SIGKILL)
-        except PermissionError:
-            try:
-                process.kill()
-            except ProcessLookupError:
-                pass
-        except ProcessLookupError:
-            pass
-
-    await process.wait()
-
-
 async def _publish_shell_update(
     *,
     ctx: ShellExecutionContext | None,
@@ -167,32 +131,6 @@ async def _publish_shell_update(
         ctx.tool_name,
         {"output": _truncate_shell_output(output, partial=True)},
     )
-
-
-def _shell_command_prefix(shell_family: ShellFamily) -> tuple[str, ...]:
-    if shell_family == "powershell":
-        executable = "powershell.exe" if os.name == "nt" else "pwsh"
-        return (executable, "-NoLogo", "-NoProfile", "-NonInteractive", "-Command")
-    return ("bash", "-lc")
-
-
-def _shell_process_kwargs(shell_family: ShellFamily) -> dict[str, object]:
-    kwargs: dict[str, object] = {}
-    if shell_family == "powershell" and os.name == "nt":
-        # CREATE_NO_WINDOW: do not give the child a console. Without this,
-        # powershell.exe children inherit / try to attach to the parent's
-        # console, which serializes through conhost/csrss when several
-        # children spawn concurrently from a TUI parent and can stall a
-        # spawn for many seconds before the first byte appears.
-        # CREATE_NEW_PROCESS_GROUP: keeps Ctrl+C from the parent from
-        # propagating into the child, and lets us terminate the whole tree
-        # via taskkill /T.
-        kwargs["creationflags"] = (
-            subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
-        )
-    return kwargs
-
-
 async def execute_shell(
     *,
     ctx: ShellExecutionContext | None = None,
@@ -201,36 +139,21 @@ async def execute_shell(
     shell_family: ShellFamily,
     timeout: int | None = None,
 ) -> dict[str, int | str]:
-    if os.name == "nt":
-        ensure_windows_search_tool("fd", silent=True)
-        ensure_windows_search_tool("rg", silent=True)
-    # start_new_session=True puts the shell child into its own session so it
-    # cannot steal the parent's raw-mode stdin, but that also removes it
-    # from the parent's signal chain. preexec_fn sets PR_SET_PDEATHSIG on
-    # Linux so a shell command still dies if this backend dies abnormally,
-    # which the new-session isolation would otherwise prevent.
-    spawn_kwargs: dict[str, object] = dict(
-        cwd=str(workspace_root),
-        # Detach the child from the parent's stdin. When jaca runs in a TUI
-        # the parent's stdin is a raw-mode console handle; powershell.exe
-        # children that inherit it can stall on startup for tens of seconds
-        # before producing any output.
-        stdin=asyncio.subprocess.DEVNULL,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.STDOUT,
-        env=build_tool_process_env(),
-        start_new_session=(shell_family == "posix"),
-        **_shell_process_kwargs(shell_family),
+    executor = (
+        ctx.deps.sandbox_executor if ctx is not None else HostSandboxExecutor()
     )
-    if os.name != "nt":
-        spawn_kwargs["preexec_fn"] = set_pdeathsig_in_child
-    process = await asyncio.create_subprocess_exec(
-        *_shell_command_prefix(shell_family),
-        command,
-        **spawn_kwargs,
+    handle = await executor.execute(
+        SandboxCommandRequest(
+            workspace_root=Path(workspace_root),
+            command=command,
+            shell_family=shell_family,
+            permission_state=(
+                ctx.deps.permission_state
+                if ctx is not None
+                else WorkspaceDeps.from_workspace_root(workspace_root).permission_state
+            ),
+        )
     )
-    if process.stdout is None:
-        raise RuntimeError("shell subprocess must expose stdout")
 
     output_chunks: list[str] = []
     new_output_event = asyncio.Event()
@@ -238,7 +161,7 @@ async def execute_shell(
     async def _read_output() -> None:
         try:
             while True:
-                chunk = await process.stdout.read(4096)
+                chunk = await handle.read(4096)
                 if not chunk:
                     return
                 try:
@@ -282,7 +205,7 @@ async def execute_shell(
 
     reader_task = asyncio.create_task(_read_output())
     publisher_task = asyncio.create_task(_publish_loop())
-    wait_task = asyncio.create_task(process.wait())
+    wait_task = asyncio.create_task(handle.wait())
 
     async def _await_process_and_drain() -> None:
         # Wait for either the process to exit or the reader to fail.
@@ -325,7 +248,7 @@ async def execute_shell(
                     _await_process_and_drain(), timeout=timeout
                 )
             except TimeoutError as error:
-                await _terminate_process(process, shell_family=shell_family)
+                await handle.terminate()
                 if not reader_task.done():
                     reader_task.cancel()
                 with contextlib.suppress(
@@ -340,11 +263,11 @@ async def execute_shell(
                     )
                 ) from error
     except ToolEncodingError:
-        await _terminate_process(process, shell_family=shell_family)
+        await handle.terminate()
         raise
     finally:
-        if process.returncode is None:
-            await _terminate_process(process, shell_family=shell_family)
+        if handle.exit_code is None:
+            await handle.terminate()
         if not wait_task.done():
             with contextlib.suppress(asyncio.CancelledError):
                 await wait_task
@@ -355,16 +278,20 @@ async def execute_shell(
 
     output = _truncate_shell_output("".join(output_chunks), partial=False)
 
-    if process.returncode != 0:
+    exit_code = handle.exit_code
+    if exit_code is None:
+        raise RuntimeError("sandbox executor must report an exit code after wait")
+
+    if exit_code != 0:
         raise ToolCommandError(
             _format_shell_failure(
                 output,
-                f"Command exited with code {process.returncode}",
+                f"Command exited with code {exit_code}",
             )
         )
 
     return {
-        "exit_code": process.returncode,
+        "exit_code": exit_code,
         "output": output,
     }
 

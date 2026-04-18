@@ -31,6 +31,8 @@ from just_another_coding_agent.contracts.model_catalog import (
     shipped_models_for_provider,
 )
 from just_another_coding_agent.contracts.rpc import (
+    ApprovalSubmitRequest,
+    ApprovalSubmitResponse,
     AuthClearRequest,
     AuthClearResponse,
     AuthLoginOpenAICodexCompleteRequest,
@@ -49,6 +51,10 @@ from just_another_coding_agent.contracts.rpc import (
     ModelCatalogProvider,
     ModelCatalogRequest,
     ModelCatalogResponse,
+    PermissionGetRequest,
+    PermissionGetResponse,
+    PermissionSetRequest,
+    PermissionSetResponse,
     RpcErrorEnvelope,
     RpcEventEnvelope,
     RpcRequest,
@@ -78,6 +84,16 @@ from just_another_coding_agent.contracts.run_events import (
     SessionLifecycleEvent,
     SessionQueuedPromptBatchSubmittedEvent,
     SessionQueueStateEvent,
+)
+from just_another_coding_agent.contracts.sandbox import (
+    ApprovalDecision,
+    ApprovalPolicy,
+    ApprovalRequest,
+    DangerFullAccessSandboxPolicy,
+    EffectiveCapabilities,
+    PermissionState,
+    SandboxPolicy,
+    build_permission_state,
 )
 from just_another_coding_agent.contracts.tools import CANONICAL_TOOL_NAMES
 from just_another_coding_agent.provider_readiness import ProviderReadinessError
@@ -375,7 +391,15 @@ class _OpenAICodexLoginFlowState:
     started_at: float | None = None
 
 
+@dataclass
+class _PendingApprovalState:
+    request_id: str
+    response_future: asyncio.Future[ApprovalDecision]
+
+
 _OPENAI_CODEX_LOGIN_FLOWS: dict[str, _OpenAICodexLoginFlowState] = {}
+_PERMISSION_STATES: dict[str, PermissionState] = {}
+_PENDING_APPROVALS: dict[str, dict[str, _PendingApprovalState]] = defaultdict(dict)
 
 
 RpcHandler = Callable[[Any, "_RpcContext"], AsyncIterator[str]]
@@ -399,6 +423,33 @@ class _RpcErrorMapping:
 
 def _combine_prompt_batch(prompts: list[str]) -> str:
     return "\n\n".join(prompts)
+
+
+def _build_live_permission_state(
+    *,
+    sandbox_policy: SandboxPolicy | None = None,
+    approval_policy: ApprovalPolicy | None = None,
+) -> PermissionState:
+    resolved_sandbox_policy = sandbox_policy or DangerFullAccessSandboxPolicy()
+    resolved_approval_policy = approval_policy or ApprovalPolicy(mode="never")
+    return build_permission_state(
+        sandbox_policy=resolved_sandbox_policy,
+        approval_policy=resolved_approval_policy,
+        effective_capabilities=EffectiveCapabilities(
+            filesystem_access="full_access",
+            network_access="enabled",
+            execution_isolation="unsandboxed",
+            approval_mode="never",
+        ),
+    )
+
+
+def _get_or_create_permission_state(session_id: str) -> PermissionState:
+    state = _PERMISSION_STATES.get(session_id)
+    if state is None:
+        state = _build_live_permission_state()
+        _PERMISSION_STATES[session_id] = state
+    return state
 
 
 def _rpc_error_handler(
@@ -436,6 +487,7 @@ async def _handle_session_create(
         sessions_root=ctx.sessions_root,
         workspace_root=ctx.workspace_root,
     )
+    _PERMISSION_STATES[session_id] = _build_live_permission_state()
     yield RpcResponseEnvelope(
         id=request.id,
         response=SessionCreateResponse(
@@ -719,6 +771,121 @@ async def _handle_run_interrupt(
     ).model_dump_json()
 
 
+async def _handle_permission_get(
+    request: PermissionGetRequest,
+    ctx: _RpcContext,
+) -> AsyncIterator[str]:
+    session_path = session_path_for_id(
+        sessions_root=ctx.sessions_root,
+        workspace_root=ctx.workspace_root,
+        session_id=request.payload.session_id,
+    )
+    if not session_path.exists():
+        yield RpcErrorEnvelope(
+            id=request.id,
+            error_type="UnknownSession",
+            message=f"Unknown session_id: {request.payload.session_id}",
+        ).model_dump_json()
+        return
+
+    yield RpcResponseEnvelope(
+        id=request.id,
+        response=PermissionGetResponse(
+            session_id=request.payload.session_id,
+            permission_state=_get_or_create_permission_state(
+                request.payload.session_id
+            ),
+        ),
+    ).model_dump_json()
+
+
+async def _handle_permission_set(
+    request: PermissionSetRequest,
+    ctx: _RpcContext,
+) -> AsyncIterator[str]:
+    session_path = session_path_for_id(
+        sessions_root=ctx.sessions_root,
+        workspace_root=ctx.workspace_root,
+        session_id=request.payload.session_id,
+    )
+    if not session_path.exists():
+        yield RpcErrorEnvelope(
+            id=request.id,
+            error_type="UnknownSession",
+            message=f"Unknown session_id: {request.payload.session_id}",
+        ).model_dump_json()
+        return
+
+    existing_state = _get_or_create_permission_state(request.payload.session_id)
+    permission_state = _build_live_permission_state(
+        sandbox_policy=(
+            request.payload.sandbox_policy or existing_state.sandbox_policy
+        ),
+        approval_policy=(
+            request.payload.approval_policy or existing_state.approval_policy
+        ),
+    )
+    _PERMISSION_STATES[request.payload.session_id] = permission_state
+
+    yield RpcResponseEnvelope(
+        id=request.id,
+        response=PermissionSetResponse(
+            session_id=request.payload.session_id,
+            permission_state=permission_state,
+        ),
+    ).model_dump_json()
+
+
+async def _handle_approval_submit(
+    request: ApprovalSubmitRequest,
+    ctx: _RpcContext,
+) -> AsyncIterator[str]:
+    session_path = session_path_for_id(
+        sessions_root=ctx.sessions_root,
+        workspace_root=ctx.workspace_root,
+        session_id=request.payload.session_id,
+    )
+    if not session_path.exists():
+        yield RpcErrorEnvelope(
+            id=request.id,
+            error_type="UnknownSession",
+            message=f"Unknown session_id: {request.payload.session_id}",
+        ).model_dump_json()
+        return
+
+    pending = _PENDING_APPROVALS.get(request.payload.session_id, {})
+    approval_state = pending.get(request.payload.decision.request_id)
+    if approval_state is None:
+        yield RpcErrorEnvelope(
+            id=request.id,
+            error_type="InvalidRequest",
+            message=(
+                "Unknown approval request for session: "
+                f"{request.payload.decision.request_id}"
+            ),
+        ).model_dump_json()
+        return
+    if approval_state.response_future.done():
+        yield RpcErrorEnvelope(
+            id=request.id,
+            error_type="InvalidRequest",
+            message=(
+                "Approval request already resolved: "
+                f"{request.payload.decision.request_id}"
+            ),
+        ).model_dump_json()
+        return
+
+    approval_state.response_future.set_result(request.payload.decision)
+    yield RpcResponseEnvelope(
+        id=request.id,
+        response=ApprovalSubmitResponse(
+            session_id=request.payload.session_id,
+            decision=request.payload.decision,
+        ),
+    ).model_dump_json()
+
+
 async def _handle_session_name(
     request: SessionNameRequest,
     ctx: _RpcContext,
@@ -918,6 +1085,31 @@ async def _handle_run_start(
     async def submit_boundary() -> None:
         await _FOLLOW_UP_STATE.submit_active_steer_boundary(request.payload.session_id)
 
+    async def resolve_approval_request(
+        decision_request: ApprovalRequest,
+    ) -> ApprovalDecision:
+        approval_state = _PendingApprovalState(
+            request_id=decision_request.request_id,
+            response_future=(
+                asyncio.get_running_loop().create_future()
+            ),
+        )
+        session_pending = _PENDING_APPROVALS[request.payload.session_id]
+        if decision_request.request_id in session_pending:
+            raise RuntimeError(
+                "Approval request already pending for session: "
+                f"{decision_request.request_id}"
+            )
+        session_pending[decision_request.request_id] = approval_state
+        try:
+            return await approval_state.response_future
+        finally:
+            current_pending = _PENDING_APPROVALS.get(request.payload.session_id)
+            if current_pending is not None:
+                current_pending.pop(decision_request.request_id, None)
+                if not current_pending:
+                    _PENDING_APPROVALS.pop(request.payload.session_id, None)
+
     await _FOLLOW_UP_STATE.activate(
         request.payload.session_id,
         run_task=current_task,
@@ -935,6 +1127,10 @@ async def _handle_run_start(
                     prompt=prompt,
                     tool_names=CANONICAL_TOOL_NAMES,
                     thinking=request.payload.thinking,
+                    permission_state=_get_or_create_permission_state(
+                        request.payload.session_id
+                    ),
+                    resolve_approval_request=resolve_approval_request,
                     activate_steer_boundary=activate_boundary,
                     submit_steer_boundary=submit_boundary,
                     deactivate_steer_boundary=lambda: (
@@ -1009,6 +1205,9 @@ _RPC_HANDLERS: dict[type[Any], RpcHandler] = {
     TraceLogfireStatusRequest: _handle_trace_logfire_status,
     RunEnqueueRequest: _handle_run_enqueue,
     RunInterruptRequest: _handle_run_interrupt,
+    PermissionGetRequest: _handle_permission_get,
+    PermissionSetRequest: _handle_permission_set,
+    ApprovalSubmitRequest: _handle_approval_submit,
     SessionNameRequest: _handle_session_name,
     SessionPreviewRequest: _handle_session_preview,
     WorkspaceProjectDocsRequest: _handle_workspace_project_docs,

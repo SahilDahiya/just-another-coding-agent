@@ -22,6 +22,10 @@ policy, approval policy, effective-capability meaning, approval lifecycle, and
 the boundary between control-plane policy and data-plane executor backends. Go
 may render approval prompts and effective sandbox posture, but it must not
 infer sandbox meaning locally or grow backend-specific policy logic of its own.
+That same boundary now applies inside the Python tool layer: high-risk command
+startup belongs behind one backend-owned sandbox-executor seam, while the
+canonical `shell` tool keeps ownership of user-visible tool semantics,
+streaming, truncation, timeout errors, and activity metadata.
 
 The same risk exists when a non-Python execution helper is introduced for
 performance. The current read-only worker is a separate Go helper for
