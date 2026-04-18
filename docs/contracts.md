@@ -18,6 +18,10 @@ Canonical prompt context for the maintained version:
 - dynamic runtime-context messages containing current date, timezone,
   workspace root, shell family, model, thinking, and effective capability
   posture when that posture is part of the visible framing for the run
+- when shell path semantics differ from host-visible workspace paths because a
+  sandboxed executor mounts the workspace somewhere else, runtime-context
+  framing must say so explicitly and tell the model which path convention to
+  prefer
 - a mode/task layer seam, currently active only as the default no-op mode
 
 Rules:
@@ -161,6 +165,10 @@ Rules:
 - Capability changes that materially affect what the model can do must be made
   explicit through backend-owned effective capabilities rather than inferred in
   Go or hidden inside executor implementation detail.
+- Live effective capabilities must stay truthful about the selected backend
+  posture. Once a tool family is actually sandboxed, runtime framing and
+  durable turn-context state must stop reporting it as unsandboxed host
+  execution.
 - Approval is control-plane policy. Executor backends are data-plane
   implementation detail.
 - The canonical backend must not grow a side-channel unsandboxed shell path
@@ -223,7 +231,16 @@ Approval carrier rules:
   - `shell` routes `workspace_write` and `read_only` sandbox policies through
     the local restricted executor backend
   - the first restricted backend is Docker-backed and enforces workspace-bound
-    execution with `--network none`
+    execution
+  - under `workspace_write`, restricted shell execution defaults to
+    `--network none`
+  - `approval_policy=on_escalation` may request approval for explicit
+    network-seeking shell commands; when approved, the restricted Docker
+    backend reruns that command with network enabled while preserving the
+    workspace-bound sandbox posture
+  - `write` and `edit` request approval before modifying paths outside the
+    workspace when `approval_policy=on_escalation` and the selected sandbox
+    policy is `workspace_write`
   - `danger_full_access` continues to use the host executor
   - `external` remains unsupported unless the caller provides an externally
     managed executor
@@ -233,6 +250,9 @@ Approval carrier rules:
     still report the truthful host values (`full_access`, `enabled`,
     `unsandboxed`) even when `shell` is already sandboxed under the selected
     policy
+  - current conservative reporting also covers the fact that read-only tools
+    and in-workspace file operations have not yet been moved under the same
+    explicit boundary model
   - effective approval posture reflects the live approval policy because both
     `approval_policy=always` and the restricted shell executor already change
     `shell` execution behavior

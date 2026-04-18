@@ -200,6 +200,32 @@ func (b *stubBackend) PermissionSet(
 	}
 	if sandboxPolicy != nil {
 		b.permissionState.SandboxPolicy = *sandboxPolicy
+		switch sandboxPolicy.Mode {
+		case "workspace_write":
+			b.permissionState.EffectiveCapabilities.FilesystemAccess = "workspace_write"
+			if sandboxPolicy.NetworkAccess != "" {
+				b.permissionState.EffectiveCapabilities.NetworkAccess = sandboxPolicy.NetworkAccess
+			} else {
+				b.permissionState.EffectiveCapabilities.NetworkAccess = "restricted"
+			}
+			b.permissionState.EffectiveCapabilities.ExecutionIsolation = "sandboxed"
+		case "read_only":
+			b.permissionState.EffectiveCapabilities.FilesystemAccess = "read_only"
+			b.permissionState.EffectiveCapabilities.NetworkAccess = "restricted"
+			b.permissionState.EffectiveCapabilities.ExecutionIsolation = "sandboxed"
+		case "danger_full_access":
+			b.permissionState.EffectiveCapabilities.FilesystemAccess = "full_access"
+			b.permissionState.EffectiveCapabilities.NetworkAccess = "enabled"
+			b.permissionState.EffectiveCapabilities.ExecutionIsolation = "unsandboxed"
+		case "external":
+			b.permissionState.EffectiveCapabilities.FilesystemAccess = "full_access"
+			if sandboxPolicy.NetworkAccess != "" {
+				b.permissionState.EffectiveCapabilities.NetworkAccess = sandboxPolicy.NetworkAccess
+			} else {
+				b.permissionState.EffectiveCapabilities.NetworkAccess = "restricted"
+			}
+			b.permissionState.EffectiveCapabilities.ExecutionIsolation = "sandboxed"
+		}
 	}
 	if approvalPolicy != nil {
 		b.permissionState.ApprovalPolicy = *approvalPolicy
@@ -710,8 +736,8 @@ func TestPermissionSlashUpdatesBackendPolicy(t *testing.T) {
 	for _, want := range []string{
 		"permission state updated",
 		"permission: default",
-		"effective capabilities: filesystem=full_access network=enabled isolation=unsandboxed approval=on_escalation",
-		"selected sandbox policy is staged; the restricted local executor backend is not wired yet",
+		"effective capabilities: filesystem=workspace_write network=restricted isolation=sandboxed approval=on_escalation",
+		"default currently guarantees sandboxed shell execution; other tool surfaces are still migrating to the same boundary model",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("permission render missing %q in %q", want, rendered)
@@ -748,8 +774,8 @@ func TestPermissionSlashUpdatesWorkspaceDefaultPolicyWithoutSession(t *testing.T
 	for _, want := range []string{
 		"permission state updated",
 		"permission: default",
-		"effective capabilities: filesystem=full_access network=enabled isolation=unsandboxed approval=on_escalation",
-		"selected sandbox policy is staged; the restricted local executor backend is not wired yet",
+		"effective capabilities: filesystem=workspace_write network=restricted isolation=sandboxed approval=on_escalation",
+		"default currently guarantees sandboxed shell execution; other tool surfaces are still migrating to the same boundary model",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("permission render missing %q in %q", want, rendered)

@@ -281,6 +281,19 @@ def test_build_runtime_context_text_includes_effective_capabilities_when_given(
             "Current network access: restricted",
             "Current execution isolation: sandboxed",
             "Current approval policy: on_escalation",
+            (
+                "Shell sandbox path note: shell commands run with the "
+                "workspace mounted at /workspace inside the sandbox."
+            ),
+            (
+                "Prefer workspace-relative paths in shell commands instead "
+                "of host-absolute paths."
+            ),
+            (
+                "Tool coverage note: sandbox path semantics are currently "
+                "guaranteed for shell; other tool surfaces may still use "
+                "host-visible paths until they migrate to the same boundary."
+            ),
         ]
     )
 

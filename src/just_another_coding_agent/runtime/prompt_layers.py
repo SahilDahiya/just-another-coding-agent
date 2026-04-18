@@ -112,7 +112,14 @@ _FILESYSTEM_TRUTH_SECTION = PromptSection(
             "For read, write, and edit, relative paths resolve from the "
             "workspace root."
         ),
-        "shell runs in the workspace root and no tool is a filesystem sandbox.",
+        (
+            "Prefer workspace-relative paths unless runtime context or tool "
+            "output says otherwise."
+        ),
+        (
+            "shell starts from the current workspace; rely on runtime "
+            "context for any sandbox-specific path semantics."
+        ),
     ),
 )
 _TOOL_GUIDANCE_BY_NAME = {

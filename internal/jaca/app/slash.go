@@ -487,13 +487,10 @@ func permissionStateLines(
 			fmt.Sprintf("approval policy: %s", state.ApprovalPolicy.Mode),
 		)
 	}
-	if state.SandboxPolicy.Mode != "danger_full_access" &&
-		state.EffectiveCapabilities.FilesystemAccess == "full_access" &&
-		state.EffectiveCapabilities.NetworkAccess == "enabled" &&
-		state.EffectiveCapabilities.ExecutionIsolation == "unsandboxed" {
+	if state.SandboxPolicy.Mode == "workspace_write" {
 		lines = append(
 			lines,
-			"selected sandbox policy is staged; the restricted local executor backend is not wired yet",
+			"default currently guarantees sandboxed shell execution; other tool surfaces are still migrating to the same boundary model",
 		)
 	}
 	return lines

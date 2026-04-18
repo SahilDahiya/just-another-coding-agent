@@ -93,6 +93,15 @@ def _clear_pending_approvals() -> None:
     _PENDING_APPROVALS.clear()
 
 
+@pytest.fixture(autouse=True)
+def _reset_permission_and_approval_state() -> None:
+    _clear_permission_states()
+    _clear_pending_approvals()
+    yield
+    _clear_permission_states()
+    _clear_pending_approvals()
+
+
 async def resume_aware_write_stream(
     messages: list[ModelMessage],
     _agent_info: object,
@@ -629,9 +638,9 @@ async def test_handle_rpc_json_line_sets_live_permission_state_for_session(
         sandbox_policy=WorkspaceWriteSandboxPolicy(),
         approval_policy=ApprovalPolicy(mode="always"),
         effective_capabilities=EffectiveCapabilities(
-            filesystem_access="full_access",
-            network_access="enabled",
-            execution_isolation="unsandboxed",
+            filesystem_access="workspace_write",
+            network_access="restricted",
+            execution_isolation="sandboxed",
             approval_mode="always",
         ),
     )
@@ -2229,9 +2238,9 @@ async def test_handle_rpc_json_line_forwards_live_permission_state_to_session_ru
             sandbox_policy=WorkspaceWriteSandboxPolicy(),
             approval_policy=ApprovalPolicy(mode="always"),
             effective_capabilities=EffectiveCapabilities(
-                filesystem_access="full_access",
-                network_access="enabled",
-                execution_isolation="unsandboxed",
+                filesystem_access="workspace_write",
+                network_access="restricted",
+                execution_isolation="sandboxed",
                 approval_mode="always",
             ),
         ),

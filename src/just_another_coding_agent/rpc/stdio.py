@@ -90,10 +90,10 @@ from just_another_coding_agent.contracts.sandbox import (
     ApprovalPolicy,
     ApprovalRequest,
     DangerFullAccessSandboxPolicy,
-    EffectiveCapabilities,
     PermissionState,
     SandboxPolicy,
     build_permission_state,
+    derive_effective_capabilities,
 )
 from just_another_coding_agent.contracts.tools import CANONICAL_TOOL_NAMES
 from just_another_coding_agent.provider_readiness import ProviderReadinessError
@@ -436,11 +436,9 @@ def _build_live_permission_state(
     return build_permission_state(
         sandbox_policy=resolved_sandbox_policy,
         approval_policy=resolved_approval_policy,
-        effective_capabilities=EffectiveCapabilities(
-            filesystem_access="full_access",
-            network_access="enabled",
-            execution_isolation="unsandboxed",
-            approval_mode=resolved_approval_policy.mode,
+        effective_capabilities=derive_effective_capabilities(
+            sandbox_policy=resolved_sandbox_policy,
+            approval_policy=resolved_approval_policy,
         ),
     )
 

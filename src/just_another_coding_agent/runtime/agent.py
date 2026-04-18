@@ -120,6 +120,29 @@ def build_runtime_context_text(
                 f"Current approval policy: {effective_capabilities.approval_mode}",
             ]
         )
+        if (
+            effective_capabilities.execution_isolation == "sandboxed"
+            and effective_capabilities.filesystem_access
+            in {"read_only", "workspace_write"}
+        ):
+            sections.extend(
+                [
+                    (
+                        "Shell sandbox path note: shell commands run with the "
+                        "workspace mounted at /workspace inside the sandbox."
+                    ),
+                    (
+                        "Prefer workspace-relative paths in shell commands "
+                        "instead of host-absolute paths."
+                    ),
+                    (
+                        "Tool coverage note: sandbox path semantics are "
+                        "currently guaranteed for shell; other tool surfaces "
+                        "may still use host-visible paths until they migrate "
+                        "to the same boundary."
+                    ),
+                ]
+            )
 
     return "\n".join(sections)
 
