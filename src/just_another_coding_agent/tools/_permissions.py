@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import shlex
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Literal, Protocol
 from uuid import uuid4
 
@@ -90,24 +91,33 @@ def _shell_command_requests_network_access(
 def derive_sandbox_execution_plan(
     *,
     permission_state: PermissionState,
-    requested_permissions: AdditionalSandboxPermissions | None = None,
+    effective_permissions: AdditionalSandboxPermissions | None = None,
+    approval_permissions: AdditionalSandboxPermissions | None = None,
 ) -> SandboxExecutionPlan:
     approval_required = permission_state.approval_policy.mode == "always" or (
         permission_state.approval_policy.mode == "on_escalation"
-        and requested_permissions is not None
+        and approval_permissions is not None
     )
     return SandboxExecutionPlan(
-        requested_permissions=requested_permissions,
+        requested_permissions=approval_permissions,
         requested_capabilities=derive_requested_capabilities(
             permission_state=permission_state,
-            additional_permissions=requested_permissions,
+            additional_permissions=effective_permissions,
         ),
         normalized_policy=derive_normalized_sandbox_policy(
             permission_state=permission_state,
-            additional_permissions=requested_permissions,
+            additional_permissions=effective_permissions,
         ),
         approval_required=approval_required,
     )
+
+def _approval_scope_root(resolved_path: Path) -> str:
+    scope_root = (
+        resolved_path
+        if resolved_path.exists() and resolved_path.is_dir()
+        else resolved_path.parent
+    )
+    return str(scope_root.resolve())
 
 
 def plan_shell_execution(
@@ -130,7 +140,8 @@ def plan_shell_execution(
         )
     return derive_sandbox_execution_plan(
         permission_state=permission_state,
-        requested_permissions=requested_permissions,
+        effective_permissions=requested_permissions,
+        approval_permissions=requested_permissions,
     )
 
 
@@ -171,31 +182,37 @@ async def _approved_file_access_plan(
     access_kind: FileAccessKind,
 ) -> SandboxExecutionPlan:
     permission_state = ctx.deps.permission_state
-    requested_permissions: AdditionalSandboxPermissions | None = None
+    effective_permissions: AdditionalSandboxPermissions | None = None
+    approval_permissions: AdditionalSandboxPermissions | None = None
     outside_workspace = False
-    resolved_path: str | None = None
+    approval_scope_root: str | None = None
     if tool_path is not None:
         resolved = resolve_workspace_path(
             workspace_root=ctx.deps.workspace_root,
             tool_path=tool_path,
         )
-        resolved_path = str(resolved)
         outside_workspace = not path_is_within_workspace(
             workspace_root=ctx.deps.workspace_root,
             resolved_path=resolved,
         )
         if outside_workspace:
+            approval_scope_root = _approval_scope_root(resolved)
             if access_kind == "read":
-                requested_permissions = AdditionalSandboxPermissions(
-                    extra_read_roots=(resolved_path,),
+                effective_permissions = AdditionalSandboxPermissions(
+                    extra_read_roots=(approval_scope_root,),
                 )
+                if not ctx.deps.permission_memory.allows_read_path(resolved):
+                    approval_permissions = effective_permissions
             else:
-                requested_permissions = AdditionalSandboxPermissions(
-                    extra_write_roots=(resolved_path,),
+                effective_permissions = AdditionalSandboxPermissions(
+                    extra_write_roots=(approval_scope_root,),
                 )
+                if not ctx.deps.permission_memory.allows_write_path(resolved):
+                    approval_permissions = effective_permissions
     plan = derive_sandbox_execution_plan(
         permission_state=permission_state,
-        requested_permissions=requested_permissions,
+        effective_permissions=effective_permissions,
+        approval_permissions=approval_permissions,
     )
     if not plan.approval_required:
         return plan
@@ -223,6 +240,11 @@ async def _approved_file_access_plan(
         raise RuntimeError(
             f"{action.capitalize()} approval did not return an approved decision"
         )
+    if approval_scope_root is not None and approval_permissions is not None:
+        if access_kind == "read":
+            ctx.deps.permission_memory.remember_read_root(approval_scope_root)
+        else:
+            ctx.deps.permission_memory.remember_write_root(approval_scope_root)
     return plan
 
 

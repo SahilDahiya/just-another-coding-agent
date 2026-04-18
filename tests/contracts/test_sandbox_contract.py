@@ -193,7 +193,8 @@ def test_derive_sandbox_execution_plan_requires_approval_for_permission_deltas(
 
     plan = derive_sandbox_execution_plan(
         permission_state=permission_state,
-        requested_permissions=requested_permissions,
+        effective_permissions=requested_permissions,
+        approval_permissions=requested_permissions,
     )
 
     assert plan == SandboxExecutionPlan(

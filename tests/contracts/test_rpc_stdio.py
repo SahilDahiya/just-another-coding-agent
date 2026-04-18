@@ -553,13 +553,13 @@ async def test_handle_rpc_json_line_returns_live_permission_state(
             "response": {
                 "session_id": session_id,
                 "permission_state": PermissionState(
-                    sandbox_policy=DangerFullAccessSandboxPolicy(),
-                    approval_policy=ApprovalPolicy(mode="never"),
+                    sandbox_policy=WorkspaceWriteSandboxPolicy(),
+                    approval_policy=ApprovalPolicy(mode="on_escalation"),
                     effective_capabilities=EffectiveCapabilities(
-                        filesystem_access="full_access",
-                        network_access="enabled",
-                        execution_isolation="unsandboxed",
-                        approval_mode="never",
+                        filesystem_access="workspace_write",
+                        network_access="restricted",
+                        execution_isolation="sandboxed",
+                        approval_mode="on_escalation",
                     ),
                 ).model_dump(mode="json"),
             },
@@ -720,15 +720,11 @@ async def test_handle_rpc_json_line_sets_workspace_default_permission_state(
         }
     ]
 
-    created_session_id = await _create_session_id(
-        workspace_root=workspace_root,
-        sessions_root=sessions_root,
-    )
     get_messages = await _rpc_messages(
         request_payload={
             "id": "req-permission-get",
             "command": "permission.get",
-            "payload": {"session_id": created_session_id},
+            "payload": {},
         },
         model=FunctionModel(stream_function=text_only_stream),
         workspace_root=workspace_root,
@@ -740,8 +736,86 @@ async def test_handle_rpc_json_line_sets_workspace_default_permission_state(
             "type": "rpc_response",
             "id": "req-permission-get",
             "response": {
-                "session_id": created_session_id,
+                "session_id": None,
                 "permission_state": expected_state.model_dump(mode="json"),
+            },
+        }
+    ]
+
+
+async def test_new_sessions_start_from_canonical_default_even_when_idle_state_changed(
+    tmp_path,
+) -> None:
+    _clear_permission_states()
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+
+    idle_set_messages = await _rpc_messages(
+        request_payload={
+            "id": "req-idle-permission-set",
+            "command": "permission.set",
+            "payload": {
+                "sandbox_policy": {"mode": "danger_full_access"},
+                "approval_policy": {"mode": "never"},
+            },
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    assert idle_set_messages == [
+        {
+            "type": "rpc_response",
+            "id": "req-idle-permission-set",
+            "response": {
+                "session_id": None,
+                "permission_state": PermissionState(
+                    sandbox_policy=DangerFullAccessSandboxPolicy(),
+                    approval_policy=ApprovalPolicy(mode="never"),
+                    effective_capabilities=EffectiveCapabilities(
+                        filesystem_access="full_access",
+                        network_access="enabled",
+                        execution_isolation="unsandboxed",
+                        approval_mode="never",
+                    ),
+                ).model_dump(mode="json"),
+            },
+        }
+    ]
+
+    created_session_id = await _create_session_id(
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+    session_messages = await _rpc_messages(
+        request_payload={
+            "id": "req-session-permission-get",
+            "command": "permission.get",
+            "payload": {"session_id": created_session_id},
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    assert session_messages == [
+        {
+            "type": "rpc_response",
+            "id": "req-session-permission-get",
+            "response": {
+                "session_id": created_session_id,
+                "permission_state": PermissionState(
+                    sandbox_policy=WorkspaceWriteSandboxPolicy(),
+                    approval_policy=ApprovalPolicy(mode="on_escalation"),
+                    effective_capabilities=EffectiveCapabilities(
+                        filesystem_access="workspace_write",
+                        network_access="restricted",
+                        execution_isolation="sandboxed",
+                        approval_mode="on_escalation",
+                    ),
+                ).model_dump(mode="json"),
             },
         }
     ]
@@ -910,6 +984,59 @@ async def test_handle_rpc_json_line_resolves_pending_approval_submit(
         "approval_resolved",
         "run_succeeded",
     ]
+
+
+async def test_run_start_reuses_session_permission_memory_across_runs(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    session_id = await _create_session_id(
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+    captured_memories = []
+
+    async def fake_stream_session_run_events(
+        *,
+        permission_memory=None,
+        **_kwargs,
+    ):
+        captured_memories.append(permission_memory)
+        yield {"type": "run_started", "run_id": f"run-{len(captured_memories)}"}
+        yield {
+            "type": "run_succeeded",
+            "run_id": f"run-{len(captured_memories)}",
+            "output_text": "done",
+        }
+
+    monkeypatch.setattr(
+        "just_another_coding_agent.rpc.stdio.stream_session_run_events",
+        fake_stream_session_run_events,
+    )
+
+    async def _start(prompt: str) -> list[dict[str, object]]:
+        return await _rpc_messages(
+            request_payload={
+                "id": f"req-run-{prompt}",
+                "command": "run.start",
+                "payload": {
+                    "session_id": session_id,
+                    "prompt": prompt,
+                },
+            },
+            model=FunctionModel(stream_function=text_only_stream),
+            workspace_root=workspace_root,
+            sessions_root=sessions_root,
+        )
+
+    await _start("first")
+    await _start("second")
+
+    assert len(captured_memories) == 2
+    assert captured_memories[0] is captured_memories[1]
 
 
 async def test_handle_rpc_json_line_returns_session_preview(tmp_path) -> None:

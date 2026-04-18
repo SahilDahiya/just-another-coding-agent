@@ -92,6 +92,7 @@ from just_another_coding_agent.contracts.sandbox import (
     DangerFullAccessSandboxPolicy,
     PermissionState,
     SandboxPolicy,
+    WorkspaceWriteSandboxPolicy,
     build_permission_state,
     derive_effective_capabilities,
 )
@@ -115,6 +116,7 @@ from just_another_coding_agent.session import (
     append_session_name_to_session,
     build_session_preview,
 )
+from just_another_coding_agent.tools.deps import SessionPermissionMemory
 
 _RPC_REQUEST_ADAPTER = TypeAdapter(RpcRequest)
 _LOGIN_FLOW_TTL_SECONDS = 15 * 60
@@ -397,8 +399,14 @@ class _PendingApprovalState:
     response_future: asyncio.Future[ApprovalDecision]
 
 
+@dataclass
+class _SessionPermissionContext:
+    permission_state: PermissionState
+    permission_memory: SessionPermissionMemory
+
+
 _OPENAI_CODEX_LOGIN_FLOWS: dict[str, _OpenAICodexLoginFlowState] = {}
-_PERMISSION_STATES: dict[str, PermissionState] = {}
+_PERMISSION_STATES: dict[str, _SessionPermissionContext] = {}
 _PENDING_APPROVALS: dict[str, dict[str, _PendingApprovalState]] = defaultdict(dict)
 _DEFAULT_PERMISSION_STATE_KEY = "__workspace_default__"
 
@@ -443,16 +451,38 @@ def _build_live_permission_state(
     )
 
 
+def _build_canonical_session_permission_state() -> PermissionState:
+    return _build_live_permission_state(
+        sandbox_policy=WorkspaceWriteSandboxPolicy(),
+        approval_policy=ApprovalPolicy(mode="on_escalation"),
+    )
+
+
 def _permission_state_key(session_id: str | None) -> str:
     if session_id is None:
         return _DEFAULT_PERMISSION_STATE_KEY
     return session_id
 
 
-def _get_or_create_permission_state(session_id: str | None) -> PermissionState:
+def _build_permission_context_for_session(
+    session_id: str | None,
+) -> _SessionPermissionContext:
+    if session_id is None:
+        permission_state = _build_live_permission_state()
+    else:
+        permission_state = _build_canonical_session_permission_state()
+    return _SessionPermissionContext(
+        permission_state=permission_state,
+        permission_memory=SessionPermissionMemory(),
+    )
+
+
+def _get_or_create_permission_context(
+    session_id: str | None,
+) -> _SessionPermissionContext:
     state = _PERMISSION_STATES.get(_permission_state_key(session_id))
     if state is None:
-        state = _build_live_permission_state()
+        state = _build_permission_context_for_session(session_id)
         _PERMISSION_STATES[_permission_state_key(session_id)] = state
     return state
 
@@ -492,9 +522,9 @@ async def _handle_session_create(
         sessions_root=ctx.sessions_root,
         workspace_root=ctx.workspace_root,
     )
-    _PERMISSION_STATES[session_id] = _get_or_create_permission_state(
-        None
-    ).model_copy(deep=True)
+    _PERMISSION_STATES[session_id] = _build_permission_context_for_session(
+        session_id
+    )
     yield RpcResponseEnvelope(
         id=request.id,
         response=SessionCreateResponse(
@@ -800,9 +830,9 @@ async def _handle_permission_get(
         id=request.id,
         response=PermissionGetResponse(
             session_id=request.payload.session_id,
-            permission_state=_get_or_create_permission_state(
+            permission_state=_get_or_create_permission_context(
                 request.payload.session_id
-            ),
+            ).permission_state,
         ),
     ).model_dump_json()
 
@@ -825,7 +855,10 @@ async def _handle_permission_set(
             ).model_dump_json()
             return
 
-    existing_state = _get_or_create_permission_state(request.payload.session_id)
+    existing_context = _get_or_create_permission_context(
+        request.payload.session_id
+    )
+    existing_state = existing_context.permission_state
     permission_state = _build_live_permission_state(
         sandbox_policy=(
             request.payload.sandbox_policy or existing_state.sandbox_policy
@@ -834,9 +867,8 @@ async def _handle_permission_set(
             request.payload.approval_policy or existing_state.approval_policy
         ),
     )
-    _PERMISSION_STATES[_permission_state_key(request.payload.session_id)] = (
-        permission_state
-    )
+    existing_context.permission_state = permission_state
+    existing_context.permission_memory.clear()
 
     yield RpcResponseEnvelope(
         id=request.id,
@@ -1121,6 +1153,10 @@ async def _handle_run_start(
                 if not current_pending:
                     _PENDING_APPROVALS.pop(request.payload.session_id, None)
 
+    permission_context = _get_or_create_permission_context(
+        request.payload.session_id
+    )
+
     await _FOLLOW_UP_STATE.activate(
         request.payload.session_id,
         run_task=current_task,
@@ -1138,9 +1174,8 @@ async def _handle_run_start(
                     prompt=prompt,
                     tool_names=CANONICAL_TOOL_NAMES,
                     thinking=request.payload.thinking,
-                    permission_state=_get_or_create_permission_state(
-                        request.payload.session_id
-                    ),
+                    permission_state=permission_context.permission_state,
+                    permission_memory=permission_context.permission_memory,
                     resolve_approval_request=resolve_approval_request,
                     activate_steer_boundary=activate_boundary,
                     submit_steer_boundary=submit_boundary,

@@ -133,7 +133,7 @@ async def test_write_requests_approval_for_outside_workspace_path_in_default_mod
     assert requests[0].reason == "allow write outside workspace: ../outside.txt"
     assert requests[0].requested_permissions is not None
     assert requests[0].requested_permissions.extra_write_roots == (
-        str(outside.resolve()),
+        str(outside.parent.resolve()),
     )
 
 
@@ -166,3 +166,42 @@ async def test_write_skips_approval_for_workspace_path_in_default_mode(
 
     assert (workspace_root / "note.txt").read_text(encoding="utf-8") == "hello"
     assert requests == []
+
+
+async def test_write_remembers_approved_outside_root_within_one_session(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    outside_dir = tmp_path / "pi-mono"
+    outside_dir.mkdir()
+    requests = []
+
+    async def approval_requester(request):
+        requests.append(request)
+        return ApprovalDecision(
+            request_id=request.request_id,
+            decision="approved",
+        )
+
+    ctx = SimpleNamespace(
+        deps=WorkspaceDeps(
+            workspace_root=workspace_root,
+            approval_requester=approval_requester,
+            permission_state=build_permission_state(
+                sandbox_policy=WorkspaceWriteSandboxPolicy(),
+                approval_policy=ApprovalPolicy(mode="on_escalation"),
+            ),
+        )
+    )
+
+    await write(ctx, "../pi-mono/first.txt", "one")
+    await write(ctx, "../pi-mono/second.txt", "two")
+
+    assert (outside_dir / "first.txt").read_text(encoding="utf-8") == "one"
+    assert (outside_dir / "second.txt").read_text(encoding="utf-8") == "two"
+    assert len(requests) == 1
+    assert requests[0].requested_permissions is not None
+    assert requests[0].requested_permissions.extra_write_roots == (
+        str(outside_dir.resolve()),
+    )

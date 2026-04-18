@@ -244,7 +244,11 @@ Approval carrier rules:
   - `PermissionState` is live control-plane state for RPC and approval flows
   - when no session is active, `permission.get` / `permission.set` operate on
     the workspace default permission state
-  - `session.create` inherits the current workspace default permission state
+  - `session.create` always starts from the canonical `default` preset
+    (`workspace_write` + `on_escalation`), even if the no-session workspace
+    default was changed earlier
+  - approval-backed permission widening is remembered for the current session
+    only; new sessions start clean and must re-approve outside-workspace roots
   - `session_turn_context.effective_capabilities` remains the durable
     model-visible snapshot written after completed runs
 - current restricted execution coverage is intentionally narrow:
@@ -261,9 +265,11 @@ Approval carrier rules:
     read-side boundary
   - under `workspace_write`, `read`, `ls`, `find`, and `grep` request
     approval before accessing outside-workspace paths; approved requests widen
-    the worker boundary for that action via explicit
-    `requested_permissions.extra_read_roots` deltas instead of requiring a
-    mode flip to `danger_full_access`
+    the worker boundary via explicit `requested_permissions.extra_read_roots`
+    deltas instead of requiring a mode flip to `danger_full_access`
+  - approved read/write roots are remembered for the current session so
+    repeated access inside the same outside-workspace root does not prompt
+    again until the session ends or the selected permission preset changes
   - under `workspace_write`, restricted shell execution defaults to
     `--network none`
   - `approval_policy=on_escalation` may request approval for explicit
