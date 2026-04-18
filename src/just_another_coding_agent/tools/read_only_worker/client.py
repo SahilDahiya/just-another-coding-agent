@@ -123,23 +123,26 @@ class ReadOnlyWorkerClient:
             raise worker_error_to_exception(response)
         return response
 
-    async def _send_shutdown(self) -> None:
-        if self._process is None or self._process.stdin is None:
+    async def _send_shutdown(self, process: asyncio.subprocess.Process) -> None:
+        if process.stdin is None:
             return
+        stdin = process.stdin
         shutdown = ShutdownWorkerRequest(request_id=uuid4().hex)
-        self._process.stdin.write(
-            f"{encode_worker_message(shutdown)}\n".encode("utf-8")
-        )
-        await self._process.stdin.drain()
-        self._process.stdin.close()
+        stdin.write(f"{encode_worker_message(shutdown)}\n".encode("utf-8"))
+        with contextlib.suppress(BrokenPipeError, ConnectionResetError):
+            await stdin.drain()
+        stdin.close()
+        with contextlib.suppress(Exception):
+            await asyncio.wait_for(stdin.wait_closed(), timeout=2)
 
     async def _reader_loop(self) -> None:
-        assert self._process is not None
-        assert self._process.stdout is not None
+        process = self._process
+        assert process is not None
+        assert process.stdout is not None
 
         try:
             while True:
-                line = await self._process.stdout.readline()
+                line = await process.stdout.readline()
                 if not line:
                     break
                 try:
@@ -161,13 +164,13 @@ class ReadOnlyWorkerClient:
             return
 
         stderr_output = ""
-        if self._process.stderr is not None:
+        if process.stderr is not None:
             stderr_output = (
-                (await self._process.stderr.read())
+                (await process.stderr.read())
                 .decode("utf-8", errors="replace")
                 .strip()
             )
-        return_code = await self._process.wait()
+        return_code = await process.wait()
         if self._pending:
             message = (
                 "Read-only worker exited while requests were in flight"
@@ -179,27 +182,39 @@ class ReadOnlyWorkerClient:
             await self._fail_pending(RuntimeError(message))
 
     async def _close(self) -> None:
+        process = self._process
+        reader_task = self._reader_task
         try:
-            await self._send_shutdown()
+            if process is not None:
+                await self._send_shutdown(process)
         except Exception:
             pass
 
-        if self._process is not None:
+        if process is not None:
             try:
-                await asyncio.wait_for(self._process.wait(), timeout=2)
+                await asyncio.wait_for(process.wait(), timeout=2)
             except TimeoutError:
-                self._process.kill()
-                await self._process.wait()
+                process.kill()
+                await process.wait()
 
-        if self._reader_task is not None:
+        if reader_task is not None:
             try:
-                await asyncio.wait_for(asyncio.shield(self._reader_task), timeout=2)
+                await asyncio.wait_for(asyncio.shield(reader_task), timeout=2)
             except TimeoutError:
-                self._reader_task.cancel()
+                reader_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
-                    await self._reader_task
-            self._reader_task = None
+                    await reader_task
 
+        if process is not None:
+            transport = getattr(process, "_transport", None)
+            if transport is not None:
+                with contextlib.suppress(Exception):
+                    transport.close()
+            process.stdin = None
+            process.stdout = None
+            process.stderr = None
+
+        self._reader_task = None
         self._process = None
 
     async def _fail_pending(self, error: Exception) -> None:

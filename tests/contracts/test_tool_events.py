@@ -1618,6 +1618,7 @@ async def test_stream_run_events_recovers_from_invalid_tool_args_within_one_run(
 ) -> None:
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
+    deps = workspace_deps(workspace_root)
 
     agent = build_canonical_agent(
         model=FunctionModel(stream_function=recovering_invalid_tool_args_stream),
@@ -1630,7 +1631,7 @@ async def test_stream_run_events_recovers_from_invalid_tool_args_within_one_run(
         async for event in stream_run_events(
             agent=agent,
             prompt="go",
-            deps=workspace_deps(workspace_root),
+            deps=deps,
             available_tool_names=("ls",),
         )
     ]
@@ -1663,6 +1664,7 @@ async def test_stream_run_events_recovers_from_invalid_tool_args_within_one_run(
     assert events[3].args == {"path": "."}
     assert events[3].args_valid is True
     assert isinstance(events[4], ToolCallSucceededEvent)
+    assert deps.read_only_worker._client is None
     assert events[4].result == "(empty directory)"
     assert isinstance(events[6], RunSucceededEvent)
     assert events[6].output_text == "done"

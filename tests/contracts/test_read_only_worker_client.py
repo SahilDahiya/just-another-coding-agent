@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import gc
 import subprocess
 import sys
 import textwrap
@@ -336,6 +338,57 @@ for line in sys.stdin:
     assert isinstance(response, ReadCallResult)
     assert len(response.window_text) == payload_size
     assert response.window_text == '"' * payload_size
+
+
+def test_read_only_worker_client_close_releases_subprocess_transport_before_loop_close(
+    tmp_path: Path, recwarn
+) -> None:
+    script_path = _write_worker_script(
+        tmp_path,
+        """
+import json
+import sys
+
+for line in sys.stdin:
+    request = json.loads(line)
+    if request["type"] == "hello":
+        print(json.dumps({
+            "request_id": request["request_id"],
+            "type": "hello_ok",
+            "protocol_version": 1,
+            "worker_kind": "read_only",
+            "supported_operations": ["read", "ls"],
+            "supports_cancel": True,
+            "supports_parallel_calls": True,
+        }), flush=True)
+    elif request["type"] == "shutdown":
+        break
+""",
+    )
+
+    async def exercise_client() -> None:
+        client = await ReadOnlyWorkerClient(
+            [sys.executable, "-u", str(script_path)]
+        ).start()
+        await client.close()
+
+    loop = asyncio.new_event_loop()
+    try:
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(exercise_client())
+    finally:
+        asyncio.set_event_loop(None)
+        loop.close()
+
+    for _ in range(3):
+        gc.collect()
+
+    unraisable = [
+        warning
+        for warning in recwarn
+        if warning.category.__name__ == "PytestUnraisableExceptionWarning"
+    ]
+    assert unraisable == []
 
 
 def _process_alive(pid: int) -> bool:

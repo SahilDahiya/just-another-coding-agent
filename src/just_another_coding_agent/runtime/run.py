@@ -1325,8 +1325,15 @@ async def _stream_run_events(
                     error_type="CancelledError",
                     error_message="Run terminated before a terminal event",
                 )
-            if isinstance(queued_deps, WorkspaceDeps):
-                await queued_deps.read_only_worker.close()
+                if isinstance(queued_deps, WorkspaceDeps):
+                    await queued_deps.read_only_worker.close()
+                    # The worker client closes its subprocess transport
+                    # explicitly, but asyncio still schedules connection-lost
+                    # callbacks onto the current loop. Yield once so those
+                    # callbacks run before pytest tears the loop down;
+                    # otherwise BaseSubprocessTransport can be finalized after
+                    # loop close and emit PytestUnraisableExceptionWarning.
+                    await asyncio.sleep(0)
 
 
 async def stream_run_events(
@@ -1363,7 +1370,7 @@ async def stream_run_events(
     run_started_at = monotonic()
     event_history: list[RunEvent] = []
 
-    async for event in _stream_run_events(
+    inner_stream = _stream_run_events(
         agent=agent,
         run_id=run_id,
         prompt=prompt,
@@ -1377,19 +1384,23 @@ async def stream_run_events(
         submit_steer_boundary=submit_steer_boundary,
         deactivate_steer_boundary=deactivate_steer_boundary,
         resolve_approval_request=resolve_approval_request,
-    ):
-        if isinstance(event, RunSucceededEvent):
-            event = event.model_copy(
-                update={
-                    "transcript_summary": build_run_transcript_summary(
-                        events=event_history,
-                        terminal_event=event,
-                        elapsed_ms=_duration_ms_since(run_started_at),
-                    )
-                }
-            )
-        event_history.append(event)
-        yield event
+    )
+    try:
+        async for event in inner_stream:
+            if isinstance(event, RunSucceededEvent):
+                event = event.model_copy(
+                    update={
+                        "transcript_summary": build_run_transcript_summary(
+                            events=event_history,
+                            terminal_event=event,
+                            elapsed_ms=_duration_ms_since(run_started_at),
+                        )
+                    }
+                )
+            event_history.append(event)
+            yield event
+    finally:
+        await inner_stream.aclose()
 
 
 def _extract_text_delta(event: object) -> str | None:
