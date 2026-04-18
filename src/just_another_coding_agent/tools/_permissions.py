@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import shlex
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Literal, Protocol
 from uuid import uuid4
 
 from just_another_coding_agent.contracts.platform import ShellFamily
@@ -61,6 +61,9 @@ class SandboxExecutionPlan:
     requested_capabilities: EffectiveCapabilities
     normalized_policy: NormalizedSandboxPolicy
     approval_required: bool
+
+
+FileAccessKind = Literal["read", "write"]
 
 
 def _shell_command_requests_network_access(
@@ -137,6 +140,36 @@ async def approved_read_only_filesystem_policy(
     tool_path: str | None,
     action: str,
 ) -> FileSystemSandboxPolicy:
+    plan = await _approved_file_access_plan(
+        ctx=ctx,
+        tool_path=tool_path,
+        action=action,
+        access_kind="read",
+    )
+    return plan.normalized_policy.filesystem
+
+
+async def maybe_request_file_write_approval(
+    *,
+    ctx: ToolExecutionContext,
+    tool_path: str,
+    action: str,
+) -> None:
+    await _approved_file_access_plan(
+        ctx=ctx,
+        tool_path=tool_path,
+        action=action,
+        access_kind="write",
+    )
+
+
+async def _approved_file_access_plan(
+    *,
+    ctx: ToolExecutionContext,
+    tool_path: str | None,
+    action: str,
+    access_kind: FileAccessKind,
+) -> SandboxExecutionPlan:
     permission_state = ctx.deps.permission_state
     requested_permissions: AdditionalSandboxPermissions | None = None
     outside_workspace = False
@@ -152,77 +185,25 @@ async def approved_read_only_filesystem_policy(
             resolved_path=resolved,
         )
         if outside_workspace:
-            requested_permissions = AdditionalSandboxPermissions(
-                extra_read_roots=(resolved_path,),
-            )
+            if access_kind == "read":
+                requested_permissions = AdditionalSandboxPermissions(
+                    extra_read_roots=(resolved_path,),
+                )
+            else:
+                requested_permissions = AdditionalSandboxPermissions(
+                    extra_write_roots=(resolved_path,),
+                )
     plan = derive_sandbox_execution_plan(
         permission_state=permission_state,
         requested_permissions=requested_permissions,
     )
     if not plan.approval_required:
-        return plan.normalized_policy.filesystem
+        return plan
     if ctx.deps.approval_requester is None:
         raise RuntimeError(
             f"{action.capitalize()} requires approval, but no approval "
             "requester is configured"
         )
-    reason_prefix = (
-        f"allow {action} outside workspace"
-        if outside_workspace
-        else f"allow {action}"
-    )
-    decision = await ctx.deps.approval_requester(
-        ApprovalRequest(
-            request_id=f"{action}-{uuid4().hex}",
-            reason=(
-                f"{reason_prefix}: "
-                f"{truncate_activity_label(tool_path or resolved_path or action)}"
-            ),
-            requested_capabilities=plan.requested_capabilities,
-            requested_permissions=plan.requested_permissions,
-        )
-    )
-    if decision.decision != "approved":
-        raise RuntimeError(
-            f"{action.capitalize()} approval did not return an approved decision"
-        )
-    return plan.normalized_policy.filesystem
-
-
-async def maybe_request_file_write_approval(
-    *,
-    ctx: ToolExecutionContext,
-    tool_path: str,
-    action: str,
-) -> None:
-    permission_state = ctx.deps.permission_state
-    resolved_path = resolve_workspace_path(
-        workspace_root=ctx.deps.workspace_root,
-        tool_path=tool_path,
-    )
-    outside_workspace = not path_is_within_workspace(
-        workspace_root=ctx.deps.workspace_root,
-        resolved_path=resolved_path,
-    )
-    requested_permissions = (
-        AdditionalSandboxPermissions(
-            extra_write_roots=(str(resolved_path),),
-        )
-        if outside_workspace
-        else None
-    )
-    plan = derive_sandbox_execution_plan(
-        permission_state=permission_state,
-        requested_permissions=requested_permissions,
-    )
-    if not plan.approval_required:
-        return
-    if ctx.deps.approval_requester is None:
-        raise RuntimeError(
-            f"{action.capitalize()} requires approval, but no approval "
-            "requester is configured"
-        )
-
     reason_prefix = (
         f"allow {action} outside workspace"
         if outside_workspace
@@ -242,6 +223,7 @@ async def maybe_request_file_write_approval(
         raise RuntimeError(
             f"{action.capitalize()} approval did not return an approved decision"
         )
+    return plan
 
 
 __all__ = [
