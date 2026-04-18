@@ -40,6 +40,7 @@ from just_another_coding_agent.tools.truncation import (
 
 SHELL_MAX_LINES = 2000
 SHELL_MAX_BYTES = 50 * 1024
+DEFAULT_SHELL_TIMEOUT_SECONDS = 120
 SHELL_READER_DRAIN_GRACE_SECONDS = 0.5
 # Minimum time between successive partial-update publications. Without
 # coalescing, every 4 KB read chunk produces a tool_call_updated event
@@ -147,6 +148,9 @@ async def execute_shell(
     shell_family: ShellFamily,
     timeout: int | None = None,
 ) -> dict[str, int | str]:
+    effective_timeout = (
+        DEFAULT_SHELL_TIMEOUT_SECONDS if timeout is None else timeout
+    )
     permission_state = (
         ctx.deps.permission_state
         if ctx is not None
@@ -284,28 +288,25 @@ async def execute_shell(
                 raise exc
 
     try:
-        if timeout is None:
-            await _await_process_and_drain()
-        else:
-            try:
-                await asyncio.wait_for(
-                    _await_process_and_drain(), timeout=timeout
+        try:
+            await asyncio.wait_for(
+                _await_process_and_drain(), timeout=effective_timeout
+            )
+        except TimeoutError as error:
+            await handle.terminate()
+            if not reader_task.done():
+                reader_task.cancel()
+            with contextlib.suppress(
+                asyncio.CancelledError, ToolEncodingError
+            ):
+                await reader_task
+            output = _truncate_shell_output("".join(output_chunks), partial=False)
+            raise ToolCommandError(
+                _format_shell_failure(
+                    output,
+                    f"Command timed out after {effective_timeout} seconds",
                 )
-            except TimeoutError as error:
-                await handle.terminate()
-                if not reader_task.done():
-                    reader_task.cancel()
-                with contextlib.suppress(
-                    asyncio.CancelledError, ToolEncodingError
-                ):
-                    await reader_task
-                output = _truncate_shell_output("".join(output_chunks), partial=False)
-                raise ToolCommandError(
-                    _format_shell_failure(
-                        output,
-                        f"Command timed out after {timeout} seconds",
-                    )
-                ) from error
+            ) from error
     except ToolEncodingError:
         await handle.terminate()
         raise
@@ -354,8 +355,12 @@ async def shell(
 
     Args:
         command: Shell command to execute using the configured shell family.
-        timeout: Optional timeout in seconds before the command is stopped.
+        timeout: Optional timeout in seconds before the command is stopped. If
+            omitted, the backend default timeout is applied.
     """
+    effective_timeout = (
+        DEFAULT_SHELL_TIMEOUT_SECONDS if timeout is None else timeout
+    )
     result = await execute_shell(
         ctx=ctx,
         workspace_root=ctx.deps.workspace_root,
@@ -370,7 +375,7 @@ async def shell(
         details=ShellActivityDetails(
             command_preview=truncate_activity_label(command),
             shell_family=ctx.deps.shell_family,
-            timeout=timeout,
+            timeout=effective_timeout,
             exit_code=result["exit_code"],
         ),
     )

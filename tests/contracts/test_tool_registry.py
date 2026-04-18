@@ -214,7 +214,10 @@ def test_build_canonical_toolset_exposes_rich_model_facing_tool_descriptions(
         function_tools["shell"].parameters_json_schema["properties"]["timeout"][
             "description"
         ]
-        == "Optional timeout in seconds before the command is stopped."
+        == (
+            "Optional timeout in seconds before the command is stopped. If\n"
+            "omitted, the backend default timeout is applied."
+        )
     )
     assert (
         function_tools["shell"].parameters_json_schema["properties"]["command"][

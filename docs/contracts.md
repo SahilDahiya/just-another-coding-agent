@@ -410,11 +410,13 @@ Initial executable tool slice:
 - fields: `command`, `timeout`
 - `command` must be a non-empty string
 - `timeout` is optional and, when present, must be a positive integer number of seconds
+- omitted `timeout` means the backend-owned default shell timeout is applied rather than allowing the command to run indefinitely
 
 `shell` behavior contract:
 
 - executes one local shell command in the configured workspace root using the active shell family (`posix`, which means Bash semantics, or `powershell`)
 - sets command cwd to the configured workspace root, but does not sandbox filesystem access outside that root
+- if `timeout` is omitted, the backend applies the canonical default shell timeout of `120` seconds
 - returns a JSON-compatible success result with fields `exit_code` and `output`
 - successful `shell` results always use `exit_code: 0`
 - `output` is the combined stdout and stderr decoded as UTF-8
@@ -422,6 +424,7 @@ Initial executable tool slice:
 - when `output` is truncated, the result must include an explicit notice with the temp-file path holding the full output
 - non-zero exits return an explicit tool error result instead of a success payload
 - timeout returns an explicit tool error result and includes captured output when available
+- shell cleanup is bounded: post-exit output drain is grace-bounded and sandbox/container force-removal is timeout-bounded
 - shell spawn failure and invalid UTF-8 output return an explicit tool error result
 - no shell fallback, alternate decoder, or hidden retry path
 

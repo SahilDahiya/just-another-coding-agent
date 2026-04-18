@@ -34,6 +34,7 @@ from just_another_coding_agent.contracts.run_events import (
     ToolCallSucceededEvent,
     ToolCallUpdatedEvent,
 )
+from just_another_coding_agent.contracts.sandbox import build_default_permission_state
 from just_another_coding_agent.runtime.agent import build_canonical_agent
 from just_another_coding_agent.runtime.run import stream_run_events
 from just_another_coding_agent.tools.deps import (
@@ -41,9 +42,18 @@ from just_another_coding_agent.tools.deps import (
     RunSessionScope,
     WorkspaceDeps,
 )
+from just_another_coding_agent.tools.shell import DEFAULT_SHELL_TIMEOUT_SECONDS
 from tests.read_only_worker_test_support import workspace_deps
 
 _SHELL_FAMILY = detect_default_shell_family()
+
+
+def _host_shell_deps(workspace_root):
+    return WorkspaceDeps(
+        workspace_root=workspace_root,
+        shell_family=_SHELL_FAMILY,
+        permission_state=build_default_permission_state(),
+    )
 
 
 class _FakeCallToolsNode(CallToolsNode):
@@ -1677,7 +1687,7 @@ async def test_stream_run_events_recovers_from_write_directory_error_within_one_
         async for event in stream_run_events(
             agent=agent,
             prompt="go",
-            deps=workspace_deps(workspace_root),
+            deps=_host_shell_deps(workspace_root),
         )
     ]
 
@@ -1717,7 +1727,7 @@ async def test_stream_run_events_recovers_from_bash_timeout_within_one_run(
         async for event in stream_run_events(
             agent=agent,
             prompt="go",
-            deps=workspace_deps(workspace_root),
+            deps=_host_shell_deps(workspace_root),
         )
     ]
 
@@ -1777,7 +1787,7 @@ async def test_stream_run_events_recovers_from_bash_timeout_within_one_run(
         "kind": "shell",
         "command_preview": _ok_command(),
         "shell_family": _SHELL_FAMILY,
-        "timeout": None,
+        "timeout": DEFAULT_SHELL_TIMEOUT_SECONDS,
         "exit_code": 0,
     }
     assert events[-1].output_text == "done"
@@ -1800,7 +1810,7 @@ async def test_stream_run_events_recovers_from_non_zero_bash_exit_within_one_run
         async for event in stream_run_events(
             agent=agent,
             prompt="go",
-            deps=workspace_deps(workspace_root),
+            deps=_host_shell_deps(workspace_root),
         )
     ]
 
@@ -1847,7 +1857,7 @@ async def test_stream_run_events_emits_bash_tool_updates(tmp_path) -> None:
         async for event in stream_run_events(
             agent=agent,
             prompt="go",
-            deps=workspace_deps(workspace_root),
+            deps=_host_shell_deps(workspace_root),
         )
     ]
 

@@ -21,6 +21,7 @@ from just_another_coding_agent.contracts.sandbox import (
 from just_another_coding_agent.tools.deps import WorkspaceDeps
 from just_another_coding_agent.tools.errors import ToolCommandError, ToolEncodingError
 from just_another_coding_agent.tools.shell import (
+    DEFAULT_SHELL_TIMEOUT_SECONDS,
     SHELL_PUBLISH_MIN_INTERVAL_SECONDS,
     execute_shell,
 )
@@ -422,6 +423,29 @@ async def test_shell_tool_fails_on_timeout(monkeypatch, tmp_path) -> None:
         )
 
 
+async def test_shell_tool_uses_backend_default_timeout_when_omitted(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        "just_another_coding_agent.tools.shell.DEFAULT_SHELL_TIMEOUT_SECONDS",
+        1,
+    )
+
+    with pytest.raises(
+        ToolCommandError,
+        match="partial output\n\nCommand timed out after 1 seconds",
+    ):
+        await execute_shell(
+            workspace_root=workspace_root,
+            command=_timeout_command(),
+            shell_family=_test_shell_family(),
+        )
+
+
 async def test_shell_tool_truncates_large_output_and_saves_full_output(
     monkeypatch,
     tmp_path,
@@ -463,6 +487,29 @@ async def test_shell_tool_fails_for_invalid_utf8_output(monkeypatch, tmp_path) -
             command=_invalid_utf8_command(),
             shell_family=_test_shell_family(),
         )
+
+
+async def test_shell_tool_activity_reports_effective_default_timeout(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    monkeypatch.chdir(tmp_path)
+    ctx = _FakeRunContext(
+        deps=WorkspaceDeps(
+            workspace_root=workspace_root,
+            shell_family=_test_shell_family(),
+        ),
+        tool_call_id="call-shell",
+        tool_name="shell",
+    )
+
+    from just_another_coding_agent.tools.shell import shell
+
+    result = await shell(ctx, _hello_command())
+
+    assert result.metadata["details"]["timeout"] == DEFAULT_SHELL_TIMEOUT_SECONDS
 
 
 @pytest.mark.skipif(

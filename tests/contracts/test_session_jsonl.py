@@ -51,6 +51,7 @@ from just_another_coding_agent.session.jsonl import (
 from just_another_coding_agent.session.replacement_history import (
     build_compaction_summary_message,
 )
+from just_another_coding_agent.tools.shell import DEFAULT_SHELL_TIMEOUT_SECONDS
 from tests.session_test_helpers import _compaction_entry_payload
 
 _SHELL_FAMILY = detect_default_shell_family()
@@ -986,7 +987,7 @@ def test_append_and_load_session_preserves_tool_call_updates(tmp_path) -> None:
                     "kind": "shell",
                     "command_preview": "sleep 1",
                     "shell_family": "posix",
-                    "timeout": None,
+                    "timeout": DEFAULT_SHELL_TIMEOUT_SECONDS,
                     "exit_code": 0,
                 },
             ),
