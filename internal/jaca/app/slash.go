@@ -36,16 +36,20 @@ type slashMenuState struct {
 }
 
 type slashCommandSpec struct {
-	Value          string
-	Description    string
-	AcceptsArgs    bool
-	ArgSuggestions func(*model) []slashSuggestion
-	Execute        func(*model, string) (tea.Model, tea.Cmd)
+	Value                 string
+	Description           string
+	AcceptsArgs           bool
+	AllowedWhileStreaming bool
+	ArgSuggestions        func(*model) []slashSuggestion
+	Execute               func(*model, string) (tea.Model, tea.Cmd)
 }
 
 var slashCommands = []slashCommandSpec{
 	{Value: "/login", Description: "Connect ChatGPT or API-key access", AcceptsArgs: true, ArgSuggestions: (*model).loginSlashSuggestions, Execute: (*model).executeLoginSlash},
 	{Value: "/model", Description: "Switch active model", AcceptsArgs: true, ArgSuggestions: (*model).modelSlashSuggestions, Execute: (*model).executeModelSlash},
+	{Value: "/permission", Description: "Show or switch permission preset", AcceptsArgs: true, ArgSuggestions: (*model).permissionSlashSuggestions, Execute: (*model).executePermissionSlash},
+	{Value: "/approve", Description: "Approve the pending action", AllowedWhileStreaming: true, Execute: (*model).executeApproveSlash},
+	{Value: "/deny", Description: "Deny the pending action", AllowedWhileStreaming: true, Execute: (*model).executeDenySlash},
 	{Value: "/version", Description: "Show installed and available version info", Execute: (*model).executeVersionSlash},
 	{Value: "/trace", Description: "Set tracing mode", AcceptsArgs: true, ArgSuggestions: (*model).traceSlashSuggestions, Execute: (*model).executeTraceSlash},
 	{Value: "/thinking", Description: "Set thinking effort", AcceptsArgs: true, Execute: (*model).executeThinkingSlash},
@@ -275,6 +279,15 @@ func (m *model) traceSlashSuggestions() []slashSuggestion {
 	return traceSuggestions()
 }
 
+func (m *model) permissionSlashSuggestions() []slashSuggestion {
+	return []slashSuggestion{
+		{Value: "show", Description: "Show current permission state"},
+		{Value: "default", Description: "Recommended mode: full local access with approval prompts"},
+		{Value: "read_only", Description: "Stage the read-only preset and require approval prompts"},
+		{Value: "full_access", Description: "Full local access with no approval prompts"},
+	}
+}
+
 func parseSlashCommand(command string) (slashCommandSpec, string, string, bool) {
 	parts := strings.Fields(command)
 	if len(parts) == 0 {
@@ -306,7 +319,7 @@ func (m *model) submitSlashCommand(command string, whileStreaming bool) (tea.Mod
 		m.refreshViewport()
 		return m, nil
 	}
-	if whileStreaming && spec.Value != "" {
+	if whileStreaming && spec.Value != "" && !spec.AllowedWhileStreaming {
 		m.promptFooterNotice = fmt.Sprintf(
 			"%s unavailable during an active run; press Esc or wait for idle",
 			cmdName,
@@ -335,6 +348,18 @@ func (m *model) executeHelpSlash(_ string) (tea.Model, tea.Cmd) {
 
 func (m *model) executeModelSlash(arg string) (tea.Model, tea.Cmd) {
 	return m.handleModelCommand(arg)
+}
+
+func (m *model) executePermissionSlash(arg string) (tea.Model, tea.Cmd) {
+	return m.handlePermissionCommand(arg)
+}
+
+func (m *model) executeApproveSlash(_ string) (tea.Model, tea.Cmd) {
+	return m.handleApprovalCommand("approved")
+}
+
+func (m *model) executeDenySlash(_ string) (tea.Model, tea.Cmd) {
+	return m.handleApprovalCommand("denied")
 }
 
 func (m *model) executeVersionSlash(_ string) (tea.Model, tea.Cmd) {
@@ -429,6 +454,129 @@ func (m *model) executeNewSlash(_ string) (tea.Model, tea.Cmd) {
 
 func (m *model) executeQuitSlash(_ string) (tea.Model, tea.Cmd) {
 	return m, tea.Quit
+}
+
+func permissionStateLines(
+	state rpc.PermissionState,
+	updated bool,
+) []string {
+	lines := []string{}
+	if updated {
+		lines = append(lines, "permission state updated")
+	}
+	preset := permissionPresetFromState(state)
+	lines = append(
+		lines,
+		fmt.Sprintf("permission: %s", preset),
+		fmt.Sprintf(
+			"effective capabilities: filesystem=%s network=%s isolation=%s approval=%s",
+			state.EffectiveCapabilities.FilesystemAccess,
+			state.EffectiveCapabilities.NetworkAccess,
+			state.EffectiveCapabilities.ExecutionIsolation,
+			state.EffectiveCapabilities.ApprovalMode,
+		),
+	)
+	if preset == "custom" {
+		lines = append(
+			lines,
+			fmt.Sprintf("sandbox policy: %s", state.SandboxPolicy.Mode),
+			fmt.Sprintf("approval policy: %s", state.ApprovalPolicy.Mode),
+		)
+	}
+	if state.SandboxPolicy.Mode != "danger_full_access" &&
+		state.EffectiveCapabilities.FilesystemAccess == "full_access" &&
+		state.EffectiveCapabilities.NetworkAccess == "enabled" &&
+		state.EffectiveCapabilities.ExecutionIsolation == "unsandboxed" {
+		lines = append(
+			lines,
+			"selected sandbox policy is staged; the restricted local executor backend is not wired yet",
+		)
+	}
+	return lines
+}
+
+func permissionPresetFromState(state rpc.PermissionState) string {
+	switch {
+	case state.SandboxPolicy.Mode == "danger_full_access" && state.ApprovalPolicy.Mode == "never":
+		return "full_access"
+	case state.SandboxPolicy.Mode == "danger_full_access" && state.ApprovalPolicy.Mode == "always":
+		return "default"
+	case state.SandboxPolicy.Mode == "read_only" && state.ApprovalPolicy.Mode == "always":
+		return "read_only"
+	default:
+		return "custom"
+	}
+}
+
+func parsePermissionCommand(
+	arg string,
+) (*rpc.SandboxPolicy, *rpc.ApprovalPolicy, bool) {
+	value := strings.TrimSpace(strings.ToLower(arg))
+	if value == "" || value == "show" {
+		return nil, nil, true
+	}
+	switch value {
+	case "default":
+		return &rpc.SandboxPolicy{Mode: "danger_full_access"}, &rpc.ApprovalPolicy{Mode: "always"}, true
+	case "read_only":
+		return &rpc.SandboxPolicy{Mode: "read_only"}, &rpc.ApprovalPolicy{Mode: "always"}, true
+	case "full_access":
+		return &rpc.SandboxPolicy{Mode: "danger_full_access"}, &rpc.ApprovalPolicy{Mode: "never"}, true
+	default:
+		return nil, nil, false
+	}
+}
+
+func (m *model) handlePermissionCommand(arg string) (tea.Model, tea.Cmd) {
+	m.transcript.WriteNote("permission", nil)
+	if m.options.Backend == nil {
+		m.transcript.WriteError("backend unavailable")
+		m.refreshViewport()
+		return m, nil
+	}
+	sandboxPolicy, approvalPolicy, ok := parsePermissionCommand(arg)
+	if !ok {
+		m.transcript.WriteError(
+			"invalid. use: /permission [show|default|read_only|full_access]",
+		)
+		m.refreshViewport()
+		return m, nil
+	}
+	if sandboxPolicy == nil && approvalPolicy == nil {
+		return m, fetchPermissionState(m.options.Backend, m.sessionID)
+	}
+	return m, setPermissionState(
+		m.options.Backend,
+		m.sessionID,
+		sandboxPolicy,
+		approvalPolicy,
+	)
+}
+
+func (m *model) handleApprovalCommand(decision string) (tea.Model, tea.Cmd) {
+	if m.options.Backend == nil {
+		m.transcript.WriteError("backend unavailable")
+		m.refreshViewport()
+		return m, nil
+	}
+	if m.sessionID == "" {
+		m.transcript.WriteError("no active session")
+		m.refreshViewport()
+		return m, nil
+	}
+	if m.pendingApproval == nil {
+		m.transcript.WriteError("no pending approval request")
+		m.refreshViewport()
+		return m, nil
+	}
+	return m, submitApprovalDecision(
+		m.options.Backend,
+		m.sessionID,
+		rpc.ApprovalDecision{
+			RequestID: m.pendingApproval.RequestID,
+			Decision:  decision,
+		},
+	)
 }
 
 func (m *model) catalogModelSuggestions() []slashSuggestion {

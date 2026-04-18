@@ -201,7 +201,7 @@ class RunInterruptRequest(_RpcModel):
 
 
 class PermissionGetPayload(_RpcModel):
-    session_id: SessionId
+    session_id: SessionId | None = None
 
 
 class PermissionGetRequest(_RpcModel):
@@ -211,7 +211,7 @@ class PermissionGetRequest(_RpcModel):
 
 
 class PermissionSetPayload(_RpcModel):
-    session_id: SessionId
+    session_id: SessionId | None = None
     sandbox_policy: SandboxPolicy | None = None
     approval_policy: ApprovalPolicy | None = None
 
@@ -359,12 +359,12 @@ class RunInterruptResponse(_RpcModel):
 
 
 class PermissionGetResponse(_RpcModel):
-    session_id: SessionId
+    session_id: SessionId | None = None
     permission_state: PermissionState
 
 
 class PermissionSetResponse(_RpcModel):
-    session_id: SessionId
+    session_id: SessionId | None = None
     permission_state: PermissionState
 
 

@@ -20,6 +20,18 @@ type Backend interface {
 	ModelCatalog(ctx context.Context) (rpc.ModelCatalogResponse, error)
 	AuthStatus(ctx context.Context) (rpc.AuthStatusResponse, error)
 	TraceLogfireStatus(ctx context.Context) (rpc.TraceLogfireStatusResponse, error)
+	PermissionGet(ctx context.Context, sessionID string) (rpc.PermissionGetResponse, error)
+	PermissionSet(
+		ctx context.Context,
+		sessionID string,
+		sandboxPolicy *rpc.SandboxPolicy,
+		approvalPolicy *rpc.ApprovalPolicy,
+	) (rpc.PermissionSetResponse, error)
+	ApprovalSubmit(
+		ctx context.Context,
+		sessionID string,
+		decision rpc.ApprovalDecision,
+	) (rpc.ApprovalSubmitResponse, error)
 	PrepareAuthFile(ctx context.Context, provider string) (rpc.AuthPrepareFileResponse, error)
 	StartOpenAICodexLogin(ctx context.Context) (rpc.AuthLoginOpenAICodexStartResponse, error)
 	CompleteOpenAICodexLogin(ctx context.Context, flowID string, callbackOrCode string) (rpc.AuthLoginOpenAICodexCompleteResponse, error)

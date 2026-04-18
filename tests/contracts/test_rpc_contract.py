@@ -46,6 +46,26 @@ def test_rpc_request_accepts_permission_get_and_set_commands() -> None:
     )
     assert permission_set.command == "permission.set"
 
+    permission_get_without_session = adapter.validate_python(
+        {
+            "id": "req-get-default",
+            "command": "permission.get",
+            "payload": {},
+        }
+    )
+    assert permission_get_without_session.payload.session_id is None
+
+    permission_set_without_session = adapter.validate_python(
+        {
+            "id": "req-set-default",
+            "command": "permission.set",
+            "payload": {
+                "approval_policy": {"mode": "always"},
+            },
+        }
+    )
+    assert permission_set_without_session.payload.session_id is None
+
 
 def test_rpc_request_rejects_empty_permission_set_payload() -> None:
     adapter = TypeAdapter(RpcRequest)
@@ -155,6 +175,18 @@ def test_rpc_response_envelope_accepts_permission_and_approval_payloads() -> Non
         }
     )
     assert permission_response.response.session_id == "a" * 32
+
+    default_permission_response = RpcResponseEnvelope.model_validate(
+        {
+            "type": "rpc_response",
+            "id": "req-default",
+            "response": {
+                "session_id": None,
+                "permission_state": permission_state.model_dump(mode="json"),
+            },
+        }
+    )
+    assert default_permission_response.response.session_id is None
 
     approval_response = RpcResponseEnvelope.model_validate(
         {

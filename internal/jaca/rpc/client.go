@@ -188,6 +188,45 @@ func (m *Manager) TraceLogfireStatus(ctx context.Context) (TraceLogfireStatusRes
 	return client.TraceLogfireStatus(ctx)
 }
 
+func (m *Manager) PermissionGet(ctx context.Context, sessionID string) (PermissionGetResponse, error) {
+	m.mu.Lock()
+	client, err := m.ensureStartedLocked()
+	m.mu.Unlock()
+	if err != nil {
+		return PermissionGetResponse{}, err
+	}
+	return client.PermissionGet(ctx, sessionID)
+}
+
+func (m *Manager) PermissionSet(
+	ctx context.Context,
+	sessionID string,
+	sandboxPolicy *SandboxPolicy,
+	approvalPolicy *ApprovalPolicy,
+) (PermissionSetResponse, error) {
+	m.mu.Lock()
+	client, err := m.ensureStartedLocked()
+	m.mu.Unlock()
+	if err != nil {
+		return PermissionSetResponse{}, err
+	}
+	return client.PermissionSet(ctx, sessionID, sandboxPolicy, approvalPolicy)
+}
+
+func (m *Manager) ApprovalSubmit(
+	ctx context.Context,
+	sessionID string,
+	decision ApprovalDecision,
+) (ApprovalSubmitResponse, error) {
+	m.mu.Lock()
+	client, err := m.ensureStartedLocked()
+	m.mu.Unlock()
+	if err != nil {
+		return ApprovalSubmitResponse{}, err
+	}
+	return client.ApprovalSubmit(ctx, sessionID, decision)
+}
+
 func (m *Manager) StartOpenAICodexLogin(ctx context.Context) (AuthLoginOpenAICodexStartResponse, error) {
 	m.mu.Lock()
 	client, err := m.ensureStartedLocked()
@@ -810,6 +849,127 @@ func (c *Client) TraceLogfireStatus(ctx context.Context) (TraceLogfireStatusResp
 		return TraceLogfireStatusResponse{}, fmt.Errorf("%s: %s", envelope.ErrorType, envelope.Message)
 	default:
 		return TraceLogfireStatusResponse{}, fmt.Errorf("unexpected envelope for trace.logfire_status: %T", line)
+	}
+}
+
+func (c *Client) PermissionGet(ctx context.Context, sessionID string) (PermissionGetResponse, error) {
+	requestID := c.nextRequestID()
+	waiter, cleanup, err := c.registerWaiter(requestID)
+	if err != nil {
+		return PermissionGetResponse{}, err
+	}
+	defer cleanup()
+	c.writeMu.Lock()
+	if err := c.writeRequest(Request{
+		ID:      requestID,
+		Command: "permission.get",
+		Payload: PermissionGetPayload{SessionID: sessionID},
+	}); err != nil {
+		c.writeMu.Unlock()
+		return PermissionGetResponse{}, err
+	}
+	c.writeMu.Unlock()
+	line, err := c.awaitEnvelope(ctx, waiter)
+	if err != nil {
+		return PermissionGetResponse{}, err
+	}
+	switch envelope := line.(type) {
+	case ResponseEnvelope:
+		var response PermissionGetResponse
+		if err := json.Unmarshal(envelope.Response, &response); err != nil {
+			return PermissionGetResponse{}, err
+		}
+		return response, nil
+	case ErrorEnvelope:
+		return PermissionGetResponse{}, fmt.Errorf("%s: %s", envelope.ErrorType, envelope.Message)
+	default:
+		return PermissionGetResponse{}, fmt.Errorf("unexpected envelope for permission.get: %T", line)
+	}
+}
+
+func (c *Client) PermissionSet(
+	ctx context.Context,
+	sessionID string,
+	sandboxPolicy *SandboxPolicy,
+	approvalPolicy *ApprovalPolicy,
+) (PermissionSetResponse, error) {
+	requestID := c.nextRequestID()
+	waiter, cleanup, err := c.registerWaiter(requestID)
+	if err != nil {
+		return PermissionSetResponse{}, err
+	}
+	defer cleanup()
+	c.writeMu.Lock()
+	if err := c.writeRequest(Request{
+		ID:      requestID,
+		Command: "permission.set",
+		Payload: PermissionSetPayload{
+			SessionID:      sessionID,
+			SandboxPolicy:  sandboxPolicy,
+			ApprovalPolicy: approvalPolicy,
+		},
+	}); err != nil {
+		c.writeMu.Unlock()
+		return PermissionSetResponse{}, err
+	}
+	c.writeMu.Unlock()
+	line, err := c.awaitEnvelope(ctx, waiter)
+	if err != nil {
+		return PermissionSetResponse{}, err
+	}
+	switch envelope := line.(type) {
+	case ResponseEnvelope:
+		var response PermissionSetResponse
+		if err := json.Unmarshal(envelope.Response, &response); err != nil {
+			return PermissionSetResponse{}, err
+		}
+		return response, nil
+	case ErrorEnvelope:
+		return PermissionSetResponse{}, fmt.Errorf("%s: %s", envelope.ErrorType, envelope.Message)
+	default:
+		return PermissionSetResponse{}, fmt.Errorf("unexpected envelope for permission.set: %T", line)
+	}
+}
+
+func (c *Client) ApprovalSubmit(
+	ctx context.Context,
+	sessionID string,
+	decision ApprovalDecision,
+) (ApprovalSubmitResponse, error) {
+	requestID := c.nextRequestID()
+	waiter, cleanup, err := c.registerWaiter(requestID)
+	if err != nil {
+		return ApprovalSubmitResponse{}, err
+	}
+	defer cleanup()
+	c.writeMu.Lock()
+	if err := c.writeRequest(Request{
+		ID:      requestID,
+		Command: "approval.submit",
+		Payload: ApprovalSubmitPayload{
+			SessionID: sessionID,
+			Decision:  decision,
+		},
+	}); err != nil {
+		c.writeMu.Unlock()
+		return ApprovalSubmitResponse{}, err
+	}
+	c.writeMu.Unlock()
+	line, err := c.awaitEnvelope(ctx, waiter)
+	if err != nil {
+		return ApprovalSubmitResponse{}, err
+	}
+	switch envelope := line.(type) {
+	case ResponseEnvelope:
+		var response ApprovalSubmitResponse
+		if err := json.Unmarshal(envelope.Response, &response); err != nil {
+			return ApprovalSubmitResponse{}, err
+		}
+		return response, nil
+	case ErrorEnvelope:
+		return ApprovalSubmitResponse{}, fmt.Errorf("%s: %s", envelope.ErrorType, envelope.Message)
+	default:
+		return ApprovalSubmitResponse{}, fmt.Errorf("unexpected envelope for approval.submit: %T", line)
 	}
 }
 

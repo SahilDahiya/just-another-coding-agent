@@ -21,32 +21,35 @@ func intPtr(v int) *int { return &v }
 func floatPtr(v float64) *float64 { return &v }
 
 type stubBackend struct {
-	model              string
-	modelCatalog       rpc.ModelCatalogResponse
-	modelCatalogErr    error
-	authStatuses       map[string]rpc.AuthProviderStatus
-	oauthStatuses      map[string]rpc.OAuthProviderStatus
-	logfireStatus      rpc.TraceLogfireStatusResponse
-	oauthWaitDone      bool
-	oauthWaitDoneFn    func() bool
-	waitOpenAICodexFn  func(context.Context, string) (rpc.AuthLoginOpenAICodexWaitResponse, error)
-	prepareAuthFileFn  func(context.Context, string) (rpc.AuthPrepareFileResponse, error)
-	localSecretStore   rpc.LocalSecretStoreStatus
-	authStatusErr      error
-	authStatusCalls    int
-	setSecretErr       error
-	authStatusAfterSet map[string]rpc.AuthProviderStatus
-	clearSecretErr     error
-	setSessionNameErr  error
-	sessionPreview     rpc.SessionPreviewResponse
-	sessionPreviewErr  error
-	restarts           int
-	lastSetSecret      rpc.AuthSetPayload
-	lastCleared        string
-	lastNamedSession   string
-	lastSessionName    string
-	lastEnqueuedRun    rpc.RunEnqueuePayload
-	lastInterruptedRun rpc.RunInterruptPayload
+	model                string
+	modelCatalog         rpc.ModelCatalogResponse
+	modelCatalogErr      error
+	authStatuses         map[string]rpc.AuthProviderStatus
+	oauthStatuses        map[string]rpc.OAuthProviderStatus
+	logfireStatus        rpc.TraceLogfireStatusResponse
+	permissionState      rpc.PermissionState
+	oauthWaitDone        bool
+	oauthWaitDoneFn      func() bool
+	waitOpenAICodexFn    func(context.Context, string) (rpc.AuthLoginOpenAICodexWaitResponse, error)
+	prepareAuthFileFn    func(context.Context, string) (rpc.AuthPrepareFileResponse, error)
+	localSecretStore     rpc.LocalSecretStoreStatus
+	authStatusErr        error
+	authStatusCalls      int
+	setSecretErr         error
+	authStatusAfterSet   map[string]rpc.AuthProviderStatus
+	clearSecretErr       error
+	setSessionNameErr    error
+	sessionPreview       rpc.SessionPreviewResponse
+	sessionPreviewErr    error
+	restarts             int
+	lastSetSecret        rpc.AuthSetPayload
+	lastCleared          string
+	lastNamedSession     string
+	lastSessionName      string
+	lastEnqueuedRun      rpc.RunEnqueuePayload
+	lastInterruptedRun   rpc.RunInterruptPayload
+	lastPermissionSet    rpc.PermissionSetPayload
+	lastApprovalDecision rpc.ApprovalDecision
 }
 
 func newStubBackend() *stubBackend {
@@ -67,6 +70,16 @@ func newStubBackend() *stubBackend {
 		localSecretStore: rpc.LocalSecretStoreStatus{
 			Available:     true,
 			FileStorePath: filepath.Join(os.TempDir(), "jaca-auth.json"),
+		},
+		permissionState: rpc.PermissionState{
+			SandboxPolicy:  rpc.SandboxPolicy{Mode: "danger_full_access", NetworkAccess: "enabled"},
+			ApprovalPolicy: rpc.ApprovalPolicy{Mode: "never"},
+			EffectiveCapabilities: rpc.EffectiveCapabilities{
+				FilesystemAccess:   "full_access",
+				NetworkAccess:      "enabled",
+				ExecutionIsolation: "unsandboxed",
+				ApprovalMode:       "never",
+			},
 		},
 	}
 }
@@ -165,6 +178,49 @@ func (b *stubBackend) AuthStatus(_ context.Context) (rpc.AuthStatusResponse, err
 
 func (b *stubBackend) TraceLogfireStatus(_ context.Context) (rpc.TraceLogfireStatusResponse, error) {
 	return b.logfireStatus, nil
+}
+
+func (b *stubBackend) PermissionGet(_ context.Context, sessionID string) (rpc.PermissionGetResponse, error) {
+	return rpc.PermissionGetResponse{
+		SessionID:       sessionID,
+		PermissionState: b.permissionState,
+	}, nil
+}
+
+func (b *stubBackend) PermissionSet(
+	_ context.Context,
+	sessionID string,
+	sandboxPolicy *rpc.SandboxPolicy,
+	approvalPolicy *rpc.ApprovalPolicy,
+) (rpc.PermissionSetResponse, error) {
+	b.lastPermissionSet = rpc.PermissionSetPayload{
+		SessionID:      sessionID,
+		SandboxPolicy:  sandboxPolicy,
+		ApprovalPolicy: approvalPolicy,
+	}
+	if sandboxPolicy != nil {
+		b.permissionState.SandboxPolicy = *sandboxPolicy
+	}
+	if approvalPolicy != nil {
+		b.permissionState.ApprovalPolicy = *approvalPolicy
+		b.permissionState.EffectiveCapabilities.ApprovalMode = approvalPolicy.Mode
+	}
+	return rpc.PermissionSetResponse{
+		SessionID:       sessionID,
+		PermissionState: b.permissionState,
+	}, nil
+}
+
+func (b *stubBackend) ApprovalSubmit(
+	_ context.Context,
+	sessionID string,
+	decision rpc.ApprovalDecision,
+) (rpc.ApprovalSubmitResponse, error) {
+	b.lastApprovalDecision = decision
+	return rpc.ApprovalSubmitResponse{
+		SessionID: sessionID,
+		Decision:  decision,
+	}, nil
 }
 
 func (b *stubBackend) StartOpenAICodexLogin(_ context.Context) (rpc.AuthLoginOpenAICodexStartResponse, error) {
@@ -567,6 +623,389 @@ func TestEnterWhileStreamingDoesNotExecuteReadOnlySlashCommand(t *testing.T) {
 	rendered := stripANSI(m.transcript.Render())
 	if strings.Contains(rendered, "note  session") || strings.Contains(rendered, "session: test-session") {
 		t.Fatalf("/session should not execute while streaming: %q", rendered)
+	}
+}
+
+func TestPermissionSlashShowsBackendState(t *testing.T) {
+	backend := newStubBackend()
+	m := newTestModelWithBackend(backend)
+	m.sessionID = "session-123"
+
+	updated, cmd := m.submitSlashCommand("/permission show", false)
+	m = updated.(*model)
+	if cmd == nil {
+		t.Fatal("/permission show should query backend state")
+	}
+	msg := cmd()
+	updated, _ = m.Update(msg)
+	m = updated.(*model)
+
+	if m.permissionState == nil {
+		t.Fatal("permissionState = nil, want cached backend state")
+	}
+	rendered := stripANSI(m.transcript.Render())
+	for _, want := range []string{
+		"permission: full_access",
+		"effective capabilities: filesystem=full_access network=enabled isolation=unsandboxed approval=never",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("permission render missing %q in %q", want, rendered)
+		}
+	}
+}
+
+func TestPermissionSlashShowsWorkspaceDefaultStateWithoutSession(t *testing.T) {
+	backend := newStubBackend()
+	m := newTestModelWithBackend(backend)
+
+	updated, cmd := m.submitSlashCommand("/permission show", false)
+	m = updated.(*model)
+	if cmd == nil {
+		t.Fatal("/permission show should query backend state without an active session")
+	}
+	msg := cmd()
+	updated, _ = m.Update(msg)
+	m = updated.(*model)
+
+	if m.permissionState == nil {
+		t.Fatal("permissionState = nil, want cached backend state")
+	}
+	rendered := stripANSI(m.transcript.Render())
+	for _, want := range []string{
+		"permission: full_access",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("permission render missing %q in %q", want, rendered)
+		}
+	}
+}
+
+func TestPermissionSlashUpdatesBackendPolicy(t *testing.T) {
+	backend := newStubBackend()
+	m := newTestModelWithBackend(backend)
+	m.sessionID = "session-123"
+
+	updated, cmd := m.submitSlashCommand("/permission default", false)
+	m = updated.(*model)
+	if cmd == nil {
+		t.Fatal("/permission default should call backend")
+	}
+	msg := cmd()
+	updated, _ = m.Update(msg)
+	m = updated.(*model)
+
+	if backend.lastPermissionSet.SessionID != "session-123" {
+		t.Fatalf("lastPermissionSet.SessionID = %q", backend.lastPermissionSet.SessionID)
+	}
+	if backend.lastPermissionSet.ApprovalPolicy == nil || backend.lastPermissionSet.ApprovalPolicy.Mode != "always" {
+		t.Fatalf("lastPermissionSet.ApprovalPolicy = %#v", backend.lastPermissionSet.ApprovalPolicy)
+	}
+	if m.permissionState == nil || m.permissionState.ApprovalPolicy.Mode != "always" {
+		t.Fatalf("cached permission state = %#v", m.permissionState)
+	}
+	rendered := stripANSI(m.transcript.Render())
+	for _, want := range []string{
+		"permission state updated",
+		"permission: default",
+		"effective capabilities: filesystem=full_access network=enabled isolation=unsandboxed approval=always",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("permission render missing %q in %q", want, rendered)
+		}
+	}
+}
+
+func TestPermissionSlashUpdatesWorkspaceDefaultPolicyWithoutSession(t *testing.T) {
+	backend := newStubBackend()
+	m := newTestModelWithBackend(backend)
+
+	updated, cmd := m.submitSlashCommand("/permission default", false)
+	m = updated.(*model)
+	if cmd == nil {
+		t.Fatal("/permission default should call backend without an active session")
+	}
+	msg := cmd()
+	updated, _ = m.Update(msg)
+	m = updated.(*model)
+
+	if backend.lastPermissionSet.SessionID != "" {
+		t.Fatalf("lastPermissionSet.SessionID = %q, want empty", backend.lastPermissionSet.SessionID)
+	}
+	if backend.lastPermissionSet.ApprovalPolicy == nil || backend.lastPermissionSet.ApprovalPolicy.Mode != "always" {
+		t.Fatalf("lastPermissionSet.ApprovalPolicy = %#v", backend.lastPermissionSet.ApprovalPolicy)
+	}
+	if m.permissionState == nil || m.permissionState.ApprovalPolicy.Mode != "always" {
+		t.Fatalf("cached permission state = %#v", m.permissionState)
+	}
+	rendered := stripANSI(m.transcript.Render())
+	for _, want := range []string{
+		"permission state updated",
+		"permission: default",
+		"effective capabilities: filesystem=full_access network=enabled isolation=unsandboxed approval=always",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("permission render missing %q in %q", want, rendered)
+		}
+	}
+}
+
+func TestPermissionSlashShowsReadOnlySelectionAsStagedUntilRestrictedBackendExists(t *testing.T) {
+	backend := newStubBackend()
+	m := newTestModelWithBackend(backend)
+
+	updated, cmd := m.submitSlashCommand("/permission read_only", false)
+	m = updated.(*model)
+	if cmd == nil {
+		t.Fatal("/permission read_only should call backend")
+	}
+	msg := cmd()
+	updated, _ = m.Update(msg)
+	m = updated.(*model)
+
+	rendered := stripANSI(m.transcript.Render())
+	for _, want := range []string{
+		"permission state updated",
+		"permission: read_only",
+		"effective capabilities: filesystem=full_access network=enabled isolation=unsandboxed approval=always",
+		"selected sandbox policy is staged; the restricted local executor backend is not wired yet",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("permission render missing %q in %q", want, rendered)
+		}
+	}
+}
+
+func TestApproveSlashWorksDuringStreaming(t *testing.T) {
+	backend := newStubBackend()
+	m := newTestModelWithBackend(backend)
+	m.streaming = true
+	m.sessionID = "session-123"
+	m.pendingApproval = &rpc.ApprovalRequest{
+		RequestID: "approval-1",
+		Reason:    "allow shell command: ls",
+		RequestedCapabilities: rpc.EffectiveCapabilities{
+			FilesystemAccess:   "full_access",
+			NetworkAccess:      "enabled",
+			ExecutionIsolation: "unsandboxed",
+			ApprovalMode:       "always",
+		},
+	}
+
+	updated, cmd := m.submitSlashCommand("/approve", true)
+	m = updated.(*model)
+	if cmd == nil {
+		t.Fatal("/approve should be allowed during streaming")
+	}
+	msg := cmd()
+	updated, _ = m.Update(msg)
+	m = updated.(*model)
+
+	if backend.lastApprovalDecision.RequestID != "approval-1" {
+		t.Fatalf("lastApprovalDecision.RequestID = %q", backend.lastApprovalDecision.RequestID)
+	}
+	if backend.lastApprovalDecision.Decision != "approved" {
+		t.Fatalf("lastApprovalDecision.Decision = %q", backend.lastApprovalDecision.Decision)
+	}
+	if m.pendingApproval != nil {
+		t.Fatalf("pendingApproval = %#v, want nil after submit", m.pendingApproval)
+	}
+}
+
+func TestApprovalEventUpdatesFooterAndTranscript(t *testing.T) {
+	m := newTestModel()
+	m.streaming = true
+	m.height = 20
+	m.transcript.WriteLine("prior transcript context")
+	m.refreshViewport()
+
+	updated, cmd := m.Update(runEventMsg{Event: rpc.RunEvent{
+		Type:  "approval_requested",
+		RunID: "run-1",
+		Request: &rpc.ApprovalRequest{
+			RequestID: "approval-1",
+			Reason:    "allow shell command: ls",
+			RequestedCapabilities: rpc.EffectiveCapabilities{
+				FilesystemAccess:   "full_access",
+				NetworkAccess:      "enabled",
+				ExecutionIsolation: "unsandboxed",
+				ApprovalMode:       "always",
+			},
+		},
+	}})
+	m = updated.(*model)
+	if cmd != nil {
+		t.Fatal("approval_requested should pause async listening until the user decides")
+	}
+
+	if got := m.currentPromptFooter(); got != "" {
+		t.Fatalf("currentPromptFooter() = %q", got)
+	}
+	if got := stripANSI(m.transcript.Render()); !strings.Contains(got, "prior transcript context") {
+		t.Fatalf("transcript missing preserved context in %q", got)
+	}
+	rendered := stripANSI(m.View())
+	for _, want := range []string{
+		"Approval required",
+		"allow shell command: ls",
+		"1. Approve",
+		"2. Deny",
+		"Enter selects. Esc chooses Deny.",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("approval request render missing %q in %q", want, rendered)
+		}
+	}
+	if strings.Contains(rendered, "note  approval") {
+		t.Fatalf("approval request render should not duplicate transcript note in %q", rendered)
+	}
+
+	updated, _ = m.Update(runEventMsg{Event: rpc.RunEvent{
+		Type:  "approval_resolved",
+		RunID: "run-1",
+		Decision: &rpc.ApprovalDecision{
+			RequestID: "approval-1",
+			Decision:  "approved",
+		},
+	}})
+	m = updated.(*model)
+
+	if got := m.currentPromptFooter(); got != "" {
+		t.Fatalf("currentPromptFooter() after resolution = %q, want empty", got)
+	}
+	if got := stripANSI(m.transcript.Render()); strings.Contains(got, "note  approval") {
+		t.Fatalf("resolved approval should not add transcript note in %q", got)
+	}
+}
+
+func TestApprovalSubmitResumesAsyncListening(t *testing.T) {
+	m := newTestModel()
+	m.streaming = true
+	m.asyncCh = make(chan tea.Msg, 1)
+	m.pendingApproval = &rpc.ApprovalRequest{
+		RequestID: "approval-1",
+		Reason:    "allow shell command: pytest -q",
+		RequestedCapabilities: rpc.EffectiveCapabilities{
+			FilesystemAccess:   "full_access",
+			NetworkAccess:      "enabled",
+			ExecutionIsolation: "unsandboxed",
+			ApprovalMode:       "always",
+		},
+	}
+	m.approvalPaused = true
+
+	m.asyncCh <- runEventMsg{Event: rpc.RunEvent{
+		Type:  "approval_resolved",
+		RunID: "run-1",
+		Decision: &rpc.ApprovalDecision{
+			RequestID: "approval-1",
+			Decision:  "approved",
+		},
+	}}
+
+	updated, cmd := m.Update(approvalSubmittedMsg{
+		Decision: rpc.ApprovalDecision{
+			RequestID: "approval-1",
+			Decision:  "approved",
+		},
+	})
+	m = updated.(*model)
+	if cmd == nil {
+		t.Fatal("approvalSubmittedMsg should resume async listening while the run is still streaming")
+	}
+
+	msg := cmd()
+	runEvent, ok := msg.(runEventMsg)
+	if !ok {
+		t.Fatalf("cmd() = %T, want runEventMsg", msg)
+	}
+	if runEvent.Event.Type != "approval_resolved" {
+		t.Fatalf("runEvent.Type = %q, want approval_resolved", runEvent.Event.Type)
+	}
+}
+
+func TestApprovalSubmitShowsWaitingNoticeUntilBackendResumes(t *testing.T) {
+	m := newTestModel()
+	m.streaming = true
+	m.pendingApproval = &rpc.ApprovalRequest{
+		RequestID: "approval-1",
+		Reason:    "allow shell command: pytest -q",
+		RequestedCapabilities: rpc.EffectiveCapabilities{
+			FilesystemAccess:   "full_access",
+			NetworkAccess:      "enabled",
+			ExecutionIsolation: "unsandboxed",
+			ApprovalMode:       "always",
+		},
+	}
+	m.approvalPaused = true
+
+	updated, _ := m.Update(approvalSubmittedMsg{
+		Decision: rpc.ApprovalDecision{
+			RequestID: "approval-1",
+			Decision:  "approved",
+		},
+	})
+	m = updated.(*model)
+
+	if got := m.currentPromptFooter(); got != "approval sent; waiting for tool activity" {
+		t.Fatalf("currentPromptFooter() = %q", got)
+	}
+}
+
+func TestApprovalInlineEnterApprovesPendingAction(t *testing.T) {
+	backend := newStubBackend()
+	m := newTestModelWithBackend(backend)
+	m.streaming = true
+	m.sessionID = "session-123"
+	m.pendingApproval = &rpc.ApprovalRequest{
+		RequestID: "approval-1",
+		Reason:    "allow shell command: ls",
+		RequestedCapabilities: rpc.EffectiveCapabilities{
+			FilesystemAccess:   "full_access",
+			NetworkAccess:      "enabled",
+			ExecutionIsolation: "unsandboxed",
+			ApprovalMode:       "always",
+		},
+	}
+
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	if backend.lastApprovalDecision.RequestID != "approval-1" {
+		t.Fatalf("lastApprovalDecision.RequestID = %q", backend.lastApprovalDecision.RequestID)
+	}
+	if backend.lastApprovalDecision.Decision != "approved" {
+		t.Fatalf("lastApprovalDecision.Decision = %q", backend.lastApprovalDecision.Decision)
+	}
+	if m.pendingApproval != nil {
+		t.Fatalf("pendingApproval = %#v, want nil after approve", m.pendingApproval)
+	}
+}
+
+func TestApprovalInlineEscapeDeniesPendingAction(t *testing.T) {
+	backend := newStubBackend()
+	m := newTestModelWithBackend(backend)
+	m.streaming = true
+	m.sessionID = "session-123"
+	m.pendingApproval = &rpc.ApprovalRequest{
+		RequestID: "approval-1",
+		Reason:    "allow shell command: ls",
+		RequestedCapabilities: rpc.EffectiveCapabilities{
+			FilesystemAccess:   "full_access",
+			NetworkAccess:      "enabled",
+			ExecutionIsolation: "unsandboxed",
+			ApprovalMode:       "always",
+		},
+	}
+
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEsc})
+
+	if backend.lastApprovalDecision.RequestID != "approval-1" {
+		t.Fatalf("lastApprovalDecision.RequestID = %q", backend.lastApprovalDecision.RequestID)
+	}
+	if backend.lastApprovalDecision.Decision != "denied" {
+		t.Fatalf("lastApprovalDecision.Decision = %q", backend.lastApprovalDecision.Decision)
+	}
+	if m.pendingApproval != nil {
+		t.Fatalf("pendingApproval = %#v, want nil after deny", m.pendingApproval)
 	}
 }
 
@@ -1355,8 +1794,10 @@ func TestSlashShowsInlineCommandSuggestions(t *testing.T) {
 	for _, want := range []string{
 		"/login",
 		"/model",
+		"/permission",
+		"/approve",
+		"/deny",
 		"/version",
-		"/trace",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("view missing slash suggestion %q in %q", want, rendered)
