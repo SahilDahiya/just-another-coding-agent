@@ -18,6 +18,7 @@ from just_another_coding_agent.tools.sandbox_executor import (
     HostSandboxExecutor,
     LocalRestrictedSandboxExecutor,
     SandboxCommandRequest,
+    describe_sandbox_failure,
 )
 from just_another_coding_agent.tools.shell import execute_shell
 
@@ -114,6 +115,14 @@ class _FakeProcess:
     async def wait(self) -> int:
         self.wait_calls += 1
         return 0 if self.returncode is None else self.returncode
+
+
+class _FakeDockerExecutor:
+    def __init__(self, handle) -> None:
+        self._handle = handle
+
+    async def execute(self, _request: SandboxCommandRequest):
+        return self._handle
 
 
 async def test_execute_shell_delegates_command_start_to_sandbox_executor(
@@ -492,3 +501,102 @@ async def test_local_restricted_sandbox_executor_allows_network_when_requested(
         "-lc",
         "curl https://example.com",
     )
+
+
+async def test_docker_sandbox_handle_times_out_force_remove_when_daemon_is_wedged(
+    monkeypatch,
+) -> None:
+    sandbox_process = _FakeProcess(returncode=None)
+    rm_process = _FakeProcess(returncode=None)
+    observed: dict[str, object] = {}
+
+    async def fake_create_subprocess_exec(*args, **kwargs):
+        observed["args"] = args
+        observed["kwargs"] = kwargs
+        return rm_process
+
+    async def fake_wait_for(_awaitable, *, timeout):
+        assert (
+            timeout
+            == sandbox_executor_module._LOCAL_SANDBOX_TERMINATE_TIMEOUT_SECONDS
+        )
+        _awaitable.close()
+        raise TimeoutError
+
+    monkeypatch.setattr(
+        sandbox_executor_module.asyncio,
+        "create_subprocess_exec",
+        fake_create_subprocess_exec,
+    )
+    monkeypatch.setattr(
+        sandbox_executor_module.asyncio,
+        "wait_for",
+        fake_wait_for,
+    )
+
+    handle = sandbox_executor_module._DockerSandboxCommandHandle(
+        process=sandbox_process,
+        container_name="sandbox-123",
+        image="sandbox-image",
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="Timed out while force-removing local sandbox container 'sandbox-123'",
+    ):
+        await handle.terminate()
+
+    assert rm_process.kill_calls == 1
+
+
+async def test_execute_shell_surfaces_actionable_docker_pull_access_guidance(
+    tmp_path: Path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    process = _FakeProcess(
+        stdout_chunks=[
+            b"docker: Error response from daemon: pull access denied for "
+            b"private/image:latest\n",
+        ],
+        returncode=125,
+    )
+    handle = sandbox_executor_module._DockerSandboxCommandHandle(
+        process=process,
+        container_name="sandbox-123",
+        image="private/image:latest",
+    )
+    executor = _FakeDockerExecutor(handle)
+    ctx = _FakeRunContext(
+        deps=WorkspaceDeps(
+            workspace_root=workspace_root,
+            shell_family=_test_shell_family(),
+            sandbox_executor=executor,
+        ),
+        tool_call_id="tool-1",
+        tool_name="shell",
+    )
+
+    with pytest.raises(ToolCommandError) as error:
+        await execute_shell(
+            ctx=ctx,
+            workspace_root=workspace_root,
+            command="pytest -q",
+            shell_family=_test_shell_family(),
+        )
+
+    message = str(error.value)
+    assert "pull access denied for private/image:latest" in message
+    assert "Check Docker login and registry access" in message
+
+
+def test_describe_sandbox_failure_leaves_non_docker_output_unchanged() -> None:
+    handle = _FakeHandle(chunks=[])
+
+    result = describe_sandbox_failure(
+        handle=handle,
+        output="plain failure",
+        exit_code=1,
+    )
+
+    assert result == "plain failure"

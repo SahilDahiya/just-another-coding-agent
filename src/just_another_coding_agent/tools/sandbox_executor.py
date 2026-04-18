@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 import signal
 import subprocess
@@ -47,6 +48,7 @@ DEFAULT_LOCAL_SANDBOX_IMAGE = os.environ.get(
 )
 _LOCAL_SANDBOX_WORKDIR = "/workspace"
 _LOCAL_SANDBOX_HOME = "/tmp"
+_LOCAL_SANDBOX_TERMINATE_TIMEOUT_SECONDS = 5.0
 
 
 def _shell_command_prefix(shell_family: ShellFamily) -> tuple[str, ...]:
@@ -147,6 +149,7 @@ class HostSandboxExecutor:
 class _DockerSandboxCommandHandle:
     process: asyncio.subprocess.Process
     container_name: str
+    image: str
 
     async def read(self, max_bytes: int) -> bytes:
         if self.process.stdout is None:
@@ -172,7 +175,19 @@ class _DockerSandboxCommandHandle:
             start_new_session=True,
             preexec_fn=set_pdeathsig_in_child,
         )
-        await rm_process.wait()
+        try:
+            await asyncio.wait_for(
+                rm_process.wait(),
+                timeout=_LOCAL_SANDBOX_TERMINATE_TIMEOUT_SECONDS,
+            )
+        except TimeoutError as error:
+            rm_process.kill()
+            with contextlib.suppress(ProcessLookupError):
+                await rm_process.wait()
+            raise RuntimeError(
+                "Timed out while force-removing local sandbox container "
+                f"{self.container_name!r}; check Docker daemon health"
+            ) from error
         await self.process.wait()
 
     @property
@@ -189,6 +204,65 @@ def _local_sandbox_mount_mode(request: SandboxCommandRequest) -> str:
     raise RuntimeError(
         f"Local restricted sandbox does not support sandbox policy mode {mode!r}"
     )
+
+
+def _local_sandbox_failure_guidance(
+    *,
+    output: str,
+    image: str,
+    exit_code: int,
+) -> str | None:
+    lower_output = output.lower()
+    if exit_code != 125:
+        return None
+    if (
+        "pull access denied" in lower_output
+        or "requested access to the resource is denied" in lower_output
+        or "authentication required" in lower_output
+        or "unauthorized" in lower_output
+        or "denied:" in lower_output
+    ):
+        return (
+            "Local restricted sandbox could not pull Docker image "
+            f"{image!r}. Check Docker login and registry access, or set "
+            "JACA_SANDBOX_IMAGE to an accessible image."
+        )
+    if (
+        "manifest unknown" in lower_output
+        or "manifest for" in lower_output and "not found" in lower_output
+        or "no such image" in lower_output
+    ):
+        return (
+            "Local restricted sandbox could not find Docker image "
+            f"{image!r}. Confirm the image name or set JACA_SANDBOX_IMAGE "
+            "to an existing image."
+        )
+    if "toomanyrequests" in lower_output or "too many requests" in lower_output:
+        return (
+            "Local restricted sandbox hit a Docker registry rate limit while "
+            f"pulling {image!r}. Retry later, authenticate to the registry, "
+            "or use a pre-pulled image."
+        )
+    return None
+
+
+def describe_sandbox_failure(
+    *,
+    handle: SandboxCommandHandle,
+    output: str,
+    exit_code: int,
+) -> str:
+    if isinstance(handle, _DockerSandboxCommandHandle):
+        guidance = _local_sandbox_failure_guidance(
+            output=output,
+            image=handle.image,
+            exit_code=exit_code,
+        )
+        if guidance is not None and guidance not in output:
+            if output:
+                return f"{output}\n\n{guidance}"
+            return guidance
+    return output
 
 
 def select_sandbox_executor(
@@ -289,14 +363,14 @@ class LocalRestrictedSandboxExecutor:
         except FileNotFoundError as error:
             raise RuntimeError(
                 "Local restricted sandbox executor requires Docker. Install "
-                "Docker and pre-pull the configured sandbox image before "
-                "using the default permission mode."
+                "Docker before using the default permission mode."
             ) from error
         if process.stdout is None:
             raise RuntimeError("sandbox command must expose stdout")
         return _DockerSandboxCommandHandle(
             process=process,
             container_name=container_name,
+            image=self._image,
         )
 
 
@@ -306,5 +380,6 @@ __all__ = [
     "SandboxCommandHandle",
     "SandboxCommandRequest",
     "SandboxExecutor",
+    "describe_sandbox_failure",
     "select_sandbox_executor",
 ]

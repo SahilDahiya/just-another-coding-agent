@@ -30,6 +30,7 @@ from just_another_coding_agent.tools.errors import (
 from just_another_coding_agent.tools.sandbox_executor import (
     HostSandboxExecutor,
     SandboxCommandRequest,
+    describe_sandbox_failure,
     select_sandbox_executor,
 )
 from just_another_coding_agent.tools.truncation import (
@@ -388,11 +389,16 @@ async def execute_shell(
             with contextlib.suppress(asyncio.CancelledError):
                 await publisher_task
 
-    output = _truncate_shell_output("".join(output_chunks), partial=False)
-
     exit_code = handle.exit_code
     if exit_code is None:
         raise RuntimeError("sandbox executor must report an exit code after wait")
+
+    output = _truncate_shell_output("".join(output_chunks), partial=False)
+    output = describe_sandbox_failure(
+        handle=handle,
+        output=output,
+        exit_code=exit_code,
+    )
 
     if exit_code != 0:
         raise ToolCommandError(
