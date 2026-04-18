@@ -267,6 +267,10 @@ async def test_edit_requests_approval_for_outside_workspace_path_in_default_mode
     assert outside.read_text(encoding="utf-8") == "hello\nagent\n"
     assert len(requests) == 1
     assert requests[0].reason == "allow edit outside workspace: ../outside.txt"
+    assert requests[0].requested_permissions is not None
+    assert requests[0].requested_permissions.extra_write_roots == (
+        str(outside.resolve()),
+    )
 
 
 def test_edit_tool_fuzzy_fallback_preserves_unmatched_surrounding_content(

@@ -9,6 +9,7 @@ FilesystemAccess = Literal["read_only", "workspace_write", "full_access"]
 ExecutionIsolation = Literal["sandboxed", "unsandboxed"]
 ApprovalMode = Literal["never", "on_escalation", "always"]
 ApprovalDecisionValue = Literal["approved", "denied"]
+AdditionalNetworkAccess = Literal["enabled"]
 
 
 class _SandboxContractModel(BaseModel):
@@ -71,6 +72,41 @@ class EffectiveCapabilities(_SandboxContractModel):
     approval_mode: ApprovalMode
 
 
+class AdditionalSandboxPermissions(_SandboxContractModel):
+    network_access: AdditionalNetworkAccess | None = None
+    extra_read_roots: tuple[str, ...] = ()
+    extra_write_roots: tuple[str, ...] = ()
+
+    @model_validator(mode="after")
+    def _validate_non_empty_delta(self) -> "AdditionalSandboxPermissions":
+        if (
+            self.network_access is None
+            and not self.extra_read_roots
+            and not self.extra_write_roots
+        ):
+            raise ValueError(
+                "additional sandbox permissions must request at least one "
+                "permission delta"
+            )
+        return self
+
+
+class FileSystemSandboxPolicy(_SandboxContractModel):
+    access: FilesystemAccess
+    extra_read_roots: tuple[str, ...] = ()
+    extra_write_roots: tuple[str, ...] = ()
+
+
+class NetworkSandboxPolicy(_SandboxContractModel):
+    access: SandboxNetworkAccess
+
+
+class NormalizedSandboxPolicy(_SandboxContractModel):
+    filesystem: FileSystemSandboxPolicy
+    network: NetworkSandboxPolicy
+    execution_isolation: ExecutionIsolation
+
+
 class PermissionState(_SandboxContractModel):
     sandbox_policy: SandboxPolicy
     approval_policy: ApprovalPolicy
@@ -81,6 +117,7 @@ class ApprovalRequest(_SandboxContractModel):
     request_id: str
     reason: str
     requested_capabilities: EffectiveCapabilities
+    requested_permissions: AdditionalSandboxPermissions | None = None
 
 
 class ApprovalDecision(_SandboxContractModel):
@@ -111,6 +148,57 @@ def derive_effective_capabilities(
         network_access=sandbox_policy.network_access,
         execution_isolation=execution_isolation,
         approval_mode=approval_policy.mode,
+    )
+
+
+def derive_normalized_sandbox_policy(
+    *,
+    permission_state: PermissionState,
+    additional_permissions: AdditionalSandboxPermissions | None = None,
+) -> NormalizedSandboxPolicy:
+    base_capabilities = derive_effective_capabilities(
+        sandbox_policy=permission_state.sandbox_policy,
+        approval_policy=permission_state.approval_policy,
+    )
+    extra_read_roots: tuple[str, ...] = ()
+    extra_write_roots: tuple[str, ...] = ()
+    network_access = base_capabilities.network_access
+
+    if additional_permissions is not None:
+        extra_read_roots = additional_permissions.extra_read_roots
+        extra_write_roots = additional_permissions.extra_write_roots
+        if additional_permissions.network_access is not None:
+            network_access = additional_permissions.network_access
+
+    filesystem_access = base_capabilities.filesystem_access
+    if extra_read_roots or extra_write_roots:
+        filesystem_access = "full_access"
+
+    return NormalizedSandboxPolicy(
+        filesystem=FileSystemSandboxPolicy(
+            access=filesystem_access,
+            extra_read_roots=extra_read_roots,
+            extra_write_roots=extra_write_roots,
+        ),
+        network=NetworkSandboxPolicy(access=network_access),
+        execution_isolation=base_capabilities.execution_isolation,
+    )
+
+
+def derive_requested_capabilities(
+    *,
+    permission_state: PermissionState,
+    additional_permissions: AdditionalSandboxPermissions | None = None,
+) -> EffectiveCapabilities:
+    normalized_policy = derive_normalized_sandbox_policy(
+        permission_state=permission_state,
+        additional_permissions=additional_permissions,
+    )
+    return EffectiveCapabilities(
+        filesystem_access=normalized_policy.filesystem.access,
+        network_access=normalized_policy.network.access,
+        execution_isolation=normalized_policy.execution_isolation,
+        approval_mode=permission_state.approval_policy.mode,
     )
 
 
@@ -147,11 +235,16 @@ __all__ = [
     "ApprovalMode",
     "ApprovalPolicy",
     "ApprovalRequest",
+    "AdditionalNetworkAccess",
+    "AdditionalSandboxPermissions",
     "DangerFullAccessSandboxPolicy",
     "EffectiveCapabilities",
     "ExecutionIsolation",
     "ExternalSandboxPolicy",
+    "FileSystemSandboxPolicy",
     "FilesystemAccess",
+    "NetworkSandboxPolicy",
+    "NormalizedSandboxPolicy",
     "PermissionState",
     "ReadOnlySandboxPolicy",
     "SandboxNetworkAccess",
@@ -160,4 +253,6 @@ __all__ = [
     "build_default_permission_state",
     "build_permission_state",
     "derive_effective_capabilities",
+    "derive_normalized_sandbox_policy",
+    "derive_requested_capabilities",
 ]

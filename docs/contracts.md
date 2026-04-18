@@ -145,6 +145,9 @@ Initial canonical control-plane slice:
 - `ApprovalPolicy`
 - `EffectiveCapabilities`
 - `PermissionState`
+- `AdditionalSandboxPermissions`
+- `FileSystemSandboxPolicy`
+- `NetworkSandboxPolicy`
 - `ApprovalRequest`
 - `ApprovalDecision`
 
@@ -162,6 +165,12 @@ Rules:
 - `PermissionState` is the live backend-owned control-plane snapshot composed
   of the current sandbox policy, approval policy, and normalized effective
   capabilities.
+- `FileSystemSandboxPolicy` and `NetworkSandboxPolicy` are the backend-owned
+  normalized runtime policies derived from the selected permission state plus
+  any approved per-command permission deltas.
+- `AdditionalSandboxPermissions` is the explicit per-command permission-delta
+  contract. It may widen network access or request extra filesystem roots for
+  one action without mutating the selected long-lived permission preset.
 - Capability changes that materially affect what the model can do must be made
   explicit through backend-owned effective capabilities rather than inferred in
   Go or hidden inside executor implementation detail.
@@ -214,6 +223,9 @@ Approval carrier rules:
   result
 - approval lifecycle semantics belong to Python-owned RPC and streamed-event
   contracts, not to Go-local state machines
+- approval requests may carry explicit `requested_permissions` deltas in
+  addition to normalized requested capabilities; Go may render those fields
+  later, but it must not reinterpret them locally
 - `approval.submit` resolves a live pending approval request; denial must still
   terminate the run through the canonical backend run-failure path rather than
   through a stdio-only shortcut
@@ -232,15 +244,20 @@ Approval carrier rules:
     the local restricted executor backend
   - the first restricted backend is Docker-backed and enforces workspace-bound
     execution
+  - executor backends consume normalized filesystem/network policy derived from
+    the selected permission state plus any approved per-command permission
+    deltas
   - under `workspace_write`, restricted shell execution defaults to
     `--network none`
   - `approval_policy=on_escalation` may request approval for explicit
     network-seeking shell commands; when approved, the restricted Docker
-    backend reruns that command with network enabled while preserving the
-    workspace-bound sandbox posture
+    backend reruns that command with `requested_permissions.network_access`
+    widened to `enabled` while preserving the workspace-bound sandbox posture
   - `write` and `edit` request approval before modifying paths outside the
     workspace when `approval_policy=on_escalation` and the selected sandbox
-    policy is `workspace_write`
+    policy is `workspace_write`; those approval requests use explicit
+    `requested_permissions.extra_write_roots` deltas instead of silently
+    widening the selected sandbox preset
   - `danger_full_access` continues to use the host executor
   - `external` remains unsupported unless the caller provides an externally
     managed executor

@@ -14,9 +14,9 @@ from pydantic_ai import RunContext, Tool
 from just_another_coding_agent.contracts.platform import ShellFamily
 from just_another_coding_agent.contracts.run_events import ShellActivityDetails
 from just_another_coding_agent.contracts.sandbox import (
+    AdditionalSandboxPermissions,
     ApprovalRequest,
-    WorkspaceWriteSandboxPolicy,
-    build_permission_state,
+    derive_requested_capabilities,
 )
 from just_another_coding_agent.tools._activity import (
     make_tool_return,
@@ -101,24 +101,23 @@ def _shell_command_requests_network_access(
     return False
 
 
-def _resolve_shell_permission_state(
+def _resolve_shell_additional_permissions(
     *,
     permission_state,
     command: str,
     shell_family: ShellFamily,
 ):
     if permission_state.approval_policy.mode != "on_escalation":
-        return permission_state
+        return None
     if permission_state.sandbox_policy.mode != "workspace_write":
-        return permission_state
+        return None
     if not _shell_command_requests_network_access(
         command=command,
         shell_family=shell_family,
     ):
-        return permission_state
-    return build_permission_state(
-        sandbox_policy=WorkspaceWriteSandboxPolicy(network_access="enabled"),
-        approval_policy=permission_state.approval_policy,
+        return None
+    return AdditionalSandboxPermissions(
+        network_access="enabled",
     )
 
 
@@ -219,7 +218,7 @@ async def execute_shell(
         if ctx is not None
         else WorkspaceDeps.from_workspace_root(workspace_root).permission_state
     )
-    requested_permission_state = _resolve_shell_permission_state(
+    additional_permissions = _resolve_shell_additional_permissions(
         permission_state=permission_state,
         command=command,
         shell_family=shell_family,
@@ -228,11 +227,11 @@ async def execute_shell(
         configured_executor=(
             ctx.deps.sandbox_executor if ctx is not None else HostSandboxExecutor()
         ),
-        permission_state=requested_permission_state,
+        permission_state=permission_state,
     )
     approval_required = permission_state.approval_policy.mode == "always" or (
         permission_state.approval_policy.mode == "on_escalation"
-        and requested_permission_state != permission_state
+        and additional_permissions is not None
     )
     if (
         ctx is not None
@@ -250,9 +249,11 @@ async def execute_shell(
                     "allow shell command: "
                     f"{truncate_activity_label(command)}"
                 ),
-                requested_capabilities=(
-                    requested_permission_state.effective_capabilities
+                requested_capabilities=derive_requested_capabilities(
+                    permission_state=permission_state,
+                    additional_permissions=additional_permissions,
                 ),
+                requested_permissions=additional_permissions,
             )
         )
         if decision.decision != "approved":
@@ -264,7 +265,8 @@ async def execute_shell(
             workspace_root=Path(workspace_root),
             command=command,
             shell_family=shell_family,
-            permission_state=requested_permission_state,
+            permission_state=permission_state,
+            additional_permissions=additional_permissions,
         )
     )
 

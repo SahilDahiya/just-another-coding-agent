@@ -137,6 +137,11 @@ intentionally narrow: it is Docker-backed, enforces workspace-bound execution
 with network disabled, and must fail explicitly if Docker or the configured
 sandbox image is unavailable. The Go TUI should not infer or select executor
 backends; it only renders the selected permission state and approval flow.
+The current pivot adds a middle layer between those user-facing presets and
+the executor backend: Python now normalizes selected sandbox state plus any
+approved per-command permission deltas into concrete filesystem and network
+policies before command startup. That normalization belongs in Python, not in
+Go and not in backend-specific executor conditionals spread across tools.
 
 ## Stateful Orchestration Boundary
 

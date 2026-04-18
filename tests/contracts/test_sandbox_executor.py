@@ -6,6 +6,7 @@ import pytest
 
 from just_another_coding_agent.contracts.platform import detect_default_shell_family
 from just_another_coding_agent.contracts.sandbox import (
+    AdditionalSandboxPermissions,
     ApprovalPolicy,
     WorkspaceWriteSandboxPolicy,
     build_default_permission_state,
@@ -397,6 +398,7 @@ async def test_execute_shell_routes_workspace_write_policy_to_restricted_executo
             command="printf hello",
             shell_family=_test_shell_family(),
             permission_state=ctx.deps.permission_state,
+            additional_permissions=None,
         )
     ]
 
@@ -435,6 +437,7 @@ async def test_local_restricted_sandbox_executor_launches_docker_with_workspace_
                     update={"approval_mode": "on_escalation"}
                 ),
             ),
+            additional_permissions=None,
         )
     )
 
@@ -481,9 +484,12 @@ async def test_local_restricted_sandbox_executor_allows_network_when_requested(
             shell_family="posix",
             permission_state=build_permission_state(
                 sandbox_policy=WorkspaceWriteSandboxPolicy(
-                    network_access="enabled"
+                    network_access="restricted"
                 ),
                 approval_policy=ApprovalPolicy(mode="on_escalation"),
+            ),
+            additional_permissions=AdditionalSandboxPermissions(
+                network_access="enabled"
             ),
         )
     )
@@ -588,6 +594,32 @@ async def test_execute_shell_surfaces_actionable_docker_pull_access_guidance(
     message = str(error.value)
     assert "pull access denied for private/image:latest" in message
     assert "Check Docker login and registry access" in message
+
+
+async def test_local_restricted_sandbox_executor_rejects_additional_filesystem_roots(
+    tmp_path: Path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    with pytest.raises(
+        RuntimeError,
+        match="does not yet support additional filesystem roots",
+    ):
+        await LocalRestrictedSandboxExecutor(image="sandbox-image").execute(
+            SandboxCommandRequest(
+                workspace_root=workspace_root,
+                command="pwd",
+                shell_family="posix",
+                permission_state=build_permission_state(
+                    sandbox_policy=WorkspaceWriteSandboxPolicy(),
+                    approval_policy=ApprovalPolicy(mode="on_escalation"),
+                ),
+                additional_permissions=AdditionalSandboxPermissions(
+                    extra_read_roots=("/tmp/outside.txt",),
+                ),
+            )
+        )
 
 
 def test_describe_sandbox_failure_leaves_non_docker_output_unchanged() -> None:

@@ -246,6 +246,7 @@ async def test_execute_shell_requests_approval_when_policy_is_always(
     assert len(requests) == 1
     assert requests[0].reason.startswith("allow shell command:")
     assert requests[0].requested_capabilities.approval_mode == "always"
+    assert requests[0].requested_permissions is None
 
 
 async def test_execute_shell_requests_approval_for_network_escalation(
@@ -296,13 +297,13 @@ async def test_execute_shell_requests_approval_for_network_escalation(
     assert result == {"exit_code": 0, "output": "ok"}
     assert len(requests) == 1
     assert requests[0].requested_capabilities.network_access == "enabled"
+    assert requests[0].requested_permissions is not None
+    assert requests[0].requested_permissions.network_access == "enabled"
     assert len(executed_requests) == 1
+    assert executed_requests[0].permission_state == permission_state
+    assert executed_requests[0].additional_permissions is not None
     assert (
-        executed_requests[0].permission_state.sandbox_policy.mode
-        == "workspace_write"
-    )
-    assert (
-        executed_requests[0].permission_state.sandbox_policy.network_access
+        executed_requests[0].additional_permissions.network_access
         == "enabled"
     )
 
@@ -356,6 +357,7 @@ async def test_execute_shell_skips_approval_for_local_command(
     assert requests == []
     assert len(executed_requests) == 1
     assert executed_requests[0].permission_state == permission_state
+    assert executed_requests[0].additional_permissions is None
 
 
 async def test_execute_shell_fails_fast_when_approval_is_required_without_requester(

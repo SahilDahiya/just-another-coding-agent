@@ -12,7 +12,11 @@ from uuid import uuid4
 
 from just_another_coding_agent._pdeathsig import set_pdeathsig_in_child
 from just_another_coding_agent.contracts.platform import ShellFamily
-from just_another_coding_agent.contracts.sandbox import PermissionState
+from just_another_coding_agent.contracts.sandbox import (
+    AdditionalSandboxPermissions,
+    PermissionState,
+    derive_normalized_sandbox_policy,
+)
 from just_another_coding_agent.tools.windows_search_tools import (
     build_tool_process_env,
     ensure_windows_search_tool,
@@ -25,6 +29,7 @@ class SandboxCommandRequest:
     command: str
     shell_family: ShellFamily
     permission_state: PermissionState
+    additional_permissions: AdditionalSandboxPermissions | None = None
 
 
 class SandboxCommandHandle(Protocol):
@@ -195,14 +200,14 @@ class _DockerSandboxCommandHandle:
         return self.process.returncode
 
 
-def _local_sandbox_mount_mode(request: SandboxCommandRequest) -> str:
-    mode = request.permission_state.sandbox_policy.mode
-    if mode == "read_only":
+def _local_sandbox_mount_mode(filesystem_access: str) -> str:
+    if filesystem_access == "read_only":
         return "ro"
-    if mode == "workspace_write":
+    if filesystem_access == "workspace_write":
         return "rw"
     raise RuntimeError(
-        f"Local restricted sandbox does not support sandbox policy mode {mode!r}"
+        "Local restricted sandbox does not support filesystem access mode "
+        f"{filesystem_access!r}"
     )
 
 
@@ -307,7 +312,21 @@ class LocalRestrictedSandboxExecutor:
             )
 
         container_name = f"jaca-sandbox-{uuid4().hex[:12]}"
-        mount_mode = _local_sandbox_mount_mode(request)
+        normalized_policy = derive_normalized_sandbox_policy(
+            permission_state=request.permission_state,
+            additional_permissions=request.additional_permissions,
+        )
+        if (
+            normalized_policy.filesystem.extra_read_roots
+            or normalized_policy.filesystem.extra_write_roots
+        ):
+            raise RuntimeError(
+                "Local restricted sandbox executor does not yet support "
+                "additional filesystem roots"
+            )
+        mount_mode = _local_sandbox_mount_mode(
+            normalized_policy.filesystem.access
+        )
         docker_args = [
             "docker",
             "run",
@@ -340,7 +359,7 @@ class LocalRestrictedSandboxExecutor:
             "--env",
             f"HOME={_LOCAL_SANDBOX_HOME}",
         ]
-        if request.permission_state.sandbox_policy.network_access == "restricted":
+        if normalized_policy.network.access == "restricted":
             docker_args.extend(["--network", "none"])
         docker_args.extend(
             [

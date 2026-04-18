@@ -97,6 +97,12 @@ type EffectiveCapabilities struct {
 	ApprovalMode       string `json:"approval_mode"`
 }
 
+type AdditionalSandboxPermissions struct {
+	NetworkAccess   string   `json:"network_access,omitempty"`
+	ExtraReadRoots  []string `json:"extra_read_roots,omitempty"`
+	ExtraWriteRoots []string `json:"extra_write_roots,omitempty"`
+}
+
 type PermissionState struct {
 	SandboxPolicy         SandboxPolicy         `json:"sandbox_policy"`
 	ApprovalPolicy        ApprovalPolicy        `json:"approval_policy"`
@@ -104,9 +110,10 @@ type PermissionState struct {
 }
 
 type ApprovalRequest struct {
-	RequestID             string                `json:"request_id"`
-	Reason                string                `json:"reason"`
-	RequestedCapabilities EffectiveCapabilities `json:"requested_capabilities"`
+	RequestID             string                        `json:"request_id"`
+	Reason                string                        `json:"reason"`
+	RequestedCapabilities EffectiveCapabilities         `json:"requested_capabilities"`
+	RequestedPermissions  *AdditionalSandboxPermissions `json:"requested_permissions,omitempty"`
 }
 
 type ApprovalDecision struct {

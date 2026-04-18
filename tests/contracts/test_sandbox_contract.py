@@ -4,16 +4,23 @@ import pytest
 from pydantic import TypeAdapter, ValidationError
 
 from just_another_coding_agent.contracts.sandbox import (
+    AdditionalSandboxPermissions,
     ApprovalDecision,
     ApprovalPolicy,
     ApprovalRequest,
     DangerFullAccessSandboxPolicy,
     EffectiveCapabilities,
     ExternalSandboxPolicy,
+    FileSystemSandboxPolicy,
+    NetworkSandboxPolicy,
+    NormalizedSandboxPolicy,
     ReadOnlySandboxPolicy,
     SandboxPolicy,
     WorkspaceWriteSandboxPolicy,
+    build_permission_state,
     derive_effective_capabilities,
+    derive_normalized_sandbox_policy,
+    derive_requested_capabilities,
 )
 
 
@@ -95,8 +102,14 @@ def test_approval_request_and_decision_are_strict_contract_models() -> None:
         request_id="approval-1",
         reason="Enable network for a package install.",
         requested_capabilities=capabilities,
+        requested_permissions=AdditionalSandboxPermissions(
+            network_access="enabled"
+        ),
     )
     assert request.requested_capabilities == capabilities
+    assert request.requested_permissions == AdditionalSandboxPermissions(
+        network_access="enabled"
+    )
 
     decision = ApprovalDecision(
         request_id="approval-1",
@@ -111,3 +124,53 @@ def test_approval_request_and_decision_are_strict_contract_models() -> None:
             requested_capabilities=capabilities,
             extra_field=True,
         )
+
+
+def test_additional_sandbox_permissions_require_a_non_empty_delta() -> None:
+    with pytest.raises(ValidationError, match="must request at least one"):
+        AdditionalSandboxPermissions()
+
+
+def test_normalized_sandbox_policy_derives_network_and_filesystem_deltas() -> None:
+    permission_state = build_permission_state(
+        sandbox_policy=WorkspaceWriteSandboxPolicy(),
+        approval_policy=ApprovalPolicy(mode="on_escalation"),
+    )
+
+    normalized = derive_normalized_sandbox_policy(
+        permission_state=permission_state,
+        additional_permissions=AdditionalSandboxPermissions(
+            network_access="enabled",
+            extra_write_roots=("/tmp/outside.txt",),
+        ),
+    )
+
+    assert normalized == NormalizedSandboxPolicy(
+        filesystem=FileSystemSandboxPolicy(
+            access="full_access",
+            extra_write_roots=("/tmp/outside.txt",),
+        ),
+        network=NetworkSandboxPolicy(access="enabled"),
+        execution_isolation="sandboxed",
+    )
+
+
+def test_requested_capabilities_follow_normalized_policy() -> None:
+    permission_state = build_permission_state(
+        sandbox_policy=WorkspaceWriteSandboxPolicy(),
+        approval_policy=ApprovalPolicy(mode="on_escalation"),
+    )
+
+    requested = derive_requested_capabilities(
+        permission_state=permission_state,
+        additional_permissions=AdditionalSandboxPermissions(
+            network_access="enabled"
+        ),
+    )
+
+    assert requested == EffectiveCapabilities(
+        filesystem_access="workspace_write",
+        network_access="enabled",
+        execution_isolation="sandboxed",
+        approval_mode="on_escalation",
+    )

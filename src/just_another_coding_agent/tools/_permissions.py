@@ -3,7 +3,11 @@ from __future__ import annotations
 from typing import Protocol
 from uuid import uuid4
 
-from just_another_coding_agent.contracts.sandbox import ApprovalRequest
+from just_another_coding_agent.contracts.sandbox import (
+    AdditionalSandboxPermissions,
+    ApprovalRequest,
+    derive_requested_capabilities,
+)
 from just_another_coding_agent.tools._activity import truncate_activity_label
 from just_another_coding_agent.tools._workspace import (
     path_is_within_workspace,
@@ -49,17 +53,24 @@ async def maybe_request_file_write_approval(
         if outside_workspace
         else f"allow {action}"
     )
+    requested_permissions = (
+        AdditionalSandboxPermissions(
+            extra_write_roots=(str(resolved_path),),
+        )
+        if outside_workspace
+        else None
+    )
     decision = await ctx.deps.approval_requester(
         ApprovalRequest(
             request_id=f"{action}-{uuid4().hex}",
             reason=(
                 f"{reason_prefix}: {truncate_activity_label(tool_path)}"
             ),
-            requested_capabilities=(
-                permission_state.effective_capabilities.model_copy(
-                    update={"filesystem_access": "full_access"}
-                )
+            requested_capabilities=derive_requested_capabilities(
+                permission_state=permission_state,
+                additional_permissions=requested_permissions,
             ),
+            requested_permissions=requested_permissions,
         )
     )
     if decision.decision != "approved":
