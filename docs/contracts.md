@@ -206,10 +206,19 @@ Approval carrier rules:
   result
 - approval lifecycle semantics belong to Python-owned RPC and streamed-event
   contracts, not to Go-local state machines
+- `approval.submit` resolves a live pending approval request; denial must still
+  terminate the run through the canonical backend run-failure path rather than
+  through a stdio-only shortcut
+- tools request approval through backend-owned runtime deps; the runtime emits
+  `approval_requested` and `approval_resolved` events and preserves normal
+  terminal run semantics
 - live permission state is distinct from durable turn-context history:
   - `PermissionState` is live control-plane state for RPC and approval flows
   - `session_turn_context.effective_capabilities` remains the durable
     model-visible snapshot written after completed runs
+- until a restricted executor backend lands, selected sandbox and approval
+  policies may change while effective capabilities remain at the truthful host
+  posture (`full_access`, `enabled`, `unsandboxed`, `never`)
 
 ## Tool Contract
 

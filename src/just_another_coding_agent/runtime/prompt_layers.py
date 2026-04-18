@@ -16,6 +16,7 @@ from just_another_coding_agent.runtime.project_docs import (
 
 if TYPE_CHECKING:
     from just_another_coding_agent.contracts.platform import ShellFamily
+    from just_another_coding_agent.contracts.sandbox import EffectiveCapabilities
     from just_another_coding_agent.contracts.thinking import ThinkingSetting
     from just_another_coding_agent.runtime.turn_context import (
         TurnContextBaselineDecision,
@@ -292,6 +293,7 @@ def build_prompt_context_layers(
     shell_family: "ShellFamily | None" = None,
     timezone: str | None = None,
     thinking: "ThinkingSetting | None" = None,
+    effective_capabilities: EffectiveCapabilities | None = None,
     tool_names: Sequence[str] = CANONICAL_TOOL_NAMES,
     project_doc_total_byte_budget: int = PROJECT_DOC_TOTAL_BYTE_BUDGET,
 ) -> PromptContextLayers:
@@ -311,6 +313,7 @@ def build_prompt_context_layers(
         shell_family=shell_family,
         timezone=timezone,
         thinking=thinking,
+        effective_capabilities=effective_capabilities,
     )
     return PromptContextLayers(
         base_instructions=build_base_product_prompt(tool_names=tool_names),

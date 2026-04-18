@@ -6,17 +6,25 @@ from pydantic_ai import (
     AgentRunResult,
     AgentRunResultEvent,
     CallToolsNode,
+    RunContext,
+    Tool,
 )
 from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 from pydantic_ai.usage import UsageLimits
 from pydantic_graph import End
 
 from just_another_coding_agent.contracts.run_events import (
+    ApprovalRequestedEvent,
+    ApprovalResolvedEvent,
     AssistantTextDeltaEvent,
     RunFailedEvent,
     RunStartedEvent,
     RunSucceededEvent,
     ShellActivityDetails,
+)
+from just_another_coding_agent.contracts.sandbox import (
+    ApprovalDecision,
+    ApprovalRequest,
 )
 from just_another_coding_agent.runtime.agent import build_canonical_agent
 from just_another_coding_agent.runtime.run import stream_run_events
@@ -164,6 +172,36 @@ async def git_check_stream(
         return
 
     yield "done"
+
+
+async def approval_tool_stream(
+    messages: object,
+    _agent_info: object,
+) -> AsyncIterator[dict[int, DeltaToolCall] | str]:
+    if len(messages) == 1:
+        yield {
+            0: DeltaToolCall(
+                name="needs_approval",
+                json_args="{}",
+                tool_call_id="call-approval",
+            )
+        }
+        return
+
+    yield "done"
+
+
+async def _needs_approval(ctx: RunContext[WorkspaceDeps]) -> str:
+    assert ctx.deps.approval_requester is not None
+    decision = await ctx.deps.approval_requester(
+        ApprovalRequest(
+            request_id="approval-1",
+            reason="let the tool continue",
+            requested_capabilities=ctx.deps.permission_state.effective_capabilities,
+        )
+    )
+    assert decision.decision == "approved"
+    return "approved"
 
 
 class RecordingStreamAgent:
@@ -338,6 +376,119 @@ async def test_stream_run_events_binds_run_id_into_workspace_session_scope(
     assert agent.last_deps.session_scope.session_id == "a" * 32
     assert agent.last_deps.session_scope.run_id == events[0].run_id
     assert agent.last_deps.tool_update_sink is not None
+
+
+async def test_stream_run_events_emits_approval_events_and_succeeds(
+    tmp_path,
+) -> None:
+    agent = Agent(
+        FunctionModel(stream_function=approval_tool_stream),
+        output_type=str,
+        deps_type=WorkspaceDeps,
+        tools=[
+            Tool(
+                _needs_approval,
+                takes_ctx=True,
+                name="needs_approval",
+                strict=True,
+                sequential=False,
+            )
+        ],
+    )
+    requests: list[ApprovalRequest] = []
+
+    async def resolve_approval_request(
+        request: ApprovalRequest,
+    ) -> ApprovalDecision:
+        requests.append(request)
+        return ApprovalDecision(
+            request_id=request.request_id,
+            decision="approved",
+        )
+
+    events = [
+        event
+        async for event in stream_run_events(
+            agent=agent,
+            prompt="go",
+            deps=WorkspaceDeps(workspace_root=tmp_path),
+            available_tool_names=["needs_approval"],
+            resolve_approval_request=resolve_approval_request,
+        )
+    ]
+
+    assert [event.type for event in events] == [
+        "run_started",
+        "tool_call_started",
+        "approval_requested",
+        "approval_resolved",
+        "tool_call_succeeded",
+        "assistant_text_delta",
+        "run_succeeded",
+    ]
+    approval_request = events[2]
+    approval_resolution = events[3]
+    assert isinstance(approval_request, ApprovalRequestedEvent)
+    assert isinstance(approval_resolution, ApprovalResolvedEvent)
+    assert requests == [approval_request.request]
+    assert approval_resolution.decision == ApprovalDecision(
+        request_id=approval_request.request.request_id,
+        decision="approved",
+    )
+    assert isinstance(events[-1], RunSucceededEvent)
+    assert events[-1].output_text == "done"
+
+
+async def test_stream_run_events_denied_approval_fails_run(
+    tmp_path,
+) -> None:
+    agent = Agent(
+        FunctionModel(stream_function=approval_tool_stream),
+        output_type=str,
+        deps_type=WorkspaceDeps,
+        tools=[
+            Tool(
+                _needs_approval,
+                takes_ctx=True,
+                name="needs_approval",
+                strict=True,
+                sequential=False,
+            )
+        ],
+    )
+
+    async def resolve_approval_request(
+        request: ApprovalRequest,
+    ) -> ApprovalDecision:
+        return ApprovalDecision(
+            request_id=request.request_id,
+            decision="denied",
+        )
+
+    events = [
+        event
+        async for event in stream_run_events(
+            agent=agent,
+            prompt="go",
+            deps=WorkspaceDeps(workspace_root=tmp_path),
+            available_tool_names=["needs_approval"],
+            resolve_approval_request=resolve_approval_request,
+        )
+    ]
+
+    assert [event.type for event in events] == [
+        "run_started",
+        "tool_call_started",
+        "approval_requested",
+        "approval_resolved",
+        "tool_call_failed",
+        "run_failed",
+    ]
+    assert isinstance(events[2], ApprovalRequestedEvent)
+    assert isinstance(events[3], ApprovalResolvedEvent)
+    assert isinstance(events[-1], RunFailedEvent)
+    assert events[-1].error_type == "ApprovalDenied"
+    assert events[-1].message == "Approval denied: let the tool continue"
 
 
 async def test_build_canonical_agent_retries_one_transient_pre_stream_failure(

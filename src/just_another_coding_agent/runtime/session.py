@@ -21,6 +21,12 @@ from just_another_coding_agent.contracts.run_events import (
     ToolCallStartedEvent,
     ToolCallSucceededEvent,
 )
+from just_another_coding_agent.contracts.sandbox import (
+    ApprovalDecision,
+    ApprovalRequest,
+    PermissionState,
+    build_default_permission_state,
+)
 from just_another_coding_agent.contracts.session import (
     LoadedSession,
     SessionHeaderEntry,
@@ -171,6 +177,10 @@ async def stream_session_run_events(
     prompt: str,
     tool_names: Sequence[str] = CANONICAL_TOOL_NAMES,
     thinking: ThinkingSetting | None = None,
+    permission_state: PermissionState | None = None,
+    resolve_approval_request: (
+        Callable[[ApprovalRequest], Awaitable[ApprovalDecision]] | None
+    ) = None,
     activate_steer_boundary: (
         Callable[[Callable[[list[str]], None]], Awaitable[None]]
     ) | None = None,
@@ -190,6 +200,7 @@ async def stream_session_run_events(
     shell_family = detect_default_shell_family()
     current_date = date.today()
     current_timezone = detect_current_timezone_label()
+    resolved_permission_state = permission_state or build_default_permission_state()
     if isinstance(model, str):
         readiness = compute_model_readiness(model)
         if not readiness.configured:
@@ -299,6 +310,9 @@ async def stream_session_run_events(
             current_date=current_date,
             shell_family=shell_family,
             thinking=resolved_thinking,
+            effective_capabilities=(
+                resolved_permission_state.effective_capabilities
+            ),
             has_persisted_history=loaded_session.has_persisted_turn_context_history,
         )
         yield SessionTurnContextStatusEvent(
@@ -318,6 +332,7 @@ async def stream_session_run_events(
         current_date=current_date,
         shell_family=shell_family,
         thinking=resolved_thinking,
+        effective_capabilities=resolved_permission_state.effective_capabilities,
         tool_names=tool_names,
     )
     agent = build_canonical_agent(
@@ -356,9 +371,11 @@ async def stream_session_run_events(
                     timezone=current_timezone,
                     thinking=resolved_thinking,
                 ),
+                permission_state=resolved_permission_state,
             ),
             message_history_sink=_record_message_history,
             available_tool_names=tool_names,
+            resolve_approval_request=resolve_approval_request,
         )
         if (
             activate_steer_boundary is not None
@@ -384,6 +401,9 @@ async def stream_session_run_events(
                     current_date=current_date,
                     shell_family=shell_family,
                     thinking=resolved_thinking,
+                    effective_capabilities=(
+                        resolved_permission_state.effective_capabilities
+                    ),
                 )
                 run_appender = start_run_to_session(
                     path=session_path,

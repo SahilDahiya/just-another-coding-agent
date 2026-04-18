@@ -118,14 +118,26 @@ def build_permission_state(
     *,
     sandbox_policy: SandboxPolicy,
     approval_policy: ApprovalPolicy,
+    effective_capabilities: EffectiveCapabilities | None = None,
 ) -> PermissionState:
     return PermissionState(
         sandbox_policy=sandbox_policy,
         approval_policy=approval_policy,
-        effective_capabilities=derive_effective_capabilities(
-            sandbox_policy=sandbox_policy,
-            approval_policy=approval_policy,
+        effective_capabilities=(
+            effective_capabilities
+            if effective_capabilities is not None
+            else derive_effective_capabilities(
+                sandbox_policy=sandbox_policy,
+                approval_policy=approval_policy,
+            )
         ),
+    )
+
+
+def build_default_permission_state() -> PermissionState:
+    return build_permission_state(
+        sandbox_policy=DangerFullAccessSandboxPolicy(),
+        approval_policy=ApprovalPolicy(mode="never"),
     )
 
 
@@ -145,6 +157,7 @@ __all__ = [
     "SandboxNetworkAccess",
     "SandboxPolicy",
     "WorkspaceWriteSandboxPolicy",
+    "build_default_permission_state",
     "build_permission_state",
     "derive_effective_capabilities",
 ]

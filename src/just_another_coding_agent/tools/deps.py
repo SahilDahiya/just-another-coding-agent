@@ -11,16 +11,30 @@ from just_another_coding_agent.contracts.platform import (
     detect_default_shell_family,
 )
 from just_another_coding_agent.contracts.run_events import JsonValue
+from just_another_coding_agent.contracts.sandbox import (
+    ApprovalDecision,
+    ApprovalRequest,
+    PermissionState,
+    build_default_permission_state,
+)
 from just_another_coding_agent.contracts.session import SessionName
 from just_another_coding_agent.contracts.thinking import ThinkingSetting
 from just_another_coding_agent.tools._workspace import normalize_workspace_root
 from just_another_coding_agent.tools.read_only_worker.runtime import (
     ReadOnlyWorkerRuntime,
 )
+from just_another_coding_agent.tools.sandbox_executor import (
+    HostSandboxExecutor,
+    SandboxExecutor,
+)
 
 ToolUpdateSink: TypeAlias = Callable[
     [str, str, JsonValue | None],
     Awaitable[None],
+]
+ApprovalRequester: TypeAlias = Callable[
+    [ApprovalRequest],
+    Awaitable[ApprovalDecision],
 ]
 RunSessionKind: TypeAlias = Literal["root", "subagent"]
 
@@ -83,8 +97,19 @@ class WorkspaceDeps:
         repr=False,
     )
     tool_update_sink: ToolUpdateSink | None = None
+    approval_requester: ApprovalRequester | None = None
     read_only_worker: ReadOnlyWorkerRuntime = field(
         default_factory=ReadOnlyWorkerRuntime,
+        compare=False,
+        repr=False,
+    )
+    permission_state: PermissionState = field(
+        default_factory=build_default_permission_state,
+        compare=False,
+        repr=False,
+    )
+    sandbox_executor: SandboxExecutor = field(
+        default_factory=HostSandboxExecutor,
         compare=False,
         repr=False,
     )
@@ -101,6 +126,7 @@ __all__ = [
     "RunRuntimeFrame",
     "RunSessionKind",
     "RunSessionScope",
+    "ApprovalRequester",
     "ToolUpdateSink",
     "WorkspaceDeps",
 ]
