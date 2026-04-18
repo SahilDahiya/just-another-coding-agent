@@ -261,6 +261,51 @@ func TestDecodeEnvelopePreservesSessionCompactionWarningFields(t *testing.T) {
 	}
 }
 
+func TestDecodeEnvelopePreservesApprovalEventFields(t *testing.T) {
+	line := []byte(`{
+		"type":"rpc_event",
+		"id":"req-5",
+		"event":{
+			"type":"approval_requested",
+			"run_id":"run-1",
+			"tool_name":"shell",
+			"tool_call_id":"tool-1",
+			"request":{
+				"request_id":"approval-1",
+				"reason":"allow shell command: ls",
+				"requested_capabilities":{
+					"filesystem_access":"full_access",
+					"network_access":"enabled",
+					"execution_isolation":"unsandboxed",
+					"approval_mode":"always"
+				}
+			}
+		}
+	}`)
+
+	value, err := decodeEnvelope(line)
+	if err != nil {
+		t.Fatalf("decodeEnvelope() returned error: %v", err)
+	}
+
+	envelope, ok := value.(EventEnvelope)
+	if !ok {
+		t.Fatalf("decodeEnvelope() type = %T, want EventEnvelope", value)
+	}
+	if envelope.Event.Request == nil {
+		t.Fatal("Request = nil, want non-nil")
+	}
+	if envelope.Event.Request.RequestID != "approval-1" {
+		t.Fatalf("RequestID = %q, want approval-1", envelope.Event.Request.RequestID)
+	}
+	if envelope.Event.ToolName != "shell" {
+		t.Fatalf("ToolName = %q, want shell", envelope.Event.ToolName)
+	}
+	if envelope.Event.Request.RequestedCapabilities.ApprovalMode != "always" {
+		t.Fatalf("ApprovalMode = %q, want always", envelope.Event.Request.RequestedCapabilities.ApprovalMode)
+	}
+}
+
 func TestDecodeEnvelopeWrapsParseErrorWithBytePreview(t *testing.T) {
 	// Regression: a parse failure on the backend stdout stream used to
 	// surface as a raw encoding/json error with no context. The enriched

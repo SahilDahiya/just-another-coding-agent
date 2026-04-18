@@ -5,12 +5,14 @@ import contextlib
 import tempfile
 from pathlib import Path
 from typing import Annotated, Protocol
+from uuid import uuid4
 
 from pydantic import Field
 from pydantic_ai import RunContext, Tool
 
 from just_another_coding_agent.contracts.platform import ShellFamily
 from just_another_coding_agent.contracts.run_events import ShellActivityDetails
+from just_another_coding_agent.contracts.sandbox import ApprovalRequest
 from just_another_coding_agent.tools._activity import (
     make_tool_return,
     truncate_activity_label,
@@ -22,7 +24,6 @@ from just_another_coding_agent.tools.errors import (
 )
 from just_another_coding_agent.tools.sandbox_executor import (
     HostSandboxExecutor,
-    SandboxCommandHandle,
     SandboxCommandRequest,
 )
 from just_another_coding_agent.tools.truncation import (
@@ -142,16 +143,40 @@ async def execute_shell(
     executor = (
         ctx.deps.sandbox_executor if ctx is not None else HostSandboxExecutor()
     )
+    permission_state = (
+        ctx.deps.permission_state
+        if ctx is not None
+        else WorkspaceDeps.from_workspace_root(workspace_root).permission_state
+    )
+    if (
+        ctx is not None
+        and permission_state.approval_policy.mode == "always"
+    ):
+        if ctx.deps.approval_requester is None:
+            raise RuntimeError(
+                "Shell execution requires approval, but no approval "
+                "requester is configured"
+            )
+        decision = await ctx.deps.approval_requester(
+            ApprovalRequest(
+                request_id=f"shell-{uuid4().hex}",
+                reason=(
+                    "allow shell command: "
+                    f"{truncate_activity_label(command)}"
+                ),
+                requested_capabilities=permission_state.effective_capabilities,
+            )
+        )
+        if decision.decision != "approved":
+            raise RuntimeError(
+                "Shell execution approval did not return an approved decision"
+            )
     handle = await executor.execute(
         SandboxCommandRequest(
             workspace_root=Path(workspace_root),
             command=command,
             shell_family=shell_family,
-            permission_state=(
-                ctx.deps.permission_state
-                if ctx is not None
-                else WorkspaceDeps.from_workspace_root(workspace_root).permission_state
-            ),
+            permission_state=permission_state,
         )
     )
 

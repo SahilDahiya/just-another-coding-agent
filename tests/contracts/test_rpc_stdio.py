@@ -558,6 +558,46 @@ async def test_handle_rpc_json_line_returns_live_permission_state(
     ]
 
 
+async def test_handle_rpc_json_line_returns_workspace_default_permission_state(
+    tmp_path,
+) -> None:
+    _clear_permission_states()
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+
+    messages = await _rpc_messages(
+        request_payload={
+            "id": "req-permission-get",
+            "command": "permission.get",
+            "payload": {},
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    assert messages == [
+        {
+            "type": "rpc_response",
+            "id": "req-permission-get",
+            "response": {
+                "session_id": None,
+                "permission_state": PermissionState(
+                    sandbox_policy=DangerFullAccessSandboxPolicy(),
+                    approval_policy=ApprovalPolicy(mode="never"),
+                    effective_capabilities=EffectiveCapabilities(
+                        filesystem_access="full_access",
+                        network_access="enabled",
+                        execution_isolation="unsandboxed",
+                        approval_mode="never",
+                    ),
+                ).model_dump(mode="json"),
+            },
+        }
+    ]
+
+
 async def test_handle_rpc_json_line_sets_live_permission_state_for_session(
     tmp_path,
 ) -> None:
@@ -592,7 +632,7 @@ async def test_handle_rpc_json_line_sets_live_permission_state_for_session(
             filesystem_access="full_access",
             network_access="enabled",
             execution_isolation="unsandboxed",
-            approval_mode="never",
+            approval_mode="always",
         ),
     )
     assert set_messages == [
@@ -623,6 +663,75 @@ async def test_handle_rpc_json_line_sets_live_permission_state_for_session(
             "id": "req-permission-get",
             "response": {
                 "session_id": session_id,
+                "permission_state": expected_state.model_dump(mode="json"),
+            },
+        }
+    ]
+
+
+async def test_handle_rpc_json_line_sets_workspace_default_permission_state(
+    tmp_path,
+) -> None:
+    _clear_permission_states()
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+
+    set_messages = await _rpc_messages(
+        request_payload={
+            "id": "req-permission-set",
+            "command": "permission.set",
+            "payload": {
+                "approval_policy": {"mode": "always"},
+            },
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    expected_state = PermissionState(
+        sandbox_policy=DangerFullAccessSandboxPolicy(),
+        approval_policy=ApprovalPolicy(mode="always"),
+        effective_capabilities=EffectiveCapabilities(
+            filesystem_access="full_access",
+            network_access="enabled",
+            execution_isolation="unsandboxed",
+            approval_mode="always",
+        ),
+    )
+    assert set_messages == [
+        {
+            "type": "rpc_response",
+            "id": "req-permission-set",
+            "response": {
+                "session_id": None,
+                "permission_state": expected_state.model_dump(mode="json"),
+            },
+        }
+    ]
+
+    created_session_id = await _create_session_id(
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+    get_messages = await _rpc_messages(
+        request_payload={
+            "id": "req-permission-get",
+            "command": "permission.get",
+            "payload": {"session_id": created_session_id},
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    assert get_messages == [
+        {
+            "type": "rpc_response",
+            "id": "req-permission-get",
+            "response": {
+                "session_id": created_session_id,
                 "permission_state": expected_state.model_dump(mode="json"),
             },
         }
@@ -2123,7 +2232,7 @@ async def test_handle_rpc_json_line_forwards_live_permission_state_to_session_ru
                 filesystem_access="full_access",
                 network_access="enabled",
                 execution_isolation="unsandboxed",
-                approval_mode="never",
+                approval_mode="always",
             ),
         ),
     }

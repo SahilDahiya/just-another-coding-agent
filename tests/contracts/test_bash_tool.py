@@ -9,6 +9,11 @@ from pathlib import Path
 import pytest
 
 from just_another_coding_agent.contracts.platform import detect_default_shell_family
+from just_another_coding_agent.contracts.sandbox import (
+    ApprovalDecision,
+    ApprovalPolicy,
+    build_permission_state,
+)
 from just_another_coding_agent.tools.deps import WorkspaceDeps
 from just_another_coding_agent.tools.errors import ToolCommandError, ToolEncodingError
 from just_another_coding_agent.tools.shell import (
@@ -170,6 +175,94 @@ async def test_execute_shell_accepts_minimal_execution_context_and_streams_updat
     assert updates == [
         ("call-shell", "shell", {"output": "hello"}),
     ]
+
+
+async def test_execute_shell_requests_approval_when_policy_is_always(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    monkeypatch.chdir(tmp_path)
+    requests = []
+
+    async def approval_requester(request):
+        requests.append(request)
+        return ApprovalDecision(
+            request_id=request.request_id,
+            decision="approved",
+        )
+
+    ctx = _FakeRunContext(
+        deps=WorkspaceDeps(
+            workspace_root=workspace_root,
+            shell_family=_test_shell_family(),
+            approval_requester=approval_requester,
+            permission_state=build_permission_state(
+                sandbox_policy=WorkspaceDeps.from_workspace_root(
+                    workspace_root
+                ).permission_state.sandbox_policy,
+                approval_policy=ApprovalPolicy(mode="always"),
+                effective_capabilities=WorkspaceDeps.from_workspace_root(
+                    workspace_root
+                ).permission_state.effective_capabilities.model_copy(
+                    update={"approval_mode": "always"}
+                ),
+            ),
+        ),
+        tool_call_id="call-shell",
+        tool_name="shell",
+    )
+
+    result = await execute_shell(
+        ctx=ctx,
+        workspace_root=workspace_root,
+        command=_hello_command(),
+        shell_family=_test_shell_family(),
+    )
+
+    assert result == {"exit_code": 0, "output": "hello"}
+    assert len(requests) == 1
+    assert requests[0].reason.startswith("allow shell command:")
+    assert requests[0].requested_capabilities.approval_mode == "always"
+
+
+async def test_execute_shell_fails_fast_when_approval_is_required_without_requester(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    monkeypatch.chdir(tmp_path)
+    host_permission_state = WorkspaceDeps.from_workspace_root(
+        workspace_root
+    ).permission_state
+    ctx = _FakeRunContext(
+        deps=WorkspaceDeps(
+            workspace_root=workspace_root,
+            shell_family=_test_shell_family(),
+            permission_state=build_permission_state(
+                sandbox_policy=host_permission_state.sandbox_policy,
+                approval_policy=ApprovalPolicy(mode="always"),
+                effective_capabilities=host_permission_state.effective_capabilities.model_copy(
+                    update={"approval_mode": "always"}
+                ),
+            ),
+        ),
+        tool_call_id="call-shell",
+        tool_name="shell",
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="Shell execution requires approval",
+    ):
+        await execute_shell(
+            ctx=ctx,
+            workspace_root=workspace_root,
+            command=_hello_command(),
+            shell_family=_test_shell_family(),
+        )
 
 
 async def test_shell_tool_fails_on_timeout(monkeypatch, tmp_path) -> None:

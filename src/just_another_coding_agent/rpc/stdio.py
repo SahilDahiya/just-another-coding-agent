@@ -400,6 +400,7 @@ class _PendingApprovalState:
 _OPENAI_CODEX_LOGIN_FLOWS: dict[str, _OpenAICodexLoginFlowState] = {}
 _PERMISSION_STATES: dict[str, PermissionState] = {}
 _PENDING_APPROVALS: dict[str, dict[str, _PendingApprovalState]] = defaultdict(dict)
+_DEFAULT_PERMISSION_STATE_KEY = "__workspace_default__"
 
 
 RpcHandler = Callable[[Any, "_RpcContext"], AsyncIterator[str]]
@@ -439,16 +440,22 @@ def _build_live_permission_state(
             filesystem_access="full_access",
             network_access="enabled",
             execution_isolation="unsandboxed",
-            approval_mode="never",
+            approval_mode=resolved_approval_policy.mode,
         ),
     )
 
 
-def _get_or_create_permission_state(session_id: str) -> PermissionState:
-    state = _PERMISSION_STATES.get(session_id)
+def _permission_state_key(session_id: str | None) -> str:
+    if session_id is None:
+        return _DEFAULT_PERMISSION_STATE_KEY
+    return session_id
+
+
+def _get_or_create_permission_state(session_id: str | None) -> PermissionState:
+    state = _PERMISSION_STATES.get(_permission_state_key(session_id))
     if state is None:
         state = _build_live_permission_state()
-        _PERMISSION_STATES[session_id] = state
+        _PERMISSION_STATES[_permission_state_key(session_id)] = state
     return state
 
 
@@ -487,7 +494,9 @@ async def _handle_session_create(
         sessions_root=ctx.sessions_root,
         workspace_root=ctx.workspace_root,
     )
-    _PERMISSION_STATES[session_id] = _build_live_permission_state()
+    _PERMISSION_STATES[session_id] = _get_or_create_permission_state(
+        None
+    ).model_copy(deep=True)
     yield RpcResponseEnvelope(
         id=request.id,
         response=SessionCreateResponse(
@@ -775,18 +784,19 @@ async def _handle_permission_get(
     request: PermissionGetRequest,
     ctx: _RpcContext,
 ) -> AsyncIterator[str]:
-    session_path = session_path_for_id(
-        sessions_root=ctx.sessions_root,
-        workspace_root=ctx.workspace_root,
-        session_id=request.payload.session_id,
-    )
-    if not session_path.exists():
-        yield RpcErrorEnvelope(
-            id=request.id,
-            error_type="UnknownSession",
-            message=f"Unknown session_id: {request.payload.session_id}",
-        ).model_dump_json()
-        return
+    if request.payload.session_id is not None:
+        session_path = session_path_for_id(
+            sessions_root=ctx.sessions_root,
+            workspace_root=ctx.workspace_root,
+            session_id=request.payload.session_id,
+        )
+        if not session_path.exists():
+            yield RpcErrorEnvelope(
+                id=request.id,
+                error_type="UnknownSession",
+                message=f"Unknown session_id: {request.payload.session_id}",
+            ).model_dump_json()
+            return
 
     yield RpcResponseEnvelope(
         id=request.id,
@@ -803,18 +813,19 @@ async def _handle_permission_set(
     request: PermissionSetRequest,
     ctx: _RpcContext,
 ) -> AsyncIterator[str]:
-    session_path = session_path_for_id(
-        sessions_root=ctx.sessions_root,
-        workspace_root=ctx.workspace_root,
-        session_id=request.payload.session_id,
-    )
-    if not session_path.exists():
-        yield RpcErrorEnvelope(
-            id=request.id,
-            error_type="UnknownSession",
-            message=f"Unknown session_id: {request.payload.session_id}",
-        ).model_dump_json()
-        return
+    if request.payload.session_id is not None:
+        session_path = session_path_for_id(
+            sessions_root=ctx.sessions_root,
+            workspace_root=ctx.workspace_root,
+            session_id=request.payload.session_id,
+        )
+        if not session_path.exists():
+            yield RpcErrorEnvelope(
+                id=request.id,
+                error_type="UnknownSession",
+                message=f"Unknown session_id: {request.payload.session_id}",
+            ).model_dump_json()
+            return
 
     existing_state = _get_or_create_permission_state(request.payload.session_id)
     permission_state = _build_live_permission_state(
@@ -825,7 +836,9 @@ async def _handle_permission_set(
             request.payload.approval_policy or existing_state.approval_policy
         ),
     )
-    _PERMISSION_STATES[request.payload.session_id] = permission_state
+    _PERMISSION_STATES[_permission_state_key(request.payload.session_id)] = (
+        permission_state
+    )
 
     yield RpcResponseEnvelope(
         id=request.id,

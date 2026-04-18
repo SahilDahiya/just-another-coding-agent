@@ -92,6 +92,17 @@ type authStatusLoadedMsg struct {
 	Err    error
 }
 
+type permissionStateLoadedMsg struct {
+	State   rpc.PermissionState
+	Err     error
+	Updated bool
+}
+
+type approvalSubmittedMsg struct {
+	Decision rpc.ApprovalDecision
+	Err      error
+}
+
 type sessionPreviewLoadedMsg struct {
 	Preview rpc.SessionPreviewResponse
 	Err     error
@@ -102,6 +113,10 @@ type authStatusRetryMsg struct{}
 type onboardingState struct {
 	Active   bool
 	Kind     string
+	Selected int
+}
+
+type approvalOverlayState struct {
 	Selected int
 }
 
@@ -133,6 +148,8 @@ type runState struct {
 	streaming           bool
 	awaitingFirstOutput bool
 	activeRunSucceeded  bool
+	pendingApproval     *rpc.ApprovalRequest
+	approvalPaused      bool
 	lastInterrupt       time.Time
 	activeRunCancel     context.CancelFunc
 	runStartTime        time.Time
@@ -157,6 +174,7 @@ type backendState struct {
 	modelCatalogLoading bool
 	authStatus          *rpc.AuthStatusResponse
 	authStatusLoading   bool
+	permissionState     *rpc.PermissionState
 }
 
 type overlayState struct {
@@ -165,6 +183,7 @@ type overlayState struct {
 	login                loginState
 	startupOnboardingSet bool
 	onboarding           onboardingState
+	approval             approvalOverlayState
 }
 
 type model struct {
@@ -346,6 +365,9 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Err != nil {
 			m.flushPendingAssistantDelta()
 			m.streaming = false
+			m.pendingApproval = nil
+			m.approvalPaused = false
+			m.approval.Selected = 0
 			m.textInput.Focus()
 			m.activeRunCancel = nil
 			m.phase = PhaseError
@@ -354,9 +376,13 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.refreshViewport()
 			return m, nil
 		}
+		m.promptFooterNotice = ""
 		if msg.Done {
 			m.flushPendingAssistantDelta()
 			m.streaming = false
+			m.pendingApproval = nil
+			m.approvalPaused = false
+			m.approval.Selected = 0
 			m.textInput.Focus()
 			m.activeRunCancel = nil
 			m.lastInterrupt = time.Time{}
@@ -404,12 +430,34 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Event.Type == "run_failed" && msg.Event.ErrorType != "CancelledError" {
 			m.phase = PhaseError
 		}
+		switch msg.Event.Type {
+		case "approval_requested":
+			m.pendingApproval = msg.Event.Request
+			m.approvalPaused = true
+			m.approval.Selected = 0
+		case "approval_resolved":
+			if m.pendingApproval != nil && msg.Event.Decision != nil && m.pendingApproval.RequestID == msg.Event.Decision.RequestID {
+				m.pendingApproval = nil
+				m.approval.Selected = 0
+			}
+			m.approvalPaused = false
+		case "run_failed", "run_succeeded":
+			m.pendingApproval = nil
+			m.approvalPaused = false
+			m.approval.Selected = 0
+		}
 		if msg.Event.Type == "assistant_text_delta" {
 			m.awaitingFirstOutput = false
 			m.pendingAssistant += msg.Event.Delta
 			m.lastDeltaTime = time.Now()
 			m.linePulse = 3
 			return m, tea.Batch(listenAsync(m.asyncCh), m.scheduleLiveFlush())
+		}
+		if msg.Event.Type == "approval_requested" {
+			m.flushPendingAssistantDelta()
+			m.transcript.ApplyRunEvent(msg.Event)
+			m.refreshViewport()
+			return m, nil
 		}
 		switch msg.Event.Type {
 		case "tool_call_started", "tool_call_updated", "tool_call_succeeded", "tool_call_failed":
@@ -480,6 +528,35 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.syncSlashMenu()
 		m.refreshViewport()
 		return m, cmd
+	case permissionStateLoadedMsg:
+		if msg.Err != nil {
+			m.transcript.WriteError(msg.Err.Error())
+			m.refreshViewport()
+			return m, nil
+		}
+		state := msg.State
+		m.permissionState = &state
+		m.transcript.WriteNote("permission", permissionStateLines(state, msg.Updated))
+		m.refreshViewport()
+		return m, nil
+	case approvalSubmittedMsg:
+		if msg.Err != nil {
+			m.transcript.WriteError(msg.Err.Error())
+			m.refreshViewport()
+			return m, nil
+		}
+		if m.pendingApproval != nil && m.pendingApproval.RequestID == msg.Decision.RequestID {
+			m.pendingApproval = nil
+			m.approval.Selected = 0
+		}
+		if msg.Decision.Decision == "approved" && m.streaming {
+			m.promptFooterNotice = "approval sent; waiting for tool activity"
+		}
+		m.refreshViewport()
+		if m.approvalPaused && m.streaming && m.asyncCh != nil {
+			return m, listenAsync(m.asyncCh)
+		}
+		return m, nil
 	case startOpenAICodexLoginMsg:
 		if msg.Err != nil {
 			m.endLoginFlow()
@@ -681,6 +758,14 @@ func (m *model) currentViewModel() viewModel {
 			Instructions: m.login.Instructions,
 			InputValue:   m.textInput.View(),
 		},
+		Approval: approvalPromptView{
+			Active:      m.pendingApproval != nil,
+			Selected:    m.approval.Selected,
+			Title:       m.approvalTitle(),
+			Reason:      m.approvalReason(),
+			OptionLines: m.approvalOptionLines(),
+			HelpLines:   m.approvalHelpLines(),
+		},
 	}
 }
 
@@ -699,6 +784,9 @@ func (m *model) currentPromptFooter() string {
 	}
 	if m.waitingOAuthLoginBlocksInput() {
 		return m.waitingOAuthLoginFooter()
+	}
+	if m.pendingApproval != nil {
+		return ""
 	}
 	if m.shouldShowFirstRunPromptAssist() {
 		return "first-time setup: tab to connect ChatGPT, OpenAI, or Anthropic"
@@ -723,6 +811,9 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	if m.onboarding.Active {
 		return m.handleOnboardingKey(msg)
+	}
+	if m.pendingApproval != nil {
+		return m.handleApprovalKey(msg)
 	}
 	if m.login.Active && msg.String() != "esc" && msg.String() != "enter" {
 		switch msg.String() {
@@ -1158,6 +1249,55 @@ func fetchAuthStatus(backend Backend) tea.Cmd {
 		defer cancel()
 		status, err := backend.AuthStatus(ctx)
 		return authStatusLoadedMsg{Status: status, Err: err}
+	}
+}
+
+func fetchPermissionState(backend Backend, sessionID string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), queueControlTimeout)
+		defer cancel()
+		response, err := backend.PermissionGet(ctx, sessionID)
+		return permissionStateLoadedMsg{
+			State:   response.PermissionState,
+			Err:     err,
+			Updated: false,
+		}
+	}
+}
+
+func setPermissionState(
+	backend Backend,
+	sessionID string,
+	sandboxPolicy *rpc.SandboxPolicy,
+	approvalPolicy *rpc.ApprovalPolicy,
+) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), queueControlTimeout)
+		defer cancel()
+		response, err := backend.PermissionSet(
+			ctx,
+			sessionID,
+			sandboxPolicy,
+			approvalPolicy,
+		)
+		return permissionStateLoadedMsg{
+			State:   response.PermissionState,
+			Err:     err,
+			Updated: true,
+		}
+	}
+}
+
+func submitApprovalDecision(
+	backend Backend,
+	sessionID string,
+	decision rpc.ApprovalDecision,
+) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), queueControlTimeout)
+		defer cancel()
+		response, err := backend.ApprovalSubmit(ctx, sessionID, decision)
+		return approvalSubmittedMsg{Decision: response.Decision, Err: err}
 	}
 }
 

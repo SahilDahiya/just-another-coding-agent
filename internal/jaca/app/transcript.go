@@ -246,6 +246,9 @@ func (t *Transcript) WriteHelp() {
 		"  /help              show this help",
 		"  /login <lane>      connect ChatGPT or API-key access",
 		"  /model <name>      switch model",
+		"  /permission ...    show or switch permission preset",
+		"  /approve           approve a pending action",
+		"  /deny              deny a pending action",
 		"  /version           show installed and available versions",
 		"  /trace <mode>      set tracing mode",
 		"  /thinking <level>  set thinking level",
@@ -272,6 +275,12 @@ func (t *Transcript) WriteHelp() {
 		"  /model gpt-5.4 | api                 use the API-key path",
 		"  /model gpt-5.4 | oauth               use the ChatGPT path",
 		"  /version                             show upgrade command when one is available",
+		"  /permission show                     show current permission preset",
+		"  /permission default                  recommended mode with approval prompts",
+		"  /permission read_only                stage the read-only preset and prompt",
+		"  /permission full_access              full local access with no prompts",
+		"  /approve                             approve the pending action",
+		"  /deny                                deny the pending action",
 		"",
 		"tracing",
 		"  /trace off                           disable tracing",
@@ -459,6 +468,8 @@ func (t *Transcript) ApplyRunEvent(event rpc.RunEvent) {
 		t.WriteUserTurn(strings.Join(event.Prompts, "\n\n"))
 	case "assistant_text_delta":
 		t.appendAssistantDelta(event.Delta)
+	case "approval_requested":
+	case "approval_resolved":
 	case "tool_call_started":
 		t.startTool(event)
 	case "tool_call_updated":

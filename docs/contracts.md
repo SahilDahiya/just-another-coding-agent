@@ -214,11 +214,16 @@ Approval carrier rules:
   terminal run semantics
 - live permission state is distinct from durable turn-context history:
   - `PermissionState` is live control-plane state for RPC and approval flows
+  - when no session is active, `permission.get` / `permission.set` operate on
+    the workspace default permission state
+  - `session.create` inherits the current workspace default permission state
   - `session_turn_context.effective_capabilities` remains the durable
     model-visible snapshot written after completed runs
-- until a restricted executor backend lands, selected sandbox and approval
-  policies may change while effective capabilities remain at the truthful host
-  posture (`full_access`, `enabled`, `unsandboxed`, `never`)
+- until a restricted executor backend lands:
+  - effective filesystem, network, and execution-isolation posture remain at
+    the truthful host values (`full_access`, `enabled`, `unsandboxed`)
+  - effective approval posture reflects the live approval policy because
+    `approval_policy=always` already changes `shell` execution behavior
 
 ## Tool Contract
 

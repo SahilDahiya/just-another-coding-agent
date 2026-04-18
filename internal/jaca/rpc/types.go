@@ -81,6 +81,69 @@ type RunInterruptPayload struct {
 	PromoteQueuedSteer bool   `json:"promote_queued_steer,omitempty"`
 }
 
+type SandboxPolicy struct {
+	Mode          string `json:"mode"`
+	NetworkAccess string `json:"network_access,omitempty"`
+}
+
+type ApprovalPolicy struct {
+	Mode string `json:"mode"`
+}
+
+type EffectiveCapabilities struct {
+	FilesystemAccess   string `json:"filesystem_access"`
+	NetworkAccess      string `json:"network_access"`
+	ExecutionIsolation string `json:"execution_isolation"`
+	ApprovalMode       string `json:"approval_mode"`
+}
+
+type PermissionState struct {
+	SandboxPolicy         SandboxPolicy         `json:"sandbox_policy"`
+	ApprovalPolicy        ApprovalPolicy        `json:"approval_policy"`
+	EffectiveCapabilities EffectiveCapabilities `json:"effective_capabilities"`
+}
+
+type ApprovalRequest struct {
+	RequestID             string                `json:"request_id"`
+	Reason                string                `json:"reason"`
+	RequestedCapabilities EffectiveCapabilities `json:"requested_capabilities"`
+}
+
+type ApprovalDecision struct {
+	RequestID string `json:"request_id"`
+	Decision  string `json:"decision"`
+}
+
+type PermissionGetPayload struct {
+	SessionID string `json:"session_id,omitempty"`
+}
+
+type PermissionSetPayload struct {
+	SessionID      string          `json:"session_id,omitempty"`
+	SandboxPolicy  *SandboxPolicy  `json:"sandbox_policy,omitempty"`
+	ApprovalPolicy *ApprovalPolicy `json:"approval_policy,omitempty"`
+}
+
+type ApprovalSubmitPayload struct {
+	SessionID string           `json:"session_id"`
+	Decision  ApprovalDecision `json:"decision"`
+}
+
+type PermissionGetResponse struct {
+	SessionID       string          `json:"session_id,omitempty"`
+	PermissionState PermissionState `json:"permission_state"`
+}
+
+type PermissionSetResponse struct {
+	SessionID       string          `json:"session_id,omitempty"`
+	PermissionState PermissionState `json:"permission_state"`
+}
+
+type ApprovalSubmitResponse struct {
+	SessionID string           `json:"session_id"`
+	Decision  ApprovalDecision `json:"decision"`
+}
+
 type EnvelopeType string
 
 const (
@@ -258,6 +321,8 @@ type RunEvent struct {
 	Delta                   string                `json:"delta,omitempty"`
 	ToolCallID              string                `json:"tool_call_id,omitempty"`
 	ToolName                string                `json:"tool_name,omitempty"`
+	Request                 *ApprovalRequest      `json:"request,omitempty"`
+	Decision                *ApprovalDecision     `json:"decision,omitempty"`
 	Args                    map[string]any        `json:"args,omitempty"`
 	ArgsValid               *bool                 `json:"args_valid,omitempty"`
 	Result                  any                   `json:"result,omitempty"`

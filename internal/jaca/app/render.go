@@ -89,6 +89,7 @@ type viewModel struct {
 	Onboarding          onboardingOverlayView
 	Auth                authOverlayView
 	Login               loginOverlayView
+	Approval            approvalPromptView
 }
 
 type updateOverlayView struct {
@@ -124,6 +125,15 @@ type loginOverlayView struct {
 	AuthURL      string
 	Instructions string
 	InputValue   string
+}
+
+type approvalPromptView struct {
+	Active      bool
+	Title       string
+	Reason      string
+	Selected    int
+	OptionLines []string
+	HelpLines   []string
 }
 
 func renderView(vm viewModel) string {
@@ -419,6 +429,46 @@ func renderLoginOverlay(vm viewModel) string {
 	)
 }
 
+func renderApprovalPrompt(approval approvalPromptView) string {
+	title := lipgloss.NewStyle().
+		Foreground(defaultTheme.accentSoft).
+		Bold(true).
+		Render(approval.Title)
+	reason := lipgloss.NewStyle().
+		Foreground(defaultTheme.textSoft).
+		Render(approval.Reason)
+	rows := make([]string, 0, len(approval.OptionLines))
+	for i, line := range approval.OptionLines {
+		prefix := " "
+		style := lipgloss.NewStyle().Foreground(defaultTheme.textMuted)
+		if i == approval.Selected {
+			prefix = ">"
+			style = lipgloss.NewStyle().Foreground(defaultTheme.accentSoft)
+		}
+		rows = append(
+			rows,
+			lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render(prefix)+" "+style.Render(line),
+		)
+	}
+	helpLines := make([]string, 0, len(approval.HelpLines))
+	for _, line := range approval.HelpLines {
+		helpLines = append(
+			helpLines,
+			lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render(line),
+		)
+	}
+	return lipgloss.JoinVertical(
+		lipgloss.Left,
+		title,
+		"",
+		reason,
+		"",
+		lipgloss.JoinVertical(lipgloss.Left, rows...),
+		"",
+		lipgloss.JoinVertical(lipgloss.Left, helpLines...),
+	)
+}
+
 func renderStatus(vm viewModel) string {
 	style := lipgloss.NewStyle().
 		Foreground(defaultTheme.textMuted).
@@ -512,12 +562,18 @@ func renderPrompt(vm viewModel) string {
 	if vm.SlashMenu.Mode != slashMenuHidden && len(vm.SlashMenu.Rows) > 0 {
 		promptParts = append(promptParts, renderSlashMenu(vm.SlashMenu))
 	}
+	if vm.Approval.Active {
+		promptParts = append(promptParts, renderApprovalPrompt(vm.Approval))
+	} else {
+		promptParts = append(promptParts,
+			lipgloss.JoinHorizontal(
+				lipgloss.Left,
+				lipgloss.NewStyle().Foreground(markerColor).Bold(true).Render(buildPromptMarkerText(vm.Phase, vm.MotionTick)),
+				vm.PromptValue,
+			),
+		)
+	}
 	promptParts = append(promptParts,
-		lipgloss.JoinHorizontal(
-			lipgloss.Left,
-			lipgloss.NewStyle().Foreground(markerColor).Bold(true).Render(buildPromptMarkerText(vm.Phase, vm.MotionTick)),
-			vm.PromptValue,
-		),
 		bottomRule,
 		renderPromptFooterLine(
 			ruleWidth,
