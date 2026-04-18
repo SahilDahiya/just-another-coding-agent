@@ -5,12 +5,18 @@ from pathlib import Path
 import pytest
 
 from just_another_coding_agent.contracts.platform import detect_default_shell_family
-from just_another_coding_agent.contracts.sandbox import build_default_permission_state
+from just_another_coding_agent.contracts.sandbox import (
+    ApprovalPolicy,
+    WorkspaceWriteSandboxPolicy,
+    build_default_permission_state,
+    build_permission_state,
+)
 from just_another_coding_agent.tools import sandbox_executor as sandbox_executor_module
 from just_another_coding_agent.tools.deps import WorkspaceDeps
 from just_another_coding_agent.tools.errors import ToolCommandError
 from just_another_coding_agent.tools.sandbox_executor import (
     HostSandboxExecutor,
+    LocalRestrictedSandboxExecutor,
     SandboxCommandRequest,
 )
 from just_another_coding_agent.tools.shell import execute_shell
@@ -334,3 +340,105 @@ async def test_host_sandbox_handle_kills_child_when_killpg_is_not_permitted(
 
     assert process.kill_calls == 1
     assert process.wait_calls == 1
+
+
+async def test_execute_shell_routes_workspace_write_policy_to_restricted_executor(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    handle = _FakeHandle(chunks=[b"hello"])
+    executor = _FakeExecutor(handle)
+
+    monkeypatch.setattr(
+        sandbox_executor_module,
+        "LocalRestrictedSandboxExecutor",
+        lambda: executor,
+    )
+
+    ctx = _FakeRunContext(
+        deps=WorkspaceDeps(
+            workspace_root=workspace_root,
+            shell_family=_test_shell_family(),
+            permission_state=build_permission_state(
+                sandbox_policy=WorkspaceWriteSandboxPolicy(),
+                approval_policy=ApprovalPolicy(mode="on_escalation"),
+                effective_capabilities=build_default_permission_state()
+                .effective_capabilities.model_copy(
+                    update={"approval_mode": "on_escalation"}
+                ),
+            ),
+        ),
+        tool_call_id="tool-1",
+        tool_name="shell",
+    )
+
+    result = await execute_shell(
+        ctx=ctx,
+        workspace_root=workspace_root,
+        command="printf hello",
+        shell_family=_test_shell_family(),
+    )
+
+    assert result == {"exit_code": 0, "output": "hello"}
+    assert executor.requests == [
+        SandboxCommandRequest(
+            workspace_root=workspace_root,
+            command="printf hello",
+            shell_family=_test_shell_family(),
+            permission_state=ctx.deps.permission_state,
+        )
+    ]
+
+
+async def test_local_restricted_sandbox_executor_launches_docker_with_workspace_mount(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    observed: dict[str, object] = {}
+
+    async def fake_create_subprocess_exec(*args, **kwargs):
+        observed["args"] = args
+        observed["kwargs"] = kwargs
+        return _FakeProcess()
+
+    monkeypatch.setattr(sandbox_executor_module.os, "getuid", lambda: 1000)
+    monkeypatch.setattr(sandbox_executor_module.os, "getgid", lambda: 1001)
+    monkeypatch.setattr(
+        sandbox_executor_module.asyncio,
+        "create_subprocess_exec",
+        fake_create_subprocess_exec,
+    )
+
+    handle = await LocalRestrictedSandboxExecutor(image="sandbox-image").execute(
+        SandboxCommandRequest(
+            workspace_root=workspace_root,
+            command="pwd",
+            shell_family="posix",
+            permission_state=build_permission_state(
+                sandbox_policy=WorkspaceWriteSandboxPolicy(),
+                approval_policy=ApprovalPolicy(mode="on_escalation"),
+                effective_capabilities=build_default_permission_state()
+                .effective_capabilities.model_copy(
+                    update={"approval_mode": "on_escalation"}
+                ),
+            ),
+        )
+    )
+
+    assert await handle.read(4096) == b"ok"
+    args = observed["args"]
+    assert args[:3] == ("docker", "run", "--pull")
+    assert "--network" in args
+    assert args[args.index("--network") + 1] == "none"
+    assert "--user" in args
+    assert args[args.index("--user") + 1] == "1000:1001"
+    assert "--volume" in args
+    assert (
+        args[args.index("--volume") + 1]
+        == f"{workspace_root}:/workspace:rw"
+    )
+    assert args[-4:] == ("sandbox-image", "bash", "-lc", "pwd")

@@ -25,6 +25,7 @@ from just_another_coding_agent.tools.errors import (
 from just_another_coding_agent.tools.sandbox_executor import (
     HostSandboxExecutor,
     SandboxCommandRequest,
+    select_sandbox_executor,
 )
 from just_another_coding_agent.tools.truncation import (
     append_tool_note,
@@ -140,13 +141,16 @@ async def execute_shell(
     shell_family: ShellFamily,
     timeout: int | None = None,
 ) -> dict[str, int | str]:
-    executor = (
-        ctx.deps.sandbox_executor if ctx is not None else HostSandboxExecutor()
-    )
     permission_state = (
         ctx.deps.permission_state
         if ctx is not None
         else WorkspaceDeps.from_workspace_root(workspace_root).permission_state
+    )
+    executor = select_sandbox_executor(
+        configured_executor=(
+            ctx.deps.sandbox_executor if ctx is not None else HostSandboxExecutor()
+        ),
+        permission_state=permission_state,
     )
     if (
         ctx is not None

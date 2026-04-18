@@ -219,11 +219,23 @@ Approval carrier rules:
   - `session.create` inherits the current workspace default permission state
   - `session_turn_context.effective_capabilities` remains the durable
     model-visible snapshot written after completed runs
-- until a restricted executor backend lands:
-  - effective filesystem, network, and execution-isolation posture remain at
-    the truthful host values (`full_access`, `enabled`, `unsandboxed`)
-  - effective approval posture reflects the live approval policy because
-    `approval_policy=always` already changes `shell` execution behavior
+- current restricted execution coverage is intentionally narrow:
+  - `shell` routes `workspace_write` and `read_only` sandbox policies through
+    the local restricted executor backend
+  - the first restricted backend is Docker-backed and enforces workspace-bound
+    execution with `--network none`
+  - `danger_full_access` continues to use the host executor
+  - `external` remains unsupported unless the caller provides an externally
+    managed executor
+- effective capability reporting remains conservative until the rest of the
+  tool surface is aligned with the same boundary model:
+  - live effective filesystem, network, and execution-isolation posture may
+    still report the truthful host values (`full_access`, `enabled`,
+    `unsandboxed`) even when `shell` is already sandboxed under the selected
+    policy
+  - effective approval posture reflects the live approval policy because both
+    `approval_policy=always` and the restricted shell executor already change
+    `shell` execution behavior
 
 ## Tool Contract
 
