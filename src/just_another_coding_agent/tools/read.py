@@ -14,7 +14,7 @@ from just_another_coding_agent.tools._activity import (
     truncate_activity_label,
 )
 from just_another_coding_agent.tools._permissions import (
-    read_only_filesystem_policy,
+    approved_read_only_filesystem_policy,
 )
 from just_another_coding_agent.tools.deps import WorkspaceDeps
 from just_another_coding_agent.tools.read_only_worker.protocol import (
@@ -36,7 +36,7 @@ async def _execute_read_async(
     *,
     read_only_worker: ReadOnlyWorkerRuntime,
     workspace_root: Path | str,
-    permission_state,
+    filesystem_policy,
     path: str,
     offset: int | None = None,
     limit: int | None = None,
@@ -45,7 +45,7 @@ async def _execute_read_async(
         ReadWorkerRequest(
             request_id=uuid4().hex,
             workspace_root=str(workspace_root),
-            filesystem_policy=read_only_filesystem_policy(permission_state),
+            filesystem_policy=filesystem_policy,
             path=path,
             offset=offset,
             limit=limit,
@@ -107,10 +107,15 @@ async def read(
             truncation ceiling.
     """
 
+    filesystem_policy = await approved_read_only_filesystem_policy(
+        ctx=ctx,
+        tool_path=path,
+        action="read",
+    )
     result = await _execute_read_async(
         read_only_worker=ctx.deps.read_only_worker,
         workspace_root=ctx.deps.workspace_root,
-        permission_state=ctx.deps.permission_state,
+        filesystem_policy=filesystem_policy,
         path=path,
         offset=offset,
         limit=limit,

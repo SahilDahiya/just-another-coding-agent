@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from just_another_coding_agent.contracts.sandbox import (
+    ApprovalDecision,
     ApprovalPolicy,
     DangerFullAccessSandboxPolicy,
     build_permission_state,
@@ -128,7 +129,7 @@ async def test_read_tool_fails_when_offset_is_beyond_end_of_file(tmp_path) -> No
 
 
 @go_worker_required
-async def test_read_tool_allows_relative_path_that_resolves_outside_workspace(
+async def test_read_tool_requires_approval_for_outside_workspace_path_in_default_mode(
     tmp_path,
 ) -> None:
     ctx = worker_ctx(tmp_path)
@@ -136,7 +137,10 @@ async def test_read_tool_allows_relative_path_that_resolves_outside_workspace(
     outside.write_text("secret", encoding="utf-8")
 
     try:
-        with pytest.raises(ToolPathError, match="path escapes allowed roots"):
+        with pytest.raises(
+            RuntimeError,
+            match="Read requires approval, but no approval requester is configured",
+        ):
             await read(ctx, "../outside.txt")
     finally:
         await ctx.deps.read_only_worker.close()
@@ -162,3 +166,34 @@ async def test_read_tool_allows_outside_workspace_paths_in_full_access_mode(
         await ctx.deps.read_only_worker.close()
 
     assert result.return_value == "secret"
+
+
+@go_worker_required
+async def test_read_tool_requests_approval_for_outside_workspace_path_in_default_mode(
+    tmp_path,
+) -> None:
+    requests = []
+
+    async def approval_requester(request):
+        requests.append(request)
+        return ApprovalDecision(
+            request_id=request.request_id,
+            decision="approved",
+        )
+
+    ctx = worker_ctx(tmp_path, approval_requester=approval_requester)
+    outside = tmp_path / "outside.txt"
+    outside.write_text("secret", encoding="utf-8")
+
+    try:
+        result = await read(ctx, "../outside.txt")
+    finally:
+        await ctx.deps.read_only_worker.close()
+
+    assert result.return_value == "secret"
+    assert len(requests) == 1
+    assert requests[0].reason == "allow read outside workspace: ../outside.txt"
+    assert requests[0].requested_permissions is not None
+    assert requests[0].requested_permissions.extra_read_roots == (
+        str(outside.resolve()),
+    )

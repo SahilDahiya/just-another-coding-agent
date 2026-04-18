@@ -259,6 +259,11 @@ Approval carrier rules:
     policy through the internal Go read-only worker, which enforces the
     workspace root plus any approved extra read roots as the canonical
     read-side boundary
+  - under `workspace_write`, `read`, `ls`, `find`, and `grep` request
+    approval before accessing outside-workspace paths; approved requests widen
+    the worker boundary for that action via explicit
+    `requested_permissions.extra_read_roots` deltas instead of requiring a
+    mode flip to `danger_full_access`
   - under `workspace_write`, restricted shell execution defaults to
     `--network none`
   - `approval_policy=on_escalation` may request approval for explicit

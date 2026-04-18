@@ -152,7 +152,7 @@ def test_normalized_sandbox_policy_derives_network_and_filesystem_deltas() -> No
 
     assert normalized == NormalizedSandboxPolicy(
         filesystem=FileSystemSandboxPolicy(
-            access="full_access",
+            access="workspace_write",
             extra_write_roots=("/tmp/outside.txt",),
         ),
         network=NetworkSandboxPolicy(access="enabled"),

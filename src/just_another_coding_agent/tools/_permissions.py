@@ -131,12 +131,62 @@ def plan_shell_execution(
     )
 
 
-def read_only_filesystem_policy(
-    permission_state: PermissionState,
+async def approved_read_only_filesystem_policy(
+    *,
+    ctx: ToolExecutionContext,
+    tool_path: str | None,
+    action: str,
 ) -> FileSystemSandboxPolicy:
-    return derive_sandbox_execution_plan(
+    permission_state = ctx.deps.permission_state
+    requested_permissions: AdditionalSandboxPermissions | None = None
+    outside_workspace = False
+    resolved_path: str | None = None
+    if tool_path is not None:
+        resolved = resolve_workspace_path(
+            workspace_root=ctx.deps.workspace_root,
+            tool_path=tool_path,
+        )
+        resolved_path = str(resolved)
+        outside_workspace = not path_is_within_workspace(
+            workspace_root=ctx.deps.workspace_root,
+            resolved_path=resolved,
+        )
+        if outside_workspace:
+            requested_permissions = AdditionalSandboxPermissions(
+                extra_read_roots=(resolved_path,),
+            )
+    plan = derive_sandbox_execution_plan(
         permission_state=permission_state,
-    ).normalized_policy.filesystem
+        requested_permissions=requested_permissions,
+    )
+    if not plan.approval_required:
+        return plan.normalized_policy.filesystem
+    if ctx.deps.approval_requester is None:
+        raise RuntimeError(
+            f"{action.capitalize()} requires approval, but no approval "
+            "requester is configured"
+        )
+    reason_prefix = (
+        f"allow {action} outside workspace"
+        if outside_workspace
+        else f"allow {action}"
+    )
+    decision = await ctx.deps.approval_requester(
+        ApprovalRequest(
+            request_id=f"{action}-{uuid4().hex}",
+            reason=(
+                f"{reason_prefix}: "
+                f"{truncate_activity_label(tool_path or resolved_path or action)}"
+            ),
+            requested_capabilities=plan.requested_capabilities,
+            requested_permissions=plan.requested_permissions,
+        )
+    )
+    if decision.decision != "approved":
+        raise RuntimeError(
+            f"{action.capitalize()} approval did not return an approved decision"
+        )
+    return plan.normalized_policy.filesystem
 
 
 async def maybe_request_file_write_approval(
@@ -195,9 +245,9 @@ async def maybe_request_file_write_approval(
 
 
 __all__ = [
+    "approved_read_only_filesystem_policy",
     "SandboxExecutionPlan",
     "derive_sandbox_execution_plan",
     "maybe_request_file_write_approval",
     "plan_shell_execution",
-    "read_only_filesystem_policy",
 ]

@@ -490,7 +490,7 @@ func permissionStateLines(
 	if state.SandboxPolicy.Mode == "workspace_write" {
 		lines = append(
 			lines,
-			"default currently guarantees sandboxed shell execution; other tool surfaces are still migrating to the same boundary model",
+			"default currently guarantees sandboxed shell execution and approval-backed read-side boundary widening; write-side tools still use backend file operations with scoped approval for outside-workspace paths",
 		)
 	}
 	return lines

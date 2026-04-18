@@ -19,13 +19,14 @@ from tests.read_only_worker_test_support import (
 go_worker_required = _go_worker_required
 
 
-def worker_ctx(tmp_path: Path, *, permission_state=None):
+def worker_ctx(tmp_path: Path, *, permission_state=None, approval_requester=None):
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
     return SimpleNamespace(
         deps=WorkspaceDeps(
             workspace_root=workspace_root,
             shell_family=detect_default_shell_family(),
+            approval_requester=approval_requester,
             permission_state=(
                 permission_state
                 if permission_state is not None

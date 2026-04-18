@@ -737,7 +737,7 @@ func TestPermissionSlashUpdatesBackendPolicy(t *testing.T) {
 		"permission state updated",
 		"permission: default",
 		"effective capabilities: filesystem=workspace_write network=restricted isolation=sandboxed approval=on_escalation",
-		"default currently guarantees sandboxed shell execution; other tool surfaces are still migrating to the same boundary model",
+		"default currently guarantees sandboxed shell execution and approval-backed read-side boundary widening; write-side tools still use backend file operations with scoped approval for outside-workspace paths",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("permission render missing %q in %q", want, rendered)
@@ -775,7 +775,7 @@ func TestPermissionSlashUpdatesWorkspaceDefaultPolicyWithoutSession(t *testing.T
 		"permission state updated",
 		"permission: default",
 		"effective capabilities: filesystem=workspace_write network=restricted isolation=sandboxed approval=on_escalation",
-		"default currently guarantees sandboxed shell execution; other tool surfaces are still migrating to the same boundary model",
+		"default currently guarantees sandboxed shell execution and approval-backed read-side boundary widening; write-side tools still use backend file operations with scoped approval for outside-workspace paths",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("permission render missing %q in %q", want, rendered)

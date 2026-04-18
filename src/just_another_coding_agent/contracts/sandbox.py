@@ -171,8 +171,6 @@ def derive_normalized_sandbox_policy(
             network_access = additional_permissions.network_access
 
     filesystem_access = base_capabilities.filesystem_access
-    if extra_read_roots or extra_write_roots:
-        filesystem_access = "full_access"
 
     return NormalizedSandboxPolicy(
         filesystem=FileSystemSandboxPolicy(

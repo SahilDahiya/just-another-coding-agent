@@ -136,10 +136,11 @@ def build_runtime_context_text(
                         "instead of host-absolute paths."
                     ),
                     (
-                        "Tool coverage note: sandbox path semantics are "
-                        "currently guaranteed for shell; other tool surfaces "
-                        "may still use host-visible paths until they migrate "
-                        "to the same boundary."
+                        "Tool coverage note: read-side tools now use the same "
+                        "workspace boundary with approval-backed extra read "
+                        "roots for outside-workspace access. Write-side tools "
+                        "still use backend file operations with scoped "
+                        "approval for outside-workspace paths."
                     ),
                 ]
             )

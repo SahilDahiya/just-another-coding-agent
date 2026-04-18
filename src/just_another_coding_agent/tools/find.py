@@ -15,7 +15,7 @@ from just_another_coding_agent.tools._activity import (
     truncate_activity_label,
 )
 from just_another_coding_agent.tools._permissions import (
-    read_only_filesystem_policy,
+    approved_read_only_filesystem_policy,
 )
 from just_another_coding_agent.tools.deps import WorkspaceDeps
 from just_another_coding_agent.tools.read_only_worker.protocol import (
@@ -40,7 +40,7 @@ async def _execute_find_async(
     *,
     read_only_worker: ReadOnlyWorkerRuntime,
     workspace_root: Path | str,
-    permission_state,
+    filesystem_policy,
     pattern: str,
     path: str | None = None,
     limit: int = FIND_DEFAULT_LIMIT,
@@ -49,7 +49,7 @@ async def _execute_find_async(
         FindWorkerRequest(
             request_id=uuid4().hex,
             workspace_root=str(workspace_root),
-            filesystem_policy=read_only_filesystem_policy(permission_state),
+            filesystem_policy=filesystem_policy,
             pattern=pattern,
             path=path,
             limit=limit,
@@ -102,10 +102,15 @@ async def find(
     if os.name == "nt":
         ensure_windows_search_tool("rg", silent=True)
 
+    filesystem_policy = await approved_read_only_filesystem_policy(
+        ctx=ctx,
+        tool_path=path,
+        action="find",
+    )
     result = await _execute_find_async(
         read_only_worker=ctx.deps.read_only_worker,
         workspace_root=ctx.deps.workspace_root,
-        permission_state=ctx.deps.permission_state,
+        filesystem_policy=filesystem_policy,
         pattern=pattern,
         path=path,
         limit=limit,
