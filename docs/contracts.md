@@ -168,6 +168,11 @@ Rules:
 - `FileSystemSandboxPolicy` and `NetworkSandboxPolicy` are the backend-owned
   normalized runtime policies derived from the selected permission state plus
   any approved per-command permission deltas.
+- The canonical backend now routes high-risk execution through one explicit
+  planning step before command startup:
+  selected permission state plus any per-command requested deltas produce a
+  `SandboxExecutionPlan` containing normalized runtime policy, requested
+  capabilities, and whether approval is required.
 - `AdditionalSandboxPermissions` is the explicit per-command permission-delta
   contract. It may widen network access or request extra filesystem roots for
   one action without mutating the selected long-lived permission preset.
@@ -226,6 +231,9 @@ Approval carrier rules:
 - approval requests may carry explicit `requested_permissions` deltas in
   addition to normalized requested capabilities; Go may render those fields
   later, but it must not reinterpret them locally
+- shell and mutating file tools now request approval from that normalized
+  execution plan rather than re-deriving raw executor policy independently in
+  each tool
 - `approval.submit` resolves a live pending approval request; denial must still
   terminate the run through the canonical backend run-failure path rather than
   through a stdio-only shortcut

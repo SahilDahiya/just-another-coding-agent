@@ -13,9 +13,7 @@ from uuid import uuid4
 from just_another_coding_agent._pdeathsig import set_pdeathsig_in_child
 from just_another_coding_agent.contracts.platform import ShellFamily
 from just_another_coding_agent.contracts.sandbox import (
-    AdditionalSandboxPermissions,
-    PermissionState,
-    derive_normalized_sandbox_policy,
+    NormalizedSandboxPolicy,
 )
 from just_another_coding_agent.tools.windows_search_tools import (
     build_tool_process_env,
@@ -28,8 +26,8 @@ class SandboxCommandRequest:
     workspace_root: Path
     command: str
     shell_family: ShellFamily
-    permission_state: PermissionState
-    additional_permissions: AdditionalSandboxPermissions | None = None
+    selected_sandbox_mode: str
+    normalized_policy: NormalizedSandboxPolicy
 
 
 class SandboxCommandHandle(Protocol):
@@ -273,26 +271,24 @@ def describe_sandbox_failure(
 def select_sandbox_executor(
     *,
     configured_executor: SandboxExecutor | None,
-    permission_state: PermissionState,
+    selected_sandbox_mode: str,
+    normalized_policy: NormalizedSandboxPolicy,
 ) -> SandboxExecutor:
     if configured_executor is not None and not isinstance(
         configured_executor, HostSandboxExecutor
     ):
         return configured_executor
-    if permission_state.sandbox_policy.mode == "danger_full_access":
+    if normalized_policy.execution_isolation == "unsandboxed":
         return configured_executor or HostSandboxExecutor()
-    if permission_state.sandbox_policy.mode in {
-        "read_only",
-        "workspace_write",
-    }:
-        return LocalRestrictedSandboxExecutor()
-    if permission_state.sandbox_policy.mode == "external":
+    if selected_sandbox_mode == "external":
         raise RuntimeError(
             "External sandbox policy requires an externally managed executor"
         )
+    if normalized_policy.execution_isolation == "sandboxed":
+        return LocalRestrictedSandboxExecutor()
     raise RuntimeError(
         "Unsupported sandbox policy for local shell execution: "
-        f"{permission_state.sandbox_policy.mode!r}"
+        f"{selected_sandbox_mode!r}"
     )
 
 
@@ -312,10 +308,7 @@ class LocalRestrictedSandboxExecutor:
             )
 
         container_name = f"jaca-sandbox-{uuid4().hex[:12]}"
-        normalized_policy = derive_normalized_sandbox_policy(
-            permission_state=request.permission_state,
-            additional_permissions=request.additional_permissions,
-        )
+        normalized_policy = request.normalized_policy
         if (
             normalized_policy.filesystem.extra_read_roots
             or normalized_policy.filesystem.extra_write_roots

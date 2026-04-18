@@ -144,7 +144,10 @@ The current pivot adds a middle layer between those user-facing presets and
 the executor backend: Python now normalizes selected sandbox state plus any
 approved per-command permission deltas into concrete filesystem and network
 policies before command startup. That normalization belongs in Python, not in
-Go and not in backend-specific executor conditionals spread across tools.
+Go and not in backend-specific executor conditionals spread across tools. The
+current implementation lives in the Python tool layer as a backend-owned
+execution-planning seam used by `shell` and mutating file tools before they
+ask for approval or choose an executor backend.
 
 ## Stateful Orchestration Boundary
 

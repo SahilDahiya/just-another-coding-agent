@@ -12,6 +12,9 @@ from just_another_coding_agent.contracts.platform import detect_default_shell_fa
 from just_another_coding_agent.contracts.sandbox import (
     ApprovalDecision,
     ApprovalPolicy,
+    FileSystemSandboxPolicy,
+    NetworkSandboxPolicy,
+    NormalizedSandboxPolicy,
     WorkspaceWriteSandboxPolicy,
     build_permission_state,
 )
@@ -300,11 +303,11 @@ async def test_execute_shell_requests_approval_for_network_escalation(
     assert requests[0].requested_permissions is not None
     assert requests[0].requested_permissions.network_access == "enabled"
     assert len(executed_requests) == 1
-    assert executed_requests[0].permission_state == permission_state
-    assert executed_requests[0].additional_permissions is not None
-    assert (
-        executed_requests[0].additional_permissions.network_access
-        == "enabled"
+    assert executed_requests[0].selected_sandbox_mode == "workspace_write"
+    assert executed_requests[0].normalized_policy == NormalizedSandboxPolicy(
+        filesystem=FileSystemSandboxPolicy(access="workspace_write"),
+        network=NetworkSandboxPolicy(access="enabled"),
+        execution_isolation="sandboxed",
     )
 
 
@@ -356,8 +359,12 @@ async def test_execute_shell_skips_approval_for_local_command(
     assert result == {"exit_code": 0, "output": "ok"}
     assert requests == []
     assert len(executed_requests) == 1
-    assert executed_requests[0].permission_state == permission_state
-    assert executed_requests[0].additional_permissions is None
+    assert executed_requests[0].selected_sandbox_mode == "workspace_write"
+    assert executed_requests[0].normalized_policy == NormalizedSandboxPolicy(
+        filesystem=FileSystemSandboxPolicy(access="workspace_write"),
+        network=NetworkSandboxPolicy(access="restricted"),
+        execution_isolation="sandboxed",
+    )
 
 
 async def test_execute_shell_fails_fast_when_approval_is_required_without_requester(

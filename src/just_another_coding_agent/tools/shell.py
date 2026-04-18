@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import shlex
 import tempfile
 from pathlib import Path
 from typing import Annotated, Protocol
@@ -14,13 +13,14 @@ from pydantic_ai import RunContext, Tool
 from just_another_coding_agent.contracts.platform import ShellFamily
 from just_another_coding_agent.contracts.run_events import ShellActivityDetails
 from just_another_coding_agent.contracts.sandbox import (
-    AdditionalSandboxPermissions,
     ApprovalRequest,
-    derive_requested_capabilities,
 )
 from just_another_coding_agent.tools._activity import (
     make_tool_return,
     truncate_activity_label,
+)
+from just_another_coding_agent.tools._permissions import (
+    plan_shell_execution,
 )
 from just_another_coding_agent.tools.deps import WorkspaceDeps
 from just_another_coding_agent.tools.errors import (
@@ -47,78 +47,12 @@ SHELL_READER_DRAIN_GRACE_SECONDS = 0.5
 # pushed through the RPC pipe and the JSONL writer. Coalescing caps that
 # at a few updates per second regardless of how fast the child writes.
 SHELL_PUBLISH_MIN_INTERVAL_SECONDS = 0.25
-_NETWORK_COMMANDS = frozenset(
-    {
-        "curl",
-        "dig",
-        "gh",
-        "host",
-        "nc",
-        "nslookup",
-        "ping",
-        "scp",
-        "sftp",
-        "ssh",
-        "telnet",
-        "wget",
-    }
-)
-_GIT_NETWORK_SUBCOMMANDS = frozenset(
-    {
-        "clone",
-        "fetch",
-        "ls-remote",
-        "pull",
-        "push",
-    }
-)
 
 
 class ShellExecutionContext(Protocol):
     deps: WorkspaceDeps
     tool_call_id: str | None
     tool_name: str | None
-
-
-def _shell_command_requests_network_access(
-    *,
-    command: str,
-    shell_family: ShellFamily,
-) -> bool:
-    if shell_family != "posix":
-        return False
-    try:
-        tokens = shlex.split(command, posix=True)
-    except ValueError:
-        return False
-    if not tokens:
-        return False
-    executable = tokens[0]
-    if executable in _NETWORK_COMMANDS:
-        return True
-    if executable == "git" and len(tokens) > 1:
-        return tokens[1] in _GIT_NETWORK_SUBCOMMANDS
-    return False
-
-
-def _resolve_shell_additional_permissions(
-    *,
-    permission_state,
-    command: str,
-    shell_family: ShellFamily,
-):
-    if permission_state.approval_policy.mode != "on_escalation":
-        return None
-    if permission_state.sandbox_policy.mode != "workspace_write":
-        return None
-    if not _shell_command_requests_network_access(
-        command=command,
-        shell_family=shell_family,
-    ):
-        return None
-    return AdditionalSandboxPermissions(
-        network_access="enabled",
-    )
 
 
 def _format_shell_failure(output: str, failure_message: str) -> str:
@@ -218,7 +152,7 @@ async def execute_shell(
         if ctx is not None
         else WorkspaceDeps.from_workspace_root(workspace_root).permission_state
     )
-    additional_permissions = _resolve_shell_additional_permissions(
+    plan = plan_shell_execution(
         permission_state=permission_state,
         command=command,
         shell_family=shell_family,
@@ -227,12 +161,10 @@ async def execute_shell(
         configured_executor=(
             ctx.deps.sandbox_executor if ctx is not None else HostSandboxExecutor()
         ),
-        permission_state=permission_state,
+        selected_sandbox_mode=permission_state.sandbox_policy.mode,
+        normalized_policy=plan.normalized_policy,
     )
-    approval_required = permission_state.approval_policy.mode == "always" or (
-        permission_state.approval_policy.mode == "on_escalation"
-        and additional_permissions is not None
-    )
+    approval_required = plan.approval_required
     if (
         ctx is not None
         and approval_required
@@ -249,11 +181,8 @@ async def execute_shell(
                     "allow shell command: "
                     f"{truncate_activity_label(command)}"
                 ),
-                requested_capabilities=derive_requested_capabilities(
-                    permission_state=permission_state,
-                    additional_permissions=additional_permissions,
-                ),
-                requested_permissions=additional_permissions,
+                requested_capabilities=plan.requested_capabilities,
+                requested_permissions=plan.requested_permissions,
             )
         )
         if decision.decision != "approved":
@@ -265,8 +194,8 @@ async def execute_shell(
             workspace_root=Path(workspace_root),
             command=command,
             shell_family=shell_family,
-            permission_state=permission_state,
-            additional_permissions=additional_permissions,
+            selected_sandbox_mode=permission_state.sandbox_policy.mode,
+            normalized_policy=plan.normalized_policy,
         )
     )
 

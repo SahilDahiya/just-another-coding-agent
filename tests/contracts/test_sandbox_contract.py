@@ -22,6 +22,11 @@ from just_another_coding_agent.contracts.sandbox import (
     derive_normalized_sandbox_policy,
     derive_requested_capabilities,
 )
+from just_another_coding_agent.tools._permissions import (
+    SandboxExecutionPlan,
+    derive_sandbox_execution_plan,
+    plan_shell_execution,
+)
 
 
 def test_sandbox_policy_accepts_named_modes_with_explicit_defaults() -> None:
@@ -174,3 +179,96 @@ def test_requested_capabilities_follow_normalized_policy() -> None:
         execution_isolation="sandboxed",
         approval_mode="on_escalation",
     )
+
+
+def test_derive_sandbox_execution_plan_requires_approval_for_permission_deltas(
+) -> None:
+    permission_state = build_permission_state(
+        sandbox_policy=WorkspaceWriteSandboxPolicy(),
+        approval_policy=ApprovalPolicy(mode="on_escalation"),
+    )
+    requested_permissions = AdditionalSandboxPermissions(
+        network_access="enabled"
+    )
+
+    plan = derive_sandbox_execution_plan(
+        permission_state=permission_state,
+        requested_permissions=requested_permissions,
+    )
+
+    assert plan == SandboxExecutionPlan(
+        requested_permissions=requested_permissions,
+        requested_capabilities=EffectiveCapabilities(
+            filesystem_access="workspace_write",
+            network_access="enabled",
+            execution_isolation="sandboxed",
+            approval_mode="on_escalation",
+        ),
+        normalized_policy=NormalizedSandboxPolicy(
+            filesystem=FileSystemSandboxPolicy(access="workspace_write"),
+            network=NetworkSandboxPolicy(access="enabled"),
+            execution_isolation="sandboxed",
+        ),
+        approval_required=True,
+    )
+
+
+def test_derive_sandbox_execution_plan_skips_escalation_approval_without_delta(
+) -> None:
+    permission_state = build_permission_state(
+        sandbox_policy=WorkspaceWriteSandboxPolicy(),
+        approval_policy=ApprovalPolicy(mode="on_escalation"),
+    )
+
+    plan = derive_sandbox_execution_plan(
+        permission_state=permission_state,
+    )
+
+    assert plan.approval_required is False
+    assert plan.requested_permissions is None
+    assert plan.normalized_policy == NormalizedSandboxPolicy(
+        filesystem=FileSystemSandboxPolicy(access="workspace_write"),
+        network=NetworkSandboxPolicy(access="restricted"),
+        execution_isolation="sandboxed",
+    )
+
+
+def test_plan_shell_execution_requests_network_delta_for_explicit_network_command(
+) -> None:
+    permission_state = build_permission_state(
+        sandbox_policy=WorkspaceWriteSandboxPolicy(),
+        approval_policy=ApprovalPolicy(mode="on_escalation"),
+    )
+
+    plan = plan_shell_execution(
+        permission_state=permission_state,
+        command="curl https://example.com",
+        shell_family="posix",
+    )
+
+    assert plan.requested_permissions == AdditionalSandboxPermissions(
+        network_access="enabled"
+    )
+    assert plan.normalized_policy.network.access == "enabled"
+    assert plan.approval_required is True
+
+
+def test_plan_shell_execution_keeps_local_command_in_default_sandbox() -> None:
+    permission_state = build_permission_state(
+        sandbox_policy=WorkspaceWriteSandboxPolicy(),
+        approval_policy=ApprovalPolicy(mode="on_escalation"),
+    )
+
+    plan = plan_shell_execution(
+        permission_state=permission_state,
+        command="printf ok",
+        shell_family="posix",
+    )
+
+    assert plan.requested_permissions is None
+    assert plan.normalized_policy == NormalizedSandboxPolicy(
+        filesystem=FileSystemSandboxPolicy(access="workspace_write"),
+        network=NetworkSandboxPolicy(access="restricted"),
+        execution_isolation="sandboxed",
+    )
+    assert plan.approval_required is False

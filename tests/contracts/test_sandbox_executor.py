@@ -6,11 +6,12 @@ import pytest
 
 from just_another_coding_agent.contracts.platform import detect_default_shell_family
 from just_another_coding_agent.contracts.sandbox import (
-    AdditionalSandboxPermissions,
     ApprovalPolicy,
+    NormalizedSandboxPolicy,
     WorkspaceWriteSandboxPolicy,
     build_default_permission_state,
     build_permission_state,
+    derive_normalized_sandbox_policy,
 )
 from just_another_coding_agent.tools import sandbox_executor as sandbox_executor_module
 from just_another_coding_agent.tools.deps import WorkspaceDeps
@@ -156,7 +157,10 @@ async def test_execute_shell_delegates_command_start_to_sandbox_executor(
             workspace_root=workspace_root,
             command="printf hello",
             shell_family=_test_shell_family(),
-            permission_state=build_default_permission_state(),
+            selected_sandbox_mode="danger_full_access",
+            normalized_policy=derive_normalized_sandbox_policy(
+                permission_state=build_default_permission_state()
+            ),
         )
     ]
     assert handle.wait_calls == 1
@@ -222,7 +226,10 @@ async def test_host_sandbox_executor_uses_posix_runner_for_posix_shell_family(
             workspace_root=workspace_root,
             command="pwd",
             shell_family="posix",
-            permission_state=build_default_permission_state(),
+            selected_sandbox_mode="danger_full_access",
+            normalized_policy=derive_normalized_sandbox_policy(
+                permission_state=build_default_permission_state()
+            ),
         )
     )
 
@@ -258,7 +265,10 @@ async def test_host_sandbox_executor_uses_managed_tool_env(
             workspace_root=workspace_root,
             command="pwd",
             shell_family="posix",
-            permission_state=build_default_permission_state(),
+            selected_sandbox_mode="danger_full_access",
+            normalized_policy=derive_normalized_sandbox_policy(
+                permission_state=build_default_permission_state()
+            ),
         )
     )
 
@@ -312,7 +322,10 @@ async def test_host_sandbox_executor_bootstraps_windows_search_tools(
             workspace_root=workspace_root,
             command="rg needle .",
             shell_family="powershell",
-            permission_state=build_default_permission_state(),
+            selected_sandbox_mode="danger_full_access",
+            normalized_policy=derive_normalized_sandbox_policy(
+                permission_state=build_default_permission_state()
+            ),
         )
     )
 
@@ -397,8 +410,10 @@ async def test_execute_shell_routes_workspace_write_policy_to_restricted_executo
             workspace_root=workspace_root,
             command="printf hello",
             shell_family=_test_shell_family(),
-            permission_state=ctx.deps.permission_state,
-            additional_permissions=None,
+            selected_sandbox_mode=ctx.deps.permission_state.sandbox_policy.mode,
+            normalized_policy=derive_normalized_sandbox_policy(
+                permission_state=ctx.deps.permission_state
+            ),
         )
     ]
 
@@ -429,15 +444,17 @@ async def test_local_restricted_sandbox_executor_launches_docker_with_workspace_
             workspace_root=workspace_root,
             command="pwd",
             shell_family="posix",
-            permission_state=build_permission_state(
-                sandbox_policy=WorkspaceWriteSandboxPolicy(),
-                approval_policy=ApprovalPolicy(mode="on_escalation"),
-                effective_capabilities=build_default_permission_state()
-                .effective_capabilities.model_copy(
-                    update={"approval_mode": "on_escalation"}
-                ),
+            selected_sandbox_mode="workspace_write",
+            normalized_policy=derive_normalized_sandbox_policy(
+                permission_state=build_permission_state(
+                    sandbox_policy=WorkspaceWriteSandboxPolicy(),
+                    approval_policy=ApprovalPolicy(mode="on_escalation"),
+                    effective_capabilities=build_default_permission_state()
+                    .effective_capabilities.model_copy(
+                        update={"approval_mode": "on_escalation"}
+                    ),
+                )
             ),
-            additional_permissions=None,
         )
     )
 
@@ -482,14 +499,13 @@ async def test_local_restricted_sandbox_executor_allows_network_when_requested(
             workspace_root=workspace_root,
             command="curl https://example.com",
             shell_family="posix",
-            permission_state=build_permission_state(
-                sandbox_policy=WorkspaceWriteSandboxPolicy(
-                    network_access="restricted"
-                ),
-                approval_policy=ApprovalPolicy(mode="on_escalation"),
-            ),
-            additional_permissions=AdditionalSandboxPermissions(
-                network_access="enabled"
+            selected_sandbox_mode="workspace_write",
+            normalized_policy=NormalizedSandboxPolicy.model_validate(
+                {
+                    "filesystem": {"access": "workspace_write"},
+                    "network": {"access": "enabled"},
+                    "execution_isolation": "sandboxed",
+                }
             ),
         )
     )
@@ -611,12 +627,16 @@ async def test_local_restricted_sandbox_executor_rejects_additional_filesystem_r
                 workspace_root=workspace_root,
                 command="pwd",
                 shell_family="posix",
-                permission_state=build_permission_state(
-                    sandbox_policy=WorkspaceWriteSandboxPolicy(),
-                    approval_policy=ApprovalPolicy(mode="on_escalation"),
-                ),
-                additional_permissions=AdditionalSandboxPermissions(
-                    extra_read_roots=("/tmp/outside.txt",),
+                selected_sandbox_mode="workspace_write",
+                normalized_policy=NormalizedSandboxPolicy.model_validate(
+                    {
+                        "filesystem": {
+                            "access": "full_access",
+                            "extra_read_roots": ["/tmp/outside.txt"],
+                        },
+                        "network": {"access": "restricted"},
+                        "execution_isolation": "sandboxed",
+                    }
                 ),
             )
         )
