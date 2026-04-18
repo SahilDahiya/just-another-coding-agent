@@ -1,6 +1,15 @@
+from types import SimpleNamespace
+
 import pytest
 
-from just_another_coding_agent.tools.edit import EditResult, execute_edit
+from just_another_coding_agent.contracts.sandbox import (
+    ApprovalDecision,
+    ApprovalPolicy,
+    WorkspaceWriteSandboxPolicy,
+    build_permission_state,
+)
+from just_another_coding_agent.tools.deps import WorkspaceDeps
+from just_another_coding_agent.tools.edit import EditResult, edit, execute_edit
 from just_another_coding_agent.tools.errors import (
     ToolEncodingError,
     ToolMatchError,
@@ -223,6 +232,41 @@ def test_edit_tool_falls_back_to_normalized_matching(tmp_path) -> None:
     )
 
     assert path.read_text(encoding="utf-8") == 'say "hello" - agent\n'
+
+
+async def test_edit_requests_approval_for_outside_workspace_path_in_default_mode(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    outside = tmp_path / "outside.txt"
+    outside.write_text("hello\nworld\n", encoding="utf-8")
+    requests = []
+
+    async def approval_requester(request):
+        requests.append(request)
+        return ApprovalDecision(
+            request_id=request.request_id,
+            decision="approved",
+        )
+
+    ctx = SimpleNamespace(
+        deps=WorkspaceDeps(
+            workspace_root=workspace_root,
+            approval_requester=approval_requester,
+            permission_state=build_permission_state(
+                sandbox_policy=WorkspaceWriteSandboxPolicy(),
+                approval_policy=ApprovalPolicy(mode="on_escalation"),
+            ),
+        )
+    )
+
+    result = await edit(ctx, "../outside.txt", "world", "agent")
+
+    assert result.return_value == f"Edited {outside.resolve()}"
+    assert outside.read_text(encoding="utf-8") == "hello\nagent\n"
+    assert len(requests) == 1
+    assert requests[0].reason == "allow edit outside workspace: ../outside.txt"
 
 
 def test_edit_tool_fuzzy_fallback_preserves_unmatched_surrounding_content(

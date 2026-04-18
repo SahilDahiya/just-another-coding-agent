@@ -234,17 +234,15 @@ class LocalRestrictedSandboxExecutor:
 
         container_name = f"jaca-sandbox-{uuid4().hex[:12]}"
         mount_mode = _local_sandbox_mount_mode(request)
-        docker_args = (
+        docker_args = [
             "docker",
             "run",
             "--pull",
-            "never",
+            "missing",
             "--rm",
             "--name",
             container_name,
             "--interactive",
-            "--network",
-            "none",
             "--cap-drop",
             "ALL",
             "--security-opt",
@@ -267,10 +265,16 @@ class LocalRestrictedSandboxExecutor:
             ),
             "--env",
             f"HOME={_LOCAL_SANDBOX_HOME}",
-            self._image,
-            "bash",
-            "-lc",
-            request.command,
+        ]
+        if request.permission_state.sandbox_policy.network_access == "restricted":
+            docker_args.extend(["--network", "none"])
+        docker_args.extend(
+            [
+                self._image,
+                "bash",
+                "-lc",
+                request.command,
+            ]
         )
         try:
             process = await asyncio.create_subprocess_exec(

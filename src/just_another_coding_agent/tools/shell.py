@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import shlex
 import tempfile
 from pathlib import Path
 from typing import Annotated, Protocol
@@ -12,7 +13,11 @@ from pydantic_ai import RunContext, Tool
 
 from just_another_coding_agent.contracts.platform import ShellFamily
 from just_another_coding_agent.contracts.run_events import ShellActivityDetails
-from just_another_coding_agent.contracts.sandbox import ApprovalRequest
+from just_another_coding_agent.contracts.sandbox import (
+    ApprovalRequest,
+    WorkspaceWriteSandboxPolicy,
+    build_permission_state,
+)
 from just_another_coding_agent.tools._activity import (
     make_tool_return,
     truncate_activity_label,
@@ -41,12 +46,79 @@ SHELL_READER_DRAIN_GRACE_SECONDS = 0.5
 # pushed through the RPC pipe and the JSONL writer. Coalescing caps that
 # at a few updates per second regardless of how fast the child writes.
 SHELL_PUBLISH_MIN_INTERVAL_SECONDS = 0.25
+_NETWORK_COMMANDS = frozenset(
+    {
+        "curl",
+        "dig",
+        "gh",
+        "host",
+        "nc",
+        "nslookup",
+        "ping",
+        "scp",
+        "sftp",
+        "ssh",
+        "telnet",
+        "wget",
+    }
+)
+_GIT_NETWORK_SUBCOMMANDS = frozenset(
+    {
+        "clone",
+        "fetch",
+        "ls-remote",
+        "pull",
+        "push",
+    }
+)
 
 
 class ShellExecutionContext(Protocol):
     deps: WorkspaceDeps
     tool_call_id: str | None
     tool_name: str | None
+
+
+def _shell_command_requests_network_access(
+    *,
+    command: str,
+    shell_family: ShellFamily,
+) -> bool:
+    if shell_family != "posix":
+        return False
+    try:
+        tokens = shlex.split(command, posix=True)
+    except ValueError:
+        return False
+    if not tokens:
+        return False
+    executable = tokens[0]
+    if executable in _NETWORK_COMMANDS:
+        return True
+    if executable == "git" and len(tokens) > 1:
+        return tokens[1] in _GIT_NETWORK_SUBCOMMANDS
+    return False
+
+
+def _resolve_shell_permission_state(
+    *,
+    permission_state,
+    command: str,
+    shell_family: ShellFamily,
+):
+    if permission_state.approval_policy.mode != "on_escalation":
+        return permission_state
+    if permission_state.sandbox_policy.mode != "workspace_write":
+        return permission_state
+    if not _shell_command_requests_network_access(
+        command=command,
+        shell_family=shell_family,
+    ):
+        return permission_state
+    return build_permission_state(
+        sandbox_policy=WorkspaceWriteSandboxPolicy(network_access="enabled"),
+        approval_policy=permission_state.approval_policy,
+    )
 
 
 def _format_shell_failure(output: str, failure_message: str) -> str:
@@ -146,15 +218,24 @@ async def execute_shell(
         if ctx is not None
         else WorkspaceDeps.from_workspace_root(workspace_root).permission_state
     )
+    requested_permission_state = _resolve_shell_permission_state(
+        permission_state=permission_state,
+        command=command,
+        shell_family=shell_family,
+    )
     executor = select_sandbox_executor(
         configured_executor=(
             ctx.deps.sandbox_executor if ctx is not None else HostSandboxExecutor()
         ),
-        permission_state=permission_state,
+        permission_state=requested_permission_state,
+    )
+    approval_required = permission_state.approval_policy.mode == "always" or (
+        permission_state.approval_policy.mode == "on_escalation"
+        and requested_permission_state != permission_state
     )
     if (
         ctx is not None
-        and permission_state.approval_policy.mode == "always"
+        and approval_required
     ):
         if ctx.deps.approval_requester is None:
             raise RuntimeError(
@@ -168,7 +249,9 @@ async def execute_shell(
                     "allow shell command: "
                     f"{truncate_activity_label(command)}"
                 ),
-                requested_capabilities=permission_state.effective_capabilities,
+                requested_capabilities=(
+                    requested_permission_state.effective_capabilities
+                ),
             )
         )
         if decision.decision != "approved":
@@ -180,7 +263,7 @@ async def execute_shell(
             workspace_root=Path(workspace_root),
             command=command,
             shell_family=shell_family,
-            permission_state=permission_state,
+            permission_state=requested_permission_state,
         )
     )
 

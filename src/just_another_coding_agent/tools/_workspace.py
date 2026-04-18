@@ -21,4 +21,17 @@ def resolve_workspace_path(*, workspace_root: Path | str, tool_path: str) -> Pat
     return (root / candidate).resolve()
 
 
-__all__ = ["normalize_workspace_root", "resolve_workspace_path"]
+def path_is_within_workspace(
+    *,
+    workspace_root: Path | str,
+    resolved_path: Path,
+) -> bool:
+    root = normalize_workspace_root(workspace_root)
+    return resolved_path.is_relative_to(root)
+
+
+__all__ = [
+    "normalize_workspace_root",
+    "path_is_within_workspace",
+    "resolve_workspace_path",
+]

@@ -14,6 +14,9 @@ from just_another_coding_agent.tools._activity import (
     make_tool_return,
     truncate_activity_label,
 )
+from just_another_coding_agent.tools._permissions import (
+    maybe_request_file_write_approval,
+)
 from just_another_coding_agent.tools._workspace import resolve_workspace_path
 from just_another_coding_agent.tools.deps import WorkspaceDeps
 from just_another_coding_agent.tools.errors import (
@@ -209,6 +212,11 @@ async def edit(
             Unicode formatting differences.
         new_text: Replacement text to insert in place of old_text.
     """
+    await maybe_request_file_write_approval(
+        ctx=ctx,
+        tool_path=path,
+        action="edit",
+    )
 
     result = execute_edit(
         workspace_root=ctx.deps.workspace_root,

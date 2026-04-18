@@ -431,7 +431,7 @@ async def test_local_restricted_sandbox_executor_launches_docker_with_workspace_
 
     assert await handle.read(4096) == b"ok"
     args = observed["args"]
-    assert args[:3] == ("docker", "run", "--pull")
+    assert args[:4] == ("docker", "run", "--pull", "missing")
     assert "--network" in args
     assert args[args.index("--network") + 1] == "none"
     assert "--user" in args
@@ -442,3 +442,53 @@ async def test_local_restricted_sandbox_executor_launches_docker_with_workspace_
         == f"{workspace_root}:/workspace:rw"
     )
     assert args[-4:] == ("sandbox-image", "bash", "-lc", "pwd")
+
+
+async def test_local_restricted_sandbox_executor_allows_network_when_requested(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    observed: dict[str, object] = {}
+
+    async def fake_create_subprocess_exec(*args, **kwargs):
+        observed["args"] = args
+        observed["kwargs"] = kwargs
+        return _FakeProcess()
+
+    monkeypatch.setattr(sandbox_executor_module.os, "getuid", lambda: 1000)
+    monkeypatch.setattr(sandbox_executor_module.os, "getgid", lambda: 1001)
+    monkeypatch.setattr(
+        sandbox_executor_module.asyncio,
+        "create_subprocess_exec",
+        fake_create_subprocess_exec,
+    )
+
+    handle = await LocalRestrictedSandboxExecutor(image="sandbox-image").execute(
+        SandboxCommandRequest(
+            workspace_root=workspace_root,
+            command="curl https://example.com",
+            shell_family="posix",
+            permission_state=build_permission_state(
+                sandbox_policy=WorkspaceWriteSandboxPolicy(
+                    network_access="enabled"
+                ),
+                approval_policy=ApprovalPolicy(mode="on_escalation"),
+            ),
+        )
+    )
+
+    assert await handle.read(4096) == b"ok"
+    args = observed["args"]
+    assert "--network" not in args
+    assert (
+        args[args.index("--volume") + 1]
+        == f"{workspace_root}:/workspace:rw"
+    )
+    assert args[-4:] == (
+        "sandbox-image",
+        "bash",
+        "-lc",
+        "curl https://example.com",
+    )

@@ -1,7 +1,16 @@
+from types import SimpleNamespace
+
 import pytest
 
+from just_another_coding_agent.contracts.sandbox import (
+    ApprovalDecision,
+    ApprovalPolicy,
+    WorkspaceWriteSandboxPolicy,
+    build_permission_state,
+)
+from just_another_coding_agent.tools.deps import WorkspaceDeps
 from just_another_coding_agent.tools.errors import ToolPathError
-from just_another_coding_agent.tools.write import execute_write
+from just_another_coding_agent.tools.write import execute_write, write
 
 
 def test_write_tool_writes_utf8_text_file(tmp_path) -> None:
@@ -89,3 +98,67 @@ def test_write_tool_allows_relative_path_that_resolves_outside_workspace(
     )
 
     assert outside.read_text(encoding="utf-8") == "hello"
+
+
+async def test_write_requests_approval_for_outside_workspace_path_in_default_mode(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    outside = tmp_path / "outside.txt"
+    requests = []
+
+    async def approval_requester(request):
+        requests.append(request)
+        return ApprovalDecision(
+            request_id=request.request_id,
+            decision="approved",
+        )
+
+    ctx = SimpleNamespace(
+        deps=WorkspaceDeps(
+            workspace_root=workspace_root,
+            approval_requester=approval_requester,
+            permission_state=build_permission_state(
+                sandbox_policy=WorkspaceWriteSandboxPolicy(),
+                approval_policy=ApprovalPolicy(mode="on_escalation"),
+            ),
+        )
+    )
+
+    await write(ctx, "../outside.txt", "hello")
+
+    assert outside.read_text(encoding="utf-8") == "hello"
+    assert len(requests) == 1
+    assert requests[0].reason == "allow write outside workspace: ../outside.txt"
+
+
+async def test_write_skips_approval_for_workspace_path_in_default_mode(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    requests = []
+
+    async def approval_requester(request):
+        requests.append(request)
+        return ApprovalDecision(
+            request_id=request.request_id,
+            decision="approved",
+        )
+
+    ctx = SimpleNamespace(
+        deps=WorkspaceDeps(
+            workspace_root=workspace_root,
+            approval_requester=approval_requester,
+            permission_state=build_permission_state(
+                sandbox_policy=WorkspaceWriteSandboxPolicy(),
+                approval_policy=ApprovalPolicy(mode="on_escalation"),
+            ),
+        )
+    )
+
+    await write(ctx, "note.txt", "hello")
+
+    assert (workspace_root / "note.txt").read_text(encoding="utf-8") == "hello"
+    assert requests == []

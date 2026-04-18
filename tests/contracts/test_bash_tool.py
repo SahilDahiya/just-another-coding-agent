@@ -12,6 +12,7 @@ from just_another_coding_agent.contracts.platform import detect_default_shell_fa
 from just_another_coding_agent.contracts.sandbox import (
     ApprovalDecision,
     ApprovalPolicy,
+    WorkspaceWriteSandboxPolicy,
     build_permission_state,
 )
 from just_another_coding_agent.tools.deps import WorkspaceDeps
@@ -27,6 +28,26 @@ class _FakeRunContext:
     deps: WorkspaceDeps
     tool_call_id: str | None = None
     tool_name: str | None = None
+
+
+class _ExecutorHandle:
+    def __init__(self) -> None:
+        self._chunks = [b"ok"]
+
+    async def read(self, _max_bytes: int) -> bytes:
+        if self._chunks:
+            return self._chunks.pop(0)
+        return b""
+
+    async def wait(self) -> int:
+        return 0
+
+    async def terminate(self) -> None:
+        return None
+
+    @property
+    def exit_code(self) -> int | None:
+        return 0
 
 
 def _test_shell_family() -> str:
@@ -225,6 +246,116 @@ async def test_execute_shell_requests_approval_when_policy_is_always(
     assert len(requests) == 1
     assert requests[0].reason.startswith("allow shell command:")
     assert requests[0].requested_capabilities.approval_mode == "always"
+
+
+async def test_execute_shell_requests_approval_for_network_escalation(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    monkeypatch.chdir(tmp_path)
+    requests = []
+    executed_requests = []
+
+    class _Executor:
+        async def execute(self, request):
+            executed_requests.append(request)
+            return _ExecutorHandle()
+
+    async def approval_requester(request):
+        requests.append(request)
+        return ApprovalDecision(
+            request_id=request.request_id,
+            decision="approved",
+        )
+
+    permission_state = build_permission_state(
+        sandbox_policy=WorkspaceWriteSandboxPolicy(),
+        approval_policy=ApprovalPolicy(mode="on_escalation"),
+    )
+    ctx = _FakeRunContext(
+        deps=WorkspaceDeps(
+            workspace_root=workspace_root,
+            shell_family=_test_shell_family(),
+            sandbox_executor=_Executor(),
+            approval_requester=approval_requester,
+            permission_state=permission_state,
+        ),
+        tool_call_id="call-shell",
+        tool_name="shell",
+    )
+
+    result = await execute_shell(
+        ctx=ctx,
+        workspace_root=workspace_root,
+        command="curl https://example.com",
+        shell_family=_test_shell_family(),
+    )
+
+    assert result == {"exit_code": 0, "output": "ok"}
+    assert len(requests) == 1
+    assert requests[0].requested_capabilities.network_access == "enabled"
+    assert len(executed_requests) == 1
+    assert (
+        executed_requests[0].permission_state.sandbox_policy.mode
+        == "workspace_write"
+    )
+    assert (
+        executed_requests[0].permission_state.sandbox_policy.network_access
+        == "enabled"
+    )
+
+
+async def test_execute_shell_skips_approval_for_local_command(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    monkeypatch.chdir(tmp_path)
+    requests = []
+    executed_requests = []
+
+    class _Executor:
+        async def execute(self, request):
+            executed_requests.append(request)
+            return _ExecutorHandle()
+
+    async def approval_requester(request):
+        requests.append(request)
+        return ApprovalDecision(
+            request_id=request.request_id,
+            decision="approved",
+        )
+
+    permission_state = build_permission_state(
+        sandbox_policy=WorkspaceWriteSandboxPolicy(),
+        approval_policy=ApprovalPolicy(mode="on_escalation"),
+    )
+    ctx = _FakeRunContext(
+        deps=WorkspaceDeps(
+            workspace_root=workspace_root,
+            shell_family=_test_shell_family(),
+            sandbox_executor=_Executor(),
+            approval_requester=approval_requester,
+            permission_state=permission_state,
+        ),
+        tool_call_id="call-shell",
+        tool_name="shell",
+    )
+
+    result = await execute_shell(
+        ctx=ctx,
+        workspace_root=workspace_root,
+        command="printf ok",
+        shell_family=_test_shell_family(),
+    )
+
+    assert result == {"exit_code": 0, "output": "ok"}
+    assert requests == []
+    assert len(executed_requests) == 1
+    assert executed_requests[0].permission_state == permission_state
 
 
 async def test_execute_shell_fails_fast_when_approval_is_required_without_requester(
