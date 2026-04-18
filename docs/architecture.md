@@ -30,10 +30,13 @@ streaming, truncation, timeout errors, and activity metadata.
 The same risk exists when a non-Python execution helper is introduced for
 performance. The current read-only worker is a separate Go helper for
 `read`, `ls`, `find`, and `grep`, and those read-only tool semantics are now
-canonically implemented in that worker. This is a narrow backend-owned
-exception, not a general invitation to spread product semantics across
-languages. Python still owns tool registration, higher-level activity
-metadata, session meaning, RPC meaning, and recovery policy.
+canonically implemented in that worker. Python still owns the filesystem
+policy model and request construction, while the worker enforces the canonical
+read-side boundary (workspace root plus any approved extra read roots). This
+is a narrow backend-owned exception, not a general invitation to spread
+product semantics across languages. Python still owns tool registration,
+higher-level activity metadata, session meaning, RPC meaning, and recovery
+policy.
 
 For Go TUI refactors, optimize first for module boundaries, testability, and reduced semantic drift. Treat LOC reduction as a guardrail rather than a target, and sequence extractions before new interface layers so the same transcript subsystem is not refactored twice without learning anything.
 

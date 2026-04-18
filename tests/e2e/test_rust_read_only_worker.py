@@ -19,6 +19,9 @@ from just_another_coding_agent.tools.read_only_worker.protocol import (
     encode_worker_message,
     parse_worker_response_line,
 )
+from tests.read_only_worker_test_support import (
+    default_read_only_worker_filesystem_policy,
+)
 
 _RUSTUP_HOME = "/tmp/jaca-rustup-home"
 _CARGO_HOME = "/tmp/jaca-cargo-home"
@@ -121,6 +124,7 @@ def test_rust_read_only_worker_handles_handshake_read_and_ls(tmp_path: Path) -> 
             ReadWorkerRequest(
                 request_id="read-1",
                 workspace_root=str(workspace_root),
+                filesystem_policy=default_read_only_worker_filesystem_policy(),
                 path="note.txt",
                 offset=2,
                 limit=1,
@@ -139,6 +143,7 @@ def test_rust_read_only_worker_handles_handshake_read_and_ls(tmp_path: Path) -> 
             LsWorkerRequest(
                 request_id="ls-1",
                 workspace_root=str(workspace_root),
+                filesystem_policy=default_read_only_worker_filesystem_policy(),
                 path=".",
                 limit=500,
                 max_bytes=50 * 1024,

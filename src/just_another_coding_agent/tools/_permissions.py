@@ -6,6 +6,9 @@ from uuid import uuid4
 from just_another_coding_agent.contracts.sandbox import (
     AdditionalSandboxPermissions,
     ApprovalRequest,
+    FileSystemSandboxPolicy,
+    PermissionState,
+    derive_normalized_sandbox_policy,
     derive_requested_capabilities,
 )
 from just_another_coding_agent.tools._activity import truncate_activity_label
@@ -18,6 +21,14 @@ from just_another_coding_agent.tools.deps import WorkspaceDeps
 
 class ToolExecutionContext(Protocol):
     deps: WorkspaceDeps
+
+
+def read_only_filesystem_policy(
+    permission_state: PermissionState,
+) -> FileSystemSandboxPolicy:
+    return derive_normalized_sandbox_policy(
+        permission_state=permission_state,
+    ).filesystem
 
 
 async def maybe_request_file_write_approval(
@@ -79,4 +90,7 @@ async def maybe_request_file_write_approval(
         )
 
 
-__all__ = ["maybe_request_file_write_approval"]
+__all__ = [
+    "maybe_request_file_write_approval",
+    "read_only_filesystem_policy",
+]

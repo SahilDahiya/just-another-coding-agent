@@ -11,6 +11,9 @@ from just_another_coding_agent.tools.read_only_worker.protocol import (
 from just_another_coding_agent.tools.read_only_worker.runtime import (
     ReadOnlyWorkerRuntime,
 )
+from tests.read_only_worker_test_support import (
+    default_read_only_worker_filesystem_policy,
+)
 
 
 def _write_worker_script(tmp_path: Path, counter_path: Path) -> Path:
@@ -72,6 +75,7 @@ async def test_read_only_worker_runtime_reuses_a_single_worker_process(
             ReadWorkerRequest(
                 request_id="read-1",
                 workspace_root="/workspace",
+                filesystem_policy=default_read_only_worker_filesystem_policy(),
                 path="note.txt",
                 offset=1,
                 limit=1,
@@ -83,6 +87,7 @@ async def test_read_only_worker_runtime_reuses_a_single_worker_process(
             ReadWorkerRequest(
                 request_id="read-2",
                 workspace_root="/workspace",
+                filesystem_policy=default_read_only_worker_filesystem_policy(),
                 path="note.txt",
                 offset=1,
                 limit=1,
@@ -134,6 +139,7 @@ async def test_read_only_worker_runtime_uses_managed_tool_env(
             ReadWorkerRequest(
                 request_id="read-1",
                 workspace_root="/workspace",
+                filesystem_policy=default_read_only_worker_filesystem_policy(),
                 path="note.txt",
                 offset=1,
                 limit=1,
@@ -189,6 +195,7 @@ async def test_read_only_worker_runtime_bootstraps_rg_on_windows(
             ReadWorkerRequest(
                 request_id="read-1",
                 workspace_root="/workspace",
+                filesystem_policy=default_read_only_worker_filesystem_policy(),
                 path="note.txt",
                 offset=1,
                 limit=1,

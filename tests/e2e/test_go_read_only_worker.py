@@ -27,7 +27,10 @@ from just_another_coding_agent.tools.read_only_worker.protocol import (
     encode_worker_message,
     parse_worker_response_line,
 )
-from tests.read_only_worker_test_support import ensure_built_read_only_worker
+from tests.read_only_worker_test_support import (
+    default_read_only_worker_filesystem_policy,
+    ensure_built_read_only_worker,
+)
 
 
 def _ripgrep_is_runnable() -> bool:
@@ -140,6 +143,7 @@ def test_go_read_only_worker_handles_handshake_read_and_ls(tmp_path: Path) -> No
             ReadWorkerRequest(
                 request_id="read-1",
                 workspace_root=str(workspace_root),
+                filesystem_policy=default_read_only_worker_filesystem_policy(),
                 path="note.txt",
                 offset=2,
                 limit=1,
@@ -158,6 +162,7 @@ def test_go_read_only_worker_handles_handshake_read_and_ls(tmp_path: Path) -> No
             LsWorkerRequest(
                 request_id="ls-1",
                 workspace_root=str(workspace_root),
+                filesystem_policy=default_read_only_worker_filesystem_policy(),
                 path=".",
                 limit=500,
                 max_bytes=50 * 1024,
@@ -192,6 +197,7 @@ def test_go_read_only_worker_grep_returns_after_limit_hit(tmp_path: Path) -> Non
                 GrepWorkerRequest(
                     request_id="grep-limit",
                     workspace_root=str(workspace_root),
+                    filesystem_policy=default_read_only_worker_filesystem_policy(),
                     pattern="compaction",
                     path=".",
                     glob="**/*.py",
@@ -230,6 +236,7 @@ def test_go_read_only_worker_grep_returns_after_byte_limit_hit(
                 GrepWorkerRequest(
                     request_id="grep-byte-limit",
                     workspace_root=str(workspace_root),
+                    filesystem_policy=default_read_only_worker_filesystem_policy(),
                     pattern="needle",
                     path=".",
                     glob="**/*.py",
@@ -260,6 +267,7 @@ async def test_go_read_only_worker_rejects_binary_read_input(tmp_path: Path) -> 
                 ReadWorkerRequest(
                     request_id="read-binary-1",
                     workspace_root=str(workspace_root),
+                    filesystem_policy=default_read_only_worker_filesystem_policy(),
                     path="weights.pt",
                     max_lines=2000,
                     max_bytes=50 * 1024,

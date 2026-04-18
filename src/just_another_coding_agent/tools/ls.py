@@ -13,6 +13,9 @@ from just_another_coding_agent.tools._activity import (
     shorten_path,
     truncate_activity_label,
 )
+from just_another_coding_agent.tools._permissions import (
+    read_only_filesystem_policy,
+)
 from just_another_coding_agent.tools.deps import WorkspaceDeps
 from just_another_coding_agent.tools.read_only_worker.protocol import (
     LsCallResult,
@@ -33,6 +36,7 @@ async def _execute_ls_async(
     *,
     read_only_worker: ReadOnlyWorkerRuntime,
     workspace_root: Path | str,
+    permission_state,
     path: str | None = None,
     limit: int = LS_DEFAULT_LIMIT,
 ) -> str:
@@ -40,6 +44,7 @@ async def _execute_ls_async(
         LsWorkerRequest(
             request_id=uuid4().hex,
             workspace_root=str(workspace_root),
+            filesystem_policy=read_only_filesystem_policy(permission_state),
             path=path,
             limit=limit,
             max_bytes=LS_MAX_BYTES,
@@ -93,6 +98,7 @@ async def ls(
     result = await _execute_ls_async(
         read_only_worker=ctx.deps.read_only_worker,
         workspace_root=ctx.deps.workspace_root,
+        permission_state=ctx.deps.permission_state,
         path=path,
         limit=limit,
     )

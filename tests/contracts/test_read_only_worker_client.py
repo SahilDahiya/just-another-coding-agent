@@ -17,6 +17,9 @@ from just_another_coding_agent.tools.read_only_worker.protocol import (
     ReadCallResult,
     ReadWorkerRequest,
 )
+from tests.read_only_worker_test_support import (
+    default_read_only_worker_filesystem_policy,
+)
 
 
 def _write_worker_script(tmp_path: Path, body: str) -> Path:
@@ -68,6 +71,7 @@ for line in sys.stdin:
             ReadWorkerRequest(
                 request_id="read-1",
                 workspace_root="/workspace",
+                filesystem_policy=default_read_only_worker_filesystem_policy(),
                 path="note.txt",
                 offset=2,
                 limit=1,
@@ -120,6 +124,7 @@ for line in sys.stdin:
                 LsWorkerRequest(
                     request_id="ls-1",
                     workspace_root="/workspace",
+                    filesystem_policy=default_read_only_worker_filesystem_policy(),
                     path="src",
                     limit=500,
                     max_bytes=50 * 1024,
@@ -189,6 +194,7 @@ for line in sys.stdin:
                 ReadWorkerRequest(
                     request_id="read-1",
                     workspace_root="/workspace",
+                    filesystem_policy=default_read_only_worker_filesystem_policy(),
                     path="note.txt",
                     offset=1,
                     limit=1,
@@ -250,6 +256,7 @@ for line in sys.stdin:
             ReadWorkerRequest(
                 request_id="read-large",
                 workspace_root="/workspace",
+                filesystem_policy=default_read_only_worker_filesystem_policy(),
                 path="huge.txt",
                 offset=1,
                 limit=1,
@@ -317,6 +324,7 @@ for line in sys.stdin:
             ReadWorkerRequest(
                 request_id="read-quotes",
                 workspace_root="/workspace",
+                filesystem_policy=default_read_only_worker_filesystem_policy(),
                 path="quoted.txt",
                 offset=1,
                 limit=1,

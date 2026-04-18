@@ -9,6 +9,12 @@ from pathlib import Path
 import pytest
 
 from just_another_coding_agent.contracts.platform import detect_default_shell_family
+from just_another_coding_agent.contracts.sandbox import (
+    ApprovalPolicy,
+    FileSystemSandboxPolicy,
+    WorkspaceWriteSandboxPolicy,
+    build_permission_state,
+)
 from just_another_coding_agent.tools.deps import WorkspaceDeps
 from just_another_coding_agent.tools.read_only_worker.runtime import (
     ReadOnlyWorkerRuntime,
@@ -62,10 +68,22 @@ def read_only_worker_command() -> list[str]:
     return [str(ensure_built_read_only_worker())]
 
 
+def default_read_only_worker_filesystem_policy() -> FileSystemSandboxPolicy:
+    return FileSystemSandboxPolicy(access="workspace_write")
+
+
+def default_read_only_worker_permission_state():
+    return build_permission_state(
+        sandbox_policy=WorkspaceWriteSandboxPolicy(network_access="restricted"),
+        approval_policy=ApprovalPolicy(mode="on_escalation"),
+    )
+
+
 def workspace_deps(workspace_root: Path) -> WorkspaceDeps:
     return WorkspaceDeps(
         workspace_root=workspace_root,
         shell_family=detect_default_shell_family(),
+        permission_state=default_read_only_worker_permission_state(),
         read_only_worker=ReadOnlyWorkerRuntime(command=read_only_worker_command()),
     )
 

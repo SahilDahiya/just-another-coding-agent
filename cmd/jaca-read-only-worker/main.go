@@ -50,13 +50,14 @@ type helloResponse struct {
 
 type readRequest struct {
 	baseMessage
-	Type          string `json:"type"`
-	WorkspaceRoot string `json:"workspace_root"`
-	Path          string `json:"path"`
-	Offset        *int   `json:"offset"`
-	Limit         *int   `json:"limit"`
-	MaxLines      int    `json:"max_lines"`
-	MaxBytes      int    `json:"max_bytes"`
+	Type             string           `json:"type"`
+	WorkspaceRoot    string           `json:"workspace_root"`
+	FilesystemPolicy filesystemPolicy `json:"filesystem_policy"`
+	Path             string           `json:"path"`
+	Offset           *int             `json:"offset"`
+	Limit            *int             `json:"limit"`
+	MaxLines         int              `json:"max_lines"`
+	MaxBytes         int              `json:"max_bytes"`
 }
 
 type readResult struct {
@@ -73,11 +74,12 @@ type readResult struct {
 
 type lsRequest struct {
 	baseMessage
-	Type          string  `json:"type"`
-	WorkspaceRoot string  `json:"workspace_root"`
-	Path          *string `json:"path"`
-	Limit         int     `json:"limit"`
-	MaxBytes      int     `json:"max_bytes"`
+	Type             string           `json:"type"`
+	WorkspaceRoot    string           `json:"workspace_root"`
+	FilesystemPolicy filesystemPolicy `json:"filesystem_policy"`
+	Path             *string          `json:"path"`
+	Limit            int              `json:"limit"`
+	MaxBytes         int              `json:"max_bytes"`
 }
 
 type lsEntry struct {
@@ -96,12 +98,13 @@ type lsResult struct {
 
 type findRequest struct {
 	baseMessage
-	Type          string  `json:"type"`
-	WorkspaceRoot string  `json:"workspace_root"`
-	Pattern       string  `json:"pattern"`
-	Path          *string `json:"path"`
-	Limit         int     `json:"limit"`
-	MaxBytes      int     `json:"max_bytes"`
+	Type             string           `json:"type"`
+	WorkspaceRoot    string           `json:"workspace_root"`
+	FilesystemPolicy filesystemPolicy `json:"filesystem_policy"`
+	Pattern          string           `json:"pattern"`
+	Path             *string          `json:"path"`
+	Limit            int              `json:"limit"`
+	MaxBytes         int              `json:"max_bytes"`
 }
 
 type findResult struct {
@@ -115,16 +118,23 @@ type findResult struct {
 
 type grepRequest struct {
 	baseMessage
-	Type          string  `json:"type"`
-	WorkspaceRoot string  `json:"workspace_root"`
-	Pattern       string  `json:"pattern"`
-	Path          *string `json:"path"`
-	Glob          *string `json:"glob"`
-	IgnoreCase    bool    `json:"ignore_case"`
-	Literal       bool    `json:"literal"`
-	Limit         int     `json:"limit"`
-	MaxBytes      int     `json:"max_bytes"`
-	MaxLineChars  int     `json:"max_line_chars"`
+	Type             string           `json:"type"`
+	WorkspaceRoot    string           `json:"workspace_root"`
+	FilesystemPolicy filesystemPolicy `json:"filesystem_policy"`
+	Pattern          string           `json:"pattern"`
+	Path             *string          `json:"path"`
+	Glob             *string          `json:"glob"`
+	IgnoreCase       bool             `json:"ignore_case"`
+	Literal          bool             `json:"literal"`
+	Limit            int              `json:"limit"`
+	MaxBytes         int              `json:"max_bytes"`
+	MaxLineChars     int              `json:"max_line_chars"`
+}
+
+type filesystemPolicy struct {
+	Access          string   `json:"access"`
+	ExtraReadRoots  []string `json:"extra_read_roots"`
+	ExtraWriteRoots []string `json:"extra_write_roots"`
 }
 
 type grepMatch struct {
@@ -232,15 +242,72 @@ func normalizeWorkspaceRoot(root string) (string, error) {
 	return resolved, nil
 }
 
-func resolveWorkspacePath(workspaceRoot string, toolPath string) (string, error) {
+func normalizeFilesystemRoots(workspaceRoot string, policy filesystemPolicy) ([]string, error) {
+	root, err := normalizeWorkspaceRoot(workspaceRoot)
+	if err != nil {
+		return nil, err
+	}
+	roots := []string{root}
+	for _, candidate := range policy.ExtraReadRoots {
+		var resolved string
+		if filepath.IsAbs(candidate) {
+			resolved, err = filepath.Abs(candidate)
+		} else {
+			resolved, err = filepath.Abs(filepath.Join(root, candidate))
+		}
+		if err != nil {
+			return nil, err
+		}
+		roots = append(roots, resolved)
+	}
+	return roots, nil
+}
+
+func pathWithinRoot(root string, target string) bool {
+	rel, err := filepath.Rel(root, target)
+	if err != nil {
+		return false
+	}
+	if rel == "." {
+		return true
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+func pathWithinAllowedRoots(roots []string, target string) bool {
+	for _, root := range roots {
+		if pathWithinRoot(root, target) {
+			return true
+		}
+	}
+	return false
+}
+
+func resolveWorkspacePath(workspaceRoot string, toolPath string, policy filesystemPolicy) (string, error) {
 	root, err := normalizeWorkspaceRoot(workspaceRoot)
 	if err != nil {
 		return "", err
 	}
+	var resolvedPath string
 	if filepath.IsAbs(toolPath) {
-		return filepath.Abs(toolPath)
+		resolvedPath, err = filepath.Abs(toolPath)
+	} else {
+		resolvedPath, err = filepath.Abs(filepath.Join(root, toolPath))
 	}
-	return filepath.Abs(filepath.Join(root, toolPath))
+	if err != nil {
+		return "", err
+	}
+	if policy.Access == "full_access" {
+		return resolvedPath, nil
+	}
+	allowedRoots, err := normalizeFilesystemRoots(root, policy)
+	if err != nil {
+		return "", err
+	}
+	if !pathWithinAllowedRoots(allowedRoots, resolvedPath) {
+		return "", fmt.Errorf("path escapes allowed roots: %s", resolvedPath)
+	}
+	return resolvedPath, nil
 }
 
 func splitLinesKeepEnds(text string) []string {
@@ -290,7 +357,7 @@ func executeRead(ctx context.Context, req readRequest) (readResult, errorRespons
 			Message:     err.Error(),
 		}, false
 	}
-	path, err := resolveWorkspacePath(root, req.Path)
+	path, err := resolveWorkspacePath(root, req.Path, req.FilesystemPolicy)
 	if err != nil {
 		return readResult{}, errorResponse{
 			baseMessage: baseMessage{RequestID: req.RequestID},
@@ -404,7 +471,7 @@ func executeLS(ctx context.Context, req lsRequest) (lsResult, errorResponse, boo
 	if req.Path != nil {
 		toolPath = *req.Path
 	}
-	directory, err := resolveWorkspacePath(root, toolPath)
+	directory, err := resolveWorkspacePath(root, toolPath, req.FilesystemPolicy)
 	if err != nil {
 		return lsResult{}, errorResponse{
 			baseMessage: baseMessage{RequestID: req.RequestID},
@@ -499,7 +566,7 @@ func executeFind(ctx context.Context, req findRequest) (findResult, errorRespons
 	if req.Path != nil {
 		searchPathValue = *req.Path
 	}
-	searchPath, err := resolveWorkspacePath(root, searchPathValue)
+	searchPath, err := resolveWorkspacePath(root, searchPathValue, req.FilesystemPolicy)
 	if err != nil {
 		return findResult{}, errorResponse{
 			baseMessage: baseMessage{RequestID: req.RequestID},
@@ -654,7 +721,7 @@ func executeGrep(ctx context.Context, req grepRequest) (grepResult, errorRespons
 	if req.Path != nil {
 		searchPathValue = *req.Path
 	}
-	searchPath, err := resolveWorkspacePath(root, searchPathValue)
+	searchPath, err := resolveWorkspacePath(root, searchPathValue, req.FilesystemPolicy)
 	if err != nil {
 		return grepResult{}, errorResponse{
 			baseMessage: baseMessage{RequestID: req.RequestID},

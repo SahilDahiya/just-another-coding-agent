@@ -14,6 +14,9 @@ from just_another_coding_agent.tools._activity import (
     shorten_path,
     truncate_activity_label,
 )
+from just_another_coding_agent.tools._permissions import (
+    read_only_filesystem_policy,
+)
 from just_another_coding_agent.tools.deps import WorkspaceDeps
 from just_another_coding_agent.tools.read_only_worker.protocol import (
     GrepCallResult,
@@ -38,6 +41,7 @@ async def _execute_grep_async(
     *,
     read_only_worker: ReadOnlyWorkerRuntime,
     workspace_root: Path | str,
+    permission_state,
     pattern: str,
     path: str | None = None,
     glob: str | None = None,
@@ -49,6 +53,7 @@ async def _execute_grep_async(
         GrepWorkerRequest(
             request_id=uuid4().hex,
             workspace_root=str(workspace_root),
+            filesystem_policy=read_only_filesystem_policy(permission_state),
             pattern=pattern,
             path=path,
             glob=glob,
@@ -126,6 +131,7 @@ async def grep(
     result = await _execute_grep_async(
         read_only_worker=ctx.deps.read_only_worker,
         workspace_root=ctx.deps.workspace_root,
+        permission_state=ctx.deps.permission_state,
         pattern=pattern,
         path=path,
         glob=glob,

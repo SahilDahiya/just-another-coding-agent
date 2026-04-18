@@ -247,6 +247,10 @@ Approval carrier rules:
   - executor backends consume normalized filesystem/network policy derived from
     the selected permission state plus any approved per-command permission
     deltas
+  - `read`, `ls`, `find`, and `grep` now send the same normalized filesystem
+    policy through the internal Go read-only worker, which enforces the
+    workspace root plus any approved extra read roots as the canonical
+    read-side boundary
   - under `workspace_write`, restricted shell execution defaults to
     `--network none`
   - `approval_policy=on_escalation` may request approval for explicit
@@ -261,18 +265,16 @@ Approval carrier rules:
   - `danger_full_access` continues to use the host executor
   - `external` remains unsupported unless the caller provides an externally
     managed executor
-- effective capability reporting remains conservative until the rest of the
-  tool surface is aligned with the same boundary model:
-  - live effective filesystem, network, and execution-isolation posture may
-    still report the truthful host values (`full_access`, `enabled`,
-    `unsandboxed`) even when `shell` is already sandboxed under the selected
-    policy
-  - current conservative reporting also covers the fact that read-only tools
-    and in-workspace file operations have not yet been moved under the same
-    explicit boundary model
-  - effective approval posture reflects the live approval policy because both
-    `approval_policy=always` and the restricted shell executor already change
-    `shell` execution behavior
+- live effective capability reporting is derived from the selected sandbox and
+  approval policy, with explicit runtime-context notes where implementation
+  details still matter:
+  - runtime framing now tells the model that sandboxed `shell` sees the
+    workspace at `/workspace`, so workspace-relative paths are the canonical
+    sandbox-safe form
+  - write-side behavior is still narrower than a fully normalized filesystem
+    sandbox: `write` and `edit` remain host-backed for in-workspace paths, and
+    only request approval when a call needs explicit extra write roots outside
+    the workspace
 
 ## Tool Contract
 

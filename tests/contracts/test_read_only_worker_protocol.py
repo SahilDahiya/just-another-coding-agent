@@ -34,6 +34,9 @@ from just_another_coding_agent.tools.read_only_worker.protocol import (
     parse_worker_response_line,
     worker_error_to_exception,
 )
+from tests.read_only_worker_test_support import (
+    default_read_only_worker_filesystem_policy,
+)
 
 
 def test_read_only_worker_request_round_trip_supports_handshake_and_calls() -> None:
@@ -48,6 +51,7 @@ def test_read_only_worker_request_round_trip_supports_handshake_and_calls() -> N
             ReadWorkerRequest(
                 request_id="read-1",
                 workspace_root="/workspace",
+                filesystem_policy=default_read_only_worker_filesystem_policy(),
                 path="src/app.py",
                 offset=10,
                 limit=20,
@@ -66,6 +70,7 @@ def test_read_only_worker_request_round_trip_supports_handshake_and_calls() -> N
             GrepWorkerRequest(
                 request_id="grep-1",
                 workspace_root="/workspace",
+                filesystem_policy=default_read_only_worker_filesystem_policy(),
                 pattern="TODO",
                 path="src",
                 glob="*.py",
@@ -239,6 +244,7 @@ def test_read_only_worker_unions_accept_all_supported_operations() -> None:
     request: WorkerRequest = FindWorkerRequest(
         request_id="find-1",
         workspace_root="/workspace",
+        filesystem_policy=default_read_only_worker_filesystem_policy(),
         pattern="*.py",
         path="src",
         limit=1000,
@@ -249,6 +255,7 @@ def test_read_only_worker_unions_accept_all_supported_operations() -> None:
     ls_request: WorkerRequest = LsWorkerRequest(
         request_id="ls-1",
         workspace_root="/workspace",
+        filesystem_policy=default_read_only_worker_filesystem_policy(),
         path="src",
         limit=500,
         max_bytes=50 * 1024,

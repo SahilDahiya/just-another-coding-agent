@@ -2,6 +2,11 @@ from __future__ import annotations
 
 import pytest
 
+from just_another_coding_agent.contracts.sandbox import (
+    ApprovalPolicy,
+    DangerFullAccessSandboxPolicy,
+    build_permission_state,
+)
 from just_another_coding_agent.tools.errors import (
     ToolEncodingError,
     ToolOperationalError,
@@ -127,6 +132,27 @@ async def test_read_tool_allows_relative_path_that_resolves_outside_workspace(
     tmp_path,
 ) -> None:
     ctx = worker_ctx(tmp_path)
+    outside = tmp_path / "outside.txt"
+    outside.write_text("secret", encoding="utf-8")
+
+    try:
+        with pytest.raises(ToolPathError, match="path escapes allowed roots"):
+            await read(ctx, "../outside.txt")
+    finally:
+        await ctx.deps.read_only_worker.close()
+
+
+@go_worker_required
+async def test_read_tool_allows_outside_workspace_paths_in_full_access_mode(
+    tmp_path,
+) -> None:
+    ctx = worker_ctx(
+        tmp_path,
+        permission_state=build_permission_state(
+            sandbox_policy=DangerFullAccessSandboxPolicy(network_access="enabled"),
+            approval_policy=ApprovalPolicy(mode="never"),
+        ),
+    )
     outside = tmp_path / "outside.txt"
     outside.write_text("secret", encoding="utf-8")
 
