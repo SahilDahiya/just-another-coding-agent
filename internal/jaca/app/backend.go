@@ -14,6 +14,8 @@ type Backend interface {
 	Interrupt(ctx context.Context) error
 	InterruptRun(ctx context.Context, sessionID string, promoteQueuedSteer bool) (rpc.RunInterruptResponse, error)
 	CreateSession(ctx context.Context) (rpc.SessionCreateResponse, error)
+	WorkspaceTrustStatus(ctx context.Context) (rpc.WorkspaceTrustStatusResponse, error)
+	AcceptWorkspaceTrust(ctx context.Context) (rpc.WorkspaceTrustAcceptResponse, error)
 	SetSessionName(ctx context.Context, sessionID string, name string) (rpc.SessionNameResponse, error)
 	SessionPreview(ctx context.Context, sessionID string) (rpc.SessionPreviewResponse, error)
 	CompactSession(ctx context.Context, sessionID string) (rpc.SessionCompactResponse, error)

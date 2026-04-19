@@ -320,6 +320,7 @@ def build_prompt_context_layers(
     baseline_decision: "TurnContextBaselineDecision | None" = None,
     model: Any,
     workspace_root: Path | str,
+    project_docs_root: Path | str | None = None,
     current_date: date | None = None,
     shell_family: "ShellFamily | None" = None,
     timezone: str | None = None,
@@ -333,7 +334,7 @@ def build_prompt_context_layers(
     )
 
     _, project_messages = build_project_doc_prefix_messages(
-        workspace_root,
+        project_docs_root if project_docs_root is not None else workspace_root,
         total_byte_budget=project_doc_total_byte_budget,
     )
     runtime_plan = build_runtime_context_injection_plan(

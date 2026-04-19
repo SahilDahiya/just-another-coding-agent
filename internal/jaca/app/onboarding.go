@@ -13,6 +13,9 @@ func (m *model) maybeStartOnboarding() tea.Cmd {
 	if m.startupOnboardingSet || m.onboarding.Active || m.auth.Active || m.streaming {
 		return nil
 	}
+	if m.workspaceTrust == nil || !m.workspaceTrust.Trusted {
+		return nil
+	}
 	if strings.TrimSpace(m.textInput.Value()) != "" {
 		return nil
 	}

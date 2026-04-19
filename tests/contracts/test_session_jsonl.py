@@ -82,6 +82,30 @@ def test_append_and_load_session_project_docs_entry(tmp_path) -> None:
     assert [doc.short_path for doc in loaded.project_docs.documents] == ["AGENTS.md"]
 
 
+def test_append_project_docs_can_load_from_repo_root(tmp_path) -> None:
+    path = tmp_path / "session.jsonl"
+    workspace_root = tmp_path / "repo" / "nested"
+    workspace_root.mkdir(parents=True)
+    project_docs_root = workspace_root.parent
+    (project_docs_root / "AGENTS.md").write_text(
+        "repo root instructions\n",
+        encoding="utf-8",
+    )
+
+    initialize_session(path=path, workspace_root=workspace_root)
+    entry = append_project_docs_to_session(
+        path=path,
+        workspace_root=workspace_root,
+        project_docs_root=project_docs_root,
+    )
+
+    assert entry is not None
+    assert [doc.short_path for doc in entry.documents] == ["AGENTS.md"]
+    loaded = load_session(path=path, workspace_root=workspace_root)
+    assert loaded.project_docs is not None
+    assert [doc.short_path for doc in loaded.project_docs.documents] == ["AGENTS.md"]
+
+
 def test_session_run_appender_close_is_idempotent_and_preserves_incomplete_run(
     tmp_path,
 ) -> None:

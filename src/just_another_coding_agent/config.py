@@ -9,16 +9,23 @@ from pathlib import Path
 
 from just_another_coding_agent.contracts.model_catalog import default_model_for_provider
 
-CONFIG_DIR = Path.home() / ".jaca"
-CONFIG_PATH = CONFIG_DIR / "config.json"
 DEFAULT_MODEL = default_model_for_provider("openai")
 
 
+def _config_dir() -> Path:
+    return Path.home() / ".jaca"
+
+
+def _config_path() -> Path:
+    return _config_dir() / "config.json"
+
+
 def load_config() -> dict[str, str]:
-    if not CONFIG_PATH.exists():
+    config_path = _config_path()
+    if not config_path.exists():
         return {}
     try:
-        return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+        return json.loads(config_path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return {}
 
@@ -62,10 +69,26 @@ def resolve_default_model(config: dict[str, str]) -> str:
     if saved_model:
         return saved_model
     return DEFAULT_MODEL
+
+
+def save_config(config: Mapping[str, str]) -> None:
+    config_dir = _config_dir()
+    config_path = _config_path()
+    config_dir.mkdir(parents=True, exist_ok=True)
+    payload = dict(config)
+    temp_path = config_path.with_suffix(".tmp")
+    temp_path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    temp_path.replace(config_path)
+
+
 __all__ = [
     "apply_config_to_env",
     "apply_trace_mode_to_env",
     "DEFAULT_MODEL",
     "load_config",
     "resolve_default_model",
+    "save_config",
 ]

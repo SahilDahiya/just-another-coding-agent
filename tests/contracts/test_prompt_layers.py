@@ -119,3 +119,32 @@ def test_prompt_context_layers_keep_runtime_diff_after_history(tmp_path) -> None
     assert _message_texts(layers.after_history_messages) == _message_texts(
         expected_runtime_plan.after_history_messages
     )
+
+
+def test_prompt_context_layers_can_load_project_docs_from_trusted_repo_root(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "repo" / "nested"
+    workspace_root.mkdir(parents=True)
+    project_docs_root = workspace_root.parent
+    (project_docs_root / "AGENTS.md").write_text(
+        "repo root instructions\n",
+        encoding="utf-8",
+    )
+    model = "openai-responses:gpt-5.3-codex"
+
+    layers = build_prompt_context_layers(
+        baseline_decision=None,
+        model=model,
+        workspace_root=workspace_root,
+        project_docs_root=project_docs_root,
+        current_date=date(2026, 4, 10),
+        shell_family="posix",
+        timezone="America/Los_Angeles",
+        thinking="medium",
+    )
+
+    assert _message_texts(layers.project_messages) == [
+        "Project instructions for this workspace from AGENTS.md:\n\n"
+        "<INSTRUCTIONS>\nrepo root instructions\n\n</INSTRUCTIONS>"
+    ]

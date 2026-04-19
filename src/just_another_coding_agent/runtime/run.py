@@ -90,6 +90,9 @@ from just_another_coding_agent.runtime.spans import (
 from just_another_coding_agent.runtime.transcript_summary import (
     build_run_transcript_summary,
 )
+from just_another_coding_agent.runtime.workspace_trust import (
+    resolve_workspace_trust_target,
+)
 from just_another_coding_agent.session.replacement_history import (
     build_in_run_truncated_history,
     reconcile_synthetic_prompt_counts,
@@ -569,6 +572,9 @@ def _attempt_in_run_compaction(
             prompt_context = build_prompt_context_layers(
                 model=compact_model,
                 workspace_root=deps.workspace_root,
+                project_docs_root=resolve_workspace_trust_target(
+                    deps.workspace_root
+                ),
                 shell_family=deps.shell_family,
                 current_date=(run_frame.current_date if run_frame else None),
                 timezone=(run_frame.timezone if run_frame else None),

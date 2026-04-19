@@ -20,6 +20,9 @@ from just_another_coding_agent.runtime.prompt_layers import (
     build_base_product_prompt,
     build_prompt_context_layers,
 )
+from just_another_coding_agent.runtime.workspace_trust import (
+    resolve_workspace_trust_target,
+)
 from just_another_coding_agent.session.replacement_history import (
     strip_internal_prompt_state,
     strip_unpaired_tool_parts,
@@ -252,6 +255,7 @@ def _build_ephemeral_subagent_message_history(
         baseline_decision=None,
         model=model,
         workspace_root=workspace_root,
+        project_docs_root=resolve_workspace_trust_target(workspace_root),
         current_date=current_date,
         shell_family=shell_family,
         timezone=timezone,

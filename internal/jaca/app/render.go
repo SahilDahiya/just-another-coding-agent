@@ -85,11 +85,21 @@ type viewModel struct {
 	DetachedLive        bool
 	VisibleZones        int
 	SlashMenu           slashMenuState
+	Trust               trustOverlayView
 	Update              updateOverlayView
 	Onboarding          onboardingOverlayView
 	Auth                authOverlayView
 	Login               loginOverlayView
 	Approval            approvalPromptView
+}
+
+type trustOverlayView struct {
+	Active      bool
+	Title       string
+	BodyLines   []string
+	Selected    int
+	OptionLines []string
+	HelpLines   []string
 }
 
 type updateOverlayView struct {
@@ -137,6 +147,9 @@ type approvalPromptView struct {
 }
 
 func renderView(vm viewModel) string {
+	if vm.Trust.Active {
+		return renderTrustOverlay(vm)
+	}
 	if vm.Update.Active {
 		return renderUpdateOverlay(vm)
 	}
@@ -158,6 +171,76 @@ func renderView(vm viewModel) string {
 		prompt = renderPrompt(vm)
 	}
 	return lipgloss.JoinVertical(lipgloss.Left, transcript, prompt)
+}
+
+func renderTrustOverlay(vm viewModel) string {
+	panelWidth := 68
+	if vm.Width > 0 {
+		panelWidth = min(76, max(52, vm.Width-8))
+	}
+	title := lipgloss.NewStyle().
+		Foreground(defaultTheme.accentSoft).
+		Bold(true).
+		Render(vm.Trust.Title)
+	bodyLines := make([]string, 0, len(vm.Trust.BodyLines))
+	for _, line := range vm.Trust.BodyLines {
+		bodyLines = append(
+			bodyLines,
+			lipgloss.NewStyle().Foreground(defaultTheme.textSoft).Render(line),
+		)
+	}
+	rows := make([]string, 0, len(vm.Trust.OptionLines))
+	for i, line := range vm.Trust.OptionLines {
+		prefix := " "
+		style := lipgloss.NewStyle().Foreground(defaultTheme.textMuted)
+		if i == vm.Trust.Selected {
+			prefix = ">"
+			style = lipgloss.NewStyle().Foreground(defaultTheme.accentSoft)
+		}
+		rows = append(
+			rows,
+			lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render(prefix)+" "+style.Render(line),
+		)
+	}
+	helpLines := make([]string, 0, len(vm.Trust.HelpLines))
+	for _, line := range vm.Trust.HelpLines {
+		helpLines = append(
+			helpLines,
+			lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render(line),
+		)
+	}
+	panel := lipgloss.NewStyle().
+		Width(panelWidth).
+		Padding(1, 2).
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(defaultTheme.border).
+		Render(lipgloss.JoinVertical(
+			lipgloss.Left,
+			title,
+			"",
+			lipgloss.JoinVertical(lipgloss.Left, bodyLines...),
+			"",
+			lipgloss.JoinVertical(lipgloss.Left, rows...),
+			"",
+			lipgloss.JoinVertical(lipgloss.Left, helpLines...),
+		))
+	width := vm.Width
+	if width <= 0 {
+		width = panelWidth + 8
+	}
+	height := vm.Height
+	if height <= 0 {
+		height = max(16, lipgloss.Height(panel)+6)
+	}
+	return lipgloss.Place(
+		width,
+		height,
+		lipgloss.Center,
+		lipgloss.Center,
+		panel,
+		lipgloss.WithWhitespaceChars(" "),
+		lipgloss.WithWhitespaceForeground(defaultTheme.background),
+	)
 }
 
 func renderUpdateOverlay(vm viewModel) string {

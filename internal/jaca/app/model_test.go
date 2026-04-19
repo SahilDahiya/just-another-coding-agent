@@ -28,6 +28,7 @@ type stubBackend struct {
 	oauthStatuses        map[string]rpc.OAuthProviderStatus
 	logfireStatus        rpc.TraceLogfireStatusResponse
 	permissionState      rpc.PermissionState
+	workspaceTrust       rpc.WorkspaceTrustStatusResponse
 	oauthWaitDone        bool
 	oauthWaitDoneFn      func() bool
 	waitOpenAICodexFn    func(context.Context, string) (rpc.AuthLoginOpenAICodexWaitResponse, error)
@@ -81,6 +82,10 @@ func newStubBackend() *stubBackend {
 				ApprovalMode:       "never",
 			},
 		},
+		workspaceTrust: rpc.WorkspaceTrustStatusResponse{
+			Trusted:     true,
+			TrustTarget: "/tmp/project",
+		},
 	}
 }
 
@@ -112,6 +117,16 @@ func (b *stubBackend) CreateSession(_ context.Context) (rpc.SessionCreateRespons
 		ProjectDocs: []rpc.WorkspaceProjectDoc{
 			{Filename: "AGENTS.md"},
 		},
+	}, nil
+}
+func (b *stubBackend) WorkspaceTrustStatus(_ context.Context) (rpc.WorkspaceTrustStatusResponse, error) {
+	return b.workspaceTrust, nil
+}
+func (b *stubBackend) AcceptWorkspaceTrust(_ context.Context) (rpc.WorkspaceTrustAcceptResponse, error) {
+	b.workspaceTrust.Trusted = true
+	return rpc.WorkspaceTrustAcceptResponse{
+		Trusted:     true,
+		TrustTarget: b.workspaceTrust.TrustTarget,
 	}, nil
 }
 func (b *stubBackend) CompactSession(_ context.Context, _ string) (rpc.SessionCompactResponse, error) {
@@ -437,6 +452,10 @@ func newTestModel() *model {
 	m.visibleZones = 3
 	m.asyncCh = make(chan tea.Msg)
 	m.modelCatalog = testModelCatalog()
+	m.workspaceTrust = &rpc.WorkspaceTrustStatusResponse{
+		Trusted:     true,
+		TrustTarget: "/workspace",
+	}
 	m.startupOnboardingSet = false
 	m.onboarding = onboardingState{}
 	return m
@@ -468,6 +487,10 @@ func newTestModelWithAvailableUpdate(latestVersion string, command ...string) *m
 	m.visibleZones = 3
 	m.asyncCh = make(chan tea.Msg)
 	m.modelCatalog = testModelCatalog()
+	m.workspaceTrust = &rpc.WorkspaceTrustStatusResponse{
+		Trusted:     true,
+		TrustTarget: "/workspace",
+	}
 	m.startupOnboardingSet = false
 	m.onboarding = onboardingState{}
 	return m
@@ -737,7 +760,7 @@ func TestPermissionSlashUpdatesBackendPolicy(t *testing.T) {
 		"permission state updated",
 		"permission: default",
 		"effective capabilities: filesystem=workspace_write network=restricted isolation=sandboxed approval=on_escalation",
-		"default currently guarantees sandboxed shell execution and approval-backed read-side boundary widening; write-side tools still use backend file operations with scoped approval for outside-workspace paths",
+		"default currently guarantees unrestricted read-side filesystem access, sandboxed shell execution with approval-backed network and explicit outside-workspace filesystem widening, and write-side backend file operations with scoped approval for outside-workspace paths",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("permission render missing %q in %q", want, rendered)
@@ -775,7 +798,7 @@ func TestPermissionSlashUpdatesWorkspaceDefaultPolicyWithoutSession(t *testing.T
 		"permission state updated",
 		"permission: default",
 		"effective capabilities: filesystem=workspace_write network=restricted isolation=sandboxed approval=on_escalation",
-		"default currently guarantees sandboxed shell execution and approval-backed read-side boundary widening; write-side tools still use backend file operations with scoped approval for outside-workspace paths",
+		"default currently guarantees unrestricted read-side filesystem access, sandboxed shell execution with approval-backed network and explicit outside-workspace filesystem widening, and write-side backend file operations with scoped approval for outside-workspace paths",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("permission render missing %q in %q", want, rendered)
@@ -2156,6 +2179,85 @@ func TestStartupAuthStatusShowsFirstRunOnboarding(t *testing.T) {
 	}
 	if got := m.currentPromptFooter(); got != "" {
 		t.Fatalf("currentPromptFooter() = %q, want empty while chooser is active", got)
+	}
+}
+
+func TestWorkspaceTrustPromptOpensBeforeOnboarding(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	backend := newStubBackend()
+	backend.workspaceTrust = rpc.WorkspaceTrustStatusResponse{
+		Trusted:     false,
+		TrustTarget: "/workspace",
+	}
+	status, err := backend.AuthStatus(context.Background())
+	if err != nil {
+		t.Fatalf("AuthStatus() returned error: %v", err)
+	}
+
+	m := newTestModelWithBackend(backend)
+	m.workspaceTrust = nil
+	m.authStatus = &status
+
+	updated, _ := m.Update(workspaceTrustLoadedMsg{Status: backend.workspaceTrust})
+	m = updated.(*model)
+
+	rendered := stripANSI(m.View())
+	for _, want := range []string{
+		"Trust This Directory?",
+		"You are in /workspace",
+		"1. Yes, continue",
+		"2. No, quit",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("trust overlay missing %q in %q", want, rendered)
+		}
+	}
+	if !m.trust.Active {
+		t.Fatal("trust overlay should be active")
+	}
+	if m.onboarding.Active {
+		t.Fatal("onboarding should stay blocked until trust is accepted")
+	}
+}
+
+func TestAcceptingWorkspaceTrustStartsOnboarding(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	backend := newStubBackend()
+	status, err := backend.AuthStatus(context.Background())
+	if err != nil {
+		t.Fatalf("AuthStatus() returned error: %v", err)
+	}
+
+	m := newTestModelWithBackend(backend)
+	m.workspaceTrust = nil
+	m.authStatus = &status
+	m.trust = trustState{
+		Active:      true,
+		TrustTarget: "/workspace",
+	}
+
+	updated, _ := m.Update(workspaceTrustLoadedMsg{
+		Status: rpc.WorkspaceTrustStatusResponse{
+			Trusted:     true,
+			TrustTarget: "/workspace",
+		},
+		Updated: true,
+	})
+	m = updated.(*model)
+
+	if m.trust.Active {
+		t.Fatal("trust overlay should close after accepting trust")
+	}
+	if !m.onboarding.Active {
+		t.Fatal("onboarding should open after trust is accepted")
+	}
+	rendered := stripANSI(m.transcript.Render())
+	if !strings.Contains(rendered, "trusted workspace: /workspace") {
+		t.Fatalf("trust acceptance note missing in %q", rendered)
 	}
 }
 

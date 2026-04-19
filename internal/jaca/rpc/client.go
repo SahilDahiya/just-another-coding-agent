@@ -148,6 +148,26 @@ func (m *Manager) WorkspaceProjectDocs(ctx context.Context) (WorkspaceProjectDoc
 	return client.WorkspaceProjectDocs(ctx)
 }
 
+func (m *Manager) WorkspaceTrustStatus(ctx context.Context) (WorkspaceTrustStatusResponse, error) {
+	m.mu.Lock()
+	client, err := m.ensureStartedLocked()
+	m.mu.Unlock()
+	if err != nil {
+		return WorkspaceTrustStatusResponse{}, err
+	}
+	return client.WorkspaceTrustStatus(ctx)
+}
+
+func (m *Manager) AcceptWorkspaceTrust(ctx context.Context) (WorkspaceTrustAcceptResponse, error) {
+	m.mu.Lock()
+	client, err := m.ensureStartedLocked()
+	m.mu.Unlock()
+	if err != nil {
+		return WorkspaceTrustAcceptResponse{}, err
+	}
+	return client.AcceptWorkspaceTrust(ctx)
+}
+
 func (m *Manager) CompactSession(ctx context.Context, sessionID string) (SessionCompactResponse, error) {
 	m.mu.Lock()
 	client, err := m.ensureStartedLocked()
@@ -709,6 +729,76 @@ func (c *Client) WorkspaceProjectDocs(ctx context.Context) (WorkspaceProjectDocs
 		return WorkspaceProjectDocsResponse{}, fmt.Errorf("%s: %s", envelope.ErrorType, envelope.Message)
 	default:
 		return WorkspaceProjectDocsResponse{}, fmt.Errorf("unexpected envelope for workspace.project_docs: %T", line)
+	}
+}
+
+func (c *Client) WorkspaceTrustStatus(ctx context.Context) (WorkspaceTrustStatusResponse, error) {
+	requestID := c.nextRequestID()
+	waiter, cleanup, err := c.registerWaiter(requestID)
+	if err != nil {
+		return WorkspaceTrustStatusResponse{}, err
+	}
+	defer cleanup()
+	c.writeMu.Lock()
+	if err := c.writeRequest(Request{
+		ID:      requestID,
+		Command: "workspace.trust_status",
+		Payload: WorkspaceTrustStatusPayload{},
+	}); err != nil {
+		c.writeMu.Unlock()
+		return WorkspaceTrustStatusResponse{}, err
+	}
+	c.writeMu.Unlock()
+	line, err := c.awaitEnvelope(ctx, waiter)
+	if err != nil {
+		return WorkspaceTrustStatusResponse{}, err
+	}
+	switch envelope := line.(type) {
+	case ResponseEnvelope:
+		var response WorkspaceTrustStatusResponse
+		if err := json.Unmarshal(envelope.Response, &response); err != nil {
+			return WorkspaceTrustStatusResponse{}, err
+		}
+		return response, nil
+	case ErrorEnvelope:
+		return WorkspaceTrustStatusResponse{}, fmt.Errorf("%s: %s", envelope.ErrorType, envelope.Message)
+	default:
+		return WorkspaceTrustStatusResponse{}, fmt.Errorf("unexpected envelope for workspace.trust_status: %T", line)
+	}
+}
+
+func (c *Client) AcceptWorkspaceTrust(ctx context.Context) (WorkspaceTrustAcceptResponse, error) {
+	requestID := c.nextRequestID()
+	waiter, cleanup, err := c.registerWaiter(requestID)
+	if err != nil {
+		return WorkspaceTrustAcceptResponse{}, err
+	}
+	defer cleanup()
+	c.writeMu.Lock()
+	if err := c.writeRequest(Request{
+		ID:      requestID,
+		Command: "workspace.trust_accept",
+		Payload: WorkspaceTrustAcceptPayload{},
+	}); err != nil {
+		c.writeMu.Unlock()
+		return WorkspaceTrustAcceptResponse{}, err
+	}
+	c.writeMu.Unlock()
+	line, err := c.awaitEnvelope(ctx, waiter)
+	if err != nil {
+		return WorkspaceTrustAcceptResponse{}, err
+	}
+	switch envelope := line.(type) {
+	case ResponseEnvelope:
+		var response WorkspaceTrustAcceptResponse
+		if err := json.Unmarshal(envelope.Response, &response); err != nil {
+			return WorkspaceTrustAcceptResponse{}, err
+		}
+		return response, nil
+	case ErrorEnvelope:
+		return WorkspaceTrustAcceptResponse{}, fmt.Errorf("%s: %s", envelope.ErrorType, envelope.Message)
+	default:
+		return WorkspaceTrustAcceptResponse{}, fmt.Errorf("unexpected envelope for workspace.trust_accept: %T", line)
 	}
 }
 

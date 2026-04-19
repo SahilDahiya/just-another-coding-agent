@@ -264,22 +264,28 @@ Approval carrier rules:
     the selected permission state plus any approved per-command permission
     deltas
   - `read`, `ls`, `find`, and `grep` now send the same normalized filesystem
-    policy through the internal Go read-only worker, which enforces the
-    workspace root plus any approved extra read roots as the canonical
-    read-side boundary
-  - under `workspace_write`, `read`, `ls`, `find`, and `grep` request
-    approval before accessing outside-workspace paths; approved requests widen
-    the worker boundary via explicit `requested_permissions.extra_read_roots`
-    deltas instead of requiring a mode flip to `danger_full_access`
-  - approved read/write roots are remembered for the current session so
-    repeated access inside the same outside-workspace root does not prompt
-    again until the session ends or the selected permission preset changes
+    policy through the internal Go read-only worker
+  - under `workspace_write`, the read-side worker has unrestricted read access
+    to the local filesystem; outside-workspace reads do not require approval
+  - scoped `extra_read_roots` remain available for stricter modes and future
+    policy tightening, but the current `default` preset intentionally mirrors
+    Codex-style "read anywhere, write in workspace" behavior for structured
+    read tools
+  - approved write roots are remembered for the current session so repeated
+    outside-workspace writes under the same root do not prompt again until the
+    session ends or the selected permission preset changes
   - under `workspace_write`, restricted shell execution defaults to
     `--network none`
   - `approval_policy=on_escalation` may request approval for explicit
     network-seeking shell commands; when approved, the restricted Docker
     backend reruns that command with `requested_permissions.network_access`
     widened to `enabled` while preserving the workspace-bound sandbox posture
+  - `approval_policy=on_escalation` may also request approval for explicit
+    outside-workspace shell paths; when approved, the restricted Docker
+    backend reruns that command with scoped extra bind mounts derived from
+    `requested_permissions.extra_read_roots` and
+    `requested_permissions.extra_write_roots` instead of forcing a mode flip
+    to `danger_full_access`
   - `write` and `edit` request approval before modifying paths outside the
     workspace when `approval_policy=on_escalation` and the selected sandbox
     policy is `workspace_write`; those approval requests use explicit
@@ -950,6 +956,7 @@ Ordering rules for the RPC slice:
   the stored local secret for that provider from the explicit local auth file
 - A valid `session.create` request yields exactly one `rpc_response` containing a server-generated opaque `session_id`
 - `session.create` may also append one backend-owned `session_project_docs` entry when workspace project docs were loaded for that new session
+- When workspace trust is keyed to a repo root, `session.create` and `workspace.project_docs` must load project docs from that trusted project root while preserving the actual session workspace root as the cwd-authoritative root
 - A valid `session.name` request must reference an existing `session_id`, append one backend-normalized `session_info` entry when the requested name changes, enforce workspace-local name uniqueness, and yield exactly one `rpc_response` containing that normalized session name
 - A valid `session.preview` request must reference an existing `session_id` and yields exactly one `rpc_response` containing a bounded recent-history preview derived from durable session runs plus any persisted `session_project_docs` disclosure; it is a presentation helper and does not change resume authority
 - Session preview may include `activity` entries derived from persisted

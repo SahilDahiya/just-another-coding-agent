@@ -251,6 +251,26 @@ class WorkspaceProjectDocsRequest(_RpcModel):
     payload: WorkspaceProjectDocsPayload
 
 
+class WorkspaceTrustStatusPayload(_RpcModel):
+    pass
+
+
+class WorkspaceTrustStatusRequest(_RpcModel):
+    id: str
+    command: Literal["workspace.trust_status"]
+    payload: WorkspaceTrustStatusPayload
+
+
+class WorkspaceTrustAcceptPayload(_RpcModel):
+    pass
+
+
+class WorkspaceTrustAcceptRequest(_RpcModel):
+    id: str
+    command: Literal["workspace.trust_accept"]
+    payload: WorkspaceTrustAcceptPayload
+
+
 RpcRequest = Annotated[
     SessionCreateRequest
     | SessionCompactRequest
@@ -271,7 +291,9 @@ RpcRequest = Annotated[
     | PermissionGetRequest
     | PermissionSetRequest
     | ApprovalSubmitRequest
-    | WorkspaceProjectDocsRequest,
+    | WorkspaceProjectDocsRequest
+    | WorkspaceTrustStatusRequest
+    | WorkspaceTrustAcceptRequest,
     Field(discriminator="command"),
 ]
 
@@ -383,6 +405,16 @@ class WorkspaceProjectDocsResponse(_RpcModel):
     documents: list[WorkspaceProjectDoc]
 
 
+class WorkspaceTrustStatusResponse(_RpcModel):
+    trusted: bool
+    trust_target: str
+
+
+class WorkspaceTrustAcceptResponse(_RpcModel):
+    trusted: bool
+    trust_target: str
+
+
 class RpcResponseEnvelope(_RpcModel):
     type: Literal["rpc_response"] = "rpc_response"
     id: str
@@ -407,6 +439,8 @@ class RpcResponseEnvelope(_RpcModel):
         | PermissionSetResponse
         | ApprovalSubmitResponse
         | WorkspaceProjectDocsResponse
+        | WorkspaceTrustStatusResponse
+        | WorkspaceTrustAcceptResponse
     )
 
 
@@ -491,6 +525,12 @@ __all__ = [
     "WorkspaceProjectDocsPayload",
     "WorkspaceProjectDocsRequest",
     "WorkspaceProjectDocsResponse",
+    "WorkspaceTrustAcceptPayload",
+    "WorkspaceTrustAcceptRequest",
+    "WorkspaceTrustAcceptResponse",
+    "WorkspaceTrustStatusPayload",
+    "WorkspaceTrustStatusRequest",
+    "WorkspaceTrustStatusResponse",
     "SessionCreatePayload",
     "SessionCreateRequest",
     "SessionCreateResponse",
