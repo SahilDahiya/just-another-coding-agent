@@ -228,7 +228,7 @@ func (w *worker) cancelRequest(requestID string) {
 }
 
 func normalizeWorkspaceRoot(root string) (string, error) {
-	resolved, err := filepath.Abs(root)
+	resolved, err := canonicalizeExistingPath(root)
 	if err != nil {
 		return "", err
 	}
@@ -242,6 +242,18 @@ func normalizeWorkspaceRoot(root string) (string, error) {
 	return resolved, nil
 }
 
+func canonicalizeExistingPath(path string) (string, error) {
+	resolved, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	resolved, err = filepath.EvalSymlinks(resolved)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Clean(resolved), nil
+}
+
 func normalizeFilesystemRoots(workspaceRoot string, policy filesystemPolicy) ([]string, error) {
 	root, err := normalizeWorkspaceRoot(workspaceRoot)
 	if err != nil {
@@ -251,9 +263,9 @@ func normalizeFilesystemRoots(workspaceRoot string, policy filesystemPolicy) ([]
 	for _, candidate := range policy.ExtraReadRoots {
 		var resolved string
 		if filepath.IsAbs(candidate) {
-			resolved, err = filepath.Abs(candidate)
+			resolved, err = canonicalizeExistingPath(candidate)
 		} else {
-			resolved, err = filepath.Abs(filepath.Join(root, candidate))
+			resolved, err = canonicalizeExistingPath(filepath.Join(root, candidate))
 		}
 		if err != nil {
 			return nil, err
@@ -290,9 +302,9 @@ func resolveWorkspacePath(workspaceRoot string, toolPath string, policy filesyst
 	}
 	var resolvedPath string
 	if filepath.IsAbs(toolPath) {
-		resolvedPath, err = filepath.Abs(toolPath)
+		resolvedPath, err = canonicalizeExistingPath(toolPath)
 	} else {
-		resolvedPath, err = filepath.Abs(filepath.Join(root, toolPath))
+		resolvedPath, err = canonicalizeExistingPath(filepath.Join(root, toolPath))
 	}
 	if err != nil {
 		return "", err

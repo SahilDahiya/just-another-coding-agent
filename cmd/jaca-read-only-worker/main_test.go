@@ -247,11 +247,18 @@ func TestResolveWorkspacePath(t *testing.T) {
 	workspacePolicy := filesystemPolicy{Access: "workspace_write"}
 
 	t.Run("relative path joins with root", func(t *testing.T) {
+		target := filepath.Join(dir, "src", "main.go")
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(target, []byte("package main\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
 		result, err := resolveWorkspacePath(dir, "src/main.go", workspacePolicy)
 		if err != nil {
 			t.Fatal(err)
 		}
-		expected, _ := filepath.Abs(filepath.Join(dir, "src/main.go"))
+		expected, _ := filepath.Abs(target)
 		if result != expected {
 			t.Errorf("got %q, want %q", result, expected)
 		}
@@ -259,6 +266,9 @@ func TestResolveWorkspacePath(t *testing.T) {
 
 	t.Run("full access preserves absolute outside path", func(t *testing.T) {
 		absolutePath := testAbsolutePath(t)
+		if err := os.WriteFile(absolutePath, []byte("outside\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
 		result, err := resolveWorkspacePath(
 			dir,
 			absolutePath,
@@ -287,6 +297,9 @@ func TestResolveWorkspacePath(t *testing.T) {
 			t.Fatal(err)
 		}
 		target := filepath.Join(extraRoot, "config.toml")
+		if err := os.WriteFile(target, []byte("name = \"test\"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
 		result, err := resolveWorkspacePath(
 			dir,
 			target,

@@ -176,6 +176,41 @@ def test_go_read_only_worker_handles_handshake_read_and_ls(tmp_path: Path) -> No
         ]
 
 
+def test_go_read_only_worker_rejects_symlink_escape_from_workspace(
+    tmp_path: Path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    outside_root = tmp_path / "outside"
+    outside_root.mkdir()
+    secret_path = outside_root / "secret.txt"
+    secret_path.write_text("outside\n", encoding="utf-8")
+    try:
+        (workspace_root / "secret-link.txt").symlink_to(secret_path)
+    except OSError as error:
+        pytest.skip(f"symlinks are unavailable in this environment: {error}")
+
+    with _GoWorkerProcess(worker_path=ensure_built_read_only_worker()) as worker:
+        hello = worker.send(HelloWorkerRequest(request_id="hello-symlink"))
+        assert isinstance(hello, HelloWorkerResponse)
+
+        error_response = worker.send(
+            ReadWorkerRequest(
+                request_id="read-symlink",
+                workspace_root=str(workspace_root),
+                filesystem_policy=default_read_only_worker_filesystem_policy(),
+                path="secret-link.txt",
+                offset=None,
+                limit=None,
+                max_lines=2000,
+                max_bytes=50 * 1024,
+            )
+        )
+
+        assert error_response.error_code == "path_error"
+        assert "path escapes allowed roots" in error_response.message
+
+
 def test_go_read_only_worker_grep_returns_after_limit_hit(tmp_path: Path) -> None:
     if not _ripgrep_is_runnable():
         pytest.skip("a runnable ripgrep (rg) is required for grep worker tests")
