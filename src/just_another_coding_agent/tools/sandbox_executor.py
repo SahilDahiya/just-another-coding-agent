@@ -45,10 +45,6 @@ class SandboxExecutor(Protocol):
     async def execute(self, request: SandboxCommandRequest) -> SandboxCommandHandle: ...
 
 
-DEFAULT_LOCAL_SANDBOX_EXECUTABLE = os.environ.get(
-    "JACA_SANDBOX_EXECUTABLE",
-    "bwrap",
-)
 _LOCAL_SANDBOX_READ_ONLY_ROOT = Path("/")
 _LOCAL_SANDBOX_DEFAULT_WRITABLE_ROOTS = (Path("/tmp"),)
 _LOCAL_SANDBOX_VOLATILE_ENV_OVERRIDES = {
@@ -56,6 +52,15 @@ _LOCAL_SANDBOX_VOLATILE_ENV_OVERRIDES = {
     "GOTMPDIR": "/tmp/go-tmp",
     "XDG_CACHE_HOME": "/tmp/.cache",
 }
+
+
+def _default_local_sandbox_executable() -> str:
+    configured = os.environ.get("JACA_SANDBOX_EXECUTABLE")
+    if configured:
+        return configured
+    if sys.platform == "darwin":
+        return "sandbox-exec"
+    return "bwrap"
 
 
 def _shell_command_prefix(shell_family: ShellFamily) -> tuple[str, ...]:
@@ -387,9 +392,9 @@ class LocalRestrictedSandboxExecutor:
     def __init__(
         self,
         *,
-        executable: str = DEFAULT_LOCAL_SANDBOX_EXECUTABLE,
+        executable: str | None = None,
     ) -> None:
-        self._executable = executable
+        self._executable = executable or _default_local_sandbox_executable()
 
     async def execute(self, request: SandboxCommandRequest) -> SandboxCommandHandle:
         if request.shell_family != "posix":
@@ -401,11 +406,19 @@ class LocalRestrictedSandboxExecutor:
             raise RuntimeError(
                 "Local restricted sandbox executor is not supported on Windows"
             )
-        if not sys.platform.startswith("linux"):
-            raise RuntimeError(
-                "Local restricted sandbox executor currently supports only Linux"
-            )
+        if sys.platform.startswith("linux"):
+            return await self._execute_linux(request)
+        if sys.platform == "darwin":
+            return await self._execute_macos(request)
+        raise RuntimeError(
+            "Local restricted sandbox executor currently supports only Linux "
+            "and macOS"
+        )
 
+    async def _execute_linux(
+        self,
+        request: SandboxCommandRequest,
+    ) -> SandboxCommandHandle:
         normalized_policy = request.normalized_policy
         env, _path_dirs = _local_sandbox_env(workspace_root=request.workspace_root)
         bind_mounts = _local_sandbox_bind_mounts(
@@ -464,7 +477,7 @@ class LocalRestrictedSandboxExecutor:
             raise RuntimeError(
                 "Local restricted sandbox executor requires bubblewrap "
                 f"({self._executable!r}). Install bubblewrap before using "
-                "the default permission mode."
+                "the default or strict permission mode."
             ) from error
         if process.stdout is None:
             raise RuntimeError("sandbox command must expose stdout")
@@ -472,6 +485,91 @@ class LocalRestrictedSandboxExecutor:
             process=process,
             shell_family=request.shell_family,
         )
+
+    async def _execute_macos(
+        self,
+        request: SandboxCommandRequest,
+    ) -> SandboxCommandHandle:
+        normalized_policy = request.normalized_policy
+        env, _path_dirs = _local_sandbox_env(workspace_root=request.workspace_root)
+        shell_executable = _local_sandbox_shell_executable(
+            shell_family=request.shell_family,
+            env=env,
+        )
+        profile = _macos_sandbox_profile(
+            workspace_root=request.workspace_root,
+            normalized_policy=normalized_policy,
+            env=env,
+        )
+        sandbox_args = [
+            self._executable,
+            "-p",
+            profile,
+            shell_executable,
+            "-lc",
+            request.command,
+        ]
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *sandbox_args,
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+                env=env,
+                cwd=str(request.workspace_root),
+                start_new_session=True,
+                preexec_fn=set_pdeathsig_in_child,
+            )
+        except FileNotFoundError as error:
+            raise RuntimeError(
+                "Local restricted sandbox executor requires sandbox-exec "
+                f"({self._executable!r}). Install Xcode command line tools "
+                "or provide a compatible sandbox-exec path before using the "
+                "default or strict permission mode."
+            ) from error
+        if process.stdout is None:
+            raise RuntimeError("sandbox command must expose stdout")
+        return _HostSandboxCommandHandle(
+            process=process,
+            shell_family=request.shell_family,
+        )
+
+
+def _macos_sandbox_profile_escape(value: str) -> str:
+    return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _macos_sandbox_profile_path_clause(kind: str, path: Path) -> str:
+    return f"({kind} \"{_macos_sandbox_profile_escape(str(path))}\")"
+
+
+def _macos_sandbox_profile(
+    *,
+    workspace_root: Path,
+    normalized_policy: NormalizedSandboxPolicy,
+    env: dict[str, str],
+) -> str:
+    writable_roots = _local_sandbox_extra_writable_roots(
+        workspace_root=workspace_root,
+        normalized_policy=normalized_policy,
+        env=env,
+    )
+    clauses = [
+        "(version 1)",
+        "(deny default)",
+        '(import "system.sb")',
+        "(allow process*)",
+        "(allow signal (target self))",
+        "(allow file-read*)",
+    ]
+    if normalized_policy.network.access == "enabled":
+        clauses.append("(allow network-outbound)")
+    for root in writable_roots:
+        clauses.append(
+            "(allow file-write* "
+            f"{_macos_sandbox_profile_path_clause('subpath', root)})"
+        )
+    return "\n".join(clauses)
 
 
 __all__ = [

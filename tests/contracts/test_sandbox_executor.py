@@ -425,7 +425,7 @@ def _bind_triplets(args: tuple[object, ...]) -> list[tuple[str, str, str]]:
     return triplets
 
 
-async def test_local_restricted_sandbox_executor_launches_bubblewrap_with_workspace_bind(
+async def test_local_restricted_sandbox_executor_launches_bwrap_with_workspace_bind(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -544,6 +544,121 @@ async def test_local_restricted_sandbox_executor_allows_network_when_requested(
         args
     )
     assert args[-3:] == ("/usr/bin/bash", "-lc", "curl https://example.com")
+
+
+async def test_local_restricted_sandbox_executor_launches_sandbox_exec_on_macos(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    observed: dict[str, object] = {}
+
+    async def fake_create_subprocess_exec(*args, **kwargs):
+        observed["args"] = args
+        observed["kwargs"] = kwargs
+        return _FakeProcess()
+
+    monkeypatch.setattr(sandbox_executor_module.sys, "platform", "darwin")
+    monkeypatch.setattr(
+        sandbox_executor_module,
+        "build_tool_process_env",
+        lambda: {"PATH": "/usr/bin:/bin", "HOME": "/Users/tester"},
+    )
+    monkeypatch.setattr(
+        sandbox_executor_module.shutil,
+        "which",
+        lambda executable, path=None: f"/usr/bin/{executable}",
+    )
+    monkeypatch.setattr(
+        sandbox_executor_module.asyncio,
+        "create_subprocess_exec",
+        fake_create_subprocess_exec,
+    )
+
+    handle = await LocalRestrictedSandboxExecutor(
+        executable="sandbox-executable"
+    ).execute(
+        SandboxCommandRequest(
+            workspace_root=workspace_root,
+            command="pwd",
+            shell_family="posix",
+            selected_sandbox_mode="workspace_write",
+            normalized_policy=NormalizedSandboxPolicy.model_validate(
+                {
+                    "filesystem": {"access": "workspace_write"},
+                    "network": {"access": "restricted"},
+                    "execution_isolation": "sandboxed",
+                }
+            ),
+        )
+    )
+
+    assert await handle.read(4096) == b"ok"
+    args = observed["args"]
+    assert args[0] == "sandbox-executable"
+    assert args[1] == "-p"
+    profile = args[2]
+    assert '(import "system.sb")' in profile
+    assert "(allow file-read*)" in profile
+    assert "(allow process*)" in profile
+    assert "(allow network-outbound)" not in profile
+    assert f'(subpath "{workspace_root}")' in profile
+    assert args[-3:] == ("/usr/bin/bash", "-lc", "pwd")
+    assert observed["kwargs"]["cwd"] == str(workspace_root)
+
+
+async def test_local_restricted_sandbox_executor_allows_network_on_macos(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    observed: dict[str, object] = {}
+
+    async def fake_create_subprocess_exec(*args, **kwargs):
+        observed["args"] = args
+        observed["kwargs"] = kwargs
+        return _FakeProcess()
+
+    monkeypatch.setattr(sandbox_executor_module.sys, "platform", "darwin")
+    monkeypatch.setattr(
+        sandbox_executor_module,
+        "build_tool_process_env",
+        lambda: {"PATH": "/usr/bin:/bin", "HOME": "/Users/tester"},
+    )
+    monkeypatch.setattr(
+        sandbox_executor_module.shutil,
+        "which",
+        lambda executable, path=None: f"/usr/bin/{executable}",
+    )
+    monkeypatch.setattr(
+        sandbox_executor_module.asyncio,
+        "create_subprocess_exec",
+        fake_create_subprocess_exec,
+    )
+
+    handle = await LocalRestrictedSandboxExecutor(
+        executable="sandbox-executable"
+    ).execute(
+        SandboxCommandRequest(
+            workspace_root=workspace_root,
+            command="curl https://example.com",
+            shell_family="posix",
+            selected_sandbox_mode="workspace_write",
+            normalized_policy=NormalizedSandboxPolicy.model_validate(
+                {
+                    "filesystem": {"access": "workspace_write"},
+                    "network": {"access": "enabled"},
+                    "execution_isolation": "sandboxed",
+                }
+            ),
+        )
+    )
+
+    assert await handle.read(4096) == b"ok"
+    profile = observed["args"][2]
+    assert "(allow network-outbound)" in profile
 
 
 async def test_local_restricted_sandbox_executor_mounts_approved_extra_roots(

@@ -273,10 +273,11 @@ Approval carrier rules:
 - current restricted execution coverage is intentionally narrow:
   - `shell` routes `workspace_write`, `workspace_write_strict`, and
     `read_only` sandbox policies through the local restricted executor backend
-  - the current Linux restricted backend is bubblewrap-backed, executes host
-    binaries under a host-process sandbox, preserves host-visible path
-    semantics for mounted roots, and keeps a host-like shell environment
-    by default while redirecting volatile tool caches under `/tmp`
+  - the current restricted backends execute host binaries under platform
+    host-process sandboxes: bubblewrap on Linux and `sandbox-exec` on macOS
+  - those restricted backends preserve host-visible path semantics for mounted
+    or readable roots and keep a host-like shell environment by default while
+    redirecting volatile tool caches under `/tmp`
   - executor backends consume normalized filesystem/network policy derived from
     the selected permission state plus any approved per-command permission
     deltas
@@ -313,13 +314,14 @@ Approval carrier rules:
     network-disabled execution
   - `approval_policy=on_escalation` may request approval for explicit
     network-seeking shell commands; when approved, the restricted Linux
-    backend reruns that command with `requested_permissions.network_access`
-    widened to `enabled` while preserving the sandboxed shell posture
+    or macOS backend reruns that command with
+    `requested_permissions.network_access` widened to `enabled` while
+    preserving the sandboxed shell posture
   - `approval_policy=on_escalation` may also request approval for explicit
     outside-workspace shell writes; when approved, the restricted Linux
-    backend reruns that command with scoped writable bind mounts derived from
-    `requested_permissions.extra_write_roots` instead of forcing a mode flip
-    to `danger_full_access`
+    or macOS backend reruns that command with scoped writable roots derived
+    from `requested_permissions.extra_write_roots` instead of forcing a mode
+    flip to `danger_full_access`
   - approval reasons must disclose the concrete scope being widened; shell
     prompts name network enablement and exact read-only or writable bind-mount
     roots, and write-side prompts name the exact outside-workspace writable
