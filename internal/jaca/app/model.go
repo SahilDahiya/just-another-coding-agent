@@ -103,6 +103,7 @@ type workspaceTrustLoadedMsg struct {
 	Status  rpc.WorkspaceTrustStatusResponse
 	Err     error
 	Updated bool
+	Display bool
 }
 
 type approvalSubmittedMsg struct {
@@ -559,12 +560,17 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.trust.TrustTarget = status.TrustTarget
 		m.trust.Selected = 0
 		if !status.Trusted {
+			if msg.Display || msg.Updated {
+				m.transcript.WriteNote("trust", []string{
+					fmt.Sprintf("workspace is untrusted: %s", status.TrustTarget),
+				})
+			}
 			m.trust.Active = true
 			m.refreshViewport()
 			return m, nil
 		}
 		m.trust.Active = false
-		if msg.Updated {
+		if msg.Display || msg.Updated {
 			m.transcript.WriteNote("trust", []string{
 				fmt.Sprintf("trusted workspace: %s", status.TrustTarget),
 			})
@@ -1344,6 +1350,10 @@ func fetchPermissionState(backend Backend, sessionID string, display bool) tea.C
 }
 
 func fetchWorkspaceTrust(backend Backend) tea.Cmd {
+	return fetchWorkspaceTrustWithDisplay(backend, false)
+}
+
+func fetchWorkspaceTrustWithDisplay(backend Backend, display bool) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), queueControlTimeout)
 		defer cancel()
@@ -1352,6 +1362,7 @@ func fetchWorkspaceTrust(backend Backend) tea.Cmd {
 			Status:  response,
 			Err:     err,
 			Updated: false,
+			Display: display,
 		}
 	}
 }
@@ -1361,6 +1372,22 @@ func acceptWorkspaceTrust(backend Backend) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), queueControlTimeout)
 		defer cancel()
 		response, err := backend.AcceptWorkspaceTrust(ctx)
+		return workspaceTrustLoadedMsg{
+			Status: rpc.WorkspaceTrustStatusResponse{
+				Trusted:     response.Trusted,
+				TrustTarget: response.TrustTarget,
+			},
+			Err:     err,
+			Updated: true,
+		}
+	}
+}
+
+func revokeWorkspaceTrust(backend Backend) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), queueControlTimeout)
+		defer cancel()
+		response, err := backend.RevokeWorkspaceTrust(ctx)
 		return workspaceTrustLoadedMsg{
 			Status: rpc.WorkspaceTrustStatusResponse{
 				Trusted:     response.Trusted,

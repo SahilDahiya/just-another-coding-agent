@@ -295,6 +295,78 @@ def test_plan_shell_execution_requests_network_delta_for_package_manager_command
     assert plan.approval_required is True
 
 
+def test_plan_shell_execution_does_not_request_network_delta_for_grep_url_pattern(
+) -> None:
+    permission_state = build_permission_state(
+        sandbox_policy=WorkspaceWriteSandboxPolicy(),
+        approval_policy=ApprovalPolicy(mode="on_escalation"),
+    )
+
+    plan = plan_shell_execution(
+        permission_state=permission_state,
+        command="grep 'https://example.com' file.txt",
+        shell_family="posix",
+    )
+
+    assert plan.requested_permissions is None
+    assert plan.normalized_policy.network.access == "restricted"
+    assert plan.approval_required is False
+
+
+def test_plan_shell_execution_does_not_request_network_delta_for_echo_url_content(
+) -> None:
+    permission_state = build_permission_state(
+        sandbox_policy=WorkspaceWriteSandboxPolicy(),
+        approval_policy=ApprovalPolicy(mode="on_escalation"),
+    )
+
+    plan = plan_shell_execution(
+        permission_state=permission_state,
+        command="echo 'See https://example.com for docs' > README.md",
+        shell_family="posix",
+    )
+
+    assert plan.requested_permissions is None
+    assert plan.normalized_policy.network.access == "restricted"
+    assert plan.approval_required is False
+
+
+def test_plan_shell_execution_does_not_request_network_delta_for_sed_url_replacement(
+) -> None:
+    permission_state = build_permission_state(
+        sandbox_policy=WorkspaceWriteSandboxPolicy(),
+        approval_policy=ApprovalPolicy(mode="on_escalation"),
+    )
+
+    plan = plan_shell_execution(
+        permission_state=permission_state,
+        command="sed -i 's|https://old|https://new|g' config.yml",
+        shell_family="posix",
+    )
+
+    assert plan.requested_permissions is None
+    assert plan.normalized_policy.network.access == "restricted"
+    assert plan.approval_required is False
+
+
+def test_plan_shell_execution_does_not_request_network_delta_for_python_url_string(
+) -> None:
+    permission_state = build_permission_state(
+        sandbox_policy=WorkspaceWriteSandboxPolicy(),
+        approval_policy=ApprovalPolicy(mode="on_escalation"),
+    )
+
+    plan = plan_shell_execution(
+        permission_state=permission_state,
+        command='python -c "print(\'https://example.com\')"',
+        shell_family="posix",
+    )
+
+    assert plan.requested_permissions is None
+    assert plan.normalized_policy.network.access == "restricted"
+    assert plan.approval_required is False
+
+
 def test_plan_shell_execution_keeps_local_command_in_default_sandbox() -> None:
     permission_state = build_permission_state(
         sandbox_policy=WorkspaceWriteSandboxPolicy(),

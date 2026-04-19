@@ -31,6 +31,7 @@ func (m *model) trustOptionLines() []string {
 func (m *model) trustHelpLines() []string {
 	return []string{
 		"Trust is remembered for this project root.",
+		"Use /trust revoke later if you want to clear it.",
 		"Repo instructions and session bootstrap stay blocked until trusted.",
 		"Enter selects. Esc quits.",
 	}

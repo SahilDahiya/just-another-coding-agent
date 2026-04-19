@@ -2961,6 +2961,71 @@ async def test_workspace_trust_status_accept_and_session_gate(
         }
     ]
 
+    revoke_messages = await _rpc_messages(
+        request_payload={
+            "id": "req-trust-revoke",
+            "command": "workspace.trust_revoke",
+            "payload": {},
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+    assert revoke_messages == [
+        {
+            "type": "rpc_response",
+            "id": "req-trust-revoke",
+            "response": {
+                "trusted": False,
+                "trust_target": str(repo_root),
+            },
+        }
+    ]
+
+    revoked_status_messages = await _rpc_messages(
+        request_payload={
+            "id": "req-trust-status-revoked",
+            "command": "workspace.trust_status",
+            "payload": {},
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+    assert revoked_status_messages == [
+        {
+            "type": "rpc_response",
+            "id": "req-trust-status-revoked",
+            "response": {
+                "trusted": False,
+                "trust_target": str(repo_root),
+            },
+        }
+    ]
+
+    create_after_revoke_messages = await _rpc_messages(
+        request_payload={
+            "id": "req-create-after-revoke",
+            "command": "session.create",
+            "payload": {},
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+    assert create_after_revoke_messages == [
+        {
+            "type": "rpc_error",
+            "id": "req-create-after-revoke",
+            "error_type": "WorkspaceUntrusted",
+            "message": (
+                "Workspace is not trusted yet. Accept trust for "
+                f"{repo_root} before loading project instructions or "
+                "starting a session."
+            ),
+        }
+    ]
+
 
 async def test_handle_rpc_json_line_session_preview_includes_project_docs_note(
     tmp_path,

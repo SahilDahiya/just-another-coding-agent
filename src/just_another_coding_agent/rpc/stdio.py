@@ -80,6 +80,8 @@ from just_another_coding_agent.contracts.rpc import (
     WorkspaceProjectDocsResponse,
     WorkspaceTrustAcceptRequest,
     WorkspaceTrustAcceptResponse,
+    WorkspaceTrustRevokeRequest,
+    WorkspaceTrustRevokeResponse,
     WorkspaceTrustStatusRequest,
     WorkspaceTrustStatusResponse,
 )
@@ -117,6 +119,7 @@ from just_another_coding_agent.runtime.session import stream_session_run_events
 from just_another_coding_agent.runtime.workspace_trust import (
     accept_workspace_trust,
     resolve_workspace_trust_target,
+    revoke_workspace_trust,
     workspace_trust_status,
 )
 from just_another_coding_agent.session import (
@@ -1116,6 +1119,20 @@ async def _handle_workspace_trust_accept(
     ).model_dump_json()
 
 
+async def _handle_workspace_trust_revoke(
+    request: WorkspaceTrustRevokeRequest,
+    ctx: _RpcContext,
+) -> AsyncIterator[str]:
+    status = revoke_workspace_trust(ctx.workspace_root)
+    yield RpcResponseEnvelope(
+        id=request.id,
+        response=WorkspaceTrustRevokeResponse(
+            trusted=status.trusted,
+            trust_target=status.trust_target,
+        ),
+    ).model_dump_json()
+
+
 async def _handle_session_compact(
     request: SessionCompactRequest,
     ctx: _RpcContext,
@@ -1342,6 +1359,7 @@ _RPC_HANDLERS: dict[type[Any], RpcHandler] = {
     WorkspaceProjectDocsRequest: _handle_workspace_project_docs,
     WorkspaceTrustStatusRequest: _handle_workspace_trust_status,
     WorkspaceTrustAcceptRequest: _handle_workspace_trust_accept,
+    WorkspaceTrustRevokeRequest: _handle_workspace_trust_revoke,
     SessionCompactRequest: _handle_session_compact,
     RunStartRequest: _handle_run_start,
 }

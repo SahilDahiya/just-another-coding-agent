@@ -49,6 +49,7 @@ var slashCommands = []slashCommandSpec{
 	{Value: "/login", Description: "Connect ChatGPT or API-key access", AcceptsArgs: true, ArgSuggestions: (*model).loginSlashSuggestions, Execute: (*model).executeLoginSlash},
 	{Value: "/model", Description: "Switch active model", AcceptsArgs: true, ArgSuggestions: (*model).modelSlashSuggestions, Execute: (*model).executeModelSlash},
 	{Value: "/permission", Description: "Show or switch permission preset", AcceptsArgs: true, ArgSuggestions: (*model).permissionSlashSuggestions, Execute: (*model).executePermissionSlash},
+	{Value: "/trust", Description: "Show or revoke workspace trust", AcceptsArgs: true, ArgSuggestions: (*model).trustSlashSuggestions, Execute: (*model).executeTrustSlash},
 	{Value: "/approve", Description: "Approve the pending action", AllowedWhileStreaming: true, Execute: (*model).executeApproveSlash},
 	{Value: "/deny", Description: "Deny the pending action", AllowedWhileStreaming: true, Execute: (*model).executeDenySlash},
 	{Value: "/version", Description: "Show installed and available version info", Execute: (*model).executeVersionSlash},
@@ -299,6 +300,13 @@ func (m *model) permissionSlashSuggestions() []slashSuggestion {
 	}
 }
 
+func (m *model) trustSlashSuggestions() []slashSuggestion {
+	return []slashSuggestion{
+		{Value: "show", Description: "Show current workspace trust"},
+		{Value: "revoke", Description: "Revoke trust for the current project root"},
+	}
+}
+
 func parseSlashCommand(command string) (slashCommandSpec, string, string, bool) {
 	parts := strings.Fields(command)
 	if len(parts) == 0 {
@@ -365,6 +373,10 @@ func (m *model) executePermissionSlash(arg string) (tea.Model, tea.Cmd) {
 	return m.handlePermissionCommand(arg)
 }
 
+func (m *model) executeTrustSlash(arg string) (tea.Model, tea.Cmd) {
+	return m.handleTrustCommand(arg)
+}
+
 func (m *model) executeApproveSlash(_ string) (tea.Model, tea.Cmd) {
 	return m.handleApprovalCommand("approved")
 }
@@ -407,6 +419,28 @@ func (m *model) executeWorkspaceSlash(_ string) (tea.Model, tea.Cmd) {
 	m.transcript.WriteLine(fmt.Sprintf("workspace: %s", displayPath(m.options.WorkspaceRoot)))
 	m.refreshViewport()
 	return m, nil
+}
+
+func (m *model) handleTrustCommand(arg string) (tea.Model, tea.Cmd) {
+	m.transcript.WriteNote("trust", nil)
+	if m.options.Backend == nil {
+		m.transcript.WriteError("backend unavailable")
+		m.refreshViewport()
+		return m, nil
+	}
+	value := strings.TrimSpace(strings.ToLower(arg))
+	switch value {
+	case "", "show", "status":
+		return m, fetchWorkspaceTrustWithDisplay(m.options.Backend, true)
+	case "revoke":
+		return m, revokeWorkspaceTrust(m.options.Backend)
+	default:
+		m.transcript.WriteError(
+			"invalid. use /trust to show current trust, or /trust revoke to remove it",
+		)
+		m.refreshViewport()
+		return m, nil
+	}
 }
 
 func (m *model) executeSessionSlash(_ string) (tea.Model, tea.Cmd) {

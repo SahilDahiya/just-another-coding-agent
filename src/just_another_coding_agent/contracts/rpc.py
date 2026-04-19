@@ -271,6 +271,16 @@ class WorkspaceTrustAcceptRequest(_RpcModel):
     payload: WorkspaceTrustAcceptPayload
 
 
+class WorkspaceTrustRevokePayload(_RpcModel):
+    pass
+
+
+class WorkspaceTrustRevokeRequest(_RpcModel):
+    id: str
+    command: Literal["workspace.trust_revoke"]
+    payload: WorkspaceTrustRevokePayload
+
+
 RpcRequest = Annotated[
     SessionCreateRequest
     | SessionCompactRequest
@@ -293,7 +303,8 @@ RpcRequest = Annotated[
     | ApprovalSubmitRequest
     | WorkspaceProjectDocsRequest
     | WorkspaceTrustStatusRequest
-    | WorkspaceTrustAcceptRequest,
+    | WorkspaceTrustAcceptRequest
+    | WorkspaceTrustRevokeRequest,
     Field(discriminator="command"),
 ]
 
@@ -415,6 +426,11 @@ class WorkspaceTrustAcceptResponse(_RpcModel):
     trust_target: str
 
 
+class WorkspaceTrustRevokeResponse(_RpcModel):
+    trusted: bool
+    trust_target: str
+
+
 class RpcResponseEnvelope(_RpcModel):
     type: Literal["rpc_response"] = "rpc_response"
     id: str
@@ -441,6 +457,7 @@ class RpcResponseEnvelope(_RpcModel):
         | WorkspaceProjectDocsResponse
         | WorkspaceTrustStatusResponse
         | WorkspaceTrustAcceptResponse
+        | WorkspaceTrustRevokeResponse
     )
 
 
@@ -528,6 +545,9 @@ __all__ = [
     "WorkspaceTrustAcceptPayload",
     "WorkspaceTrustAcceptRequest",
     "WorkspaceTrustAcceptResponse",
+    "WorkspaceTrustRevokePayload",
+    "WorkspaceTrustRevokeRequest",
+    "WorkspaceTrustRevokeResponse",
     "WorkspaceTrustStatusPayload",
     "WorkspaceTrustStatusRequest",
     "WorkspaceTrustStatusResponse",

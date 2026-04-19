@@ -46,6 +46,35 @@ _NETWORK_COMMANDS = frozenset(
         "wget",
     }
 )
+_NO_NETWORK_CATCH_ALL_COMMANDS = frozenset(
+    {
+        "awk",
+        "cat",
+        "code",
+        "cut",
+        "echo",
+        "egrep",
+        "fgrep",
+        "grep",
+        "head",
+        "jq",
+        "less",
+        "more",
+        "nano",
+        "rg",
+        "ripgrep",
+        "sed",
+        "sort",
+        "subl",
+        "tail",
+        "tee",
+        "tr",
+        "uniq",
+        "vim",
+        "wc",
+        "yq",
+    }
+)
 _NETWORK_PACKAGE_MANAGER_SUBCOMMANDS = {
     "npm": frozenset({"install", "i", "ci", "add", "update", "publish"}),
     "pnpm": frozenset({"install", "add", "update", "up", "create", "dlx"}),
@@ -196,6 +225,8 @@ def _tokens_request_network_access(tokens: list[str], *, _depth: int = 0) -> boo
         return _python_command_requests_network(tokens[1:])
     if executable == "uv":
         return _uv_command_requests_network(tokens[1:])
+    if executable in _NO_NETWORK_CATCH_ALL_COMMANDS:
+        return False
     return any(_token_looks_like_network_target(token) for token in tokens[1:])
 
 
@@ -243,7 +274,7 @@ def _python_command_requests_network(tokens: list[str]) -> bool:
         module = tokens[1]
         if module in _NETWORK_PACKAGE_MANAGER_SUBCOMMANDS:
             return tokens[2] in _NETWORK_PACKAGE_MANAGER_SUBCOMMANDS[module]
-    return any(_token_looks_like_network_target(token) for token in tokens)
+    return False
 
 
 def _uv_command_requests_network(tokens: list[str]) -> bool:
@@ -256,7 +287,7 @@ def _uv_command_requests_network(tokens: list[str]) -> bool:
         return tokens[1] in {"install", "upgrade"}
     if first in {"sync", "lock", "add", "remove", "publish", "runx", "x"}:
         return True
-    return any(_token_looks_like_network_target(token) for token in tokens)
+    return False
 
 
 def _token_looks_like_network_target(token: str) -> bool:

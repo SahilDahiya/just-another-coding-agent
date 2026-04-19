@@ -129,6 +129,13 @@ func (b *stubBackend) AcceptWorkspaceTrust(_ context.Context) (rpc.WorkspaceTrus
 		TrustTarget: b.workspaceTrust.TrustTarget,
 	}, nil
 }
+func (b *stubBackend) RevokeWorkspaceTrust(_ context.Context) (rpc.WorkspaceTrustRevokeResponse, error) {
+	b.workspaceTrust.Trusted = false
+	return rpc.WorkspaceTrustRevokeResponse{
+		Trusted:     false,
+		TrustTarget: b.workspaceTrust.TrustTarget,
+	}, nil
+}
 func (b *stubBackend) CompactSession(_ context.Context, _ string) (rpc.SessionCompactResponse, error) {
 	return rpc.SessionCompactResponse{}, nil
 }
@@ -1956,9 +1963,9 @@ func TestSlashShowsInlineCommandSuggestions(t *testing.T) {
 		"/login",
 		"/model",
 		"/permission",
+		"/trust",
 		"/approve",
 		"/deny",
-		"/version",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("view missing slash suggestion %q in %q", want, rendered)
@@ -2278,6 +2285,56 @@ func TestStartupAuthStatusShowsFirstRunOnboarding(t *testing.T) {
 	}
 	if got := m.currentPromptFooter(); got != "" {
 		t.Fatalf("currentPromptFooter() = %q, want empty while chooser is active", got)
+	}
+}
+
+func TestTrustSlashShowsBackendState(t *testing.T) {
+	backend := newStubBackend()
+	backend.workspaceTrust = rpc.WorkspaceTrustStatusResponse{
+		Trusted:     true,
+		TrustTarget: "/workspace",
+	}
+	m := newTestModelWithBackend(backend)
+
+	updated, cmd := m.submitSlashCommand("/trust", false)
+	m = updated.(*model)
+	if cmd == nil {
+		t.Fatal("/trust should query backend trust state")
+	}
+	msg := cmd()
+	updated, _ = m.Update(msg)
+	m = updated.(*model)
+
+	rendered := stripANSI(m.transcript.Render())
+	if !strings.Contains(rendered, "trusted workspace: /workspace") {
+		t.Fatalf("trust render missing trusted state in %q", rendered)
+	}
+}
+
+func TestTrustSlashRevokeActivatesOverlay(t *testing.T) {
+	backend := newStubBackend()
+	backend.workspaceTrust = rpc.WorkspaceTrustStatusResponse{
+		Trusted:     true,
+		TrustTarget: "/workspace",
+	}
+	m := newTestModelWithBackend(backend)
+	m.workspaceTrust = &backend.workspaceTrust
+
+	updated, cmd := m.submitSlashCommand("/trust revoke", false)
+	m = updated.(*model)
+	if cmd == nil {
+		t.Fatal("/trust revoke should call backend")
+	}
+	msg := cmd()
+	updated, _ = m.Update(msg)
+	m = updated.(*model)
+
+	if !m.trust.Active {
+		t.Fatal("trust overlay should become active after revoke")
+	}
+	rendered := stripANSI(m.transcript.Render())
+	if !strings.Contains(rendered, "workspace is untrusted: /workspace") {
+		t.Fatalf("trust render missing revoke note in %q", rendered)
 	}
 }
 

@@ -16,6 +16,7 @@ type Backend interface {
 	CreateSession(ctx context.Context) (rpc.SessionCreateResponse, error)
 	WorkspaceTrustStatus(ctx context.Context) (rpc.WorkspaceTrustStatusResponse, error)
 	AcceptWorkspaceTrust(ctx context.Context) (rpc.WorkspaceTrustAcceptResponse, error)
+	RevokeWorkspaceTrust(ctx context.Context) (rpc.WorkspaceTrustRevokeResponse, error)
 	SetSessionName(ctx context.Context, sessionID string, name string) (rpc.SessionNameResponse, error)
 	SessionPreview(ctx context.Context, sessionID string) (rpc.SessionPreviewResponse, error)
 	CompactSession(ctx context.Context, sessionID string) (rpc.SessionCompactResponse, error)

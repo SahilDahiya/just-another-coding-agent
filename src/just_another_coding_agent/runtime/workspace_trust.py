@@ -50,6 +50,17 @@ def accept_workspace_trust(workspace_root: Path | str) -> WorkspaceTrustStatus:
     )
 
 
+def revoke_workspace_trust(workspace_root: Path | str) -> WorkspaceTrustStatus:
+    trust_target = resolve_workspace_trust_target(workspace_root)
+    config = load_config()
+    config.pop(_trust_key(trust_target), None)
+    save_config(config)
+    return WorkspaceTrustStatus(
+        trust_target=str(trust_target),
+        trusted=False,
+    )
+
+
 def _trust_key(trust_target: Path) -> str:
     return f"{_TRUST_KEY_PREFIX}{trust_target}"
 
@@ -57,6 +68,7 @@ def _trust_key(trust_target: Path) -> str:
 __all__ = [
     "WorkspaceTrustStatus",
     "accept_workspace_trust",
+    "revoke_workspace_trust",
     "resolve_workspace_trust_target",
     "workspace_trust_status",
 ]

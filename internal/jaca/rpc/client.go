@@ -168,6 +168,16 @@ func (m *Manager) AcceptWorkspaceTrust(ctx context.Context) (WorkspaceTrustAccep
 	return client.AcceptWorkspaceTrust(ctx)
 }
 
+func (m *Manager) RevokeWorkspaceTrust(ctx context.Context) (WorkspaceTrustRevokeResponse, error) {
+	m.mu.Lock()
+	client, err := m.ensureStartedLocked()
+	m.mu.Unlock()
+	if err != nil {
+		return WorkspaceTrustRevokeResponse{}, err
+	}
+	return client.RevokeWorkspaceTrust(ctx)
+}
+
 func (m *Manager) CompactSession(ctx context.Context, sessionID string) (SessionCompactResponse, error) {
 	m.mu.Lock()
 	client, err := m.ensureStartedLocked()
@@ -799,6 +809,41 @@ func (c *Client) AcceptWorkspaceTrust(ctx context.Context) (WorkspaceTrustAccept
 		return WorkspaceTrustAcceptResponse{}, fmt.Errorf("%s: %s", envelope.ErrorType, envelope.Message)
 	default:
 		return WorkspaceTrustAcceptResponse{}, fmt.Errorf("unexpected envelope for workspace.trust_accept: %T", line)
+	}
+}
+
+func (c *Client) RevokeWorkspaceTrust(ctx context.Context) (WorkspaceTrustRevokeResponse, error) {
+	requestID := c.nextRequestID()
+	waiter, cleanup, err := c.registerWaiter(requestID)
+	if err != nil {
+		return WorkspaceTrustRevokeResponse{}, err
+	}
+	defer cleanup()
+	c.writeMu.Lock()
+	if err := c.writeRequest(Request{
+		ID:      requestID,
+		Command: "workspace.trust_revoke",
+		Payload: WorkspaceTrustRevokePayload{},
+	}); err != nil {
+		c.writeMu.Unlock()
+		return WorkspaceTrustRevokeResponse{}, err
+	}
+	c.writeMu.Unlock()
+	line, err := c.awaitEnvelope(ctx, waiter)
+	if err != nil {
+		return WorkspaceTrustRevokeResponse{}, err
+	}
+	switch envelope := line.(type) {
+	case ResponseEnvelope:
+		var response WorkspaceTrustRevokeResponse
+		if err := json.Unmarshal(envelope.Response, &response); err != nil {
+			return WorkspaceTrustRevokeResponse{}, err
+		}
+		return response, nil
+	case ErrorEnvelope:
+		return WorkspaceTrustRevokeResponse{}, fmt.Errorf("%s: %s", envelope.ErrorType, envelope.Message)
+	default:
+		return WorkspaceTrustRevokeResponse{}, fmt.Errorf("unexpected envelope for workspace.trust_revoke: %T", line)
 	}
 }
 

@@ -97,8 +97,9 @@ Rules:
 - Local provider-secret resolution is backend-owned and uses this precedence:
   environment, then the explicit local auth file, then hard failure.
 - `~/.jaca/config.json` is not a secret store. It may persist only non-secret
-  preferences such as provider selection, model selection, trace mode, and
-  base URLs.
+  preferences such as provider selection, model selection, trace mode, base
+  URLs, and per-workspace trust decisions keyed by
+  `project_trust:<abs-path>`.
 - API-key file setup is backend-owned too. `auth.prepare_file` must ensure the
   canonical local auth file exists as valid JSON, then return the raw file
   path plus exact file and entry snippets for the selected supported provider.
@@ -244,6 +245,14 @@ Approval carrier rules:
 - tools request approval through backend-owned runtime deps; the runtime emits
   `approval_requested` and `approval_resolved` events and preserves normal
   terminal run semantics
+- workspace trust is backend-owned state keyed by the resolved repo root
+  (first ancestor containing `.git`) or the session workspace root when no
+  repo root is found
+- trust is persisted in `~/.jaca/config.json` under
+  `project_trust:<abs-path>` = `"trusted"`
+- untrusted workspaces must reject `session.create` and
+  `workspace.project_docs` with `error_type=WorkspaceUntrusted`
+- trust decisions are revocable through `workspace.trust_revoke`
 - live permission state is distinct from durable turn-context history:
   - `PermissionState` is live control-plane state for RPC and approval flows
   - when no session is active, `permission.get` / `permission.set` operate on
@@ -265,6 +274,13 @@ Approval carrier rules:
     deltas
   - `read`, `ls`, `find`, and `grep` now send the same normalized filesystem
     policy through the internal Go read-only worker
+  - default permission preset posture:
+    - `read`, `ls`, `find`, and `grep` can inspect host paths anywhere on disk
+      without approval
+    - `write` and `edit` remain workspace-scoped and request approval for
+      outside-workspace paths
+    - `shell` remains sandboxed and requests approval for explicit network
+      access or explicit outside-workspace filesystem widening
   - under `workspace_write`, the read-side worker has unrestricted read access
     to the local filesystem; outside-workspace reads do not require approval
   - scoped `extra_read_roots` remain available for stricter modes and future
