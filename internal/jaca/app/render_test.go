@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -454,6 +455,27 @@ func TestRenderStatusUsesTrueColorPaletteWhenAvailable(t *testing.T) {
 
 	if !strings.Contains(rendered, "38;2;") {
 		t.Fatalf("renderStatus() missing truecolor escape sequence: %q", rendered)
+	}
+}
+
+func TestRenderStatusUsesFullAccessPaletteWhenRequested(t *testing.T) {
+	original := lipgloss.ColorProfile()
+	t.Cleanup(func() {
+		lipgloss.SetColorProfile(original)
+	})
+	lipgloss.SetColorProfile(termenv.TrueColor)
+
+	rendered := renderStatus(viewModel{
+		Phase:            PhaseStreaming,
+		Model:            "openai-responses:gpt-5.4-chatgpt",
+		PermissionPreset: "full_access",
+		WorkspaceRoot:    "/workspace",
+	})
+
+	r, g, b := terminalColorRGB(fullAccessTheme.accentSoft)
+	want := fmt.Sprintf("38;2;%d;%d;%d", r, g, b)
+	if !strings.Contains(rendered, want) {
+		t.Fatalf("renderStatus() missing full_access accent color %q in %q", want, rendered)
 	}
 }
 

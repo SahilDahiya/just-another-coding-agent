@@ -710,11 +710,16 @@ func (m *model) currentViewModel() viewModel {
 	if m.streaming && !m.lastDeltaTime.IsZero() {
 		sinceLastDelta = time.Since(m.lastDeltaTime)
 	}
+	permissionPreset := "default"
+	if m.permissionState != nil {
+		permissionPreset = permissionPresetFromState(*m.permissionState)
+	}
 	return viewModel{
 		Phase:               m.phase,
 		Width:               m.width,
 		Height:              m.height,
 		Model:               m.options.Model,
+		PermissionPreset:    permissionPreset,
 		WorkspaceRoot:       m.options.WorkspaceRoot,
 		Thinking:            m.options.Thinking,
 		SessionID:           m.sessionID,

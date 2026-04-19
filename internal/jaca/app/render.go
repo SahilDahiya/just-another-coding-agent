@@ -49,6 +49,21 @@ var defaultTheme = theme{
 	errSoft:     themeColor("#bf5f5f", "131", "1"),
 }
 
+var fullAccessTheme = theme{
+	background:  themeColor("#0f1115", "233", "0"),
+	border:      themeColor("#4a2f33", "238", "8"),
+	userFill:    themeColor("#1b171b", "235", "8"),
+	text:        themeColor("#f1ede4", "255", "15"),
+	textSoft:    themeColor("#ddd7cb", "252", "7"),
+	textMuted:   themeColor("#b0a4a5", "246", "8"),
+	accent:      themeColor("#d46a5e", "167", "9"),
+	accentSoft:  themeColor("#e6a29a", "210", "9"),
+	success:     themeColor("#7bb07c", "107", "10"),
+	successSoft: themeColor("#a7d6a5", "151", "10"),
+	err:         themeColor("#d46a5e", "167", "9"),
+	errSoft:     themeColor("#bf5f5f", "131", "1"),
+}
+
 func themeColor(trueColor string, ansi256 string, ansi string) lipgloss.TerminalColor {
 	return lipgloss.CompleteColor{
 		TrueColor: trueColor,
@@ -67,6 +82,7 @@ type viewModel struct {
 	Width               int
 	Height              int
 	Model               string
+	PermissionPreset    string
 	WorkspaceRoot       string
 	Thinking            string
 	SessionID           string
@@ -92,6 +108,14 @@ type viewModel struct {
 	Approval            approvalPromptView
 }
 
+func themeForPermissionPreset(preset string) theme {
+	switch preset {
+	case "full_access":
+		return fullAccessTheme
+	default:
+		return defaultTheme
+	}
+}
 type updateOverlayView struct {
 	Active         bool
 	Title          string
@@ -161,35 +185,36 @@ func renderView(vm viewModel) string {
 }
 
 func renderUpdateOverlay(vm viewModel) string {
+	th := themeForPermissionPreset(vm.PermissionPreset)
 	panelWidth := 60
 	if vm.Width > 0 {
 		panelWidth = min(68, max(48, vm.Width-8))
 	}
 	title := lipgloss.NewStyle().
-		Foreground(defaultTheme.accentSoft).
+		Foreground(th.accentSoft).
 		Bold(true).
 		Render(vm.Update.Title)
 	subtitle := lipgloss.NewStyle().
-		Foreground(defaultTheme.textSoft).
+		Foreground(th.textSoft).
 		Render(fmt.Sprintf("JACA %s -> %s", vm.Update.CurrentVersion, vm.Update.LatestVersion))
 	rows := make([]string, 0, len(vm.Update.OptionLines))
 	for i, line := range vm.Update.OptionLines {
 		prefix := " "
-		style := lipgloss.NewStyle().Foreground(defaultTheme.textMuted)
+		style := lipgloss.NewStyle().Foreground(th.textMuted)
 		if i == vm.Update.Selected {
 			prefix = ">"
-			style = lipgloss.NewStyle().Foreground(defaultTheme.accentSoft)
+			style = lipgloss.NewStyle().Foreground(th.accentSoft)
 		}
 		rows = append(
 			rows,
-			lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render(prefix)+" "+style.Render(line),
+			lipgloss.NewStyle().Foreground(th.textMuted).Render(prefix)+" "+style.Render(line),
 		)
 	}
 	helpLines := make([]string, 0, len(vm.Update.HelpLines))
 	for index, line := range vm.Update.HelpLines {
-		style := lipgloss.NewStyle().Foreground(defaultTheme.textMuted)
+		style := lipgloss.NewStyle().Foreground(th.textMuted)
 		if index == 0 {
-			style = lipgloss.NewStyle().Foreground(defaultTheme.textSoft)
+			style = lipgloss.NewStyle().Foreground(th.textSoft)
 		}
 		helpLines = append(helpLines, style.Render(line))
 	}
@@ -197,7 +222,7 @@ func renderUpdateOverlay(vm viewModel) string {
 		Width(panelWidth).
 		Padding(1, 2).
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(defaultTheme.border).
+		BorderForeground(th.border).
 		Render(lipgloss.JoinVertical(
 			lipgloss.Left,
 			title,
@@ -223,44 +248,45 @@ func renderUpdateOverlay(vm viewModel) string {
 		lipgloss.Center,
 		panel,
 		lipgloss.WithWhitespaceChars(" "),
-		lipgloss.WithWhitespaceForeground(defaultTheme.background),
+		lipgloss.WithWhitespaceForeground(th.background),
 	)
 }
 
 func renderOnboardingOverlay(vm viewModel) string {
+	th := themeForPermissionPreset(vm.PermissionPreset)
 	panelWidth := 60
 	if vm.Width > 0 {
 		panelWidth = min(68, max(48, vm.Width-8))
 	}
 	title := lipgloss.NewStyle().
-		Foreground(defaultTheme.accentSoft).
+		Foreground(th.accentSoft).
 		Bold(true).
 		Render(vm.Onboarding.Title)
 	rows := make([]string, 0, len(vm.Onboarding.OptionLines))
 	for i, line := range vm.Onboarding.OptionLines {
 		prefix := " "
-		style := lipgloss.NewStyle().Foreground(defaultTheme.textMuted)
+		style := lipgloss.NewStyle().Foreground(th.textMuted)
 		if i == vm.Onboarding.Selected {
 			prefix = ">"
-			style = lipgloss.NewStyle().Foreground(defaultTheme.accentSoft)
+			style = lipgloss.NewStyle().Foreground(th.accentSoft)
 		}
 		rows = append(
 			rows,
-			lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render(prefix)+" "+style.Render(line),
+			lipgloss.NewStyle().Foreground(th.textMuted).Render(prefix)+" "+style.Render(line),
 		)
 	}
 	helpLines := make([]string, 0, len(vm.Onboarding.HelpLines))
 	for _, line := range vm.Onboarding.HelpLines {
 		helpLines = append(
 			helpLines,
-			lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render(line),
+			lipgloss.NewStyle().Foreground(th.textMuted).Render(line),
 		)
 	}
 	panel := lipgloss.NewStyle().
 		Width(panelWidth).
 		Padding(1, 2).
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(defaultTheme.border).
+		BorderForeground(th.border).
 		Render(lipgloss.JoinVertical(
 			lipgloss.Left,
 			title,
@@ -285,21 +311,22 @@ func renderOnboardingOverlay(vm viewModel) string {
 		lipgloss.Center,
 		panel,
 		lipgloss.WithWhitespaceChars(" "),
-		lipgloss.WithWhitespaceForeground(defaultTheme.background),
+		lipgloss.WithWhitespaceForeground(th.background),
 	)
 }
 
 func renderAuthOverlay(vm viewModel) string {
+	th := themeForPermissionPreset(vm.PermissionPreset)
 	panelWidth := 56
 	if vm.Width > 0 {
 		panelWidth = min(64, max(44, vm.Width-8))
 	}
 	title := lipgloss.NewStyle().
-		Foreground(defaultTheme.accentSoft).
+		Foreground(th.accentSoft).
 		Bold(true).
 		Render(vm.Auth.Title)
 	subtitle := lipgloss.NewStyle().
-		Foreground(defaultTheme.textSoft).
+		Foreground(th.textSoft).
 		Render(vm.Auth.SecretLabel)
 	inputValue := vm.Auth.InputValue
 	if strings.TrimSpace(inputValue) == "" {
@@ -309,14 +336,14 @@ func renderAuthOverlay(vm viewModel) string {
 		Width(max(24, panelWidth-8)).
 		Padding(0, 1).
 		Border(lipgloss.NormalBorder()).
-		BorderForeground(defaultTheme.accent).
-		Foreground(defaultTheme.text).
+		BorderForeground(th.accent).
+		Foreground(th.text).
 		Render(inputValue)
 	helpLines := make([]string, 0, len(vm.Auth.HelpLines))
 	for index, line := range vm.Auth.HelpLines {
-		style := lipgloss.NewStyle().Foreground(defaultTheme.textMuted)
+		style := lipgloss.NewStyle().Foreground(th.textMuted)
 		if index == 0 {
-			style = lipgloss.NewStyle().Foreground(defaultTheme.textSoft)
+			style = lipgloss.NewStyle().Foreground(th.textSoft)
 		}
 		helpLines = append(helpLines, style.Render(line))
 	}
@@ -324,7 +351,7 @@ func renderAuthOverlay(vm viewModel) string {
 		Width(panelWidth).
 		Padding(1, 2).
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(defaultTheme.border).
+		BorderForeground(th.border).
 		Render(lipgloss.JoinVertical(
 			lipgloss.Left,
 			title,
@@ -350,11 +377,12 @@ func renderAuthOverlay(vm viewModel) string {
 		lipgloss.Center,
 		panel,
 		lipgloss.WithWhitespaceChars(" "),
-		lipgloss.WithWhitespaceForeground(defaultTheme.background),
+		lipgloss.WithWhitespaceForeground(th.background),
 	)
 }
 
 func renderLoginOverlay(vm viewModel) string {
+	th := themeForPermissionPreset(vm.PermissionPreset)
 	panelWidth := 68
 	if vm.Width > 0 {
 		panelWidth = min(76, max(52, vm.Width-8))
@@ -362,11 +390,11 @@ func renderLoginOverlay(vm viewModel) string {
 	titleText := "ChatGPT Login"
 	subtitleText := "Finish login in the browser. Paste the browser code here only if needed."
 	title := lipgloss.NewStyle().
-		Foreground(defaultTheme.accentSoft).
+		Foreground(th.accentSoft).
 		Bold(true).
 		Render(titleText)
 	subtitle := lipgloss.NewStyle().
-		Foreground(defaultTheme.textSoft).
+		Foreground(th.textSoft).
 		Render(subtitleText)
 	url := vm.Login.AuthURL
 	if strings.TrimSpace(url) == "" {
@@ -376,8 +404,8 @@ func renderLoginOverlay(vm viewModel) string {
 		Width(max(32, panelWidth-8)).
 		Padding(0, 1).
 		Border(lipgloss.NormalBorder()).
-		BorderForeground(defaultTheme.border).
-		Foreground(defaultTheme.textSoft).
+		BorderForeground(th.border).
+		Foreground(th.textSoft).
 		Render(url)
 	inputValue := vm.Login.InputValue
 	if strings.TrimSpace(inputValue) == "" {
@@ -387,18 +415,18 @@ func renderLoginOverlay(vm viewModel) string {
 		Width(max(32, panelWidth-8)).
 		Padding(0, 1).
 		Border(lipgloss.NormalBorder()).
-		BorderForeground(defaultTheme.accent).
-		Foreground(defaultTheme.text).
+		BorderForeground(th.accent).
+		Foreground(th.text).
 		Render(inputValue)
 	lines := []string{
-		lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render(vm.Login.Instructions),
-		lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render("Enter completes manually. Esc cancels."),
+		lipgloss.NewStyle().Foreground(th.textMuted).Render(vm.Login.Instructions),
+		lipgloss.NewStyle().Foreground(th.textMuted).Render("Enter completes manually. Esc cancels."),
 	}
 	panel := lipgloss.NewStyle().
 		Width(panelWidth).
 		Padding(1, 2).
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(defaultTheme.border).
+		BorderForeground(th.border).
 		Render(lipgloss.JoinVertical(
 			lipgloss.Left,
 			title,
@@ -425,36 +453,36 @@ func renderLoginOverlay(vm viewModel) string {
 		lipgloss.Center,
 		panel,
 		lipgloss.WithWhitespaceChars(" "),
-		lipgloss.WithWhitespaceForeground(defaultTheme.background),
+		lipgloss.WithWhitespaceForeground(th.background),
 	)
 }
 
-func renderApprovalPrompt(approval approvalPromptView) string {
+func renderApprovalPrompt(approval approvalPromptView, th theme) string {
 	title := lipgloss.NewStyle().
-		Foreground(defaultTheme.accentSoft).
+		Foreground(th.accentSoft).
 		Bold(true).
 		Render(approval.Title)
 	reason := lipgloss.NewStyle().
-		Foreground(defaultTheme.textSoft).
+		Foreground(th.textSoft).
 		Render(approval.Reason)
 	rows := make([]string, 0, len(approval.OptionLines))
 	for i, line := range approval.OptionLines {
 		prefix := " "
-		style := lipgloss.NewStyle().Foreground(defaultTheme.textMuted)
+		style := lipgloss.NewStyle().Foreground(th.textMuted)
 		if i == approval.Selected {
 			prefix = ">"
-			style = lipgloss.NewStyle().Foreground(defaultTheme.accentSoft)
+			style = lipgloss.NewStyle().Foreground(th.accentSoft)
 		}
 		rows = append(
 			rows,
-			lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render(prefix)+" "+style.Render(line),
+			lipgloss.NewStyle().Foreground(th.textMuted).Render(prefix)+" "+style.Render(line),
 		)
 	}
 	helpLines := make([]string, 0, len(approval.HelpLines))
 	for _, line := range approval.HelpLines {
 		helpLines = append(
 			helpLines,
-			lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render(line),
+			lipgloss.NewStyle().Foreground(th.textMuted).Render(line),
 		)
 	}
 	return lipgloss.JoinVertical(
@@ -470,63 +498,66 @@ func renderApprovalPrompt(approval approvalPromptView) string {
 }
 
 func renderStatus(vm viewModel) string {
+	th := themeForPermissionPreset(vm.PermissionPreset)
 	style := lipgloss.NewStyle().
-		Foreground(defaultTheme.textMuted).
+		Foreground(th.textMuted).
 		BorderBottom(true).
 		BorderStyle(lipgloss.NormalBorder()).
-		BorderForeground(defaultTheme.border)
+		BorderForeground(th.border)
 	switch vm.Phase {
 	case PhaseStreaming:
-		style = style.Foreground(defaultTheme.accentSoft).BorderForeground(defaultTheme.accent)
+		style = style.Foreground(th.accentSoft).BorderForeground(th.accent)
 	case PhaseCompacting:
-		style = style.Foreground(defaultTheme.accent).BorderForeground(defaultTheme.accentSoft)
+		style = style.Foreground(th.accent).BorderForeground(th.accentSoft)
 	case PhaseCompleted:
-		style = style.Foreground(defaultTheme.successSoft).BorderForeground(defaultTheme.success)
+		style = style.Foreground(th.successSoft).BorderForeground(th.success)
 	case PhaseError:
-		style = style.Foreground(defaultTheme.errSoft).BorderForeground(defaultTheme.errSoft)
+		style = style.Foreground(th.errSoft).BorderForeground(th.errSoft)
 	}
 	return style.Render(buildStatusText(vm))
 }
 
 func renderTranscript(vm viewModel) string {
+	th := themeForPermissionPreset(vm.PermissionPreset)
 	style := lipgloss.NewStyle().
-		Foreground(defaultTheme.text).
+		Foreground(th.text).
 		BorderBottom(true).
-		BorderForeground(defaultTheme.border)
+		BorderForeground(th.border)
 	return style.Render(vm.Transcript)
 }
 
 func renderPrompt(vm viewModel) string {
-	rowBorder := defaultTheme.border
+	th := themeForPermissionPreset(vm.PermissionPreset)
+	rowBorder := th.border
 	switch vm.Phase {
 	case PhaseStreaming:
-		rowBorder = defaultTheme.accent
+		rowBorder = th.accent
 	case PhaseCompacting:
-		rowBorder = defaultTheme.accentSoft
+		rowBorder = th.accentSoft
 	case PhaseCompleted:
-		rowBorder = defaultTheme.success
+		rowBorder = th.success
 	case PhaseError:
-		rowBorder = defaultTheme.errSoft
+		rowBorder = th.errSoft
 	}
-	markerColor := defaultTheme.accent
+	markerColor := th.accent
 	switch vm.Phase {
 	case PhaseStreaming:
-		markerColor = defaultTheme.accentSoft
+		markerColor = th.accentSoft
 	case PhaseCompleted:
-		markerColor = defaultTheme.successSoft
+		markerColor = th.successSoft
 	case PhaseError:
-		markerColor = defaultTheme.errSoft
+		markerColor = th.errSoft
 	}
-	footerColor := defaultTheme.textMuted
+	footerColor := th.textMuted
 	switch vm.Phase {
 	case PhaseStreaming:
-		footerColor = defaultTheme.accentSoft
+		footerColor = th.accentSoft
 	case PhaseCompacting:
-		footerColor = defaultTheme.accent
+		footerColor = th.accent
 	case PhaseCompleted:
-		footerColor = defaultTheme.successSoft
+		footerColor = th.successSoft
 	case PhaseError:
-		footerColor = defaultTheme.errSoft
+		footerColor = th.errSoft
 	}
 
 	const promptPadX = 2
@@ -560,10 +591,10 @@ func renderPrompt(vm viewModel) string {
 	}
 	promptParts = append(promptParts, topRule)
 	if vm.SlashMenu.Mode != slashMenuHidden && len(vm.SlashMenu.Rows) > 0 {
-		promptParts = append(promptParts, renderSlashMenu(vm.SlashMenu))
+		promptParts = append(promptParts, renderSlashMenuForTheme(vm.SlashMenu, th))
 	}
 	if vm.Approval.Active {
-		promptParts = append(promptParts, renderApprovalPrompt(vm.Approval))
+		promptParts = append(promptParts, renderApprovalPrompt(vm.Approval, th))
 	} else {
 		promptParts = append(promptParts,
 			lipgloss.JoinHorizontal(
@@ -580,6 +611,7 @@ func renderPrompt(vm viewModel) string {
 			buildPromptFooterText(vm),
 			buildPromptCopyHint(),
 			footerColor,
+			th,
 		),
 		"",
 	)
@@ -600,6 +632,7 @@ func renderPromptFooterLine(
 	left string,
 	right string,
 	leftColor lipgloss.TerminalColor,
+	th theme,
 ) string {
 	leftStyle := lipgloss.NewStyle().Foreground(leftColor)
 	if strings.TrimSpace(right) == "" {
@@ -617,7 +650,7 @@ func renderPromptFooterLine(
 	return leftStyle.Render(left) +
 		gap +
 		lipgloss.NewStyle().
-			Foreground(defaultTheme.textMuted).
+			Foreground(th.textMuted).
 			Render(right)
 }
 
@@ -629,6 +662,7 @@ func promptHeight(vm viewModel) int {
 }
 
 func renderTopRail(vm viewModel) string {
+	th := themeForPermissionPreset(vm.PermissionPreset)
 	indicator := buildTopRailIndicator(vm)
 	if indicator == "" {
 		return ""
@@ -638,31 +672,31 @@ func renderTopRail(vm viewModel) string {
 		if vm.AwaitingFirstOutput {
 			wave = buildThinkingWave(vm.MotionTick)
 		}
-		return renderActiveTopRail(wave, vm.MotionTick, vm.RunElapsed)
+		return renderActiveTopRail(wave, vm.MotionTick, vm.RunElapsed, th)
 	}
 	if vm.Phase == PhaseCompacting {
-		return renderActiveTopRail(buildCompactingWave(vm.MotionTick), vm.MotionTick, vm.RunElapsed)
+		return renderActiveTopRail(buildCompactingWave(vm.MotionTick), vm.MotionTick, vm.RunElapsed, th)
 	}
 	return lipgloss.NewStyle().
-		Foreground(defaultTheme.accentSoft).
+		Foreground(th.accentSoft).
 		Render(indicator)
 }
 
-func renderActiveTopRail(wave string, motionTick int, elapsed time.Duration) string {
+func renderActiveTopRail(wave string, motionTick int, elapsed time.Duration, th theme) string {
 	return lipgloss.JoinHorizontal(
 		lipgloss.Left,
-		renderWordWave(wave, motionTick),
+		renderWordWaveForTheme(wave, motionTick, th),
 		lipgloss.NewStyle().
-			Foreground(defaultTheme.accentSoft).
+			Foreground(th.accentSoft).
 			Render("…"),
 		lipgloss.NewStyle().
-			Foreground(defaultTheme.textMuted).
+			Foreground(th.textMuted).
 			Render(" ("),
 		lipgloss.NewStyle().
-			Foreground(defaultTheme.accentSoft).
+			Foreground(th.accentSoft).
 			Render(formatTopRailElapsed(elapsed)),
 		lipgloss.NewStyle().
-			Foreground(defaultTheme.textMuted).
+			Foreground(th.textMuted).
 			Render(" · esc to interrupt)"),
 	)
 }
@@ -741,10 +775,14 @@ func highlightRune(runes []rune, index int) string {
 // Uses a cosine curve to blend between dim and bright over a 24-tick (~3.4s)
 // cycle, inspired by Codex's shimmer_spans cosine-based intensity.
 func breathingMarkerColor(motionTick int) lipgloss.TerminalColor {
+	return breathingMarkerColorForTheme(motionTick, defaultTheme)
+}
+
+func breathingMarkerColorForTheme(motionTick int, th theme) lipgloss.TerminalColor {
 	const period = 24
 	t := 0.5 * (1.0 + math.Cos(2.0*math.Pi*float64(motionTick%period)/float64(period)))
-	dimR, dimG, dimB := 0x3d, 0x35, 0x20
-	hiR, hiG, hiB := 0xd7, 0x9a, 0x41
+	dimR, dimG, dimB := terminalColorRGB(th.border)
+	hiR, hiG, hiB := terminalColorRGB(th.accent)
 	r := uint8(float64(dimR) + t*float64(hiR-dimR))
 	g := uint8(float64(dimG) + t*float64(hiG-dimG))
 	b := uint8(float64(dimB) + t*float64(hiB-dimB))
@@ -752,10 +790,14 @@ func breathingMarkerColor(motionTick int) lipgloss.TerminalColor {
 }
 
 func renderWordWave(frame string, motionTick int) string {
-	marker := lipgloss.NewStyle().Foreground(breathingMarkerColor(motionTick)).Render("●")
+	return renderWordWaveForTheme(frame, motionTick, defaultTheme)
+}
 
-	base := lipgloss.NewStyle().Foreground(defaultTheme.accentSoft)
-	active := lipgloss.NewStyle().Foreground(defaultTheme.textSoft).Bold(true)
+func renderWordWaveForTheme(frame string, motionTick int, th theme) string {
+	marker := lipgloss.NewStyle().Foreground(breathingMarkerColorForTheme(motionTick, th)).Render("●")
+
+	base := lipgloss.NewStyle().Foreground(th.accentSoft)
+	active := lipgloss.NewStyle().Foreground(th.textSoft).Bold(true)
 	parts := make([]string, 0, len(frame)+2)
 	parts = append(parts, marker, " ")
 	for _, r := range frame {
@@ -770,6 +812,10 @@ func renderWordWave(frame string, motionTick int) string {
 }
 
 func renderSlashMenu(state slashMenuState) string {
+	return renderSlashMenuForTheme(state, defaultTheme)
+}
+
+func renderSlashMenuForTheme(state slashMenuState, th theme) string {
 	rows := visibleSlashMenuRows(state)
 	valueWidth := slashMenuValueWidth(rows)
 	lines := make([]string, 0, len(rows))
@@ -780,29 +826,29 @@ func renderSlashMenu(state slashMenuState) string {
 	for idx, row := range rows {
 		actualIndex := selectedStart + idx
 		prefix := " "
-		valueColor := defaultTheme.textMuted
-		descColor := defaultTheme.textMuted
+		valueColor := th.textMuted
+		descColor := th.textMuted
 		if actualIndex == state.Selected {
 			prefix = ">"
-			valueColor = defaultTheme.accentSoft
-			descColor = defaultTheme.textSoft
+			valueColor = th.accentSoft
+			descColor = th.textSoft
 		}
 		currentBadge := ""
 		if row.Current {
-			currentColor := defaultTheme.successSoft
+			currentColor := th.successSoft
 			if actualIndex == state.Selected {
-				currentColor = defaultTheme.success
+				currentColor = th.success
 			}
 			currentBadge = lipgloss.NewStyle().Foreground(currentColor).Render("[current]") + " "
 		}
 		lines = append(lines,
 			lipgloss.JoinHorizontal(
 				lipgloss.Left,
-				lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render(prefix),
+				lipgloss.NewStyle().Foreground(th.textMuted).Render(prefix),
 				" ",
 				lipgloss.NewStyle().Foreground(valueColor).Render(padRight(slashDisplayValue(row), valueWidth)),
 				currentBadge,
-				renderSlashDescription(row.Description, descColor),
+				renderSlashDescription(row.Description, descColor, th),
 			),
 		)
 	}
@@ -824,13 +870,13 @@ func slashDisplayValue(row slashSuggestion) string {
 	return row.Value
 }
 
-func renderSlashDescription(description string, descColor lipgloss.TerminalColor) string {
+func renderSlashDescription(description string, descColor lipgloss.TerminalColor, th theme) string {
 	const readyBadge = "[✓]"
 	if !strings.Contains(description, readyBadge) {
 		return lipgloss.NewStyle().Foreground(descColor).Render(description)
 	}
 	parts := strings.SplitN(description, readyBadge, 2)
-	badge := lipgloss.NewStyle().Foreground(defaultTheme.successSoft).Render(readyBadge)
+	badge := lipgloss.NewStyle().Foreground(th.successSoft).Render(readyBadge)
 	rendered := lipgloss.NewStyle().Foreground(descColor).Render(parts[0]) + badge
 	if len(parts) == 2 && parts[1] != "" {
 		rendered += lipgloss.NewStyle().Foreground(descColor).Render(parts[1])
@@ -912,9 +958,10 @@ func renderQueuedInputPreview(vm viewModel, width int) string {
 	if len(vm.QueuedNext) == 0 && len(vm.QueuedLater) == 0 {
 		return ""
 	}
+	th := themeForPermissionPreset(vm.PermissionPreset)
 	previewStyle := lipgloss.NewStyle().
 		BorderLeft(true).
-		BorderForeground(defaultTheme.border).
+		BorderForeground(th.border).
 		PaddingLeft(1)
 	sectionGap := ""
 	var sections []string
@@ -924,6 +971,7 @@ func renderQueuedInputPreview(vm viewModel, width int) string {
 			"Esc sends now",
 			vm.QueuedNext,
 			width,
+			th,
 		))
 		sectionGap = "\n"
 	}
@@ -933,14 +981,15 @@ func renderQueuedInputPreview(vm viewModel, width int) string {
 			"",
 			vm.QueuedLater,
 			width,
+			th,
 		))
 	}
 	return previewStyle.Render(strings.Join(sections, sectionGap))
 }
 
-func renderQueuedInputSection(title string, hint string, prompts []string, width int) string {
-	header := lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render(title)
-	count := lipgloss.NewStyle().Foreground(defaultTheme.accentSoft).Render(
+func renderQueuedInputSection(title string, hint string, prompts []string, width int, th theme) string {
+	header := lipgloss.NewStyle().Foreground(th.textMuted).Render(title)
+	count := lipgloss.NewStyle().Foreground(th.accentSoft).Render(
 		fmt.Sprintf("%d queued", len(prompts)),
 	)
 	headerLine := lipgloss.JoinHorizontal(lipgloss.Left, header, "  ", count)
@@ -949,21 +998,21 @@ func renderQueuedInputSection(title string, hint string, prompts []string, width
 			lipgloss.Left,
 			headerLine,
 			"  ",
-			lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render(hint),
+			lipgloss.NewStyle().Foreground(th.textMuted).Render(hint),
 		)
 	}
 	lines := []string{headerLine}
 	maxPrompts := minInt(len(prompts), 3)
 	for i := 0; i < maxPrompts; i++ {
-		lines = append(lines, renderQueuedPromptLine(prompts[i], width))
+		lines = append(lines, renderQueuedPromptLine(prompts[i], width, th))
 	}
 	if len(prompts) > maxPrompts {
-		lines = append(lines, lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render("  …"))
+		lines = append(lines, lipgloss.NewStyle().Foreground(th.textMuted).Render("  …"))
 	}
 	return strings.Join(lines, "\n")
 }
 
-func renderQueuedPromptLine(prompt string, width int) string {
+func renderQueuedPromptLine(prompt string, width int, th theme) string {
 	trimmed := strings.TrimSpace(prompt)
 	firstLine := trimmed
 	if idx := strings.IndexByte(firstLine, '\n'); idx >= 0 {
@@ -981,7 +1030,23 @@ func renderQueuedPromptLine(prompt string, width int) string {
 	if len(runes) > maxWidth {
 		firstLine = string(runes[:maxWidth-1]) + "…"
 	}
-	return lipgloss.NewStyle().Foreground(defaultTheme.textSoft).Render("  ↳ " + firstLine)
+	return lipgloss.NewStyle().Foreground(th.textSoft).Render("  ↳ " + firstLine)
+}
+
+func terminalColorRGB(color lipgloss.TerminalColor) (uint8, uint8, uint8) {
+	complete, ok := color.(lipgloss.CompleteColor)
+	if !ok {
+		return 0x3d, 0x35, 0x20
+	}
+	hex := strings.TrimPrefix(complete.TrueColor, "#")
+	if len(hex) != 6 {
+		return 0x3d, 0x35, 0x20
+	}
+	var r, g, b uint8
+	if _, err := fmt.Sscanf(hex, "%02x%02x%02x", &r, &g, &b); err != nil {
+		return 0x3d, 0x35, 0x20
+	}
+	return r, g, b
 }
 
 func minInt(a int, b int) int {

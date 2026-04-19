@@ -880,6 +880,28 @@ func TestSilentPermissionStateHydrationMarksCurrentPresetWithoutTranscriptNoise(
 	}
 }
 
+func TestCurrentViewModelUsesFullAccessPermissionPreset(t *testing.T) {
+	backend := newStubBackend()
+	m := newTestModelWithBackend(backend)
+
+	fullAccessState := backend.permissionState
+	fullAccessState.SandboxPolicy.Mode = "danger_full_access"
+	fullAccessState.SandboxPolicy.NetworkAccess = "enabled"
+	fullAccessState.ApprovalPolicy.Mode = "never"
+	fullAccessState.EffectiveCapabilities = rpc.EffectiveCapabilities{
+		FilesystemAccess:   "full_access",
+		NetworkAccess:      "enabled",
+		ExecutionIsolation: "unsandboxed",
+		ApprovalMode:       "never",
+	}
+	m.permissionState = &fullAccessState
+
+	vm := m.currentViewModel()
+	if vm.PermissionPreset != "full_access" {
+		t.Fatalf("vm.PermissionPreset = %q, want full_access", vm.PermissionPreset)
+	}
+}
+
 func TestApproveSlashWorksDuringStreaming(t *testing.T) {
 	backend := newStubBackend()
 	m := newTestModelWithBackend(backend)
