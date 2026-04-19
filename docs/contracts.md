@@ -280,8 +280,9 @@ Approval carrier rules:
       without approval
     - `write` and `edit` remain workspace-scoped and request approval for
       outside-workspace paths
-    - `shell` remains sandboxed and requests approval for explicit network
-      access or explicit outside-workspace filesystem widening
+    - `shell` remains sandboxed, can inspect host paths anywhere on disk
+      without approval, and requests approval for explicit network access or
+      outside-workspace writes
   - under `workspace_write`, the read-side worker has unrestricted read access
     to the local filesystem; outside-workspace reads do not require approval
   - scoped `extra_read_roots` remain available for stricter modes and future
@@ -298,9 +299,8 @@ Approval carrier rules:
     backend reruns that command with `requested_permissions.network_access`
     widened to `enabled` while preserving the sandboxed shell posture
   - `approval_policy=on_escalation` may also request approval for explicit
-    outside-workspace shell paths; when approved, the restricted Linux backend
-    reruns that command with scoped extra bind mounts derived from
-    `requested_permissions.extra_read_roots` and
+    outside-workspace shell writes; when approved, the restricted Linux
+    backend reruns that command with scoped writable bind mounts derived from
     `requested_permissions.extra_write_roots` instead of forcing a mode flip
     to `danger_full_access`
   - approval reasons must disclose the concrete scope being widened; shell

@@ -133,12 +133,12 @@ def build_runtime_context_text(
                     ),
                     (
                         "Tool coverage note: default-mode read-side tools "
-                        "can inspect paths anywhere on disk without approval. "
-                        "Shell stays sandboxed and supports approval-backed "
-                        "extra filesystem roots for explicit outside-workspace "
-                        "paths, and write-side tools still use backend file "
-                        "operations with scoped approval for outside-workspace "
-                        "paths."
+                        "and sandboxed shell can inspect host paths anywhere "
+                        "on disk without approval. Shell stays sandboxed and "
+                        "requests approval only for network access or "
+                        "outside-workspace writes, and write-side tools still "
+                        "use backend file operations with scoped approval for "
+                        "outside-workspace paths."
                     ),
                 ]
             )

@@ -363,6 +363,7 @@ def _tokens_requested_filesystem_permissions(
     seen_approval_writes: set[str] = set()
     write_command = executable in _SHELL_FILESYSTEM_WRITE_COMMANDS
     destination_write_index = _last_positional_path_index(tokens)
+    unrestricted_read_access = True
     if executable not in _SHELL_SOURCE_AND_DESTINATION_WRITE_COMMANDS:
         destination_write_index = None
 
@@ -395,7 +396,11 @@ def _tokens_requested_filesystem_permissions(
             write_requested = (
                 write_command and previous not in _READ_REDIRECTION_TOKENS
             )
-        if read_requested and scope_root not in seen_effective_reads:
+        if (
+            read_requested
+            and not unrestricted_read_access
+            and scope_root not in seen_effective_reads
+        ):
             seen_effective_reads.add(scope_root)
             effective_read_roots.append(scope_root)
             if not permission_memory.allows_read_path(Path(scope_root)):

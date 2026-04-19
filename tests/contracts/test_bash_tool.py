@@ -319,7 +319,7 @@ async def test_execute_shell_requests_approval_for_network_escalation(
     )
 
 
-async def test_execute_shell_requests_approval_for_explicit_outside_read_root(
+async def test_execute_shell_skips_approval_for_explicit_outside_read_root(
     tmp_path,
     monkeypatch,
 ) -> None:
@@ -367,32 +367,17 @@ async def test_execute_shell_requests_approval_for_explicit_outside_read_root(
     )
 
     assert result == {"exit_code": 0, "output": "ok"}
-    assert len(requests) == 1
-    expected_command = truncate_activity_label(
-        f"cat {outside_root / 'README.md'}"
-    )
-    assert requests[0].reason == (
-        "allow shell command: "
-        f"{expected_command} "
-        f"(read-only bind mounts: {outside_root})"
-    )
-    assert requests[0].requested_permissions is not None
-    assert requests[0].requested_permissions.extra_read_roots == (
-        str(outside_root),
-    )
+    assert requests == []
     assert len(executed_requests) == 1
     assert executed_requests[0].normalized_policy == NormalizedSandboxPolicy(
-        filesystem=FileSystemSandboxPolicy(
-            access="workspace_write",
-            extra_read_roots=(str(outside_root),),
-        ),
+        filesystem=FileSystemSandboxPolicy(access="workspace_write"),
         network=NetworkSandboxPolicy(access="restricted"),
         execution_isolation="sandboxed",
     )
-    assert ctx.deps.permission_memory.approved_read_roots == {str(outside_root)}
+    assert ctx.deps.permission_memory.approved_read_roots == set()
 
 
-async def test_execute_shell_skips_reprompt_for_session_approved_outside_root(
+async def test_execute_shell_keeps_outside_read_approval_free_with_session_memory(
     tmp_path,
     monkeypatch,
 ) -> None:
@@ -445,10 +430,7 @@ async def test_execute_shell_skips_reprompt_for_session_approved_outside_root(
     assert requests == []
     assert len(executed_requests) == 1
     assert executed_requests[0].normalized_policy == NormalizedSandboxPolicy(
-        filesystem=FileSystemSandboxPolicy(
-            access="workspace_write",
-            extra_read_roots=(str(outside_root),),
-        ),
+        filesystem=FileSystemSandboxPolicy(access="workspace_write"),
         network=NetworkSandboxPolicy(access="restricted"),
         execution_isolation="sandboxed",
     )
@@ -603,7 +585,7 @@ async def test_execute_shell_discloses_network_and_mount_scope_in_approval_reaso
     assert requests[0].reason == (
         "allow shell command: "
         f"{expected_command} "
-        f"(network enabled; read-only bind mounts: {outside_root})"
+        "(network enabled)"
     )
 
 

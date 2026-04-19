@@ -388,7 +388,7 @@ def test_plan_shell_execution_keeps_local_command_in_default_sandbox() -> None:
     assert plan.approval_required is False
 
 
-def test_plan_shell_execution_requests_extra_read_root_for_explicit_outside_path(
+def test_plan_shell_execution_allows_explicit_outside_read_without_approval(
     tmp_path,
 ) -> None:
     workspace_root = tmp_path / "workspace"
@@ -408,17 +408,14 @@ def test_plan_shell_execution_requests_extra_read_root_for_explicit_outside_path
         permission_memory=SessionPermissionMemory(),
     )
 
-    assert plan.requested_permissions == AdditionalSandboxPermissions(
-        extra_read_roots=(str(outside_root),),
-    )
+    assert plan.requested_permissions is None
     assert plan.normalized_policy.filesystem == FileSystemSandboxPolicy(
         access="workspace_write",
-        extra_read_roots=(str(outside_root),),
     )
-    assert plan.approval_required is True
+    assert plan.approval_required is False
 
 
-def test_plan_shell_execution_skips_reprompt_for_approved_outside_read_root(
+def test_plan_shell_execution_keeps_outside_read_approval_free_when_memory_exists(
     tmp_path,
 ) -> None:
     workspace_root = tmp_path / "workspace"
@@ -443,7 +440,6 @@ def test_plan_shell_execution_skips_reprompt_for_approved_outside_read_root(
     assert plan.requested_permissions is None
     assert plan.normalized_policy.filesystem == FileSystemSandboxPolicy(
         access="workspace_write",
-        extra_read_roots=(str(outside_root),),
     )
     assert plan.approval_required is False
 
@@ -474,12 +470,10 @@ def test_plan_shell_execution_treats_cp_source_as_read_and_destination_as_write(
     )
 
     assert plan.requested_permissions == AdditionalSandboxPermissions(
-        extra_read_roots=(str(outside_read_root),),
         extra_write_roots=(str(outside_write_root),),
     )
     assert plan.normalized_policy.filesystem == FileSystemSandboxPolicy(
         access="workspace_write",
-        extra_read_roots=(str(outside_read_root),),
         extra_write_roots=(str(outside_write_root),),
     )
     assert plan.approval_required is True

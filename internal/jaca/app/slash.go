@@ -531,7 +531,7 @@ func permissionStateLines(
 	if state.SandboxPolicy.Mode == "workspace_write" {
 		lines = append(
 			lines,
-			"default currently guarantees unrestricted read-side filesystem access, sandboxed shell execution with approval-backed network and explicit outside-workspace filesystem widening, and write-side backend file operations with scoped approval for outside-workspace paths",
+			"default currently guarantees unrestricted read-side filesystem access, sandboxed shell host-path reads without approval, approval-backed shell network and outside-workspace write widening, and write-side backend file operations with scoped approval for outside-workspace paths",
 		)
 	}
 	return lines

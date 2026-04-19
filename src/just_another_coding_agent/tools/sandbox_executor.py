@@ -49,31 +49,13 @@ DEFAULT_LOCAL_SANDBOX_EXECUTABLE = os.environ.get(
     "JACA_SANDBOX_EXECUTABLE",
     "bwrap",
 )
-_LOCAL_SANDBOX_HOME = "/tmp"
-_LOCAL_SANDBOX_SYSTEM_READ_ROOTS = (
-    Path("/usr"),
-    Path("/bin"),
-    Path("/lib"),
-    Path("/lib64"),
-    Path("/sbin"),
-    Path("/usr/local"),
-    Path("/opt"),
-    Path("/nix"),
-    Path("/run/current-system"),
-)
-_LOCAL_SANDBOX_BASELINE_ETC_READ_PATHS = (
-    Path("/etc/passwd"),
-    Path("/etc/group"),
-    Path("/etc/localtime"),
-)
-_LOCAL_SANDBOX_NETWORK_ETC_READ_PATHS = (
-    Path("/etc/resolv.conf"),
-    Path("/etc/hosts"),
-    Path("/etc/nsswitch.conf"),
-    Path("/etc/ssl"),
-    Path("/etc/ca-certificates"),
-    Path("/etc/pki"),
-)
+_LOCAL_SANDBOX_READ_ONLY_ROOT = Path("/")
+_LOCAL_SANDBOX_DEFAULT_WRITABLE_ROOTS = (Path("/tmp"),)
+_LOCAL_SANDBOX_VOLATILE_ENV_OVERRIDES = {
+    "GOCACHE": "/tmp/go-build",
+    "GOTMPDIR": "/tmp/go-tmp",
+    "XDG_CACHE_HOME": "/tmp/.cache",
+}
 
 
 def _shell_command_prefix(shell_family: ShellFamily) -> tuple[str, ...]:
@@ -226,10 +208,40 @@ def _local_sandbox_env(
     env = build_tool_process_env()
     path_dirs = _local_sandbox_tool_path_dirs(env)
     env["PATH"] = os.pathsep.join(str(path) for path in path_dirs)
-    env["HOME"] = _LOCAL_SANDBOX_HOME
-    env["TMPDIR"] = "/tmp"
     env["PWD"] = str(workspace_root)
+    for key, value in _LOCAL_SANDBOX_VOLATILE_ENV_OVERRIDES.items():
+        env[key] = value
     return env, path_dirs
+
+
+def _local_sandbox_extra_writable_roots(
+    *,
+    workspace_root: Path,
+    normalized_policy: NormalizedSandboxPolicy,
+    env: dict[str, str],
+) -> tuple[Path, ...]:
+    roots: dict[Path, None] = {}
+
+    def _add_root(path: Path) -> None:
+        resolved = path.resolve()
+        if not resolved.exists() or not resolved.is_dir():
+            return
+        roots[resolved] = None
+
+    _add_root(workspace_root.resolve())
+    for root in _LOCAL_SANDBOX_DEFAULT_WRITABLE_ROOTS:
+        _add_root(root)
+    for key in ("TMPDIR", "TEMP", "TMP"):
+        raw_value = env.get(key)
+        if not raw_value:
+            continue
+        candidate = Path(raw_value)
+        if not candidate.is_absolute():
+            continue
+        _add_root(candidate)
+    for root in normalized_policy.filesystem.extra_write_roots:
+        _add_root(Path(root))
+    return tuple(sorted(roots, key=lambda path: (len(path.parts), str(path))))
 
 
 def _local_sandbox_register_mount(
@@ -272,55 +284,23 @@ def _local_sandbox_bind_mounts(
     normalized_policy: NormalizedSandboxPolicy,
     env: dict[str, str],
 ) -> tuple[_LocalSandboxBindMount, ...]:
-    workspace_mount = _LocalSandboxBindMount(
-        source=workspace_root.resolve(),
-        target=workspace_root.resolve(),
-        writable=(
-            _local_sandbox_mount_mode(normalized_policy.filesystem.access) == "rw"
-        ),
-    )
     mounts: dict[Path, _LocalSandboxBindMount] = {
-        workspace_mount.target: workspace_mount
+        _LOCAL_SANDBOX_READ_ONLY_ROOT: _LocalSandboxBindMount(
+            source=_LOCAL_SANDBOX_READ_ONLY_ROOT.resolve(),
+            target=_LOCAL_SANDBOX_READ_ONLY_ROOT,
+            writable=False,
+        )
     }
-    for root in _LOCAL_SANDBOX_SYSTEM_READ_ROOTS:
-        if root.exists():
-            _local_sandbox_register_mount(
-                mounts,
-                path=root,
-                writable=False,
-                target=root,
-            )
-    for path in _LOCAL_SANDBOX_BASELINE_ETC_READ_PATHS:
-        if path.exists():
-            _local_sandbox_register_mount(
-                mounts,
-                path=path,
-                writable=False,
-                target=path,
-            )
-    if normalized_policy.network.access == "enabled":
-        for path in _LOCAL_SANDBOX_NETWORK_ETC_READ_PATHS:
-            if path.exists():
-                _local_sandbox_register_mount(
-                    mounts,
-                    path=path,
-                    writable=False,
-                    target=path,
-                )
-    for path_dir in _local_sandbox_tool_path_dirs(env):
-        if path_dir.is_relative_to(workspace_mount.source):
-            continue
-        _local_sandbox_register_mount(mounts, path=path_dir, writable=False)
-    for root in normalized_policy.filesystem.extra_read_roots:
-        path = Path(root).resolve()
-        if path == workspace_mount.source:
-            continue
-        _local_sandbox_register_mount(mounts, path=path, writable=False)
-    for root in normalized_policy.filesystem.extra_write_roots:
-        path = Path(root).resolve()
-        if path == workspace_mount.source:
-            continue
-        _local_sandbox_register_mount(mounts, path=path, writable=True)
+    writable = (
+        _local_sandbox_mount_mode(normalized_policy.filesystem.access) == "rw"
+    )
+    if writable:
+        for root in _local_sandbox_extra_writable_roots(
+            workspace_root=workspace_root,
+            normalized_policy=normalized_policy,
+            env=env,
+        ):
+            _local_sandbox_register_mount(mounts, path=root, writable=True)
     return tuple(
         mount
         for _path, mount in sorted(
@@ -340,6 +320,19 @@ def _local_sandbox_parent_dirs(
             parents.add(parent)
             parent = parent.parent
     return tuple(sorted(parents, key=lambda path: (len(path.parts), str(path))))
+
+
+def _local_sandbox_runtime_dirs(env: dict[str, str]) -> tuple[Path, ...]:
+    runtime_dirs: set[Path] = set()
+    for key in _LOCAL_SANDBOX_VOLATILE_ENV_OVERRIDES:
+        raw_value = env.get(key)
+        if not raw_value:
+            continue
+        candidate = Path(raw_value)
+        if not candidate.is_absolute():
+            continue
+        runtime_dirs.add(candidate)
+    return tuple(sorted(runtime_dirs, key=lambda path: (len(path.parts), str(path))))
 
 
 def _local_sandbox_shell_executable(
@@ -426,12 +419,6 @@ class LocalRestrictedSandboxExecutor:
             "--unshare-all",
             "--hostname",
             "jaca-sandbox",
-            "--proc",
-            "/proc",
-            "--dev",
-            "/dev",
-            "--tmpfs",
-            "/tmp",
         ]
         if normalized_policy.network.access == "enabled":
             bwrap_args.append("--share-net")
@@ -447,6 +434,16 @@ class LocalRestrictedSandboxExecutor:
                     str(mount.target),
                 ]
             )
+        for runtime_dir in _local_sandbox_runtime_dirs(env):
+            bwrap_args.extend(["--dir", str(runtime_dir)])
+        bwrap_args.extend(
+            [
+                "--proc",
+                "/proc",
+                "--dev",
+                "/dev",
+            ]
+        )
         bwrap_args.extend(["--chdir", str(request.workspace_root)])
         shell_executable = _local_sandbox_shell_executable(
             shell_family=request.shell_family,

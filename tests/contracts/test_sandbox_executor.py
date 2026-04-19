@@ -481,24 +481,12 @@ async def test_local_restricted_sandbox_executor_launches_bubblewrap_with_worksp
     assert "--unshare-all" in args
     assert "--proc" in args
     assert "--dev" in args
-    assert "--tmpfs" in args
+    assert ("--ro-bind", "/", "/") in _bind_triplets(args)
     assert "--share-net" not in args
     assert args[args.index("--chdir") + 1] == str(workspace_root)
     assert ("--bind", str(workspace_root), str(workspace_root)) in _bind_triplets(
         args
     )
-    if Path("/lib").exists() and Path("/lib").resolve() != Path("/lib"):
-        assert (
-            "--ro-bind",
-            str(Path("/lib").resolve()),
-            "/lib",
-        ) in _bind_triplets(args)
-    if Path("/lib64").exists() and Path("/lib64").resolve() != Path("/lib64"):
-        assert (
-            "--ro-bind",
-            str(Path("/lib64").resolve()),
-            "/lib64",
-        ) in _bind_triplets(args)
     assert args[-3:] == ("/usr/bin/bash", "-lc", "pwd")
 
 
@@ -616,12 +604,8 @@ async def test_local_restricted_sandbox_executor_mounts_approved_extra_roots(
     assert await handle.read(4096) == b"ok"
     args = observed["args"]
     bind_triplets = _bind_triplets(args)
+    assert ("--ro-bind", "/", "/") in bind_triplets
     assert ("--bind", str(workspace_root), str(workspace_root)) in bind_triplets
-    assert (
-        "--ro-bind",
-        str(outside_read_root),
-        str(outside_read_root),
-    ) in bind_triplets
     assert (
         "--bind",
         str(outside_write_root),
@@ -677,7 +661,7 @@ async def test_local_restricted_sandbox_executor_canonicalizes_symlink_mount_roo
                 {
                     "filesystem": {
                         "access": "workspace_write",
-                        "extra_read_roots": [str(alias_root)],
+                        "extra_write_roots": [str(alias_root)],
                     },
                     "network": {"access": "restricted"},
                     "execution_isolation": "sandboxed",
@@ -689,9 +673,78 @@ async def test_local_restricted_sandbox_executor_canonicalizes_symlink_mount_roo
     assert await handle.read(4096) == b"ok"
     args = observed["args"]
     bind_triplets = _bind_triplets(args)
-    expected_mount = ("--ro-bind", str(real_root), str(real_root))
+    expected_mount = ("--bind", str(real_root), str(real_root))
     assert expected_mount in bind_triplets
     assert all(str(alias_root) not in mount for mount in bind_triplets)
+
+
+async def test_local_restricted_sandbox_executor_preserves_home_and_sets_tmp_caches(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    temp_root = tmp_path / "tmp-root"
+    temp_root.mkdir()
+    observed: dict[str, object] = {}
+
+    async def fake_create_subprocess_exec(*args, **kwargs):
+        observed["args"] = args
+        observed["kwargs"] = kwargs
+        return _FakeProcess()
+
+    monkeypatch.setattr(
+        sandbox_executor_module,
+        "build_tool_process_env",
+        lambda: {
+            "PATH": "/usr/bin:/bin",
+            "HOME": "/home/tester",
+            "TMPDIR": str(temp_root),
+        },
+    )
+    monkeypatch.setattr(
+        sandbox_executor_module.shutil,
+        "which",
+        lambda executable, path=None: f"/usr/bin/{executable}",
+    )
+    monkeypatch.setattr(
+        sandbox_executor_module.asyncio,
+        "create_subprocess_exec",
+        fake_create_subprocess_exec,
+    )
+
+    handle = await LocalRestrictedSandboxExecutor(
+        executable="sandbox-executable"
+    ).execute(
+        SandboxCommandRequest(
+            workspace_root=workspace_root,
+            command="go test ./...",
+            shell_family="posix",
+            selected_sandbox_mode="workspace_write",
+            normalized_policy=NormalizedSandboxPolicy.model_validate(
+                {
+                    "filesystem": {"access": "workspace_write"},
+                    "network": {"access": "restricted"},
+                    "execution_isolation": "sandboxed",
+                }
+            ),
+        )
+    )
+
+    assert await handle.read(4096) == b"ok"
+    env = observed["kwargs"]["env"]
+    assert env["HOME"] == "/home/tester"
+    assert env["TMPDIR"] == str(temp_root)
+    assert env["GOCACHE"] == "/tmp/go-build"
+    assert env["GOTMPDIR"] == "/tmp/go-tmp"
+    assert env["XDG_CACHE_HOME"] == "/tmp/.cache"
+    args = observed["args"]
+    assert "--dir" in args
+    assert "/tmp/go-build" in args
+    assert "/tmp/go-tmp" in args
+    assert "/tmp/.cache" in args
+    bind_triplets = _bind_triplets(observed["args"])
+    assert ("--bind", str(temp_root), str(temp_root)) in bind_triplets
 
 
 async def test_local_restricted_sandbox_executor_requires_bubblewrap(
