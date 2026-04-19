@@ -156,6 +156,14 @@ class SandboxExecutionPlan:
 FileAccessKind = Literal["read", "write"]
 
 
+def _supports_workspace_write_widening(mode: str) -> bool:
+    return mode in {"workspace_write", "workspace_write_strict"}
+
+
+def _has_unrestricted_host_reads(mode: str) -> bool:
+    return mode == "workspace_write"
+
+
 def describe_permission_delta(
     permissions: AdditionalSandboxPermissions | None,
 ) -> str:
@@ -307,6 +315,7 @@ def _shell_command_requested_filesystem_permissions(
     permission_memory,
     command: str,
     shell_family: ShellFamily,
+    unrestricted_read_access: bool,
 ) -> tuple[
     tuple[str, ...],
     tuple[str, ...],
@@ -325,6 +334,7 @@ def _shell_command_requested_filesystem_permissions(
         workspace_root=workspace_root,
         permission_memory=permission_memory,
         tokens=tokens,
+        unrestricted_read_access=unrestricted_read_access,
     )
 
 
@@ -333,6 +343,7 @@ def _tokens_requested_filesystem_permissions(
     workspace_root: Path,
     permission_memory,
     tokens: list[str],
+    unrestricted_read_access: bool,
     _depth: int = 0,
 ) -> tuple[
     tuple[str, ...],
@@ -350,6 +361,7 @@ def _tokens_requested_filesystem_permissions(
                 workspace_root=workspace_root,
                 permission_memory=permission_memory,
                 tokens=unwrapped,
+                unrestricted_read_access=unrestricted_read_access,
                 _depth=_depth + 1,
             )
 
@@ -363,7 +375,6 @@ def _tokens_requested_filesystem_permissions(
     seen_approval_writes: set[str] = set()
     write_command = executable in _SHELL_FILESYSTEM_WRITE_COMMANDS
     destination_write_index = _last_positional_path_index(tokens)
-    unrestricted_read_access = True
     if executable not in _SHELL_SOURCE_AND_DESTINATION_WRITE_COMMANDS:
         destination_write_index = None
 
@@ -480,6 +491,7 @@ def derive_sandbox_execution_plan(
         approval_required=approval_required,
     )
 
+
 def _approval_scope_root(resolved_path: Path) -> str:
     scope_root = (
         resolved_path
@@ -501,7 +513,9 @@ def plan_shell_execution(
     approval_network_access = None
     if (
         permission_state.approval_policy.mode == "on_escalation"
-        and permission_state.sandbox_policy.mode == "workspace_write"
+        and _supports_workspace_write_widening(
+            permission_state.sandbox_policy.mode
+        )
         and _shell_command_requests_network_access(
             command=command,
             shell_family=shell_family,
@@ -517,7 +531,9 @@ def plan_shell_execution(
         workspace_root is not None
         and permission_memory is not None
         and permission_state.approval_policy.mode == "on_escalation"
-        and permission_state.sandbox_policy.mode == "workspace_write"
+        and _supports_workspace_write_widening(
+            permission_state.sandbox_policy.mode
+        )
     ):
         (
             effective_read_roots,
@@ -529,6 +545,9 @@ def plan_shell_execution(
             permission_memory=permission_memory,
             command=command,
             shell_family=shell_family,
+            unrestricted_read_access=_has_unrestricted_host_reads(
+                permission_state.sandbox_policy.mode
+            ),
         )
     effective_permissions: AdditionalSandboxPermissions | None = None
     if (
@@ -614,7 +633,9 @@ async def _approved_file_access_plan(
         if outside_workspace:
             approval_scope_root = _approval_scope_root(resolved)
             if access_kind == "read":
-                if permission_state.sandbox_policy.mode != "workspace_write":
+                if not _has_unrestricted_host_reads(
+                    permission_state.sandbox_policy.mode
+                ):
                     effective_permissions = AdditionalSandboxPermissions(
                         extra_read_roots=(approval_scope_root,),
                     )

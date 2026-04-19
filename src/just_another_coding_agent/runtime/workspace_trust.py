@@ -21,10 +21,31 @@ def _canonical_workspace_root(workspace_root: Path | str) -> Path:
     return Path(workspace_root).expanduser().resolve()
 
 
+def _looks_like_git_root(candidate: Path) -> bool:
+    marker = candidate / ".git"
+    if marker.is_dir():
+        return (marker / "HEAD").is_file()
+    if not marker.is_file():
+        return False
+    try:
+        first_line = marker.read_text(encoding="utf-8").splitlines()[0].strip()
+    except (IndexError, OSError, UnicodeDecodeError):
+        return False
+    if not first_line.startswith("gitdir:"):
+        return False
+    raw_git_dir = first_line.removeprefix("gitdir:").strip()
+    if not raw_git_dir:
+        return False
+    git_dir = Path(raw_git_dir)
+    if not git_dir.is_absolute():
+        git_dir = (candidate / git_dir).resolve()
+    return git_dir.is_dir() and (git_dir / "HEAD").is_file()
+
+
 def resolve_workspace_trust_target(workspace_root: Path | str) -> Path:
     current = _canonical_workspace_root(workspace_root)
     for candidate in (current, *current.parents):
-        if (candidate / ".git").exists():
+        if _looks_like_git_root(candidate):
             return candidate
     return current
 

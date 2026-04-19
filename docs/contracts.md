@@ -205,6 +205,11 @@ Initial sandbox policy modes:
   - workspace-write filesystem posture
   - restricted or enabled network posture
   - sandboxed execution posture
+- `workspace_write_strict`
+  - workspace-write filesystem posture
+  - restricted or enabled network posture
+  - sandboxed execution posture
+  - outside-workspace reads and writes require approval
 - `danger_full_access`
   - full-access filesystem posture
   - enabled network posture
@@ -245,9 +250,10 @@ Approval carrier rules:
 - tools request approval through backend-owned runtime deps; the runtime emits
   `approval_requested` and `approval_resolved` events and preserves normal
   terminal run semantics
-- workspace trust is backend-owned state keyed by the resolved repo root
-  (first ancestor containing `.git`) or the session workspace root when no
-  repo root is found
+- workspace trust is backend-owned state keyed by the resolved repo root when
+  one can be identified from a valid Git root marker (`.git/HEAD` or a valid
+  `.git` worktree pointer file), or the session workspace root when no repo
+  root is found
 - trust is persisted in `~/.jaca/config.json` under
   `project_trust:<abs-path>` = `"trusted"`
 - untrusted workspaces must reject `session.create` and
@@ -265,11 +271,12 @@ Approval carrier rules:
   - `session_turn_context.effective_capabilities` remains the durable
     model-visible snapshot written after completed runs
 - current restricted execution coverage is intentionally narrow:
-  - `shell` routes `workspace_write` and `read_only` sandbox policies through
-    the local restricted executor backend
+  - `shell` routes `workspace_write`, `workspace_write_strict`, and
+    `read_only` sandbox policies through the local restricted executor backend
   - the current Linux restricted backend is bubblewrap-backed, executes host
-    binaries under a host-process sandbox, and preserves host-visible path
-    semantics for mounted roots
+    binaries under a host-process sandbox, preserves host-visible path
+    semantics for mounted roots, and keeps a host-like shell environment
+    by default while redirecting volatile tool caches under `/tmp`
   - executor backends consume normalized filesystem/network policy derived from
     the selected permission state plus any approved per-command permission
     deltas
@@ -283,8 +290,18 @@ Approval carrier rules:
     - `shell` remains sandboxed, can inspect host paths anywhere on disk
       without approval, and requests approval for explicit network access or
       outside-workspace writes
+  - strict permission preset posture:
+    - `read`, `ls`, `find`, and `grep` remain workspace-scoped until approval
+      widens the read boundary with explicit `extra_read_roots`
+    - `write` and `edit` remain workspace-scoped and request approval for
+      outside-workspace paths
+    - `shell` remains sandboxed, preserves host-visible path reads for mounted
+      roots inside the workspace, and requests approval for explicit network
+      access plus outside-workspace reads or writes
   - under `workspace_write`, the read-side worker has unrestricted read access
     to the local filesystem; outside-workspace reads do not require approval
+  - under `workspace_write_strict`, the read-side worker stays workspace-scoped
+    until approval explicitly widens the boundary with `extra_read_roots`
   - scoped `extra_read_roots` remain available for stricter modes and future
     policy tightening, but the current `default` preset intentionally mirrors
     Codex-style "read anywhere, write in workspace" behavior for structured

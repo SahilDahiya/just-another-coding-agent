@@ -296,17 +296,19 @@ def test_build_runtime_context_text_includes_effective_capabilities_when_given(
                 "Shell sandbox path note: sandboxed shell preserves "
                 "host-visible path semantics for mounted roots."
             ),
-                    (
-                        "Tool coverage note: default-mode read-side tools "
-                        "and sandboxed shell can inspect host paths anywhere "
-                        "on disk without approval. Shell stays sandboxed and "
-                        "requests approval only for network access or "
-                        "outside-workspace writes, and write-side tools still "
-                        "use backend file operations with scoped approval for "
-                        "outside-workspace paths."
-                    ),
-                ]
-            )
+            (
+                "Tool coverage note: sandboxed workspace-write modes "
+                "preserve host-visible path reads for mounted roots. "
+                "The default preset allows host-path reads without "
+                "approval; stricter presets may request approval for "
+                "outside-workspace reads. Shell stays sandboxed and "
+                "requests approval for network access or "
+                "outside-workspace writes, and write-side tools still "
+                "use backend file operations with scoped approval for "
+                "outside-workspace paths."
+            ),
+        ]
+    )
 
 
 def test_build_canonical_model_settings_include_thinking_when_set() -> None:

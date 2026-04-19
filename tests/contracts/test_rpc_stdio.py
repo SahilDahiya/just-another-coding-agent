@@ -30,6 +30,7 @@ from just_another_coding_agent.contracts.sandbox import (
     EffectiveCapabilities,
     PermissionState,
     WorkspaceWriteSandboxPolicy,
+    WorkspaceWriteStrictSandboxPolicy,
 )
 from just_another_coding_agent.oauth_openai_codex import start_openai_codex_login
 from just_another_coding_agent.rpc.session_store import (
@@ -661,6 +662,77 @@ async def test_handle_rpc_json_line_sets_live_permission_state_for_session(
             network_access="restricted",
             execution_isolation="sandboxed",
             approval_mode="always",
+        ),
+    )
+    assert set_messages == [
+        {
+            "type": "rpc_response",
+            "id": "req-permission-set",
+            "response": {
+                "session_id": session_id,
+                "permission_state": expected_state.model_dump(mode="json"),
+            },
+        }
+    ]
+
+    get_messages = await _rpc_messages(
+        request_payload={
+            "id": "req-permission-get",
+            "command": "permission.get",
+            "payload": {"session_id": session_id},
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    assert get_messages == [
+        {
+            "type": "rpc_response",
+            "id": "req-permission-get",
+            "response": {
+                "session_id": session_id,
+                "permission_state": expected_state.model_dump(mode="json"),
+            },
+        }
+    ]
+
+
+async def test_handle_rpc_json_line_sets_strict_permission_state_for_session(
+    tmp_path,
+) -> None:
+    _clear_permission_states()
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    session_id = await _create_session_id(
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    set_messages = await _rpc_messages(
+        request_payload={
+            "id": "req-permission-set",
+            "command": "permission.set",
+            "payload": {
+                "session_id": session_id,
+                "sandbox_policy": {"mode": "workspace_write_strict"},
+                "approval_policy": {"mode": "on_escalation"},
+            },
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    expected_state = PermissionState(
+        sandbox_policy=WorkspaceWriteStrictSandboxPolicy(),
+        approval_policy=ApprovalPolicy(mode="on_escalation"),
+        effective_capabilities=EffectiveCapabilities(
+            filesystem_access="workspace_write",
+            network_access="restricted",
+            execution_isolation="sandboxed",
+            approval_mode="on_escalation",
         ),
     )
     assert set_messages == [
@@ -2824,6 +2896,9 @@ async def test_workspace_trust_status_accept_and_session_gate(
     workspace_root.mkdir(parents=True)
     repo_root = workspace_root.parent
     (repo_root / ".git").mkdir()
+    (repo_root / ".git" / "HEAD").write_text(
+        "ref: refs/heads/main\n", encoding="utf-8"
+    )
     (repo_root / "AGENTS.md").write_text("Read docs first.\n", encoding="utf-8")
     sessions_root = tmp_path / "sessions"
 

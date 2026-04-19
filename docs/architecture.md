@@ -138,9 +138,11 @@ host-backed executor for `danger_full_access` plus a first local restricted
 executor for `shell` under sandboxed policies. That restricted path is
 intentionally narrow: on Linux it uses a bubblewrap-backed host-process
 sandbox, preserves host-visible path semantics for mounted roots, defaults to
-network-disabled execution under `workspace_write`, and must fail explicitly
-if bubblewrap is unavailable. The Go TUI should not infer or select executor
-backends; it only renders the selected permission state and approval flow.
+network-disabled execution under `workspace_write`, and keeps a host-like
+shell environment by default while redirecting volatile cache state under
+`/tmp`. It must fail explicitly if bubblewrap is unavailable. The Go TUI
+should not infer or select executor backends; it only renders the selected
+permission state and approval flow.
 The current pivot adds a middle layer between those user-facing presets and
 the executor backend: Python now normalizes selected sandbox state plus any
 approved per-command permission deltas into concrete filesystem and network

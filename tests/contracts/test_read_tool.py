@@ -3,8 +3,10 @@ from __future__ import annotations
 import pytest
 
 from just_another_coding_agent.contracts.sandbox import (
+    ApprovalDecision,
     ApprovalPolicy,
     DangerFullAccessSandboxPolicy,
+    WorkspaceWriteStrictSandboxPolicy,
     build_permission_state,
 )
 from just_another_coding_agent.tools.errors import (
@@ -163,3 +165,40 @@ async def test_read_tool_allows_outside_workspace_paths_in_default_mode(
         await ctx.deps.read_only_worker.close()
 
     assert result.return_value == "secret"
+
+
+@go_worker_required
+async def test_read_tool_requests_approval_for_outside_workspace_paths_in_strict_mode(
+    tmp_path,
+) -> None:
+    requests = []
+
+    async def approval_requester(request):
+        requests.append(request)
+        return ApprovalDecision(
+            request_id=request.request_id,
+            decision="approved",
+        )
+
+    ctx = worker_ctx(
+        tmp_path,
+        permission_state=build_permission_state(
+            sandbox_policy=WorkspaceWriteStrictSandboxPolicy(),
+            approval_policy=ApprovalPolicy(mode="on_escalation"),
+        ),
+        approval_requester=approval_requester,
+    )
+    outside = tmp_path / "outside.txt"
+    outside.write_text("secret", encoding="utf-8")
+
+    try:
+        result = await read(ctx, "../outside.txt")
+    finally:
+        await ctx.deps.read_only_worker.close()
+
+    assert result.return_value == "secret"
+    assert len(requests) == 1
+    assert requests[0].requested_permissions is not None
+    assert requests[0].requested_permissions.extra_read_roots == (
+        str(tmp_path),
+    )

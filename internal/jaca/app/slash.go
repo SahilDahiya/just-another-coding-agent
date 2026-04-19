@@ -289,8 +289,13 @@ func (m *model) permissionSlashSuggestions() []slashSuggestion {
 	return []slashSuggestion{
 		{
 			Value:       "default",
-			Description: "Read and edit files in the current workspace, and run commands. Approval is required to access the internet or edit other files.",
+			Description: "Read files anywhere on disk, edit the current workspace, and run sandboxed commands. Approval is required for network access or writes outside the workspace.",
 			Current:     currentPreset == "default",
+		},
+		{
+			Value:       "strict",
+			Description: "Like default, but ask before reading or writing outside the workspace. Use when reviewing less-trusted code locally.",
+			Current:     currentPreset == "strict",
 		},
 		{
 			Value:       "full_access",
@@ -534,6 +539,12 @@ func permissionStateLines(
 			"default currently guarantees unrestricted read-side filesystem access, sandboxed shell host-path reads without approval, approval-backed shell network and outside-workspace write widening, and write-side backend file operations with scoped approval for outside-workspace paths",
 		)
 	}
+	if state.SandboxPolicy.Mode == "workspace_write_strict" {
+		lines = append(
+			lines,
+			"strict currently guarantees approval-backed outside-workspace reads and writes, plus sandboxed shell execution with approval-backed network access and outside-workspace filesystem widening",
+		)
+	}
 	return lines
 }
 
@@ -541,6 +552,8 @@ func permissionPresetFromState(state rpc.PermissionState) string {
 	switch {
 	case state.SandboxPolicy.Mode == "workspace_write" && state.ApprovalPolicy.Mode == "on_escalation":
 		return "default"
+	case state.SandboxPolicy.Mode == "workspace_write_strict" && state.ApprovalPolicy.Mode == "on_escalation":
+		return "strict"
 	case state.SandboxPolicy.Mode == "danger_full_access" && state.ApprovalPolicy.Mode == "never":
 		return "full_access"
 	default:
@@ -558,6 +571,8 @@ func parsePermissionCommand(
 	switch value {
 	case "default":
 		return &rpc.SandboxPolicy{Mode: "workspace_write"}, &rpc.ApprovalPolicy{Mode: "on_escalation"}, true
+	case "strict":
+		return &rpc.SandboxPolicy{Mode: "workspace_write_strict"}, &rpc.ApprovalPolicy{Mode: "on_escalation"}, true
 	case "full_access":
 		return &rpc.SandboxPolicy{Mode: "danger_full_access"}, &rpc.ApprovalPolicy{Mode: "never"}, true
 	default:
@@ -575,7 +590,7 @@ func (m *model) handlePermissionCommand(arg string) (tea.Model, tea.Cmd) {
 	sandboxPolicy, approvalPolicy, ok := parsePermissionCommand(arg)
 	if !ok {
 		m.transcript.WriteError(
-			"invalid. use /permission to show current mode, or /permission [default|full_access] to switch",
+			"invalid. use /permission to show current mode, or /permission [default|strict|full_access] to switch",
 		)
 		m.refreshViewport()
 		return m, nil

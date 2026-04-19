@@ -17,6 +17,7 @@ from just_another_coding_agent.contracts.sandbox import (
     ReadOnlySandboxPolicy,
     SandboxPolicy,
     WorkspaceWriteSandboxPolicy,
+    WorkspaceWriteStrictSandboxPolicy,
     build_permission_state,
     derive_effective_capabilities,
     derive_normalized_sandbox_policy,
@@ -38,6 +39,11 @@ def test_sandbox_policy_accepts_named_modes_with_explicit_defaults() -> None:
 
     workspace_write = adapter.validate_python({"mode": "workspace_write"})
     assert workspace_write == WorkspaceWriteSandboxPolicy()
+
+    workspace_write_strict = adapter.validate_python(
+        {"mode": "workspace_write_strict"}
+    )
+    assert workspace_write_strict == WorkspaceWriteStrictSandboxPolicy()
 
     external = adapter.validate_python({"mode": "external"})
     assert external == ExternalSandboxPolicy()
@@ -83,6 +89,16 @@ def test_derive_effective_capabilities_normalizes_policy_shapes() -> None:
         network_access="enabled",
         execution_isolation="sandboxed",
         approval_mode="always",
+    )
+
+    assert derive_effective_capabilities(
+        sandbox_policy=WorkspaceWriteStrictSandboxPolicy(),
+        approval_policy=ApprovalPolicy(mode="on_escalation"),
+    ) == EffectiveCapabilities(
+        filesystem_access="workspace_write",
+        network_access="restricted",
+        execution_isolation="sandboxed",
+        approval_mode="on_escalation",
     )
 
     assert derive_effective_capabilities(
@@ -413,6 +429,36 @@ def test_plan_shell_execution_allows_explicit_outside_read_without_approval(
         access="workspace_write",
     )
     assert plan.approval_required is False
+
+
+def test_plan_shell_execution_requests_outside_read_approval_in_strict_mode(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    outside_root = tmp_path / "outside"
+    outside_root.mkdir()
+    permission_state = build_permission_state(
+        sandbox_policy=WorkspaceWriteStrictSandboxPolicy(),
+        approval_policy=ApprovalPolicy(mode="on_escalation"),
+    )
+
+    plan = plan_shell_execution(
+        permission_state=permission_state,
+        command=f"cat {outside_root / 'README.md'}",
+        shell_family="posix",
+        workspace_root=workspace_root,
+        permission_memory=SessionPermissionMemory(),
+    )
+
+    assert plan.requested_permissions == AdditionalSandboxPermissions(
+        extra_read_roots=(str(outside_root),),
+    )
+    assert plan.normalized_policy.filesystem == FileSystemSandboxPolicy(
+        access="workspace_write",
+        extra_read_roots=(str(outside_root),),
+    )
+    assert plan.approval_required is True
 
 
 def test_plan_shell_execution_keeps_outside_read_approval_free_when_memory_exists(

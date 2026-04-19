@@ -813,6 +813,45 @@ func TestPermissionSlashUpdatesWorkspaceDefaultPolicyWithoutSession(t *testing.T
 	}
 }
 
+func TestPermissionSlashUpdatesStrictPolicy(t *testing.T) {
+	backend := newStubBackend()
+	m := newTestModelWithBackend(backend)
+	m.sessionID = "session-123"
+
+	updated, cmd := m.submitSlashCommand("/permission strict", false)
+	m = updated.(*model)
+	if cmd == nil {
+		t.Fatal("/permission strict should call backend")
+	}
+	msg := cmd()
+	updated, _ = m.Update(msg)
+	m = updated.(*model)
+
+	if backend.lastPermissionSet.SessionID != "session-123" {
+		t.Fatalf("lastPermissionSet.SessionID = %q", backend.lastPermissionSet.SessionID)
+	}
+	if backend.lastPermissionSet.SandboxPolicy == nil || backend.lastPermissionSet.SandboxPolicy.Mode != "workspace_write_strict" {
+		t.Fatalf("lastPermissionSet.SandboxPolicy = %#v", backend.lastPermissionSet.SandboxPolicy)
+	}
+	if backend.lastPermissionSet.ApprovalPolicy == nil || backend.lastPermissionSet.ApprovalPolicy.Mode != "on_escalation" {
+		t.Fatalf("lastPermissionSet.ApprovalPolicy = %#v", backend.lastPermissionSet.ApprovalPolicy)
+	}
+	if m.permissionState == nil || m.permissionState.SandboxPolicy.Mode != "workspace_write_strict" {
+		t.Fatalf("cached permission state = %#v", m.permissionState)
+	}
+	rendered := stripANSI(m.transcript.Render())
+	for _, want := range []string{
+		"permission state updated",
+		"permission: strict",
+		"effective capabilities: filesystem=workspace_write network=restricted isolation=sandboxed approval=on_escalation",
+		"strict currently guarantees approval-backed outside-workspace reads and writes, plus sandboxed shell execution with approval-backed network access and outside-workspace filesystem widening",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("permission render missing %q in %q", want, rendered)
+		}
+	}
+}
+
 func TestPermissionSlashUpdatesFullAccessPolicy(t *testing.T) {
 	backend := newStubBackend()
 	m := newTestModelWithBackend(backend)
@@ -852,14 +891,39 @@ func TestPermissionSlashSuggestionsMarkCurrentPreset(t *testing.T) {
 	m.permissionState = &state
 	rows := m.permissionSlashSuggestions()
 
-	if len(rows) != 2 {
-		t.Fatalf("len(rows) = %d, want 2", len(rows))
+	if len(rows) != 3 {
+		t.Fatalf("len(rows) = %d, want 3", len(rows))
 	}
 	if !rows[0].Current {
 		t.Fatal("default should be current when backend state is default")
 	}
 	if rows[1].Current {
+		t.Fatal("strict should not be marked current")
+	}
+	if rows[2].Current {
 		t.Fatal("full_access should not be marked current")
+	}
+
+	strictState := backend.permissionState
+	strictState.SandboxPolicy.Mode = "workspace_write_strict"
+	strictState.ApprovalPolicy.Mode = "on_escalation"
+	strictState.EffectiveCapabilities = rpc.EffectiveCapabilities{
+		FilesystemAccess:   "workspace_write",
+		NetworkAccess:      "restricted",
+		ExecutionIsolation: "sandboxed",
+		ApprovalMode:       "on_escalation",
+	}
+	m.permissionState = &strictState
+	rows = m.permissionSlashSuggestions()
+
+	if rows[0].Current {
+		t.Fatal("default should not be current when strict is active")
+	}
+	if !rows[1].Current {
+		t.Fatal("strict should be marked current")
+	}
+	if rows[2].Current {
+		t.Fatal("full_access should not be marked current when strict is active")
 	}
 
 	fullAccessState := backend.permissionState
@@ -878,7 +942,10 @@ func TestPermissionSlashSuggestionsMarkCurrentPreset(t *testing.T) {
 	if rows[0].Current {
 		t.Fatal("default should not be current when full_access is active")
 	}
-	if !rows[1].Current {
+	if rows[1].Current {
+		t.Fatal("strict should not be marked current when full_access is active")
+	}
+	if !rows[2].Current {
 		t.Fatal("full_access should be marked current")
 	}
 }
@@ -934,6 +1001,9 @@ func TestSilentPermissionStateHydrationMarksCurrentPresetWithoutTranscriptNoise(
 		t.Fatal("default should be marked current after silent permission-state hydration")
 	}
 	if rows[1].Current {
+		t.Fatal("strict should not be marked current after silent permission-state hydration")
+	}
+	if rows[2].Current {
 		t.Fatal("full_access should not be marked current after silent permission-state hydration")
 	}
 
@@ -962,6 +1032,27 @@ func TestCurrentViewModelUsesFullAccessPermissionPreset(t *testing.T) {
 	vm := m.currentViewModel()
 	if vm.PermissionPreset != "full_access" {
 		t.Fatalf("vm.PermissionPreset = %q, want full_access", vm.PermissionPreset)
+	}
+}
+
+func TestCurrentViewModelUsesStrictPermissionPreset(t *testing.T) {
+	backend := newStubBackend()
+	m := newTestModelWithBackend(backend)
+
+	strictState := backend.permissionState
+	strictState.SandboxPolicy.Mode = "workspace_write_strict"
+	strictState.ApprovalPolicy.Mode = "on_escalation"
+	strictState.EffectiveCapabilities = rpc.EffectiveCapabilities{
+		FilesystemAccess:   "workspace_write",
+		NetworkAccess:      "restricted",
+		ExecutionIsolation: "sandboxed",
+		ApprovalMode:       "on_escalation",
+	}
+	m.permissionState = &strictState
+
+	vm := m.currentViewModel()
+	if vm.PermissionPreset != "strict" {
+		t.Fatalf("vm.PermissionPreset = %q, want strict", vm.PermissionPreset)
 	}
 }
 

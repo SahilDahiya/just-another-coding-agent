@@ -34,6 +34,11 @@ class WorkspaceWriteSandboxPolicy(_SandboxContractModel):
     network_access: SandboxNetworkAccess = "restricted"
 
 
+class WorkspaceWriteStrictSandboxPolicy(_SandboxContractModel):
+    mode: Literal["workspace_write_strict"] = "workspace_write_strict"
+    network_access: SandboxNetworkAccess = "restricted"
+
+
 class DangerFullAccessSandboxPolicy(_SandboxContractModel):
     mode: Literal["danger_full_access"] = "danger_full_access"
     network_access: SandboxNetworkAccess = "enabled"
@@ -55,6 +60,7 @@ class ExternalSandboxPolicy(_SandboxContractModel):
 SandboxPolicy = Annotated[
     ReadOnlySandboxPolicy
     | WorkspaceWriteSandboxPolicy
+    | WorkspaceWriteStrictSandboxPolicy
     | DangerFullAccessSandboxPolicy
     | ExternalSandboxPolicy,
     Field(discriminator="mode"),
@@ -133,7 +139,10 @@ def derive_effective_capabilities(
     if isinstance(sandbox_policy, ReadOnlySandboxPolicy):
         filesystem_access: FilesystemAccess = "read_only"
         execution_isolation: ExecutionIsolation = "sandboxed"
-    elif isinstance(sandbox_policy, WorkspaceWriteSandboxPolicy):
+    elif isinstance(
+        sandbox_policy,
+        WorkspaceWriteSandboxPolicy | WorkspaceWriteStrictSandboxPolicy,
+    ):
         filesystem_access = "workspace_write"
         execution_isolation = "sandboxed"
     elif isinstance(sandbox_policy, DangerFullAccessSandboxPolicy):
@@ -248,6 +257,7 @@ __all__ = [
     "SandboxNetworkAccess",
     "SandboxPolicy",
     "WorkspaceWriteSandboxPolicy",
+    "WorkspaceWriteStrictSandboxPolicy",
     "build_default_permission_state",
     "build_permission_state",
     "derive_effective_capabilities",
