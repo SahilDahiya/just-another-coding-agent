@@ -3,7 +3,6 @@ from __future__ import annotations
 import pytest
 
 from just_another_coding_agent.contracts.sandbox import (
-    ApprovalDecision,
     ApprovalPolicy,
     DangerFullAccessSandboxPolicy,
     build_permission_state,
@@ -129,24 +128,6 @@ async def test_read_tool_fails_when_offset_is_beyond_end_of_file(tmp_path) -> No
 
 
 @go_worker_required
-async def test_read_tool_requires_approval_for_outside_workspace_path_in_default_mode(
-    tmp_path,
-) -> None:
-    ctx = worker_ctx(tmp_path)
-    outside = tmp_path / "outside.txt"
-    outside.write_text("secret", encoding="utf-8")
-
-    try:
-        with pytest.raises(
-            RuntimeError,
-            match="Read requires approval, but no approval requester is configured",
-        ):
-            await read(ctx, "../outside.txt")
-    finally:
-        await ctx.deps.read_only_worker.close()
-
-
-@go_worker_required
 async def test_read_tool_allows_outside_workspace_paths_in_full_access_mode(
     tmp_path,
 ) -> None:
@@ -169,19 +150,10 @@ async def test_read_tool_allows_outside_workspace_paths_in_full_access_mode(
 
 
 @go_worker_required
-async def test_read_tool_requests_approval_for_outside_workspace_path_in_default_mode(
+async def test_read_tool_allows_outside_workspace_paths_in_default_mode(
     tmp_path,
 ) -> None:
-    requests = []
-
-    async def approval_requester(request):
-        requests.append(request)
-        return ApprovalDecision(
-            request_id=request.request_id,
-            decision="approved",
-        )
-
-    ctx = worker_ctx(tmp_path, approval_requester=approval_requester)
+    ctx = worker_ctx(tmp_path)
     outside = tmp_path / "outside.txt"
     outside.write_text("secret", encoding="utf-8")
 
@@ -191,45 +163,3 @@ async def test_read_tool_requests_approval_for_outside_workspace_path_in_default
         await ctx.deps.read_only_worker.close()
 
     assert result.return_value == "secret"
-    assert len(requests) == 1
-    assert requests[0].reason == "allow read outside workspace: ../outside.txt"
-    assert requests[0].requested_permissions is not None
-    assert requests[0].requested_permissions.extra_read_roots == (
-        str(outside.parent.resolve()),
-    )
-
-
-@go_worker_required
-async def test_read_tool_remembers_approved_outside_root_within_one_session(
-    tmp_path,
-) -> None:
-    requests = []
-
-    async def approval_requester(request):
-        requests.append(request)
-        return ApprovalDecision(
-            request_id=request.request_id,
-            decision="approved",
-        )
-
-    ctx = worker_ctx(tmp_path, approval_requester=approval_requester)
-    outside_dir = tmp_path / "pi-mono"
-    outside_dir.mkdir()
-    first = outside_dir / "README.md"
-    second = outside_dir / "package.json"
-    first.write_text("readme", encoding="utf-8")
-    second.write_text("package", encoding="utf-8")
-
-    try:
-        first_result = await read(ctx, "../pi-mono/README.md")
-        second_result = await read(ctx, "../pi-mono/package.json")
-    finally:
-        await ctx.deps.read_only_worker.close()
-
-    assert first_result.return_value == "readme"
-    assert second_result.return_value == "package"
-    assert len(requests) == 1
-    assert requests[0].requested_permissions is not None
-    assert requests[0].requested_permissions.extra_read_roots == (
-        str(outside_dir.resolve()),
-    )

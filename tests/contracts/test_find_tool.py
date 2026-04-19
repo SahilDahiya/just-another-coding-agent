@@ -4,7 +4,6 @@ import shutil
 
 import pytest
 
-from just_another_coding_agent.contracts.sandbox import ApprovalDecision
 from just_another_coding_agent.tools import find as find_module
 from just_another_coding_agent.tools.errors import ToolPathError
 from just_another_coding_agent.tools.find import find
@@ -107,19 +106,10 @@ async def test_find_tool_bootstrap_failure_is_fatal(tmp_path, monkeypatch) -> No
 
 
 @go_worker_required
-async def test_find_tool_requests_approval_for_outside_workspace_path_in_default_mode(
+async def test_find_tool_allows_outside_workspace_path_in_default_mode(
     tmp_path,
 ) -> None:
-    requests = []
-
-    async def approval_requester(request):
-        requests.append(request)
-        return ApprovalDecision(
-            request_id=request.request_id,
-            decision="approved",
-        )
-
-    ctx = worker_ctx(tmp_path, approval_requester=approval_requester)
+    ctx = worker_ctx(tmp_path)
     outside = tmp_path / "outside"
     outside.mkdir()
     (outside / "alpha.py").write_text("", encoding="utf-8")
@@ -130,9 +120,3 @@ async def test_find_tool_requests_approval_for_outside_workspace_path_in_default
         await ctx.deps.read_only_worker.close()
 
     assert result.return_value == "alpha.py"
-    assert len(requests) == 1
-    assert requests[0].reason == "allow find outside workspace: ../outside"
-    assert requests[0].requested_permissions is not None
-    assert requests[0].requested_permissions.extra_read_roots == (
-        str(outside.resolve()),
-    )

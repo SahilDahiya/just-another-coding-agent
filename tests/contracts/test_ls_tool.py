@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import pytest
 
-from just_another_coding_agent.contracts.sandbox import ApprovalDecision
 from just_another_coding_agent.tools.errors import ToolPathError
 from just_another_coding_agent.tools.ls import ls
 from tests.contracts.read_only_tool_test_support import (
@@ -78,19 +77,10 @@ async def test_ls_tool_respects_entry_limit(tmp_path) -> None:
 
 
 @go_worker_required
-async def test_ls_tool_requests_approval_for_outside_workspace_path_in_default_mode(
+async def test_ls_tool_allows_outside_workspace_path_in_default_mode(
     tmp_path,
 ) -> None:
-    requests = []
-
-    async def approval_requester(request):
-        requests.append(request)
-        return ApprovalDecision(
-            request_id=request.request_id,
-            decision="approved",
-        )
-
-    ctx = worker_ctx(tmp_path, approval_requester=approval_requester)
+    ctx = worker_ctx(tmp_path)
     outside = tmp_path / "outside"
     outside.mkdir()
     (outside / "alpha.txt").write_text("", encoding="utf-8")
@@ -101,9 +91,3 @@ async def test_ls_tool_requests_approval_for_outside_workspace_path_in_default_m
         await ctx.deps.read_only_worker.close()
 
     assert result.return_value == "alpha.txt"
-    assert len(requests) == 1
-    assert requests[0].reason == "allow ls outside workspace: ../outside"
-    assert requests[0].requested_permissions is not None
-    assert requests[0].requested_permissions.extra_read_roots == (
-        str(outside.resolve()),
-    )

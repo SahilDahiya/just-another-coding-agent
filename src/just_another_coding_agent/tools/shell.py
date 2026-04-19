@@ -22,6 +22,7 @@ from just_another_coding_agent.tools._activity import (
 )
 from just_another_coding_agent.tools._permissions import (
     plan_shell_execution,
+    remember_approved_permissions,
 )
 from just_another_coding_agent.tools.deps import WorkspaceDeps
 from just_another_coding_agent.tools.errors import (
@@ -221,6 +222,8 @@ async def execute_shell(
         permission_state=permission_state,
         command=command,
         shell_family=shell_family,
+        workspace_root=Path(workspace_root),
+        permission_memory=(ctx.deps.permission_memory if ctx is not None else None),
     )
     executor = select_sandbox_executor(
         configured_executor=(
@@ -253,6 +256,11 @@ async def execute_shell(
         if decision.decision != "approved":
             raise RuntimeError(
                 "Shell execution approval did not return an approved decision"
+            )
+        if plan.requested_permissions is not None:
+            remember_approved_permissions(
+                permission_memory=ctx.deps.permission_memory,
+                permissions=plan.requested_permissions,
             )
     handle = await executor.execute(
         SandboxCommandRequest(

@@ -27,6 +27,7 @@ from just_another_coding_agent.tools._permissions import (
     derive_sandbox_execution_plan,
     plan_shell_execution,
 )
+from just_another_coding_agent.tools.deps import SessionPermissionMemory
 
 
 def test_sandbox_policy_accepts_named_modes_with_explicit_defaults() -> None:
@@ -311,5 +312,65 @@ def test_plan_shell_execution_keeps_local_command_in_default_sandbox() -> None:
         filesystem=FileSystemSandboxPolicy(access="workspace_write"),
         network=NetworkSandboxPolicy(access="restricted"),
         execution_isolation="sandboxed",
+    )
+    assert plan.approval_required is False
+
+
+def test_plan_shell_execution_requests_extra_read_root_for_explicit_outside_path(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    outside_root = tmp_path / "other"
+    outside_root.mkdir()
+    permission_state = build_permission_state(
+        sandbox_policy=WorkspaceWriteSandboxPolicy(),
+        approval_policy=ApprovalPolicy(mode="on_escalation"),
+    )
+
+    plan = plan_shell_execution(
+        permission_state=permission_state,
+        command=f"cat {outside_root / 'README.md'}",
+        shell_family="posix",
+        workspace_root=workspace_root,
+        permission_memory=SessionPermissionMemory(),
+    )
+
+    assert plan.requested_permissions == AdditionalSandboxPermissions(
+        extra_read_roots=(str(outside_root),),
+    )
+    assert plan.normalized_policy.filesystem == FileSystemSandboxPolicy(
+        access="workspace_write",
+        extra_read_roots=(str(outside_root),),
+    )
+    assert plan.approval_required is True
+
+
+def test_plan_shell_execution_skips_reprompt_for_approved_outside_read_root(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    outside_root = tmp_path / "other"
+    outside_root.mkdir()
+    permission_state = build_permission_state(
+        sandbox_policy=WorkspaceWriteSandboxPolicy(),
+        approval_policy=ApprovalPolicy(mode="on_escalation"),
+    )
+    memory = SessionPermissionMemory()
+    memory.remember_read_root(str(outside_root))
+
+    plan = plan_shell_execution(
+        permission_state=permission_state,
+        command=f'bash -lc "cat {outside_root / "README.md"}"',
+        shell_family="posix",
+        workspace_root=workspace_root,
+        permission_memory=memory,
+    )
+
+    assert plan.requested_permissions is None
+    assert plan.normalized_policy.filesystem == FileSystemSandboxPolicy(
+        access="workspace_write",
+        extra_read_roots=(str(outside_root),),
     )
     assert plan.approval_required is False

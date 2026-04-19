@@ -209,6 +209,36 @@ def _local_sandbox_mount_mode(filesystem_access: str) -> str:
     )
 
 
+def _local_sandbox_extra_mounts(
+    *,
+    workspace_root: Path,
+    normalized_policy: NormalizedSandboxPolicy,
+) -> list[str]:
+    mount_modes: dict[Path, str] = {}
+    for root in normalized_policy.filesystem.extra_read_roots:
+        path = Path(root)
+        if path == workspace_root:
+            continue
+        mount_modes[path] = "ro"
+    for root in normalized_policy.filesystem.extra_write_roots:
+        path = Path(root)
+        if path == workspace_root:
+            continue
+        mount_modes[path] = "rw"
+    docker_mounts: list[str] = []
+    for path, mode in sorted(
+        mount_modes.items(),
+        key=lambda item: (len(item[0].parts), str(item[0])),
+    ):
+        docker_mounts.extend(
+            [
+                "--volume",
+                f"{path}:{path}:{mode}",
+            ]
+        )
+    return docker_mounts
+
+
 def _local_sandbox_failure_guidance(
     *,
     output: str,
@@ -309,14 +339,6 @@ class LocalRestrictedSandboxExecutor:
 
         container_name = f"jaca-sandbox-{uuid4().hex[:12]}"
         normalized_policy = request.normalized_policy
-        if (
-            normalized_policy.filesystem.extra_read_roots
-            or normalized_policy.filesystem.extra_write_roots
-        ):
-            raise RuntimeError(
-                "Local restricted sandbox executor does not yet support "
-                "additional filesystem roots"
-            )
         mount_mode = _local_sandbox_mount_mode(
             normalized_policy.filesystem.access
         )
@@ -352,6 +374,12 @@ class LocalRestrictedSandboxExecutor:
             "--env",
             f"HOME={_LOCAL_SANDBOX_HOME}",
         ]
+        docker_args.extend(
+            _local_sandbox_extra_mounts(
+                workspace_root=request.workspace_root,
+                normalized_policy=normalized_policy,
+            )
+        )
         if normalized_policy.network.access == "restricted":
             docker_args.extend(["--network", "none"])
         docker_args.extend(

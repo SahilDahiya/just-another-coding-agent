@@ -136,11 +136,13 @@ def build_runtime_context_text(
                         "instead of host-absolute paths."
                     ),
                     (
-                        "Tool coverage note: read-side tools now use the same "
-                        "workspace boundary with approval-backed extra read "
-                        "roots for outside-workspace access. Write-side tools "
-                        "still use backend file operations with scoped "
-                        "approval for outside-workspace paths."
+                        "Tool coverage note: default-mode read-side tools "
+                        "can inspect paths anywhere on disk without approval. "
+                        "Shell stays sandboxed and supports approval-backed "
+                        "extra filesystem roots for explicit outside-workspace "
+                        "paths, and write-side tools still use backend file "
+                        "operations with scoped approval for outside-workspace "
+                        "paths."
                     ),
                 ]
             )

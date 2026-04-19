@@ -525,6 +525,63 @@ async def test_local_restricted_sandbox_executor_allows_network_when_requested(
     )
 
 
+async def test_local_restricted_sandbox_executor_mounts_approved_extra_roots(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    outside_read_root = tmp_path / "read-root"
+    outside_read_root.mkdir()
+    outside_write_root = tmp_path / "write-root"
+    outside_write_root.mkdir()
+    observed: dict[str, object] = {}
+
+    async def fake_create_subprocess_exec(*args, **kwargs):
+        observed["args"] = args
+        observed["kwargs"] = kwargs
+        return _FakeProcess()
+
+    monkeypatch.setattr(sandbox_executor_module.os, "getuid", lambda: 1000)
+    monkeypatch.setattr(sandbox_executor_module.os, "getgid", lambda: 1001)
+    monkeypatch.setattr(
+        sandbox_executor_module.asyncio,
+        "create_subprocess_exec",
+        fake_create_subprocess_exec,
+    )
+
+    handle = await LocalRestrictedSandboxExecutor(image="sandbox-image").execute(
+        SandboxCommandRequest(
+            workspace_root=workspace_root,
+            command=f"cat {outside_read_root / 'README.md'}",
+            shell_family="posix",
+            selected_sandbox_mode="workspace_write",
+            normalized_policy=NormalizedSandboxPolicy.model_validate(
+                {
+                    "filesystem": {
+                        "access": "workspace_write",
+                        "extra_read_roots": [str(outside_read_root)],
+                        "extra_write_roots": [str(outside_write_root)],
+                    },
+                    "network": {"access": "restricted"},
+                    "execution_isolation": "sandboxed",
+                }
+            ),
+        )
+    )
+
+    assert await handle.read(4096) == b"ok"
+    args = observed["args"]
+    volume_args = [
+        args[index + 1]
+        for index, value in enumerate(args)
+        if value == "--volume"
+    ]
+    assert f"{workspace_root}:/workspace:rw" in volume_args
+    assert f"{outside_read_root}:{outside_read_root}:ro" in volume_args
+    assert f"{outside_write_root}:{outside_write_root}:rw" in volume_args
+
+
 async def test_docker_sandbox_handle_times_out_force_remove_when_daemon_is_wedged(
     monkeypatch,
 ) -> None:
@@ -610,36 +667,6 @@ async def test_execute_shell_surfaces_actionable_docker_pull_access_guidance(
     message = str(error.value)
     assert "pull access denied for private/image:latest" in message
     assert "Check Docker login and registry access" in message
-
-
-async def test_local_restricted_sandbox_executor_rejects_additional_filesystem_roots(
-    tmp_path: Path,
-) -> None:
-    workspace_root = tmp_path / "workspace"
-    workspace_root.mkdir()
-
-    with pytest.raises(
-        RuntimeError,
-        match="does not yet support additional filesystem roots",
-    ):
-        await LocalRestrictedSandboxExecutor(image="sandbox-image").execute(
-            SandboxCommandRequest(
-                workspace_root=workspace_root,
-                command="pwd",
-                shell_family="posix",
-                selected_sandbox_mode="workspace_write",
-                normalized_policy=NormalizedSandboxPolicy.model_validate(
-                    {
-                        "filesystem": {
-                            "access": "full_access",
-                            "extra_read_roots": ["/tmp/outside.txt"],
-                        },
-                        "network": {"access": "restricted"},
-                        "execution_isolation": "sandboxed",
-                    }
-                ),
-            )
-        )
 
 
 def test_describe_sandbox_failure_leaves_non_docker_output_unchanged() -> None:

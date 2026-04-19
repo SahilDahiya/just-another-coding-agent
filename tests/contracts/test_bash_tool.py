@@ -318,6 +318,133 @@ async def test_execute_shell_requests_approval_for_network_escalation(
     )
 
 
+async def test_execute_shell_requests_approval_for_explicit_outside_read_root(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    outside_root = tmp_path / "other"
+    outside_root.mkdir()
+    monkeypatch.chdir(tmp_path)
+    requests = []
+    executed_requests = []
+
+    class _Executor:
+        async def execute(self, request):
+            executed_requests.append(request)
+            return _ExecutorHandle()
+
+    async def approval_requester(request):
+        requests.append(request)
+        return ApprovalDecision(
+            request_id=request.request_id,
+            decision="approved",
+        )
+
+    permission_state = build_permission_state(
+        sandbox_policy=WorkspaceWriteSandboxPolicy(),
+        approval_policy=ApprovalPolicy(mode="on_escalation"),
+    )
+    ctx = _FakeRunContext(
+        deps=WorkspaceDeps(
+            workspace_root=workspace_root,
+            shell_family=_test_shell_family(),
+            sandbox_executor=_Executor(),
+            approval_requester=approval_requester,
+            permission_state=permission_state,
+        ),
+        tool_call_id="call-shell",
+        tool_name="shell",
+    )
+
+    result = await execute_shell(
+        ctx=ctx,
+        workspace_root=workspace_root,
+        command=f"cat {outside_root / 'README.md'}",
+        shell_family=_test_shell_family(),
+    )
+
+    assert result == {"exit_code": 0, "output": "ok"}
+    assert len(requests) == 1
+    assert requests[0].requested_permissions is not None
+    assert requests[0].requested_permissions.extra_read_roots == (
+        str(outside_root),
+    )
+    assert len(executed_requests) == 1
+    assert executed_requests[0].normalized_policy == NormalizedSandboxPolicy(
+        filesystem=FileSystemSandboxPolicy(
+            access="workspace_write",
+            extra_read_roots=(str(outside_root),),
+        ),
+        network=NetworkSandboxPolicy(access="restricted"),
+        execution_isolation="sandboxed",
+    )
+    assert ctx.deps.permission_memory.approved_read_roots == {str(outside_root)}
+
+
+async def test_execute_shell_skips_reprompt_for_session_approved_outside_root(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    outside_root = tmp_path / "other"
+    outside_root.mkdir()
+    monkeypatch.chdir(tmp_path)
+    requests = []
+    executed_requests = []
+
+    class _Executor:
+        async def execute(self, request):
+            executed_requests.append(request)
+            return _ExecutorHandle()
+
+    async def approval_requester(request):
+        requests.append(request)
+        return ApprovalDecision(
+            request_id=request.request_id,
+            decision="approved",
+        )
+
+    permission_state = build_permission_state(
+        sandbox_policy=WorkspaceWriteSandboxPolicy(),
+        approval_policy=ApprovalPolicy(mode="on_escalation"),
+    )
+    deps = WorkspaceDeps(
+        workspace_root=workspace_root,
+        shell_family=_test_shell_family(),
+        sandbox_executor=_Executor(),
+        approval_requester=approval_requester,
+        permission_state=permission_state,
+    )
+    deps.permission_memory.remember_read_root(str(outside_root))
+    ctx = _FakeRunContext(
+        deps=deps,
+        tool_call_id="call-shell",
+        tool_name="shell",
+    )
+
+    result = await execute_shell(
+        ctx=ctx,
+        workspace_root=workspace_root,
+        command=f'bash -lc "cat {outside_root / "README.md"}"',
+        shell_family=_test_shell_family(),
+    )
+
+    assert result == {"exit_code": 0, "output": "ok"}
+    assert requests == []
+    assert len(executed_requests) == 1
+    assert executed_requests[0].normalized_policy == NormalizedSandboxPolicy(
+        filesystem=FileSystemSandboxPolicy(
+            access="workspace_write",
+            extra_read_roots=(str(outside_root),),
+        ),
+        network=NetworkSandboxPolicy(access="restricted"),
+        execution_isolation="sandboxed",
+    )
+
+
 async def test_execute_shell_skips_approval_for_local_command(
     tmp_path,
     monkeypatch,
