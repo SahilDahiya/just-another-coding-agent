@@ -30,6 +30,7 @@ from just_another_coding_agent.runtime.turn_context import (
     build_runtime_context_update_text,
     build_session_turn_context_entry,
 )
+from just_another_coding_agent.runtime.workspace_trust import accept_workspace_trust
 from just_another_coding_agent.session import load_session
 
 
@@ -142,10 +143,12 @@ async def test_serve_rpc_stdio_handles_multiple_lines_in_one_process(
     tmp_path,
     monkeypatch,
 ) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
     fixed_session_id = "0" * 32
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
     sessions_root = tmp_path / "sessions"
+    accept_workspace_trust(workspace_root)
     input_stream = io.StringIO(
         "\n".join(
             [
@@ -915,10 +918,12 @@ async def test_serve_rpc_stdio_emits_model_and_thinking_runtime_context_update(
     tmp_path,
     monkeypatch,
 ) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
     fixed_session_id = "1" * 32
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
     sessions_root = tmp_path / "sessions"
+    accept_workspace_trust(workspace_root)
 
     monkeypatch.setattr(
         "just_another_coding_agent.rpc.session_store.uuid4",
@@ -1161,10 +1166,12 @@ async def test_serve_rpc_stdio_supports_session_compact(
     tmp_path,
     monkeypatch,
 ) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
     fixed_session_id = "0" * 32
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
     sessions_root = tmp_path / "sessions"
+    accept_workspace_trust(workspace_root)
     input_stream = io.StringIO(
         "\n".join(
             [

@@ -14,6 +14,7 @@ from just_another_coding_agent.contracts.run_events import (
 )
 from just_another_coding_agent.rpc.session_store import session_path_for_id
 from just_another_coding_agent.rpc.stdio import handle_rpc_json_line
+from just_another_coding_agent.runtime.workspace_trust import accept_workspace_trust
 from just_another_coding_agent.session.jsonl import load_session
 
 _RUN_EVENT_ADAPTER = TypeAdapter(RunEvent)
@@ -180,12 +181,14 @@ async def test_e2e_rpc_runtime_session_uses_explicit_workspace_root(
     tmp_path,
     monkeypatch,
 ) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
     sessions_root = tmp_path / "sessions"
     other_dir = tmp_path / "other"
     other_dir.mkdir()
     monkeypatch.chdir(other_dir)
+    accept_workspace_trust(workspace_root)
     session_id = await _create_session_id(
         workspace_root=workspace_root,
         sessions_root=sessions_root,
@@ -250,6 +253,7 @@ async def test_e2e_failure_round_trips_through_rpc_and_session(
     tmp_path,
     monkeypatch,
 ) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
     (workspace_root / "note.txt").write_text("hello\nworld\n", encoding="utf-8")
@@ -257,6 +261,7 @@ async def test_e2e_failure_round_trips_through_rpc_and_session(
     other_dir = tmp_path / "other"
     other_dir.mkdir()
     monkeypatch.chdir(other_dir)
+    accept_workspace_trust(workspace_root)
     session_id = await _create_session_id(
         workspace_root=workspace_root,
         sessions_root=sessions_root,
