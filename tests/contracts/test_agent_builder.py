@@ -89,6 +89,16 @@ def test_build_canonical_instructions_include_dynamic_context(tmp_path) -> None:
         in instructions
     )
     assert (
+        "Treat runtime access restrictions as backend-enforced policy, "
+        "not as a reason to refuse an action before trying the relevant tool."
+        in instructions
+    )
+    assert (
+        "The backend will either run the action, request approval, or "
+        "return an explicit error with recovery guidance."
+        in instructions
+    )
+    assert (
         "Good fits: locating relevant files or evidence, checking one "
         "claim against repository state, or inspecting one large "
         "artifact for the parent."
@@ -198,6 +208,7 @@ def test_base_product_prompt_sections_have_stable_order() -> None:
         "identity",
         "tool_policy",
         "tool_failure_policy",
+        "permission_flow",
         "verification_policy",
         "failure_semantics",
         "response_style",
@@ -290,9 +301,11 @@ def test_build_runtime_context_text_includes_effective_capabilities_when_given(
                 "of host-absolute paths."
             ),
             (
-                "Tool coverage note: sandbox path semantics are currently "
-                "guaranteed for shell; other tool surfaces may still use "
-                "host-visible paths until they migrate to the same boundary."
+                "Tool coverage note: read-side tools now use the same "
+                "workspace boundary with approval-backed extra read "
+                "roots for outside-workspace access. Write-side tools "
+                "still use backend file operations with scoped "
+                "approval for outside-workspace paths."
             ),
         ]
     )

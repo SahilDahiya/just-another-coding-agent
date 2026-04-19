@@ -40,6 +40,10 @@ Rules:
   arbitrary prompt character-budget gates as product policy
 - the canonical agent prompt must explicitly forbid claiming file side effects without tool evidence
 - the canonical agent prompt must explicitly instruct the model to verify code changes or required file outputs before concluding
+- the canonical agent prompt must explicitly instruct the model to call the
+  relevant tool when the user asks for an action, even if runtime context says
+  access is restricted; backend approval and policy enforcement happen after
+  the tool call rather than through model-side refusal
 - when the user asks to run tests, lint, or another obvious verification step,
   the model should run the narrowest relevant command directly instead of
   searching or diff-reading first unless the command or scope is ambiguous

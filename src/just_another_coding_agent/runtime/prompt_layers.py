@@ -70,6 +70,29 @@ _TOOL_FAILURE_POLICY_SECTION = PromptSection(
         ),
     ),
 )
+_PERMISSION_FLOW_SECTION = PromptSection(
+    name="permission_flow",
+    lines=(
+        (
+            "Treat runtime access restrictions as backend-enforced policy, "
+            "not as a reason to refuse an action before trying the relevant tool."
+        ),
+        (
+            "When the user asks to read files, edit files, or run a command "
+            "that may need broader filesystem or network access, call the "
+            "relevant tool first."
+        ),
+        (
+            "The backend will either run the action, request approval, or "
+            "return an explicit error with recovery guidance."
+        ),
+        (
+            "Only answer with a policy explanation instead of calling a tool "
+            "when the user is asking about permissions rather than asking you "
+            "to perform the action."
+        ),
+    ),
+)
 _FAILURE_SEMANTICS_SECTION = PromptSection(
     name="failure_semantics",
     lines=(
@@ -253,6 +276,7 @@ def _build_sections_with_layout(
             lines=build_tool_policy_lines(tool_names),
         ),
         _TOOL_FAILURE_POLICY_SECTION,
+        _PERMISSION_FLOW_SECTION,
         PromptSection(
             name="verification_policy",
             lines=build_verification_policy_lines(tool_names),
