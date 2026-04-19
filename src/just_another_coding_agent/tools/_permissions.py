@@ -20,6 +20,7 @@ from just_another_coding_agent.contracts.sandbox import (
 )
 from just_another_coding_agent.tools._activity import truncate_activity_label
 from just_another_coding_agent.tools._workspace import (
+    canonicalize_path_target,
     path_is_within_workspace,
     resolve_workspace_path,
 )
@@ -143,6 +144,7 @@ _READ_REDIRECTION_TOKENS = frozenset(
     }
 )
 _ENV_ASSIGNMENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=.*$")
+_DD_PATH_KEYS = frozenset({"if", "of"})
 
 
 @dataclass(frozen=True)
@@ -380,9 +382,37 @@ def _tokens_requested_filesystem_permissions(
 
     for index, token in enumerate(tokens[1:], start=1):
         previous = tokens[index - 1]
-        path_token = _path_candidate_from_shell_token(token)
+        path_token: str | None = None
+        read_requested = False
+        write_requested = False
+
+        if executable == "dd":
+            dd_path = _dd_path_candidate_from_shell_token(token)
+            if dd_path is not None:
+                dd_key, path_token = dd_path
+                read_requested = dd_key == "if"
+                write_requested = dd_key == "of"
+        else:
+            path_token = _path_candidate_from_shell_token(token)
+            if path_token is not None:
+                if previous in _WRITE_REDIRECTION_TOKENS:
+                    read_requested = False
+                    write_requested = True
+                elif previous in _READ_REDIRECTION_TOKENS:
+                    read_requested = True
+                    write_requested = False
+                elif destination_write_index is not None:
+                    read_requested = index != destination_write_index
+                    write_requested = index == destination_write_index
+                else:
+                    read_requested = previous not in _WRITE_REDIRECTION_TOKENS
+                    write_requested = (
+                        write_command and previous not in _READ_REDIRECTION_TOKENS
+                    )
+
         if path_token is None:
             continue
+
         resolved = resolve_workspace_path(
             workspace_root=workspace_root,
             tool_path=path_token,
@@ -393,20 +423,6 @@ def _tokens_requested_filesystem_permissions(
         ):
             continue
         scope_root = _approval_scope_root(resolved)
-        if previous in _WRITE_REDIRECTION_TOKENS:
-            read_requested = False
-            write_requested = True
-        elif previous in _READ_REDIRECTION_TOKENS:
-            read_requested = True
-            write_requested = False
-        elif destination_write_index is not None:
-            read_requested = index != destination_write_index
-            write_requested = index == destination_write_index
-        else:
-            read_requested = previous not in _WRITE_REDIRECTION_TOKENS
-            write_requested = (
-                write_command and previous not in _READ_REDIRECTION_TOKENS
-            )
         if (
             read_requested
             and not unrestricted_read_access
@@ -445,6 +461,17 @@ def _last_positional_path_index(tokens: list[str]) -> int | None:
             continue
         last_index = index
     return last_index
+
+
+def _dd_path_candidate_from_shell_token(token: str) -> tuple[str, str] | None:
+    if "=" not in token:
+        return None
+    key, candidate = token.split("=", 1)
+    if key not in _DD_PATH_KEYS or not candidate:
+        return None
+    if _token_looks_like_network_target(candidate):
+        return None
+    return key, candidate
 
 
 def _path_candidate_from_shell_token(token: str) -> str | None:
@@ -493,12 +520,13 @@ def derive_sandbox_execution_plan(
 
 
 def _approval_scope_root(resolved_path: Path) -> str:
-    scope_root = (
-        resolved_path
-        if resolved_path.exists() and resolved_path.is_dir()
-        else resolved_path.parent
-    )
-    return str(scope_root.resolve())
+    canonical_path = canonicalize_path_target(resolved_path)
+    if canonical_path.exists() and canonical_path.is_dir():
+        return str(canonical_path)
+    parent = canonical_path.parent
+    if parent.exists() and parent != parent.parent:
+        return str(parent.resolve())
+    return str(canonical_path)
 
 
 def plan_shell_execution(

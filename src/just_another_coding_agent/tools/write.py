@@ -14,7 +14,11 @@ from just_another_coding_agent.tools._activity import (
 from just_another_coding_agent.tools._permissions import (
     maybe_request_file_write_approval,
 )
-from just_another_coding_agent.tools._workspace import resolve_workspace_path
+from just_another_coding_agent.tools._safe_fs import write_bytes_no_symlink
+from just_another_coding_agent.tools._workspace import (
+    absolutize_workspace_path,
+    resolve_workspace_path,
+)
 from just_another_coding_agent.tools.deps import WorkspaceDeps
 from just_another_coding_agent.tools.errors import reraise_path_error
 
@@ -30,8 +34,14 @@ def execute_write(
             workspace_root=workspace_root,
             tool_path=path,
         )
-        resolved_path.parent.mkdir(parents=True, exist_ok=True)
-        resolved_path.write_bytes(content.encode("utf-8"))
+        absolute_path = absolutize_workspace_path(
+            workspace_root=workspace_root,
+            tool_path=path,
+        )
+        write_bytes_no_symlink(
+            absolute_path,
+            content.encode("utf-8"),
+        )
     except OSError as error:
         reraise_path_error(error)
     return f"Wrote {resolved_path}"

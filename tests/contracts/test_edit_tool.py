@@ -184,6 +184,30 @@ def test_edit_tool_allows_relative_path_that_resolves_outside_workspace(
     assert outside.read_bytes() == b"hello\nagent\n"
 
 
+def test_edit_tool_rejects_symlink_target(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    outside = tmp_path / "outside.txt"
+    outside.write_text("hello\nworld\n", encoding="utf-8")
+    link = workspace_root / "link.txt"
+    try:
+        link.symlink_to(outside)
+    except OSError as error:
+        pytest.skip(f"symlinks are unavailable in this environment: {error}")
+
+    with pytest.raises(ToolPathError):
+        execute_edit(
+            workspace_root=workspace_root,
+            path="link.txt",
+            old_text="world",
+            new_text="agent",
+        )
+
+    assert outside.read_text(encoding="utf-8") == "hello\nworld\n"
+
+
 def test_edit_tool_matches_old_text_without_bom_in_file(tmp_path) -> None:
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()

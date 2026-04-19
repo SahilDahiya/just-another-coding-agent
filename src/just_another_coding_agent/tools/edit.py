@@ -17,7 +17,13 @@ from just_another_coding_agent.tools._activity import (
 from just_another_coding_agent.tools._permissions import (
     maybe_request_file_write_approval,
 )
-from just_another_coding_agent.tools._workspace import resolve_workspace_path
+from just_another_coding_agent.tools._safe_fs import (
+    open_binary_update_no_symlink,
+)
+from just_another_coding_agent.tools._workspace import (
+    absolutize_workspace_path,
+    resolve_workspace_path,
+)
 from just_another_coding_agent.tools.deps import WorkspaceDeps
 from just_another_coding_agent.tools.errors import (
     ToolEncodingError,
@@ -133,60 +139,65 @@ def execute_edit(
             workspace_root=workspace_root,
             tool_path=path,
         )
-        raw_content = resolved_path.read_bytes().decode("utf-8")
+        absolute_path = absolutize_workspace_path(
+            workspace_root=workspace_root,
+            tool_path=path,
+        )
+        with open_binary_update_no_symlink(absolute_path) as handle:
+            raw_content = handle.read().decode("utf-8")
+            bom, content = strip_bom(raw_content)
+            original_line_ending = detect_line_ending(content)
+            normalized_content = normalize_to_lf(content)
+            normalized_old_text = normalize_to_lf(old_text)
+            normalized_new_text = normalize_to_lf(new_text)
+
+            exact_occurrences = normalized_content.count(normalized_old_text)
+            if exact_occurrences > 1:
+                raise ToolMatchError(
+                    "old_text must match exactly once in "
+                    f"{resolved_path}; found {exact_occurrences} occurrences"
+                )
+
+            if exact_occurrences == 1:
+                base_content = normalized_content
+                old_text_to_replace = normalized_old_text
+                new_text_to_insert = normalized_new_text
+            else:
+                fuzzy_content, fuzzy_spans = build_fuzzy_view(normalized_content)
+                fuzzy_old_text, _ = build_fuzzy_view(normalized_old_text)
+                fuzzy_occurrences = fuzzy_content.count(fuzzy_old_text)
+                if fuzzy_occurrences != 1:
+                    raise ToolMatchError(
+                        "old_text must match exactly once in "
+                        f"{resolved_path}; found {fuzzy_occurrences} occurrences"
+                    )
+                match_start = fuzzy_content.index(fuzzy_old_text)
+                match_end = match_start + len(fuzzy_old_text)
+                base_content = normalized_content
+                old_text_to_replace = normalized_content[
+                    fuzzy_spans[match_start][0] : fuzzy_spans[match_end - 1][1]
+                ]
+                new_text_to_insert = normalized_new_text
+
+            updated = base_content.replace(old_text_to_replace, new_text_to_insert, 1)
+            if updated == base_content:
+                raise ToolMatchError(
+                    f"Edit would not change file contents: {resolved_path}"
+                )
+
+            diff_text = _generate_unified_diff(
+                old_content=base_content,
+                new_content=updated,
+                file_path=str(resolved_path),
+            )
+            added_lines, removed_lines = _count_changed_lines(diff_text)
+
+            final_content = bom + restore_line_endings(updated, original_line_ending)
+            handle.seek(0)
+            handle.truncate()
+            handle.write(final_content.encode("utf-8"))
     except UnicodeError as error:
         raise ToolEncodingError(f"{path} is not valid UTF-8 text") from error
-    except OSError as error:
-        reraise_path_error(error)
-
-    bom, content = strip_bom(raw_content)
-    original_line_ending = detect_line_ending(content)
-    normalized_content = normalize_to_lf(content)
-    normalized_old_text = normalize_to_lf(old_text)
-    normalized_new_text = normalize_to_lf(new_text)
-
-    exact_occurrences = normalized_content.count(normalized_old_text)
-    if exact_occurrences > 1:
-        raise ToolMatchError(
-            "old_text must match exactly once in "
-            f"{resolved_path}; found {exact_occurrences} occurrences"
-        )
-
-    if exact_occurrences == 1:
-        base_content = normalized_content
-        old_text_to_replace = normalized_old_text
-        new_text_to_insert = normalized_new_text
-    else:
-        fuzzy_content, fuzzy_spans = build_fuzzy_view(normalized_content)
-        fuzzy_old_text, _ = build_fuzzy_view(normalized_old_text)
-        fuzzy_occurrences = fuzzy_content.count(fuzzy_old_text)
-        if fuzzy_occurrences != 1:
-            raise ToolMatchError(
-                "old_text must match exactly once in "
-                f"{resolved_path}; found {fuzzy_occurrences} occurrences"
-            )
-        match_start = fuzzy_content.index(fuzzy_old_text)
-        match_end = match_start + len(fuzzy_old_text)
-        base_content = normalized_content
-        old_text_to_replace = normalized_content[
-            fuzzy_spans[match_start][0] : fuzzy_spans[match_end - 1][1]
-        ]
-        new_text_to_insert = normalized_new_text
-
-    updated = base_content.replace(old_text_to_replace, new_text_to_insert, 1)
-    if updated == base_content:
-        raise ToolMatchError(f"Edit would not change file contents: {resolved_path}")
-
-    diff_text = _generate_unified_diff(
-        old_content=base_content,
-        new_content=updated,
-        file_path=str(resolved_path),
-    )
-    added_lines, removed_lines = _count_changed_lines(diff_text)
-
-    final_content = bom + restore_line_endings(updated, original_line_ending)
-    try:
-        resolved_path.write_bytes(final_content.encode("utf-8"))
     except OSError as error:
         reraise_path_error(error)
     return EditResult(

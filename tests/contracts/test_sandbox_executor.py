@@ -849,17 +849,21 @@ async def test_local_restricted_sandbox_executor_preserves_home_and_sets_tmp_cac
     assert await handle.read(4096) == b"ok"
     env = observed["kwargs"]["env"]
     assert env["HOME"] == "/home/tester"
-    assert env["TMPDIR"] == str(temp_root)
+    assert env["TMPDIR"] == "/tmp"
+    assert env["TEMP"] == "/tmp"
+    assert env["TMP"] == "/tmp"
     assert env["GOCACHE"] == "/tmp/go-build"
     assert env["GOTMPDIR"] == "/tmp/go-tmp"
     assert env["XDG_CACHE_HOME"] == "/tmp/.cache"
     args = observed["args"]
+    assert "--tmpfs" in args
+    assert "/tmp" in args
     assert "--dir" in args
     assert "/tmp/go-build" in args
     assert "/tmp/go-tmp" in args
     assert "/tmp/.cache" in args
     bind_triplets = _bind_triplets(observed["args"])
-    assert ("--bind", str(temp_root), str(temp_root)) in bind_triplets
+    assert ("--bind", "/tmp", "/tmp") in bind_triplets
 
 
 async def test_local_restricted_sandbox_executor_requires_bubblewrap(

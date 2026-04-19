@@ -19,7 +19,10 @@ from just_another_coding_agent.contracts.sandbox import (
 )
 from just_another_coding_agent.contracts.session import SessionName
 from just_another_coding_agent.contracts.thinking import ThinkingSetting
-from just_another_coding_agent.tools._workspace import normalize_workspace_root
+from just_another_coding_agent.tools._workspace import (
+    canonicalize_path_target,
+    normalize_workspace_root,
+)
 from just_another_coding_agent.tools.read_only_worker.runtime import (
     ReadOnlyWorkerRuntime,
 )
@@ -40,16 +43,11 @@ RunSessionKind: TypeAlias = Literal["root", "subagent"]
 
 
 def _canonicalize_permission_root(root: str) -> str:
-    path = Path(root).resolve()
-    if not path.exists():
-        raise FileNotFoundError(
-            f"Approved permission root does not exist: {path}"
-        )
-    return str(path)
+    return str(canonicalize_path_target(root))
 
 
 def _canonicalize_candidate_path(path: Path) -> Path:
-    return path.resolve()
+    return canonicalize_path_target(path)
 
 
 def _path_is_within_root(*, path: Path, root: str) -> bool:

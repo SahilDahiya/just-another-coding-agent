@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"unicode/utf8"
+
+	"golang.org/x/sys/unix"
 )
 
 const (
@@ -254,6 +256,14 @@ func canonicalizeExistingPath(path string) (string, error) {
 	return filepath.Clean(resolved), nil
 }
 
+func absolutizePath(path string) (string, error) {
+	resolved, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Clean(resolved), nil
+}
+
 func normalizeFilesystemRoots(workspaceRoot string, policy filesystemPolicy) ([]string, error) {
 	root, err := normalizeWorkspaceRoot(workspaceRoot)
 	if err != nil {
@@ -322,6 +332,42 @@ func resolveWorkspacePath(workspaceRoot string, toolPath string, policy filesyst
 	return resolvedPath, nil
 }
 
+func absolutizeWorkspacePath(workspaceRoot string, toolPath string) (string, error) {
+	root, err := normalizeWorkspaceRoot(workspaceRoot)
+	if err != nil {
+		return "", err
+	}
+	if filepath.IsAbs(toolPath) {
+		return absolutizePath(toolPath)
+	}
+	return absolutizePath(filepath.Join(root, toolPath))
+}
+
+func readFileNoFollow(path string) ([]byte, error) {
+	parent := filepath.Dir(path)
+	name := filepath.Base(path)
+
+	dirFD, err := unix.Open(parent, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return nil, err
+	}
+	defer unix.Close(dirFD)
+
+	fileFD, err := unix.Openat(
+		dirFD,
+		name,
+		unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_CLOEXEC,
+		0,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	file := os.NewFile(uintptr(fileFD), path)
+	defer file.Close()
+	return io.ReadAll(file)
+}
+
 func splitLinesKeepEnds(text string) []string {
 	if text == "" {
 		return nil
@@ -369,7 +415,15 @@ func executeRead(ctx context.Context, req readRequest) (readResult, errorRespons
 			Message:     err.Error(),
 		}, false
 	}
-	path, err := resolveWorkspacePath(root, req.Path, req.FilesystemPolicy)
+	if _, err := resolveWorkspacePath(root, req.Path, req.FilesystemPolicy); err != nil {
+		return readResult{}, errorResponse{
+			baseMessage: baseMessage{RequestID: req.RequestID},
+			Type:        "error",
+			ErrorCode:   "path_error",
+			Message:     err.Error(),
+		}, false
+	}
+	absolutePath, err := absolutizeWorkspacePath(root, req.Path)
 	if err != nil {
 		return readResult{}, errorResponse{
 			baseMessage: baseMessage{RequestID: req.RequestID},
@@ -378,7 +432,7 @@ func executeRead(ctx context.Context, req readRequest) (readResult, errorRespons
 			Message:     err.Error(),
 		}, false
 	}
-	data, err := os.ReadFile(path)
+	data, err := readFileNoFollow(absolutePath)
 	if err != nil {
 		return readResult{}, errorResponse{
 			baseMessage: baseMessage{RequestID: req.RequestID},

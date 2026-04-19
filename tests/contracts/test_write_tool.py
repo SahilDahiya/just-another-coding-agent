@@ -100,6 +100,29 @@ def test_write_tool_allows_relative_path_that_resolves_outside_workspace(
     assert outside.read_text(encoding="utf-8") == "hello"
 
 
+def test_write_tool_rejects_symlink_target(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    outside = tmp_path / "outside.txt"
+    outside.write_text("secret", encoding="utf-8")
+    link = workspace_root / "link.txt"
+    try:
+        link.symlink_to(outside)
+    except OSError as error:
+        pytest.skip(f"symlinks are unavailable in this environment: {error}")
+
+    with pytest.raises(ToolPathError):
+        execute_write(
+            workspace_root=workspace_root,
+            path="link.txt",
+            content="hello",
+        )
+
+    assert outside.read_text(encoding="utf-8") == "secret"
+
+
 async def test_write_requests_approval_for_outside_workspace_path_in_default_mode(
     tmp_path,
 ) -> None:

@@ -46,7 +46,7 @@ class SandboxExecutor(Protocol):
 
 
 _LOCAL_SANDBOX_READ_ONLY_ROOT = Path("/")
-_LOCAL_SANDBOX_DEFAULT_WRITABLE_ROOTS = (Path("/tmp"),)
+_LOCAL_SANDBOX_DEFAULT_WRITABLE_ROOTS: tuple[Path, ...] = ()
 _LOCAL_SANDBOX_VOLATILE_ENV_OVERRIDES = {
     "GOCACHE": "/tmp/go-build",
     "GOTMPDIR": "/tmp/go-tmp",
@@ -214,6 +214,9 @@ def _local_sandbox_env(
     path_dirs = _local_sandbox_tool_path_dirs(env)
     env["PATH"] = os.pathsep.join(str(path) for path in path_dirs)
     env["PWD"] = str(workspace_root)
+    env["TMPDIR"] = "/tmp"
+    env["TEMP"] = "/tmp"
+    env["TMP"] = "/tmp"
     for key, value in _LOCAL_SANDBOX_VOLATILE_ENV_OVERRIDES.items():
         env[key] = value
     return env, path_dirs
@@ -432,6 +435,8 @@ class LocalRestrictedSandboxExecutor:
             "--unshare-all",
             "--hostname",
             "jaca-sandbox",
+            "--tmpfs",
+            "/tmp",
         ]
         if normalized_policy.network.access == "enabled":
             bwrap_args.append("--share-net")

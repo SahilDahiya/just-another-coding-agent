@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
@@ -25,6 +27,7 @@ from just_another_coding_agent.contracts.sandbox import (
 )
 from just_another_coding_agent.tools._permissions import (
     SandboxExecutionPlan,
+    _approval_scope_root,
     derive_sandbox_execution_plan,
     plan_shell_execution,
 )
@@ -525,6 +528,36 @@ def test_plan_shell_execution_treats_cp_source_as_read_and_destination_as_write(
     assert plan.approval_required is True
 
 
+def test_plan_shell_execution_treats_dd_if_and_of_values_as_paths(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    permission_state = build_permission_state(
+        sandbox_policy=WorkspaceWriteStrictSandboxPolicy(),
+        approval_policy=ApprovalPolicy(mode="on_escalation"),
+    )
+
+    plan = plan_shell_execution(
+        permission_state=permission_state,
+        command="dd if=/etc/passwd of=/tmp/stolen",
+        shell_family="posix",
+        workspace_root=workspace_root,
+        permission_memory=SessionPermissionMemory(),
+    )
+
+    assert plan.requested_permissions == AdditionalSandboxPermissions(
+        extra_read_roots=("/etc",),
+        extra_write_roots=("/tmp",),
+    )
+    assert plan.normalized_policy.filesystem == FileSystemSandboxPolicy(
+        access="workspace_write",
+        extra_read_roots=("/etc",),
+        extra_write_roots=("/tmp",),
+    )
+    assert plan.approval_required is True
+
+
 def test_session_permission_memory_canonicalizes_symlink_roots(
     tmp_path,
 ) -> None:
@@ -545,3 +578,7 @@ def test_session_permission_memory_canonicalizes_symlink_roots(
     assert memory.approved_write_roots == {expected_root}
     assert memory.allows_read_path(alias_root / "child.txt")
     assert memory.allows_write_path(alias_root / "child.txt")
+
+
+def test_approval_scope_root_clamps_missing_root_level_target() -> None:
+    assert _approval_scope_root(Path("/missing.json")) == "/missing.json"
