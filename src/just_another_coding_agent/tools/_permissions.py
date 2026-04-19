@@ -87,6 +87,14 @@ _SHELL_FILESYSTEM_WRITE_COMMANDS = frozenset(
         "zip",
     }
 )
+_SHELL_SOURCE_AND_DESTINATION_WRITE_COMMANDS = frozenset(
+    {
+        "cp",
+        "install",
+        "ln",
+        "mv",
+    }
+)
 _WRITE_REDIRECTION_TOKENS = frozenset(
     {
         ">",
@@ -289,6 +297,9 @@ def _tokens_requested_filesystem_permissions(
     seen_approval_reads: set[str] = set()
     seen_approval_writes: set[str] = set()
     write_command = executable in _SHELL_FILESYSTEM_WRITE_COMMANDS
+    destination_write_index = _last_positional_path_index(tokens)
+    if executable not in _SHELL_SOURCE_AND_DESTINATION_WRITE_COMMANDS:
+        destination_write_index = None
 
     for index, token in enumerate(tokens[1:], start=1):
         previous = tokens[index - 1]
@@ -305,11 +316,20 @@ def _tokens_requested_filesystem_permissions(
         ):
             continue
         scope_root = _approval_scope_root(resolved)
-        read_requested = previous not in _WRITE_REDIRECTION_TOKENS
-        write_requested = (
-            previous in _WRITE_REDIRECTION_TOKENS
-            or (write_command and previous not in _READ_REDIRECTION_TOKENS)
-        )
+        if previous in _WRITE_REDIRECTION_TOKENS:
+            read_requested = False
+            write_requested = True
+        elif previous in _READ_REDIRECTION_TOKENS:
+            read_requested = True
+            write_requested = False
+        elif destination_write_index is not None:
+            read_requested = index != destination_write_index
+            write_requested = index == destination_write_index
+        else:
+            read_requested = previous not in _WRITE_REDIRECTION_TOKENS
+            write_requested = (
+                write_command and previous not in _READ_REDIRECTION_TOKENS
+            )
         if read_requested and scope_root not in seen_effective_reads:
             seen_effective_reads.add(scope_root)
             effective_read_roots.append(scope_root)
@@ -329,6 +349,21 @@ def _tokens_requested_filesystem_permissions(
         tuple(effective_write_roots),
         tuple(approval_write_roots),
     )
+
+
+def _last_positional_path_index(tokens: list[str]) -> int | None:
+    last_index: int | None = None
+    for index, token in enumerate(tokens[1:], start=1):
+        previous = tokens[index - 1]
+        if (
+            previous in _WRITE_REDIRECTION_TOKENS
+            or previous in _READ_REDIRECTION_TOKENS
+        ):
+            continue
+        if _path_candidate_from_shell_token(token) is None:
+            continue
+        last_index = index
+    return last_index
 
 
 def _path_candidate_from_shell_token(token: str) -> str | None:

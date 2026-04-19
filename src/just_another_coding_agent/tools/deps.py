@@ -39,8 +39,21 @@ ApprovalRequester: TypeAlias = Callable[
 RunSessionKind: TypeAlias = Literal["root", "subagent"]
 
 
+def _canonicalize_permission_root(root: str) -> str:
+    path = Path(root).resolve()
+    if not path.exists():
+        raise FileNotFoundError(
+            f"Approved permission root does not exist: {path}"
+        )
+    return str(path)
+
+
+def _canonicalize_candidate_path(path: Path) -> Path:
+    return path.resolve()
+
+
 def _path_is_within_root(*, path: Path, root: str) -> bool:
-    return path.is_relative_to(Path(root))
+    return _canonicalize_candidate_path(path).is_relative_to(Path(root))
 
 
 @dataclass
@@ -61,10 +74,10 @@ class SessionPermissionMemory:
         )
 
     def remember_read_root(self, root: str) -> None:
-        self.approved_read_roots.add(root)
+        self.approved_read_roots.add(_canonicalize_permission_root(root))
 
     def remember_write_root(self, root: str) -> None:
-        self.approved_write_roots.add(root)
+        self.approved_write_roots.add(_canonicalize_permission_root(root))
 
     def clear(self) -> None:
         self.approved_read_roots.clear()

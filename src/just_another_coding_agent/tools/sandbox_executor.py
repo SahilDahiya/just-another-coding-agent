@@ -216,14 +216,24 @@ def _local_sandbox_extra_mounts(
 ) -> list[str]:
     mount_modes: dict[Path, str] = {}
     for root in normalized_policy.filesystem.extra_read_roots:
-        path = Path(root)
+        path = Path(root).resolve()
         if path == workspace_root:
             continue
+        if not path.exists():
+            raise RuntimeError(
+                "Local restricted sandbox mount root does not exist: "
+                f"{path}"
+            )
         mount_modes[path] = "ro"
     for root in normalized_policy.filesystem.extra_write_roots:
-        path = Path(root)
+        path = Path(root).resolve()
         if path == workspace_root:
             continue
+        if not path.exists():
+            raise RuntimeError(
+                "Local restricted sandbox mount root does not exist: "
+                f"{path}"
+            )
         mount_modes[path] = "rw"
     docker_mounts: list[str] = []
     for path, mode in sorted(

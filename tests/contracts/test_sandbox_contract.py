@@ -374,3 +374,62 @@ def test_plan_shell_execution_skips_reprompt_for_approved_outside_read_root(
         extra_read_roots=(str(outside_root),),
     )
     assert plan.approval_required is False
+
+
+def test_plan_shell_execution_treats_cp_source_as_read_and_destination_as_write(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    outside_read_root = tmp_path / "outside-read"
+    outside_read_root.mkdir()
+    outside_write_root = tmp_path / "outside-write"
+    outside_write_root.mkdir()
+    permission_state = build_permission_state(
+        sandbox_policy=WorkspaceWriteSandboxPolicy(),
+        approval_policy=ApprovalPolicy(mode="on_escalation"),
+    )
+
+    plan = plan_shell_execution(
+        permission_state=permission_state,
+        command=(
+            f"cp {outside_read_root / 'source.txt'} "
+            f"{outside_write_root / 'dest.txt'}"
+        ),
+        shell_family="posix",
+        workspace_root=workspace_root,
+        permission_memory=SessionPermissionMemory(),
+    )
+
+    assert plan.requested_permissions == AdditionalSandboxPermissions(
+        extra_read_roots=(str(outside_read_root),),
+        extra_write_roots=(str(outside_write_root),),
+    )
+    assert plan.normalized_policy.filesystem == FileSystemSandboxPolicy(
+        access="workspace_write",
+        extra_read_roots=(str(outside_read_root),),
+        extra_write_roots=(str(outside_write_root),),
+    )
+    assert plan.approval_required is True
+
+
+def test_session_permission_memory_canonicalizes_symlink_roots(
+    tmp_path,
+) -> None:
+    outside_root = tmp_path / "outside"
+    outside_root.mkdir()
+    alias_root = tmp_path / "outside-link"
+    try:
+        alias_root.symlink_to(outside_root, target_is_directory=True)
+    except OSError as error:
+        pytest.skip(f"symlinks are unavailable in this environment: {error}")
+
+    memory = SessionPermissionMemory()
+    memory.remember_read_root(str(alias_root))
+    memory.remember_write_root(str(alias_root))
+
+    expected_root = str(outside_root.resolve())
+    assert memory.approved_read_roots == {expected_root}
+    assert memory.approved_write_roots == {expected_root}
+    assert memory.allows_read_path(alias_root / "child.txt")
+    assert memory.allows_write_path(alias_root / "child.txt")

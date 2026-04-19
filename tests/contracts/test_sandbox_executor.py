@@ -582,6 +582,65 @@ async def test_local_restricted_sandbox_executor_mounts_approved_extra_roots(
     assert f"{outside_write_root}:{outside_write_root}:rw" in volume_args
 
 
+async def test_local_restricted_sandbox_executor_canonicalizes_symlink_mount_roots(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    real_root = tmp_path / "real-root"
+    real_root.mkdir()
+    alias_root = tmp_path / "alias-root"
+    try:
+        alias_root.symlink_to(real_root, target_is_directory=True)
+    except OSError as error:
+        pytest.skip(f"symlinks are unavailable in this environment: {error}")
+    observed: dict[str, object] = {}
+
+    async def fake_create_subprocess_exec(*args, **kwargs):
+        observed["args"] = args
+        observed["kwargs"] = kwargs
+        return _FakeProcess()
+
+    monkeypatch.setattr(sandbox_executor_module.os, "getuid", lambda: 1000)
+    monkeypatch.setattr(sandbox_executor_module.os, "getgid", lambda: 1001)
+    monkeypatch.setattr(
+        sandbox_executor_module.asyncio,
+        "create_subprocess_exec",
+        fake_create_subprocess_exec,
+    )
+
+    handle = await LocalRestrictedSandboxExecutor(image="sandbox-image").execute(
+        SandboxCommandRequest(
+            workspace_root=workspace_root,
+            command="pwd",
+            shell_family="posix",
+            selected_sandbox_mode="workspace_write",
+            normalized_policy=NormalizedSandboxPolicy.model_validate(
+                {
+                    "filesystem": {
+                        "access": "workspace_write",
+                        "extra_read_roots": [str(alias_root)],
+                    },
+                    "network": {"access": "restricted"},
+                    "execution_isolation": "sandboxed",
+                }
+            ),
+        )
+    )
+
+    assert await handle.read(4096) == b"ok"
+    args = observed["args"]
+    volume_args = [
+        args[index + 1]
+        for index, value in enumerate(args)
+        if value == "--volume"
+    ]
+    expected_mount = f"{real_root}:{real_root}:ro"
+    assert expected_mount in volume_args
+    assert all(str(alias_root) not in mount for mount in volume_args)
+
+
 async def test_docker_sandbox_handle_times_out_force_remove_when_daemon_is_wedged(
     monkeypatch,
 ) -> None:
