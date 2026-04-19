@@ -277,7 +277,6 @@ func (t *Transcript) WriteHelp() {
 		"  /version                             show upgrade command when one is available",
 		"  /permission show                     show current permission preset",
 		"  /permission default                  recommended mode with approval prompts",
-		"  /permission read_only                stage the read-only preset and prompt",
 		"  /permission full_access              full local access with no prompts",
 		"  /approve                             approve the pending action",
 		"  /deny                                deny the pending action",

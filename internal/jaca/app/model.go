@@ -96,6 +96,7 @@ type permissionStateLoadedMsg struct {
 	State   rpc.PermissionState
 	Err     error
 	Updated bool
+	Display bool
 }
 
 type workspaceTrustLoadedMsg struct {
@@ -300,6 +301,9 @@ func (m *model) Init() tea.Cmd {
 	}
 	if cmd := m.requestAuthStatus(); cmd != nil {
 		cmds = append(cmds, cmd)
+	}
+	if m.options.Backend != nil {
+		cmds = append(cmds, fetchPermissionState(m.options.Backend, m.sessionID, false))
 	}
 	return tea.Batch(cmds...)
 }
@@ -582,7 +586,9 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		state := msg.State
 		m.permissionState = &state
-		m.transcript.WriteNote("permission", permissionStateLines(state, msg.Updated))
+		if msg.Display {
+			m.transcript.WriteNote("permission", permissionStateLines(state, msg.Updated))
+		}
 		m.refreshViewport()
 		return m, nil
 	case approvalSubmittedMsg:
@@ -1323,7 +1329,7 @@ func fetchAuthStatus(backend Backend) tea.Cmd {
 	}
 }
 
-func fetchPermissionState(backend Backend, sessionID string) tea.Cmd {
+func fetchPermissionState(backend Backend, sessionID string, display bool) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), queueControlTimeout)
 		defer cancel()
@@ -1332,6 +1338,7 @@ func fetchPermissionState(backend Backend, sessionID string) tea.Cmd {
 			State:   response.PermissionState,
 			Err:     err,
 			Updated: false,
+			Display: display,
 		}
 	}
 }
@@ -1384,6 +1391,7 @@ func setPermissionState(
 			State:   response.PermissionState,
 			Err:     err,
 			Updated: true,
+			Display: true,
 		}
 	}
 }

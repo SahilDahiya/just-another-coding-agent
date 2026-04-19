@@ -870,12 +870,21 @@ func renderSlashMenu(state slashMenuState) string {
 			valueColor = defaultTheme.accentSoft
 			descColor = defaultTheme.textSoft
 		}
+		currentBadge := ""
+		if row.Current {
+			currentColor := defaultTheme.successSoft
+			if actualIndex == state.Selected {
+				currentColor = defaultTheme.success
+			}
+			currentBadge = lipgloss.NewStyle().Foreground(currentColor).Render("[current]") + " "
+		}
 		lines = append(lines,
 			lipgloss.JoinHorizontal(
 				lipgloss.Left,
 				lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render(prefix),
 				" ",
 				lipgloss.NewStyle().Foreground(valueColor).Render(padRight(slashDisplayValue(row), valueWidth)),
+				currentBadge,
 				renderSlashDescription(row.Description, descColor),
 			),
 		)
