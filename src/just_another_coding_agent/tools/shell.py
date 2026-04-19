@@ -71,6 +71,19 @@ def _load_default_shell_timeout_seconds() -> int:
 
 
 DEFAULT_SHELL_TIMEOUT_SECONDS = _load_default_shell_timeout_seconds()
+_NETWORK_RESTRICTION_MARKERS = (
+    "authentication required",
+    "connection refused",
+    "could not resolve host",
+    "failed to connect",
+    "failed to download",
+    "name or service not known",
+    "network is unreachable",
+    "no route to host",
+    "nodename nor servname provided",
+    "temporary failure in name resolution",
+    "timed out while downloading",
+)
 
 
 class ShellExecutionContext(Protocol):
@@ -83,6 +96,31 @@ def _format_shell_failure(output: str, failure_message: str) -> str:
     if output:
         return f"{output}\n\n{failure_message}"
     return failure_message
+
+
+def _add_network_restriction_guidance(
+    *,
+    command: str,
+    output: str,
+    normalized_network_access: str,
+) -> str:
+    if normalized_network_access != "restricted":
+        return output
+    lower_output = output.lower()
+    if not any(marker in lower_output for marker in _NETWORK_RESTRICTION_MARKERS):
+        return output
+    guidance = (
+        "Command appears to need network access, but default mode keeps shell "
+        "networking disabled until you approve it. Retry the command and "
+        "approve network access, or switch to /permission full_access."
+    )
+    if guidance in output:
+        return output
+    if output:
+        return f"{output}\n\n{guidance}"
+    return (
+        f"{guidance}\n\nCommand: {truncate_activity_label(command)}"
+    )
 
 
 def _write_full_output(output: str) -> str:
@@ -353,6 +391,11 @@ async def execute_shell(
         handle=handle,
         output=output,
         exit_code=exit_code,
+    )
+    output = _add_network_restriction_guidance(
+        command=command,
+        output=output,
+        normalized_network_access=plan.normalized_policy.network.access,
     )
 
     if exit_code != 0:

@@ -254,6 +254,46 @@ def test_plan_shell_execution_requests_network_delta_for_explicit_network_comman
     assert plan.approval_required is True
 
 
+def test_plan_shell_execution_requests_network_delta_for_wrapped_network_command(
+) -> None:
+    permission_state = build_permission_state(
+        sandbox_policy=WorkspaceWriteSandboxPolicy(),
+        approval_policy=ApprovalPolicy(mode="on_escalation"),
+    )
+
+    plan = plan_shell_execution(
+        permission_state=permission_state,
+        command='bash -lc "curl https://example.com"',
+        shell_family="posix",
+    )
+
+    assert plan.requested_permissions == AdditionalSandboxPermissions(
+        network_access="enabled"
+    )
+    assert plan.normalized_policy.network.access == "enabled"
+    assert plan.approval_required is True
+
+
+def test_plan_shell_execution_requests_network_delta_for_package_manager_command(
+) -> None:
+    permission_state = build_permission_state(
+        sandbox_policy=WorkspaceWriteSandboxPolicy(),
+        approval_policy=ApprovalPolicy(mode="on_escalation"),
+    )
+
+    plan = plan_shell_execution(
+        permission_state=permission_state,
+        command="python -m pip install requests",
+        shell_family="posix",
+    )
+
+    assert plan.requested_permissions == AdditionalSandboxPermissions(
+        network_access="enabled"
+    )
+    assert plan.normalized_policy.network.access == "enabled"
+    assert plan.approval_required is True
+
+
 def test_plan_shell_execution_keeps_local_command_in_default_sandbox() -> None:
     permission_state = build_permission_state(
         sandbox_policy=WorkspaceWriteSandboxPolicy(),

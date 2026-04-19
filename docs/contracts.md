@@ -434,6 +434,7 @@ Initial executable tool slice:
 - `output` is the combined stdout and stderr decoded as UTF-8
 - large `output` is tail-bounded to the last `2000` lines or `50 KiB`, whichever is hit first
 - when `output` is truncated, the result must include an explicit notice with the temp-file path holding the full output
+- in `default` permission mode, obvious network-seeking shell commands request approval before execution; commands that still hit the restricted-network boundary surface an explicit recovery hint instead of silently widening access
 - non-zero exits return an explicit tool error result instead of a success payload
 - timeout returns an explicit tool error result and includes captured output when available
 - shell cleanup is bounded: post-exit output drain is grace-bounded and sandbox/container force-removal is timeout-bounded

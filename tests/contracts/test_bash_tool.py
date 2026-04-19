@@ -35,8 +35,14 @@ class _FakeRunContext:
 
 
 class _ExecutorHandle:
-    def __init__(self) -> None:
-        self._chunks = [b"ok"]
+    def __init__(
+        self,
+        *,
+        chunks: list[bytes] | None = None,
+        exit_code: int = 0,
+    ) -> None:
+        self._chunks = [b"ok"] if chunks is None else list(chunks)
+        self._exit_code = exit_code
 
     async def read(self, _max_bytes: int) -> bytes:
         if self._chunks:
@@ -44,14 +50,14 @@ class _ExecutorHandle:
         return b""
 
     async def wait(self) -> int:
-        return 0
+        return self._exit_code
 
     async def terminate(self) -> None:
         return None
 
     @property
     def exit_code(self) -> int | None:
-        return 0
+        return self._exit_code
 
 
 def _test_shell_family() -> str:
@@ -402,6 +408,55 @@ async def test_execute_shell_fails_fast_when_approval_is_required_without_reques
             ctx=ctx,
             workspace_root=workspace_root,
             command=_hello_command(),
+            shell_family=_test_shell_family(),
+        )
+
+
+async def test_execute_shell_adds_network_guidance_when_restricted_command_fails(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    monkeypatch.chdir(tmp_path)
+
+    class _Executor:
+        async def execute(self, request):
+            assert request.normalized_policy.network.access == "restricted"
+            return _ExecutorHandle(
+                chunks=[b"Temporary failure in name resolution"],
+                exit_code=1,
+            )
+
+    permission_state = build_permission_state(
+        sandbox_policy=WorkspaceWriteSandboxPolicy(),
+        approval_policy=ApprovalPolicy(mode="on_escalation"),
+    )
+    ctx = _FakeRunContext(
+        deps=WorkspaceDeps(
+            workspace_root=workspace_root,
+            shell_family=_test_shell_family(),
+            sandbox_executor=_Executor(),
+            permission_state=permission_state,
+        ),
+        tool_call_id="call-shell",
+        tool_name="shell",
+    )
+
+    with pytest.raises(
+        ToolCommandError,
+        match=(
+            "Temporary failure in name resolution[\\s\\S]*"
+            "approve network access"
+        ),
+    ):
+        await execute_shell(
+            ctx=ctx,
+            workspace_root=workspace_root,
+            command=(
+                'python -c "import socket; '
+                "socket.getaddrinfo('example.com', 80)\""
+            ),
             shell_family=_test_shell_family(),
         )
 

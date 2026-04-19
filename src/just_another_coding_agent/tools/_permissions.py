@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import shlex
 from dataclasses import dataclass
 from pathlib import Path
@@ -45,6 +46,17 @@ _NETWORK_COMMANDS = frozenset(
         "wget",
     }
 )
+_NETWORK_PACKAGE_MANAGER_SUBCOMMANDS = {
+    "npm": frozenset({"install", "i", "ci", "add", "update", "publish"}),
+    "pnpm": frozenset({"install", "add", "update", "up", "create", "dlx"}),
+    "yarn": frozenset({"install", "add", "up", "upgrade", "dlx", "create"}),
+    "bun": frozenset({"install", "add", "update", "x", "create"}),
+    "pip": frozenset({"install", "download", "wheel"}),
+    "pip3": frozenset({"install", "download", "wheel"}),
+    "poetry": frozenset({"install", "add", "update", "publish"}),
+    "cargo": frozenset({"install", "search", "publish", "add"}),
+    "go": frozenset({"get"}),
+}
 _GIT_NETWORK_SUBCOMMANDS = frozenset(
     {
         "clone",
@@ -54,6 +66,8 @@ _GIT_NETWORK_SUBCOMMANDS = frozenset(
         "push",
     }
 )
+_SHELL_WRAPPERS = frozenset({"bash", "sh", "dash", "zsh", "env", "sudo", "timeout"})
+_ENV_ASSIGNMENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=.*$")
 
 
 @dataclass(frozen=True)
@@ -80,12 +94,100 @@ def _shell_command_requests_network_access(
         return False
     if not tokens:
         return False
+    return _tokens_request_network_access(tokens)
+
+
+def _tokens_request_network_access(tokens: list[str], *, _depth: int = 0) -> bool:
+    if not tokens or _depth > 4:
+        return False
+
     executable = tokens[0]
+    if executable in _SHELL_WRAPPERS:
+        unwrapped = _unwrap_shell_wrapper(tokens)
+        if unwrapped is not None:
+            return _tokens_request_network_access(unwrapped, _depth=_depth + 1)
     if executable in _NETWORK_COMMANDS:
         return True
     if executable == "git" and len(tokens) > 1:
         return tokens[1] in _GIT_NETWORK_SUBCOMMANDS
-    return False
+    if executable in _NETWORK_PACKAGE_MANAGER_SUBCOMMANDS and len(tokens) > 1:
+        return tokens[1] in _NETWORK_PACKAGE_MANAGER_SUBCOMMANDS[executable]
+    if executable in {"python", "python3", "python3.12"}:
+        return _python_command_requests_network(tokens[1:])
+    if executable == "uv":
+        return _uv_command_requests_network(tokens[1:])
+    return any(_token_looks_like_network_target(token) for token in tokens[1:])
+
+
+def _unwrap_shell_wrapper(tokens: list[str]) -> list[str] | None:
+    executable = tokens[0]
+    if executable == "env":
+        index = 1
+        while index < len(tokens) and _ENV_ASSIGNMENT_RE.match(tokens[index]):
+            index += 1
+        return tokens[index:] if index < len(tokens) else None
+    if executable == "sudo":
+        index = 1
+        while index < len(tokens) and tokens[index].startswith("-"):
+            index += 1
+        return tokens[index:] if index < len(tokens) else None
+    if executable == "timeout":
+        index = 1
+        while index < len(tokens) and tokens[index].startswith("-"):
+            index += 1
+        if index < len(tokens):
+            index += 1
+        return tokens[index:] if index < len(tokens) else None
+    for index, token in enumerate(tokens[1:], start=1):
+        if token == "-c":
+            if index + 1 >= len(tokens):
+                return None
+            try:
+                return shlex.split(tokens[index + 1], posix=True)
+            except ValueError:
+                return None
+        if token.startswith("-") and "c" in token[1:]:
+            if index + 1 >= len(tokens):
+                return None
+            try:
+                return shlex.split(tokens[index + 1], posix=True)
+            except ValueError:
+                return None
+    return tokens[1:] if len(tokens) > 1 else None
+
+
+def _python_command_requests_network(tokens: list[str]) -> bool:
+    if not tokens:
+        return False
+    if tokens[0] == "-m" and len(tokens) > 2:
+        module = tokens[1]
+        if module in _NETWORK_PACKAGE_MANAGER_SUBCOMMANDS:
+            return tokens[2] in _NETWORK_PACKAGE_MANAGER_SUBCOMMANDS[module]
+    return any(_token_looks_like_network_target(token) for token in tokens)
+
+
+def _uv_command_requests_network(tokens: list[str]) -> bool:
+    if not tokens:
+        return False
+    first = tokens[0]
+    if first == "pip" and len(tokens) > 1:
+        return tokens[1] in _NETWORK_PACKAGE_MANAGER_SUBCOMMANDS["pip"]
+    if first == "tool" and len(tokens) > 1:
+        return tokens[1] in {"install", "upgrade"}
+    if first in {"sync", "lock", "add", "remove", "publish", "runx", "x"}:
+        return True
+    return any(_token_looks_like_network_target(token) for token in tokens)
+
+
+def _token_looks_like_network_target(token: str) -> bool:
+    lower_token = token.lower()
+    return (
+        "://" in lower_token
+        or lower_token.startswith("git@")
+        or lower_token.startswith("ssh://")
+        or "github.com/" in lower_token
+        or "gitlab.com/" in lower_token
+    )
 
 
 def derive_sandbox_execution_plan(
