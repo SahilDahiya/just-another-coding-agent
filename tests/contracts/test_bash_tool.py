@@ -18,6 +18,7 @@ from just_another_coding_agent.contracts.sandbox import (
     WorkspaceWriteSandboxPolicy,
     build_permission_state,
 )
+from just_another_coding_agent.tools._activity import truncate_activity_label
 from just_another_coding_agent.tools.deps import WorkspaceDeps
 from just_another_coding_agent.tools.errors import ToolCommandError, ToolEncodingError
 from just_another_coding_agent.tools.shell import (
@@ -367,6 +368,14 @@ async def test_execute_shell_requests_approval_for_explicit_outside_read_root(
 
     assert result == {"exit_code": 0, "output": "ok"}
     assert len(requests) == 1
+    expected_command = truncate_activity_label(
+        f"cat {outside_root / 'README.md'}"
+    )
+    assert requests[0].reason == (
+        "allow shell command: "
+        f"{expected_command} "
+        f"(read-only bind mounts: {outside_root})"
+    )
     assert requests[0].requested_permissions is not None
     assert requests[0].requested_permissions.extra_read_roots == (
         str(outside_root),
@@ -537,6 +546,65 @@ async def test_execute_shell_fails_fast_when_approval_is_required_without_reques
             command=_hello_command(),
             shell_family=_test_shell_family(),
         )
+
+
+async def test_execute_shell_discloses_network_and_mount_scope_in_approval_reason(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    outside_root = tmp_path / "other"
+    outside_root.mkdir()
+    monkeypatch.chdir(tmp_path)
+    requests = []
+
+    class _Executor:
+        async def execute(self, request):
+            return _ExecutorHandle()
+
+    async def approval_requester(request):
+        requests.append(request)
+        return ApprovalDecision(
+            request_id=request.request_id,
+            decision="approved",
+        )
+
+    permission_state = build_permission_state(
+        sandbox_policy=WorkspaceWriteSandboxPolicy(),
+        approval_policy=ApprovalPolicy(mode="on_escalation"),
+    )
+    ctx = _FakeRunContext(
+        deps=WorkspaceDeps(
+            workspace_root=workspace_root,
+            shell_family=_test_shell_family(),
+            sandbox_executor=_Executor(),
+            approval_requester=approval_requester,
+            permission_state=permission_state,
+        ),
+        tool_call_id="call-shell",
+        tool_name="shell",
+    )
+
+    await execute_shell(
+        ctx=ctx,
+        workspace_root=workspace_root,
+        command=(
+            f'bash -lc "curl https://example.com && '
+            f'cat {outside_root / "README.md"}"'
+        ),
+        shell_family=_test_shell_family(),
+    )
+
+    assert len(requests) == 1
+    expected_command = truncate_activity_label(
+        f'bash -lc "curl https://example.com && cat {outside_root / "README.md"}"'
+    )
+    assert requests[0].reason == (
+        "allow shell command: "
+        f"{expected_command} "
+        f"(network enabled; read-only bind mounts: {outside_root})"
+    )
 
 
 async def test_execute_shell_adds_network_guidance_when_restricted_command_fails(

@@ -21,6 +21,7 @@ from just_another_coding_agent.tools._activity import (
     truncate_activity_label,
 )
 from just_another_coding_agent.tools._permissions import (
+    describe_shell_permission_delta,
     plan_shell_execution,
     remember_approved_permissions,
 )
@@ -242,13 +243,19 @@ async def execute_shell(
                 "Shell execution requires approval, but no approval "
                 "requester is configured"
             )
+        permission_detail = describe_shell_permission_delta(
+            plan.requested_permissions
+        )
+        reason = (
+            "allow shell command: "
+            f"{truncate_activity_label(command)}"
+        )
+        if permission_detail:
+            reason = f"{reason} ({permission_detail})"
         decision = await ctx.deps.approval_requester(
             ApprovalRequest(
                 request_id=f"shell-{uuid4().hex}",
-                reason=(
-                    "allow shell command: "
-                    f"{truncate_activity_label(command)}"
-                ),
+                reason=reason,
                 requested_capabilities=plan.requested_capabilities,
                 requested_permissions=plan.requested_permissions,
             )

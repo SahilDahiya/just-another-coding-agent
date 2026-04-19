@@ -130,7 +130,10 @@ async def test_write_requests_approval_for_outside_workspace_path_in_default_mod
 
     assert outside.read_text(encoding="utf-8") == "hello"
     assert len(requests) == 1
-    assert requests[0].reason == "allow write outside workspace: ../outside.txt"
+    assert requests[0].reason == (
+        "allow write outside workspace: ../outside.txt "
+        f"(writable roots: {outside.parent.resolve()})"
+    )
     assert requests[0].requested_permissions is not None
     assert requests[0].requested_permissions.extra_write_roots == (
         str(outside.parent.resolve()),

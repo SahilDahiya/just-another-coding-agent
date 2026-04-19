@@ -127,6 +127,40 @@ class SandboxExecutionPlan:
 FileAccessKind = Literal["read", "write"]
 
 
+def describe_permission_delta(
+    permissions: AdditionalSandboxPermissions | None,
+) -> str:
+    if permissions is None:
+        return ""
+    segments: list[str] = []
+    if permissions.network_access == "enabled":
+        segments.append("network enabled")
+    if permissions.extra_read_roots:
+        joined = ", ".join(permissions.extra_read_roots)
+        segments.append(f"read-only roots: {joined}")
+    if permissions.extra_write_roots:
+        joined = ", ".join(permissions.extra_write_roots)
+        segments.append(f"writable roots: {joined}")
+    return "; ".join(segments)
+
+
+def describe_shell_permission_delta(
+    permissions: AdditionalSandboxPermissions | None,
+) -> str:
+    if permissions is None:
+        return ""
+    segments: list[str] = []
+    if permissions.network_access == "enabled":
+        segments.append("network enabled")
+    if permissions.extra_read_roots:
+        joined = ", ".join(permissions.extra_read_roots)
+        segments.append(f"read-only bind mounts: {joined}")
+    if permissions.extra_write_roots:
+        joined = ", ".join(permissions.extra_write_roots)
+        segments.append(f"writable bind mounts: {joined}")
+    return "; ".join(segments)
+
+
 def _shell_command_requests_network_access(
     *,
     command: str,
@@ -573,12 +607,14 @@ async def _approved_file_access_plan(
         if outside_workspace
         else f"allow {action}"
     )
+    permission_detail = describe_permission_delta(plan.requested_permissions)
+    reason = f"{reason_prefix}: {truncate_activity_label(tool_path)}"
+    if permission_detail:
+        reason = f"{reason} ({permission_detail})"
     decision = await ctx.deps.approval_requester(
         ApprovalRequest(
             request_id=f"{action}-{uuid4().hex}",
-            reason=(
-                f"{reason_prefix}: {truncate_activity_label(tool_path)}"
-            ),
+            reason=reason,
             requested_capabilities=plan.requested_capabilities,
             requested_permissions=plan.requested_permissions,
         )
@@ -609,6 +645,8 @@ def remember_approved_permissions(
 __all__ = [
     "approved_read_only_filesystem_policy",
     "SandboxExecutionPlan",
+    "describe_permission_delta",
+    "describe_shell_permission_delta",
     "derive_sandbox_execution_plan",
     "maybe_request_file_write_approval",
     "plan_shell_execution",

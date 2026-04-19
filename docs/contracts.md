@@ -286,6 +286,10 @@ Approval carrier rules:
     `requested_permissions.extra_read_roots` and
     `requested_permissions.extra_write_roots` instead of forcing a mode flip
     to `danger_full_access`
+  - approval reasons must disclose the concrete scope being widened; shell
+    prompts name network enablement and exact read-only or writable bind-mount
+    roots, and write-side prompts name the exact outside-workspace writable
+    roots being approved
   - `write` and `edit` request approval before modifying paths outside the
     workspace when `approval_policy=on_escalation` and the selected sandbox
     policy is `workspace_write`; those approval requests use explicit

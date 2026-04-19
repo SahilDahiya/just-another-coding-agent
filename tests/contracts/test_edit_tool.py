@@ -266,7 +266,10 @@ async def test_edit_requests_approval_for_outside_workspace_path_in_default_mode
     assert result.return_value == f"Edited {outside.resolve()}"
     assert outside.read_text(encoding="utf-8") == "hello\nagent\n"
     assert len(requests) == 1
-    assert requests[0].reason == "allow edit outside workspace: ../outside.txt"
+    assert requests[0].reason == (
+        "allow edit outside workspace: ../outside.txt "
+        f"(writable roots: {outside.resolve().parent})"
+    )
     assert requests[0].requested_permissions is not None
     assert requests[0].requested_permissions.extra_write_roots == (
         str(outside.resolve().parent),
