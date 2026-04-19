@@ -612,13 +612,13 @@ async def test_handle_rpc_json_line_returns_workspace_default_permission_state(
             "response": {
                 "session_id": None,
                 "permission_state": PermissionState(
-                    sandbox_policy=DangerFullAccessSandboxPolicy(),
-                    approval_policy=ApprovalPolicy(mode="never"),
+                    sandbox_policy=WorkspaceWriteSandboxPolicy(),
+                    approval_policy=ApprovalPolicy(mode="on_escalation"),
                     effective_capabilities=EffectiveCapabilities(
-                        filesystem_access="full_access",
-                        network_access="enabled",
-                        execution_isolation="unsandboxed",
-                        approval_mode="never",
+                        filesystem_access="workspace_write",
+                        network_access="restricted",
+                        execution_isolation="sandboxed",
+                        approval_mode="on_escalation",
                     ),
                 ).model_dump(mode="json"),
             },
@@ -719,12 +719,12 @@ async def test_handle_rpc_json_line_sets_workspace_default_permission_state(
     )
 
     expected_state = PermissionState(
-        sandbox_policy=DangerFullAccessSandboxPolicy(),
+        sandbox_policy=WorkspaceWriteSandboxPolicy(),
         approval_policy=ApprovalPolicy(mode="always"),
         effective_capabilities=EffectiveCapabilities(
-            filesystem_access="full_access",
-            network_access="enabled",
-            execution_isolation="unsandboxed",
+            filesystem_access="workspace_write",
+            network_access="restricted",
+            execution_isolation="sandboxed",
             approval_mode="always",
         ),
     )

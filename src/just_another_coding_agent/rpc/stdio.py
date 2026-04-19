@@ -93,10 +93,10 @@ from just_another_coding_agent.contracts.sandbox import (
     ApprovalDecision,
     ApprovalPolicy,
     ApprovalRequest,
-    DangerFullAccessSandboxPolicy,
     PermissionState,
     SandboxPolicy,
     WorkspaceWriteSandboxPolicy,
+    build_default_permission_state,
     build_permission_state,
     derive_effective_capabilities,
 )
@@ -448,8 +448,11 @@ def _build_live_permission_state(
     sandbox_policy: SandboxPolicy | None = None,
     approval_policy: ApprovalPolicy | None = None,
 ) -> PermissionState:
-    resolved_sandbox_policy = sandbox_policy or DangerFullAccessSandboxPolicy()
-    resolved_approval_policy = approval_policy or ApprovalPolicy(mode="never")
+    if sandbox_policy is None and approval_policy is None:
+        return build_default_permission_state()
+    default_state = build_default_permission_state()
+    resolved_sandbox_policy = sandbox_policy or default_state.sandbox_policy
+    resolved_approval_policy = approval_policy or default_state.approval_policy
     return build_permission_state(
         sandbox_policy=resolved_sandbox_policy,
         approval_policy=resolved_approval_policy,
@@ -476,10 +479,11 @@ def _permission_state_key(session_id: str | None) -> str:
 def _build_permission_context_for_session(
     session_id: str | None,
 ) -> _SessionPermissionContext:
-    if session_id is None:
-        permission_state = _build_live_permission_state()
-    else:
-        permission_state = _build_canonical_session_permission_state()
+    permission_state = (
+        _build_live_permission_state()
+        if session_id is None
+        else _build_canonical_session_permission_state()
+    )
     return _SessionPermissionContext(
         permission_state=permission_state,
         permission_memory=SessionPermissionMemory(),

@@ -222,8 +222,8 @@ def build_permission_state(
 
 def build_default_permission_state() -> PermissionState:
     return build_permission_state(
-        sandbox_policy=DangerFullAccessSandboxPolicy(),
-        approval_policy=ApprovalPolicy(mode="never"),
+        sandbox_policy=WorkspaceWriteSandboxPolicy(),
+        approval_policy=ApprovalPolicy(mode="on_escalation"),
     )
 
 

@@ -73,13 +73,13 @@ func newStubBackend() *stubBackend {
 			FileStorePath: filepath.Join(os.TempDir(), "jaca-auth.json"),
 		},
 		permissionState: rpc.PermissionState{
-			SandboxPolicy:  rpc.SandboxPolicy{Mode: "danger_full_access", NetworkAccess: "enabled"},
-			ApprovalPolicy: rpc.ApprovalPolicy{Mode: "never"},
+			SandboxPolicy:  rpc.SandboxPolicy{Mode: "workspace_write", NetworkAccess: "restricted"},
+			ApprovalPolicy: rpc.ApprovalPolicy{Mode: "on_escalation"},
 			EffectiveCapabilities: rpc.EffectiveCapabilities{
-				FilesystemAccess:   "full_access",
-				NetworkAccess:      "enabled",
-				ExecutionIsolation: "unsandboxed",
-				ApprovalMode:       "never",
+				FilesystemAccess:   "workspace_write",
+				NetworkAccess:      "restricted",
+				ExecutionIsolation: "sandboxed",
+				ApprovalMode:       "on_escalation",
 			},
 		},
 		workspaceTrust: rpc.WorkspaceTrustStatusResponse{
@@ -694,8 +694,8 @@ func TestPermissionSlashShowsBackendState(t *testing.T) {
 	}
 	rendered := stripANSI(m.transcript.Render())
 	for _, want := range []string{
-		"permission: full_access",
-		"effective capabilities: filesystem=full_access network=enabled isolation=unsandboxed approval=never",
+		"permission: default",
+		"effective capabilities: filesystem=workspace_write network=restricted isolation=sandboxed approval=on_escalation",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("permission render missing %q in %q", want, rendered)
@@ -721,7 +721,7 @@ func TestPermissionSlashShowsWorkspaceDefaultStateWithoutSession(t *testing.T) {
 	}
 	rendered := stripANSI(m.transcript.Render())
 	for _, want := range []string{
-		"permission: full_access",
+		"permission: default",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("permission render missing %q in %q", want, rendered)
@@ -848,24 +848,31 @@ func TestPermissionSlashSuggestionsMarkCurrentPreset(t *testing.T) {
 	if len(rows) != 2 {
 		t.Fatalf("len(rows) = %d, want 2", len(rows))
 	}
+	if !rows[0].Current {
+		t.Fatal("default should be current when backend state is default")
+	}
+	if rows[1].Current {
+		t.Fatal("full_access should not be marked current")
+	}
+
+	fullAccessState := backend.permissionState
+	fullAccessState.SandboxPolicy.Mode = "danger_full_access"
+	fullAccessState.SandboxPolicy.NetworkAccess = "enabled"
+	fullAccessState.ApprovalPolicy.Mode = "never"
+	fullAccessState.EffectiveCapabilities = rpc.EffectiveCapabilities{
+		FilesystemAccess:   "full_access",
+		NetworkAccess:      "enabled",
+		ExecutionIsolation: "unsandboxed",
+		ApprovalMode:       "never",
+	}
+	m.permissionState = &fullAccessState
+	rows = m.permissionSlashSuggestions()
+
 	if rows[0].Current {
-		t.Fatal("default should not be current when backend state is full_access")
+		t.Fatal("default should not be current when full_access is active")
 	}
 	if !rows[1].Current {
 		t.Fatal("full_access should be marked current")
-	}
-
-	defaultState := backend.permissionState
-	defaultState.SandboxPolicy.Mode = "workspace_write"
-	defaultState.ApprovalPolicy.Mode = "on_escalation"
-	m.permissionState = &defaultState
-	rows = m.permissionSlashSuggestions()
-
-	if !rows[0].Current {
-		t.Fatal("default should be marked current")
-	}
-	if rows[1].Current {
-		t.Fatal("full_access should not be current when default is active")
 	}
 }
 
