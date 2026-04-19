@@ -267,8 +267,9 @@ Approval carrier rules:
 - current restricted execution coverage is intentionally narrow:
   - `shell` routes `workspace_write` and `read_only` sandbox policies through
     the local restricted executor backend
-  - the first restricted backend is Docker-backed and enforces workspace-bound
-    execution
+  - the current Linux restricted backend is bubblewrap-backed, executes host
+    binaries under a host-process sandbox, and preserves host-visible path
+    semantics for mounted roots
   - executor backends consume normalized filesystem/network policy derived from
     the selected permission state plus any approved per-command permission
     deltas
@@ -291,14 +292,14 @@ Approval carrier rules:
     outside-workspace writes under the same root do not prompt again until the
     session ends or the selected permission preset changes
   - under `workspace_write`, restricted shell execution defaults to
-    `--network none`
+    network-disabled execution
   - `approval_policy=on_escalation` may request approval for explicit
-    network-seeking shell commands; when approved, the restricted Docker
+    network-seeking shell commands; when approved, the restricted Linux
     backend reruns that command with `requested_permissions.network_access`
-    widened to `enabled` while preserving the workspace-bound sandbox posture
+    widened to `enabled` while preserving the sandboxed shell posture
   - `approval_policy=on_escalation` may also request approval for explicit
-    outside-workspace shell paths; when approved, the restricted Docker
-    backend reruns that command with scoped extra bind mounts derived from
+    outside-workspace shell paths; when approved, the restricted Linux backend
+    reruns that command with scoped extra bind mounts derived from
     `requested_permissions.extra_read_roots` and
     `requested_permissions.extra_write_roots` instead of forcing a mode flip
     to `danger_full_access`
@@ -317,9 +318,8 @@ Approval carrier rules:
 - live effective capability reporting is derived from the selected sandbox and
   approval policy, with explicit runtime-context notes where implementation
   details still matter:
-  - runtime framing now tells the model that sandboxed `shell` sees the
-    workspace at `/workspace`, so workspace-relative paths are the canonical
-    sandbox-safe form
+  - runtime framing now tells the model that sandboxed `shell` preserves
+    host-visible path semantics for mounted roots
   - write-side behavior is still narrower than a fully normalized filesystem
     sandbox: `write` and `edit` remain host-backed for in-workspace paths, and
     only request approval when a call needs explicit extra write roots outside

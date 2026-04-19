@@ -128,12 +128,8 @@ def build_runtime_context_text(
             sections.extend(
                 [
                     (
-                        "Shell sandbox path note: shell commands run with the "
-                        "workspace mounted at /workspace inside the sandbox."
-                    ),
-                    (
-                        "Prefer workspace-relative paths in shell commands "
-                        "instead of host-absolute paths."
+                        "Shell sandbox path note: sandboxed shell preserves "
+                        "host-visible path semantics for mounted roots."
                     ),
                     (
                         "Tool coverage note: default-mode read-side tools "

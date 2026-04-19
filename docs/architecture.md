@@ -136,9 +136,10 @@ Internal tool executors should also depend only on the execution context they ac
 Executor seams also need to stay backend-owned. The current shape uses a
 host-backed executor for `danger_full_access` plus a first local restricted
 executor for `shell` under sandboxed policies. That restricted path is
-intentionally narrow: it is Docker-backed, enforces workspace-bound execution
-with network disabled, and must fail explicitly if Docker or the configured
-sandbox image is unavailable. The Go TUI should not infer or select executor
+intentionally narrow: on Linux it uses a bubblewrap-backed host-process
+sandbox, preserves host-visible path semantics for mounted roots, defaults to
+network-disabled execution under `workspace_write`, and must fail explicitly
+if bubblewrap is unavailable. The Go TUI should not infer or select executor
 backends; it only renders the selected permission state and approval flow.
 The current pivot adds a middle layer between those user-facing presets and
 the executor backend: Python now normalizes selected sandbox state plus any

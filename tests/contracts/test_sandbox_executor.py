@@ -119,14 +119,6 @@ class _FakeProcess:
         return 0 if self.returncode is None else self.returncode
 
 
-class _FakeDockerExecutor:
-    def __init__(self, handle) -> None:
-        self._handle = handle
-
-    async def execute(self, _request: SandboxCommandRequest):
-        return self._handle
-
-
 async def test_execute_shell_delegates_command_start_to_sandbox_executor(
     tmp_path: Path,
 ) -> None:
@@ -157,7 +149,7 @@ async def test_execute_shell_delegates_command_start_to_sandbox_executor(
             workspace_root=workspace_root,
             command="printf hello",
             shell_family=_test_shell_family(),
-            selected_sandbox_mode="danger_full_access",
+            selected_sandbox_mode="workspace_write",
             normalized_policy=derive_normalized_sandbox_policy(
                 permission_state=build_default_permission_state()
             ),
@@ -418,7 +410,22 @@ async def test_execute_shell_routes_workspace_write_policy_to_restricted_executo
     ]
 
 
-async def test_local_restricted_sandbox_executor_launches_docker_with_workspace_mount(
+def _bind_triplets(args: tuple[object, ...]) -> list[tuple[str, str, str]]:
+    triplets: list[tuple[str, str, str]] = []
+    for index, value in enumerate(args):
+        if value not in {"--bind", "--ro-bind"}:
+            continue
+        triplets.append(
+            (
+                str(value),
+                str(args[index + 1]),
+                str(args[index + 2]),
+            )
+        )
+    return triplets
+
+
+async def test_local_restricted_sandbox_executor_launches_bubblewrap_with_workspace_bind(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -431,15 +438,25 @@ async def test_local_restricted_sandbox_executor_launches_docker_with_workspace_
         observed["kwargs"] = kwargs
         return _FakeProcess()
 
-    monkeypatch.setattr(sandbox_executor_module.os, "getuid", lambda: 1000)
-    monkeypatch.setattr(sandbox_executor_module.os, "getgid", lambda: 1001)
+    monkeypatch.setattr(
+        sandbox_executor_module,
+        "build_tool_process_env",
+        lambda: {"PATH": "/usr/bin:/bin"},
+    )
+    monkeypatch.setattr(
+        sandbox_executor_module.shutil,
+        "which",
+        lambda executable, path=None: f"/usr/bin/{executable}",
+    )
     monkeypatch.setattr(
         sandbox_executor_module.asyncio,
         "create_subprocess_exec",
         fake_create_subprocess_exec,
     )
 
-    handle = await LocalRestrictedSandboxExecutor(image="sandbox-image").execute(
+    handle = await LocalRestrictedSandboxExecutor(
+        executable="sandbox-executable"
+    ).execute(
         SandboxCommandRequest(
             workspace_root=workspace_root,
             command="pwd",
@@ -460,17 +477,29 @@ async def test_local_restricted_sandbox_executor_launches_docker_with_workspace_
 
     assert await handle.read(4096) == b"ok"
     args = observed["args"]
-    assert args[:4] == ("docker", "run", "--pull", "missing")
-    assert "--network" in args
-    assert args[args.index("--network") + 1] == "none"
-    assert "--user" in args
-    assert args[args.index("--user") + 1] == "1000:1001"
-    assert "--volume" in args
-    assert (
-        args[args.index("--volume") + 1]
-        == f"{workspace_root}:/workspace:rw"
+    assert args[0] == "sandbox-executable"
+    assert "--unshare-all" in args
+    assert "--proc" in args
+    assert "--dev" in args
+    assert "--tmpfs" in args
+    assert "--share-net" not in args
+    assert args[args.index("--chdir") + 1] == str(workspace_root)
+    assert ("--bind", str(workspace_root), str(workspace_root)) in _bind_triplets(
+        args
     )
-    assert args[-4:] == ("sandbox-image", "bash", "-lc", "pwd")
+    if Path("/lib").exists() and Path("/lib").resolve() != Path("/lib"):
+        assert (
+            "--ro-bind",
+            str(Path("/lib").resolve()),
+            "/lib",
+        ) in _bind_triplets(args)
+    if Path("/lib64").exists() and Path("/lib64").resolve() != Path("/lib64"):
+        assert (
+            "--ro-bind",
+            str(Path("/lib64").resolve()),
+            "/lib64",
+        ) in _bind_triplets(args)
+    assert args[-3:] == ("/usr/bin/bash", "-lc", "pwd")
 
 
 async def test_local_restricted_sandbox_executor_allows_network_when_requested(
@@ -486,15 +515,25 @@ async def test_local_restricted_sandbox_executor_allows_network_when_requested(
         observed["kwargs"] = kwargs
         return _FakeProcess()
 
-    monkeypatch.setattr(sandbox_executor_module.os, "getuid", lambda: 1000)
-    monkeypatch.setattr(sandbox_executor_module.os, "getgid", lambda: 1001)
+    monkeypatch.setattr(
+        sandbox_executor_module,
+        "build_tool_process_env",
+        lambda: {"PATH": "/usr/bin:/bin"},
+    )
+    monkeypatch.setattr(
+        sandbox_executor_module.shutil,
+        "which",
+        lambda executable, path=None: f"/usr/bin/{executable}",
+    )
     monkeypatch.setattr(
         sandbox_executor_module.asyncio,
         "create_subprocess_exec",
         fake_create_subprocess_exec,
     )
 
-    handle = await LocalRestrictedSandboxExecutor(image="sandbox-image").execute(
+    handle = await LocalRestrictedSandboxExecutor(
+        executable="sandbox-executable"
+    ).execute(
         SandboxCommandRequest(
             workspace_root=workspace_root,
             command="curl https://example.com",
@@ -512,17 +551,11 @@ async def test_local_restricted_sandbox_executor_allows_network_when_requested(
 
     assert await handle.read(4096) == b"ok"
     args = observed["args"]
-    assert "--network" not in args
-    assert (
-        args[args.index("--volume") + 1]
-        == f"{workspace_root}:/workspace:rw"
+    assert "--share-net" in args
+    assert ("--bind", str(workspace_root), str(workspace_root)) in _bind_triplets(
+        args
     )
-    assert args[-4:] == (
-        "sandbox-image",
-        "bash",
-        "-lc",
-        "curl https://example.com",
-    )
+    assert args[-3:] == ("/usr/bin/bash", "-lc", "curl https://example.com")
 
 
 async def test_local_restricted_sandbox_executor_mounts_approved_extra_roots(
@@ -542,15 +575,25 @@ async def test_local_restricted_sandbox_executor_mounts_approved_extra_roots(
         observed["kwargs"] = kwargs
         return _FakeProcess()
 
-    monkeypatch.setattr(sandbox_executor_module.os, "getuid", lambda: 1000)
-    monkeypatch.setattr(sandbox_executor_module.os, "getgid", lambda: 1001)
+    monkeypatch.setattr(
+        sandbox_executor_module,
+        "build_tool_process_env",
+        lambda: {"PATH": "/usr/bin:/bin"},
+    )
+    monkeypatch.setattr(
+        sandbox_executor_module.shutil,
+        "which",
+        lambda executable, path=None: f"/usr/bin/{executable}",
+    )
     monkeypatch.setattr(
         sandbox_executor_module.asyncio,
         "create_subprocess_exec",
         fake_create_subprocess_exec,
     )
 
-    handle = await LocalRestrictedSandboxExecutor(image="sandbox-image").execute(
+    handle = await LocalRestrictedSandboxExecutor(
+        executable="sandbox-executable"
+    ).execute(
         SandboxCommandRequest(
             workspace_root=workspace_root,
             command=f"cat {outside_read_root / 'README.md'}",
@@ -572,14 +615,18 @@ async def test_local_restricted_sandbox_executor_mounts_approved_extra_roots(
 
     assert await handle.read(4096) == b"ok"
     args = observed["args"]
-    volume_args = [
-        args[index + 1]
-        for index, value in enumerate(args)
-        if value == "--volume"
-    ]
-    assert f"{workspace_root}:/workspace:rw" in volume_args
-    assert f"{outside_read_root}:{outside_read_root}:ro" in volume_args
-    assert f"{outside_write_root}:{outside_write_root}:rw" in volume_args
+    bind_triplets = _bind_triplets(args)
+    assert ("--bind", str(workspace_root), str(workspace_root)) in bind_triplets
+    assert (
+        "--ro-bind",
+        str(outside_read_root),
+        str(outside_read_root),
+    ) in bind_triplets
+    assert (
+        "--bind",
+        str(outside_write_root),
+        str(outside_write_root),
+    ) in bind_triplets
 
 
 async def test_local_restricted_sandbox_executor_canonicalizes_symlink_mount_roots(
@@ -602,15 +649,25 @@ async def test_local_restricted_sandbox_executor_canonicalizes_symlink_mount_roo
         observed["kwargs"] = kwargs
         return _FakeProcess()
 
-    monkeypatch.setattr(sandbox_executor_module.os, "getuid", lambda: 1000)
-    monkeypatch.setattr(sandbox_executor_module.os, "getgid", lambda: 1001)
+    monkeypatch.setattr(
+        sandbox_executor_module,
+        "build_tool_process_env",
+        lambda: {"PATH": "/usr/bin:/bin"},
+    )
+    monkeypatch.setattr(
+        sandbox_executor_module.shutil,
+        "which",
+        lambda executable, path=None: f"/usr/bin/{executable}",
+    )
     monkeypatch.setattr(
         sandbox_executor_module.asyncio,
         "create_subprocess_exec",
         fake_create_subprocess_exec,
     )
 
-    handle = await LocalRestrictedSandboxExecutor(image="sandbox-image").execute(
+    handle = await LocalRestrictedSandboxExecutor(
+        executable="sandbox-executable"
+    ).execute(
         SandboxCommandRequest(
             workspace_root=workspace_root,
             command="pwd",
@@ -631,104 +688,59 @@ async def test_local_restricted_sandbox_executor_canonicalizes_symlink_mount_roo
 
     assert await handle.read(4096) == b"ok"
     args = observed["args"]
-    volume_args = [
-        args[index + 1]
-        for index, value in enumerate(args)
-        if value == "--volume"
-    ]
-    expected_mount = f"{real_root}:{real_root}:ro"
-    assert expected_mount in volume_args
-    assert all(str(alias_root) not in mount for mount in volume_args)
+    bind_triplets = _bind_triplets(args)
+    expected_mount = ("--ro-bind", str(real_root), str(real_root))
+    assert expected_mount in bind_triplets
+    assert all(str(alias_root) not in mount for mount in bind_triplets)
 
 
-async def test_docker_sandbox_handle_times_out_force_remove_when_daemon_is_wedged(
+async def test_local_restricted_sandbox_executor_requires_bubblewrap(
+    tmp_path: Path,
     monkeypatch,
 ) -> None:
-    sandbox_process = _FakeProcess(returncode=None)
-    rm_process = _FakeProcess(returncode=None)
-    observed: dict[str, object] = {}
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
 
     async def fake_create_subprocess_exec(*args, **kwargs):
-        observed["args"] = args
-        observed["kwargs"] = kwargs
-        return rm_process
+        raise FileNotFoundError("missing bwrap")
 
-    async def fake_wait_for(_awaitable, *, timeout):
-        assert (
-            timeout
-            == sandbox_executor_module._LOCAL_SANDBOX_TERMINATE_TIMEOUT_SECONDS
-        )
-        _awaitable.close()
-        raise TimeoutError
-
+    monkeypatch.setattr(
+        sandbox_executor_module,
+        "build_tool_process_env",
+        lambda: {"PATH": "/usr/bin:/bin"},
+    )
+    monkeypatch.setattr(
+        sandbox_executor_module.shutil,
+        "which",
+        lambda executable, path=None: f"/usr/bin/{executable}",
+    )
     monkeypatch.setattr(
         sandbox_executor_module.asyncio,
         "create_subprocess_exec",
         fake_create_subprocess_exec,
     )
-    monkeypatch.setattr(
-        sandbox_executor_module.asyncio,
-        "wait_for",
-        fake_wait_for,
-    )
 
-    handle = sandbox_executor_module._DockerSandboxCommandHandle(
-        process=sandbox_process,
-        container_name="sandbox-123",
-        image="sandbox-image",
-    )
-
-    with pytest.raises(
-        RuntimeError,
-        match="Timed out while force-removing local sandbox container 'sandbox-123'",
-    ):
-        await handle.terminate()
-
-    assert rm_process.kill_calls == 1
-
-
-async def test_execute_shell_surfaces_actionable_docker_pull_access_guidance(
-    tmp_path: Path,
-) -> None:
-    workspace_root = tmp_path / "workspace"
-    workspace_root.mkdir()
-    process = _FakeProcess(
-        stdout_chunks=[
-            b"docker: Error response from daemon: pull access denied for "
-            b"private/image:latest\n",
-        ],
-        returncode=125,
-    )
-    handle = sandbox_executor_module._DockerSandboxCommandHandle(
-        process=process,
-        container_name="sandbox-123",
-        image="private/image:latest",
-    )
-    executor = _FakeDockerExecutor(handle)
-    ctx = _FakeRunContext(
-        deps=WorkspaceDeps(
-            workspace_root=workspace_root,
-            shell_family=_test_shell_family(),
-            sandbox_executor=executor,
-        ),
-        tool_call_id="tool-1",
-        tool_name="shell",
-    )
-
-    with pytest.raises(ToolCommandError) as error:
-        await execute_shell(
-            ctx=ctx,
-            workspace_root=workspace_root,
-            command="pytest -q",
-            shell_family=_test_shell_family(),
+    with pytest.raises(RuntimeError, match="requires bubblewrap"):
+        await LocalRestrictedSandboxExecutor(
+            executable="missing-bwrap"
+        ).execute(
+            SandboxCommandRequest(
+                workspace_root=workspace_root,
+                command="pwd",
+                shell_family="posix",
+                selected_sandbox_mode="workspace_write",
+                normalized_policy=NormalizedSandboxPolicy.model_validate(
+                    {
+                        "filesystem": {"access": "workspace_write"},
+                        "network": {"access": "restricted"},
+                        "execution_isolation": "sandboxed",
+                    }
+                ),
+            )
         )
 
-    message = str(error.value)
-    assert "pull access denied for private/image:latest" in message
-    assert "Check Docker login and registry access" in message
 
-
-def test_describe_sandbox_failure_leaves_non_docker_output_unchanged() -> None:
+def test_describe_sandbox_failure_leaves_output_unchanged() -> None:
     handle = _FakeHandle(chunks=[])
 
     result = describe_sandbox_failure(

@@ -36,7 +36,7 @@ through [tbench-slice-analysis.md](tbench-slice-analysis.md).
   - easiest path: `uv run logfire auth` and `uv run logfire projects use <project>`
   - explicit path: `export LOGFIRE_TOKEN=...`
 - a Harbor-supported environment is available
-  - local default is Docker
+  - local default shell sandbox is the Linux host-process bubblewrap backend
 - the local source tree is importable by Harbor
   - easiest path: `PYTHONPATH=$PWD/src:$PWD`
 

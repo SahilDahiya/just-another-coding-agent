@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import os
+import shutil
 import signal
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
-from uuid import uuid4
 
 from just_another_coding_agent._pdeathsig import set_pdeathsig_in_child
 from just_another_coding_agent.contracts.platform import ShellFamily
@@ -45,13 +45,35 @@ class SandboxExecutor(Protocol):
     async def execute(self, request: SandboxCommandRequest) -> SandboxCommandHandle: ...
 
 
-DEFAULT_LOCAL_SANDBOX_IMAGE = os.environ.get(
-    "JACA_SANDBOX_IMAGE",
-    "docker.io/library/bash:5.2",
+DEFAULT_LOCAL_SANDBOX_EXECUTABLE = os.environ.get(
+    "JACA_SANDBOX_EXECUTABLE",
+    "bwrap",
 )
-_LOCAL_SANDBOX_WORKDIR = "/workspace"
 _LOCAL_SANDBOX_HOME = "/tmp"
-_LOCAL_SANDBOX_TERMINATE_TIMEOUT_SECONDS = 5.0
+_LOCAL_SANDBOX_SYSTEM_READ_ROOTS = (
+    Path("/usr"),
+    Path("/bin"),
+    Path("/lib"),
+    Path("/lib64"),
+    Path("/sbin"),
+    Path("/usr/local"),
+    Path("/opt"),
+    Path("/nix"),
+    Path("/run/current-system"),
+)
+_LOCAL_SANDBOX_BASELINE_ETC_READ_PATHS = (
+    Path("/etc/passwd"),
+    Path("/etc/group"),
+    Path("/etc/localtime"),
+)
+_LOCAL_SANDBOX_NETWORK_ETC_READ_PATHS = (
+    Path("/etc/resolv.conf"),
+    Path("/etc/hosts"),
+    Path("/etc/nsswitch.conf"),
+    Path("/etc/ssl"),
+    Path("/etc/ca-certificates"),
+    Path("/etc/pki"),
+)
 
 
 def _shell_command_prefix(shell_family: ShellFamily) -> tuple[str, ...]:
@@ -148,56 +170,6 @@ class HostSandboxExecutor:
         )
 
 
-@dataclass
-class _DockerSandboxCommandHandle:
-    process: asyncio.subprocess.Process
-    container_name: str
-    image: str
-
-    async def read(self, max_bytes: int) -> bytes:
-        if self.process.stdout is None:
-            raise RuntimeError("sandbox command must expose stdout")
-        return await self.process.stdout.read(max_bytes)
-
-    async def wait(self) -> int:
-        return await self.process.wait()
-
-    async def terminate(self) -> None:
-        if self.process.returncode is not None:
-            return
-
-        rm_process = await asyncio.create_subprocess_exec(
-            "docker",
-            "rm",
-            "-f",
-            self.container_name,
-            stdin=asyncio.subprocess.DEVNULL,
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL,
-            env=build_tool_process_env(),
-            start_new_session=True,
-            preexec_fn=set_pdeathsig_in_child,
-        )
-        try:
-            await asyncio.wait_for(
-                rm_process.wait(),
-                timeout=_LOCAL_SANDBOX_TERMINATE_TIMEOUT_SECONDS,
-            )
-        except TimeoutError as error:
-            rm_process.kill()
-            with contextlib.suppress(ProcessLookupError):
-                await rm_process.wait()
-            raise RuntimeError(
-                "Timed out while force-removing local sandbox container "
-                f"{self.container_name!r}; check Docker daemon health"
-            ) from error
-        await self.process.wait()
-
-    @property
-    def exit_code(self) -> int | None:
-        return self.process.returncode
-
-
 def _local_sandbox_mount_mode(filesystem_access: str) -> str:
     if filesystem_access == "read_only":
         return "ro"
@@ -209,84 +181,180 @@ def _local_sandbox_mount_mode(filesystem_access: str) -> str:
     )
 
 
-def _local_sandbox_extra_mounts(
+@dataclass(frozen=True)
+class _LocalSandboxBindMount:
+    source: Path
+    target: Path
+    writable: bool = False
+
+    @property
+    def bubblewrap_flag(self) -> str:
+        return "--bind" if self.writable else "--ro-bind"
+
+
+def _local_sandbox_should_skip_path_entry(path: Path) -> bool:
+    path_str = str(path)
+    return path_str.startswith("/mnt/") or path_str.startswith("/media/")
+
+
+def _local_sandbox_tool_path_dirs(env: dict[str, str]) -> tuple[Path, ...]:
+    seen: set[Path] = set()
+    path_dirs: list[Path] = []
+    for entry in env.get("PATH", "").split(os.pathsep):
+        if not entry:
+            continue
+        candidate = Path(entry)
+        if not candidate.is_absolute():
+            continue
+        resolved = candidate.resolve()
+        if (
+            not resolved.exists()
+            or not resolved.is_dir()
+            or _local_sandbox_should_skip_path_entry(resolved)
+            or resolved in seen
+        ):
+            continue
+        seen.add(resolved)
+        path_dirs.append(resolved)
+    return tuple(path_dirs)
+
+
+def _local_sandbox_env(
+    *,
+    workspace_root: Path,
+) -> tuple[dict[str, str], tuple[Path, ...]]:
+    env = build_tool_process_env()
+    path_dirs = _local_sandbox_tool_path_dirs(env)
+    env["PATH"] = os.pathsep.join(str(path) for path in path_dirs)
+    env["HOME"] = _LOCAL_SANDBOX_HOME
+    env["TMPDIR"] = "/tmp"
+    env["PWD"] = str(workspace_root)
+    return env, path_dirs
+
+
+def _local_sandbox_register_mount(
+    mounts: dict[Path, _LocalSandboxBindMount],
+    *,
+    path: Path,
+    writable: bool,
+    target: Path | None = None,
+) -> None:
+    target_path = target or path
+    if not target_path.is_absolute():
+        raise RuntimeError(
+            "Local restricted sandbox mount target must be absolute: "
+            f"{target_path}"
+        )
+    resolved = path.resolve()
+    if not resolved.exists():
+        raise RuntimeError(
+            "Local restricted sandbox mount root does not exist: "
+            f"{resolved}"
+        )
+    existing = mounts.get(target_path)
+    if existing is not None and (existing.writable or not writable):
+        return
+    if writable and resolved.is_file():
+        raise RuntimeError(
+            "Local restricted sandbox does not support writable file mounts: "
+            f"{resolved}"
+        )
+    mounts[target_path] = _LocalSandboxBindMount(
+        source=resolved,
+        target=target_path,
+        writable=writable,
+    )
+
+
+def _local_sandbox_bind_mounts(
     *,
     workspace_root: Path,
     normalized_policy: NormalizedSandboxPolicy,
-) -> list[str]:
-    mount_modes: dict[Path, str] = {}
+    env: dict[str, str],
+) -> tuple[_LocalSandboxBindMount, ...]:
+    workspace_mount = _LocalSandboxBindMount(
+        source=workspace_root.resolve(),
+        target=workspace_root.resolve(),
+        writable=(
+            _local_sandbox_mount_mode(normalized_policy.filesystem.access) == "rw"
+        ),
+    )
+    mounts: dict[Path, _LocalSandboxBindMount] = {
+        workspace_mount.target: workspace_mount
+    }
+    for root in _LOCAL_SANDBOX_SYSTEM_READ_ROOTS:
+        if root.exists():
+            _local_sandbox_register_mount(
+                mounts,
+                path=root,
+                writable=False,
+                target=root,
+            )
+    for path in _LOCAL_SANDBOX_BASELINE_ETC_READ_PATHS:
+        if path.exists():
+            _local_sandbox_register_mount(
+                mounts,
+                path=path,
+                writable=False,
+                target=path,
+            )
+    if normalized_policy.network.access == "enabled":
+        for path in _LOCAL_SANDBOX_NETWORK_ETC_READ_PATHS:
+            if path.exists():
+                _local_sandbox_register_mount(
+                    mounts,
+                    path=path,
+                    writable=False,
+                    target=path,
+                )
+    for path_dir in _local_sandbox_tool_path_dirs(env):
+        if path_dir.is_relative_to(workspace_mount.source):
+            continue
+        _local_sandbox_register_mount(mounts, path=path_dir, writable=False)
     for root in normalized_policy.filesystem.extra_read_roots:
         path = Path(root).resolve()
-        if path == workspace_root:
+        if path == workspace_mount.source:
             continue
-        if not path.exists():
-            raise RuntimeError(
-                "Local restricted sandbox mount root does not exist: "
-                f"{path}"
-            )
-        mount_modes[path] = "ro"
+        _local_sandbox_register_mount(mounts, path=path, writable=False)
     for root in normalized_policy.filesystem.extra_write_roots:
         path = Path(root).resolve()
-        if path == workspace_root:
+        if path == workspace_mount.source:
             continue
-        if not path.exists():
-            raise RuntimeError(
-                "Local restricted sandbox mount root does not exist: "
-                f"{path}"
-            )
-        mount_modes[path] = "rw"
-    docker_mounts: list[str] = []
-    for path, mode in sorted(
-        mount_modes.items(),
-        key=lambda item: (len(item[0].parts), str(item[0])),
-    ):
-        docker_mounts.extend(
-            [
-                "--volume",
-                f"{path}:{path}:{mode}",
-            ]
+        _local_sandbox_register_mount(mounts, path=path, writable=True)
+    return tuple(
+        mount
+        for _path, mount in sorted(
+            mounts.items(),
+            key=lambda item: (len(item[0].parts), str(item[0])),
         )
-    return docker_mounts
+    )
 
 
-def _local_sandbox_failure_guidance(
+def _local_sandbox_parent_dirs(
+    mounts: tuple[_LocalSandboxBindMount, ...],
+) -> tuple[Path, ...]:
+    parents: set[Path] = set()
+    for mount in mounts:
+        parent = mount.target.parent
+        while parent != parent.parent:
+            parents.add(parent)
+            parent = parent.parent
+    return tuple(sorted(parents, key=lambda path: (len(path.parts), str(path))))
+
+
+def _local_sandbox_shell_executable(
     *,
-    output: str,
-    image: str,
-    exit_code: int,
-) -> str | None:
-    lower_output = output.lower()
-    if exit_code != 125:
-        return None
-    if (
-        "pull access denied" in lower_output
-        or "requested access to the resource is denied" in lower_output
-        or "authentication required" in lower_output
-        or "unauthorized" in lower_output
-        or "denied:" in lower_output
-    ):
-        return (
-            "Local restricted sandbox could not pull Docker image "
-            f"{image!r}. Check Docker login and registry access, or set "
-            "JACA_SANDBOX_IMAGE to an accessible image."
+    shell_family: ShellFamily,
+    env: dict[str, str],
+) -> str:
+    executable = _shell_command_prefix(shell_family)[0]
+    resolved = shutil.which(executable, path=env.get("PATH"))
+    if resolved is None:
+        raise RuntimeError(
+            "Local restricted sandbox could not locate the shell executable "
+            f"{executable!r} on PATH"
         )
-    if (
-        "manifest unknown" in lower_output
-        or "manifest for" in lower_output and "not found" in lower_output
-        or "no such image" in lower_output
-    ):
-        return (
-            "Local restricted sandbox could not find Docker image "
-            f"{image!r}. Confirm the image name or set JACA_SANDBOX_IMAGE "
-            "to an existing image."
-        )
-    if "toomanyrequests" in lower_output or "too many requests" in lower_output:
-        return (
-            "Local restricted sandbox hit a Docker registry rate limit while "
-            f"pulling {image!r}. Retry later, authenticate to the registry, "
-            "or use a pre-pulled image."
-        )
-    return None
+    return resolved
 
 
 def describe_sandbox_failure(
@@ -295,16 +363,6 @@ def describe_sandbox_failure(
     output: str,
     exit_code: int,
 ) -> str:
-    if isinstance(handle, _DockerSandboxCommandHandle):
-        guidance = _local_sandbox_failure_guidance(
-            output=output,
-            image=handle.image,
-            exit_code=exit_code,
-        )
-        if guidance is not None and guidance not in output:
-            if output:
-                return f"{output}\n\n{guidance}"
-            return guidance
     return output
 
 
@@ -333,8 +391,12 @@ def select_sandbox_executor(
 
 
 class LocalRestrictedSandboxExecutor:
-    def __init__(self, *, image: str = DEFAULT_LOCAL_SANDBOX_IMAGE) -> None:
-        self._image = image
+    def __init__(
+        self,
+        *,
+        executable: str = DEFAULT_LOCAL_SANDBOX_EXECUTABLE,
+    ) -> None:
+        self._executable = executable
 
     async def execute(self, request: SandboxCommandRequest) -> SandboxCommandHandle:
         if request.shell_family != "posix":
@@ -346,81 +408,72 @@ class LocalRestrictedSandboxExecutor:
             raise RuntimeError(
                 "Local restricted sandbox executor is not supported on Windows"
             )
-
-        container_name = f"jaca-sandbox-{uuid4().hex[:12]}"
-        normalized_policy = request.normalized_policy
-        mount_mode = _local_sandbox_mount_mode(
-            normalized_policy.filesystem.access
-        )
-        docker_args = [
-            "docker",
-            "run",
-            "--pull",
-            "missing",
-            "--rm",
-            "--name",
-            container_name,
-            "--interactive",
-            "--cap-drop",
-            "ALL",
-            "--security-opt",
-            "no-new-privileges",
-            "--read-only",
-            "--tmpfs",
-            "/tmp:rw,exec,nosuid,size=64m",
-            "--pids-limit",
-            "256",
-            "--memory",
-            "512m",
-            "--user",
-            f"{os.getuid()}:{os.getgid()}",
-            "--workdir",
-            _LOCAL_SANDBOX_WORKDIR,
-            "--volume",
-            (
-                f"{request.workspace_root}:{_LOCAL_SANDBOX_WORKDIR}:"
-                f"{mount_mode}"
-            ),
-            "--env",
-            f"HOME={_LOCAL_SANDBOX_HOME}",
-        ]
-        docker_args.extend(
-            _local_sandbox_extra_mounts(
-                workspace_root=request.workspace_root,
-                normalized_policy=normalized_policy,
+        if not sys.platform.startswith("linux"):
+            raise RuntimeError(
+                "Local restricted sandbox executor currently supports only Linux"
             )
+
+        normalized_policy = request.normalized_policy
+        env, _path_dirs = _local_sandbox_env(workspace_root=request.workspace_root)
+        bind_mounts = _local_sandbox_bind_mounts(
+            workspace_root=request.workspace_root,
+            normalized_policy=normalized_policy,
+            env=env,
         )
-        if normalized_policy.network.access == "restricted":
-            docker_args.extend(["--network", "none"])
-        docker_args.extend(
-            [
-                self._image,
-                "bash",
-                "-lc",
-                request.command,
-            ]
+        bwrap_args = [
+            self._executable,
+            "--die-with-parent",
+            "--unshare-all",
+            "--hostname",
+            "jaca-sandbox",
+            "--proc",
+            "/proc",
+            "--dev",
+            "/dev",
+            "--tmpfs",
+            "/tmp",
+        ]
+        if normalized_policy.network.access == "enabled":
+            bwrap_args.append("--share-net")
+        for parent in _local_sandbox_parent_dirs(bind_mounts):
+            if parent == Path("/tmp"):
+                continue
+            bwrap_args.extend(["--dir", str(parent)])
+        for mount in bind_mounts:
+            bwrap_args.extend(
+                [
+                    mount.bubblewrap_flag,
+                    str(mount.source),
+                    str(mount.target),
+                ]
+            )
+        bwrap_args.extend(["--chdir", str(request.workspace_root)])
+        shell_executable = _local_sandbox_shell_executable(
+            shell_family=request.shell_family,
+            env=env,
         )
+        bwrap_args.extend([shell_executable, "-lc", request.command])
         try:
             process = await asyncio.create_subprocess_exec(
-                *docker_args,
+                *bwrap_args,
                 stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
-                env=build_tool_process_env(),
+                env=env,
                 start_new_session=True,
                 preexec_fn=set_pdeathsig_in_child,
             )
         except FileNotFoundError as error:
             raise RuntimeError(
-                "Local restricted sandbox executor requires Docker. Install "
-                "Docker before using the default permission mode."
+                "Local restricted sandbox executor requires bubblewrap "
+                f"({self._executable!r}). Install bubblewrap before using "
+                "the default permission mode."
             ) from error
         if process.stdout is None:
             raise RuntimeError("sandbox command must expose stdout")
-        return _DockerSandboxCommandHandle(
+        return _HostSandboxCommandHandle(
             process=process,
-            container_name=container_name,
-            image=self._image,
+            shell_family=request.shell_family,
         )
 
 
