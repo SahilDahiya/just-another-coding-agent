@@ -26,6 +26,7 @@ type slashSuggestion struct {
 	DisplayValue string
 	Description  string
 	AcceptsArgs  bool
+	Current      bool
 }
 
 type slashMenuState struct {
@@ -280,14 +281,20 @@ func (m *model) traceSlashSuggestions() []slashSuggestion {
 }
 
 func (m *model) permissionSlashSuggestions() []slashSuggestion {
+	currentPreset := ""
+	if m.permissionState != nil {
+		currentPreset = permissionPresetFromState(*m.permissionState)
+	}
 	return []slashSuggestion{
 		{
 			Value:       "default",
 			Description: "Read and edit files in the current workspace, and run commands. Approval is required to access the internet or edit other files.",
+			Current:     currentPreset == "default",
 		},
 		{
 			Value:       "full_access",
 			Description: "Edit files outside this workspace and access the internet without asking for approval. Exercise caution when using.",
+			Current:     currentPreset == "full_access",
 		},
 	}
 }
@@ -543,7 +550,7 @@ func (m *model) handlePermissionCommand(arg string) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if sandboxPolicy == nil && approvalPolicy == nil {
-		return m, fetchPermissionState(m.options.Backend, m.sessionID)
+		return m, fetchPermissionState(m.options.Backend, m.sessionID, true)
 	}
 	return m, setPermissionState(
 		m.options.Backend,

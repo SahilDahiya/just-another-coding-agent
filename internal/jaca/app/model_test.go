@@ -788,6 +788,98 @@ func TestPermissionSlashUpdatesFullAccessPolicy(t *testing.T) {
 	}
 }
 
+func TestPermissionSlashSuggestionsMarkCurrentPreset(t *testing.T) {
+	backend := newStubBackend()
+	m := newTestModelWithBackend(backend)
+
+	state := backend.permissionState
+	m.permissionState = &state
+	rows := m.permissionSlashSuggestions()
+
+	if len(rows) != 2 {
+		t.Fatalf("len(rows) = %d, want 2", len(rows))
+	}
+	if rows[0].Current {
+		t.Fatal("default should not be current when backend state is full_access")
+	}
+	if !rows[1].Current {
+		t.Fatal("full_access should be marked current")
+	}
+
+	defaultState := backend.permissionState
+	defaultState.SandboxPolicy.Mode = "workspace_write"
+	defaultState.ApprovalPolicy.Mode = "on_escalation"
+	m.permissionState = &defaultState
+	rows = m.permissionSlashSuggestions()
+
+	if !rows[0].Current {
+		t.Fatal("default should be marked current")
+	}
+	if rows[1].Current {
+		t.Fatal("full_access should not be current when default is active")
+	}
+}
+
+func TestPermissionSlashMenuRendersCurrentBadge(t *testing.T) {
+	rendered := stripANSI(renderSlashMenu(slashMenuState{
+		Mode: slashMenuArguments,
+		Rows: []slashSuggestion{
+			{
+				Value:       "default",
+				Description: "Recommended mode",
+				Current:     true,
+			},
+			{
+				Value:       "full_access",
+				Description: "Danger mode",
+			},
+		},
+		Selected: 0,
+	}))
+
+	if !strings.Contains(rendered, "default") {
+		t.Fatalf("rendered slash menu missing default row: %q", rendered)
+	}
+	if !strings.Contains(rendered, "[current]") {
+		t.Fatalf("rendered slash menu missing current badge: %q", rendered)
+	}
+}
+
+func TestSilentPermissionStateHydrationMarksCurrentPresetWithoutTranscriptNoise(t *testing.T) {
+	backend := newStubBackend()
+	m := newTestModelWithBackend(backend)
+
+	defaultState := backend.permissionState
+	defaultState.SandboxPolicy.Mode = "workspace_write"
+	defaultState.ApprovalPolicy.Mode = "on_escalation"
+	defaultState.EffectiveCapabilities = rpc.EffectiveCapabilities{
+		FilesystemAccess:   "workspace_write",
+		NetworkAccess:      "restricted",
+		ExecutionIsolation: "sandboxed",
+		ApprovalMode:       "on_escalation",
+	}
+
+	updated, _ := m.Update(permissionStateLoadedMsg{
+		State:   defaultState,
+		Updated: false,
+		Display: false,
+	})
+	m = updated.(*model)
+
+	rows := m.permissionSlashSuggestions()
+	if !rows[0].Current {
+		t.Fatal("default should be marked current after silent permission-state hydration")
+	}
+	if rows[1].Current {
+		t.Fatal("full_access should not be marked current after silent permission-state hydration")
+	}
+
+	rendered := stripANSI(m.transcript.Render())
+	if strings.Contains(rendered, "permission:") {
+		t.Fatalf("silent permission-state hydration should not write transcript note, got %q", rendered)
+	}
+}
+
 func TestApproveSlashWorksDuringStreaming(t *testing.T) {
 	backend := newStubBackend()
 	m := newTestModelWithBackend(backend)
