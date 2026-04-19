@@ -427,7 +427,8 @@ Initial executable tool slice:
 
 - executes one local shell command in the configured workspace root using the active shell family (`posix`, which means Bash semantics, or `powershell`)
 - sets command cwd to the configured workspace root, but does not sandbox filesystem access outside that root
-- if `timeout` is omitted, the backend applies the canonical default shell timeout of `120` seconds
+- if `timeout` is omitted, the backend applies the canonical default shell timeout of `300` seconds
+- operators may override that default process-wide with `JACA_SHELL_TIMEOUT=<positive-integer-seconds>`; invalid values fail hard at import time
 - returns a JSON-compatible success result with fields `exit_code` and `output`
 - successful `shell` results always use `exit_code: 0`
 - `output` is the combined stdout and stderr decoded as UTF-8

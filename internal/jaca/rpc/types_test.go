@@ -1,6 +1,7 @@
 package rpc
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -167,7 +168,7 @@ func TestDecodeEnvelopePreservesSessionCompactionCompletedFields(t *testing.T) {
 		"event":{
 			"type":"session_compaction_completed",
 			"compaction_id":"compact-1",
-			"summarized_through_run_id":"run-5",
+			"compacted_through_run_id":"run-5",
 			"first_kept_run_id":"run-6",
 			"checkpoint_through_run_id":"run-6",
 			"estimated_tokens_saved":31000,
@@ -227,6 +228,40 @@ func TestDecodeEnvelopePreservesSessionCompactionCompletedFields(t *testing.T) {
 	}
 	if envelope.Event.SummarizedThrough != "run-5" {
 		t.Fatalf("SummarizedThrough = %q, want run-5", envelope.Event.SummarizedThrough)
+	}
+
+	responseLine := []byte(`{
+		"type":"rpc_response",
+		"id":"req-4",
+		"response":{
+			"compaction_id":"compact-1",
+			"compacted_through_run_id":"run-5",
+			"summary":{
+				"current_objective":"stay focused",
+				"established_facts":["repo is dirty"],
+				"user_preferences":["fail fast"],
+				"important_paths":["docs/contracts.md"],
+				"open_questions":["what next"],
+				"unresolved_work":["tighten sandbox"]
+			}
+		}
+	}`)
+
+	value, err = decodeEnvelope(responseLine)
+	if err != nil {
+		t.Fatalf("decodeEnvelope() response returned error: %v", err)
+	}
+
+	responseEnvelope, ok := value.(ResponseEnvelope)
+	if !ok {
+		t.Fatalf("decodeEnvelope() response type = %T, want ResponseEnvelope", value)
+	}
+	var response SessionCompactResponse
+	if err := json.Unmarshal(responseEnvelope.Response, &response); err != nil {
+		t.Fatalf("json.Unmarshal(SessionCompactResponse) returned error: %v", err)
+	}
+	if response.SummarizedThroughRun != "run-5" {
+		t.Fatalf("SummarizedThroughRun = %q, want run-5", response.SummarizedThroughRun)
 	}
 }
 

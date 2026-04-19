@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import os
 import tempfile
 from pathlib import Path
 from typing import Annotated, Protocol
@@ -40,7 +41,7 @@ from just_another_coding_agent.tools.truncation import (
 
 SHELL_MAX_LINES = 2000
 SHELL_MAX_BYTES = 50 * 1024
-DEFAULT_SHELL_TIMEOUT_SECONDS = 120
+SHELL_TIMEOUT_SECONDS_ENV = "JACA_SHELL_TIMEOUT"
 SHELL_READER_DRAIN_GRACE_SECONDS = 0.5
 # Minimum time between successive partial-update publications. Without
 # coalescing, every 4 KB read chunk produces a tool_call_updated event
@@ -48,6 +49,28 @@ SHELL_READER_DRAIN_GRACE_SECONDS = 0.5
 # pushed through the RPC pipe and the JSONL writer. Coalescing caps that
 # at a few updates per second regardless of how fast the child writes.
 SHELL_PUBLISH_MIN_INTERVAL_SECONDS = 0.25
+
+
+def _load_default_shell_timeout_seconds() -> int:
+    raw_value = os.environ.get(SHELL_TIMEOUT_SECONDS_ENV)
+    if raw_value is None:
+        return 300
+    try:
+        timeout_seconds = int(raw_value)
+    except ValueError as error:
+        raise ValueError(
+            f"Invalid {SHELL_TIMEOUT_SECONDS_ENV}: expected a positive integer "
+            f"number of seconds, got {raw_value!r}"
+        ) from error
+    if timeout_seconds <= 0:
+        raise ValueError(
+            f"Invalid {SHELL_TIMEOUT_SECONDS_ENV}: expected a positive integer "
+            f"number of seconds, got {raw_value!r}"
+        )
+    return timeout_seconds
+
+
+DEFAULT_SHELL_TIMEOUT_SECONDS = _load_default_shell_timeout_seconds()
 
 
 class ShellExecutionContext(Protocol):

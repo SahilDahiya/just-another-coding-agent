@@ -303,7 +303,7 @@ type SessionCompactSummary struct {
 
 type SessionCompactResponse struct {
 	CompactionID         string                `json:"compaction_id"`
-	SummarizedThroughRun string                `json:"summarized_through_run_id"`
+	SummarizedThroughRun string                `json:"compacted_through_run_id"`
 	Summary              SessionCompactSummary `json:"summary"`
 }
 
@@ -324,7 +324,7 @@ type RunEvent struct {
 	RunID                   string                `json:"run_id"`
 	CompactionID            string                `json:"compaction_id,omitempty"`
 	CompactionCount         *int                  `json:"compaction_count,omitempty"`
-	SummarizedThrough       string                `json:"summarized_through_run_id,omitempty"`
+	SummarizedThrough       string                `json:"compacted_through_run_id,omitempty"`
 	Delta                   string                `json:"delta,omitempty"`
 	ToolCallID              string                `json:"tool_call_id,omitempty"`
 	ToolName                string                `json:"tool_name,omitempty"`
