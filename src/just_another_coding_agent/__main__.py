@@ -8,7 +8,7 @@ import shutil
 import subprocess
 import sys
 from collections.abc import Sequence
-from contextlib import contextmanager
+from contextlib import contextmanager, redirect_stdout
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, TextIO
@@ -516,7 +516,8 @@ def _run_headless(
     output_stream: TextIO | None,
 ) -> int:
     apply_managed_tool_path()
-    configure_observability()
+    with redirect_stdout(sys.stderr):
+        configure_observability()
     try:
         with use_inherited_trace_context():
             asyncio.run(
@@ -533,7 +534,8 @@ def _run_headless(
     except KeyboardInterrupt:
         return 130
     finally:
-        flush_observability()
+        with redirect_stdout(sys.stderr):
+            flush_observability()
     return 0
 
 

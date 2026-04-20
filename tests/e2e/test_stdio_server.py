@@ -1289,6 +1289,61 @@ def test_main_parses_args_and_runs_stdio_server(tmp_path, monkeypatch) -> None:
     }
 
 
+def test_main_headless_redirects_startup_stdout_to_stderr(tmp_path, monkeypatch) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    input_stream = io.StringIO("")
+    stdout_stream = io.StringIO()
+    stderr_stream = io.StringIO()
+
+    async def fake_serve_rpc_stdio(**kwargs) -> None:
+        kwargs["output_stream"].write(
+            json.dumps(
+                {
+                    "type": "rpc_response",
+                    "id": "1",
+                    "response": {"providers": []},
+                }
+            )
+            + "\n"
+        )
+
+    def fake_configure_observability() -> None:
+        print("No Logfire project credentials found.")
+
+    monkeypatch.setattr(
+        "just_another_coding_agent.__main__.serve_rpc_stdio",
+        fake_serve_rpc_stdio,
+    )
+    monkeypatch.setattr(
+        "just_another_coding_agent.__main__.configure_observability",
+        fake_configure_observability,
+    )
+    monkeypatch.setattr("sys.stdout", stdout_stream)
+    monkeypatch.setattr("sys.stderr", stderr_stream)
+
+    exit_code = main(
+        [
+            "--model",
+            "openai:test-model",
+            "--headless",
+            "--workspace-root",
+            str(workspace_root),
+            "--sessions-root",
+            str(sessions_root),
+        ],
+        input_stream=input_stream,
+        output_stream=None,
+    )
+
+    assert exit_code == 0
+    assert stdout_stream.getvalue() == (
+        '{"type": "rpc_response", "id": "1", "response": {"providers": []}}\n'
+    )
+    assert "No Logfire project credentials found." in stderr_stream.getvalue()
+
+
 def test_main_fails_fast_when_workspace_root_is_missing(tmp_path) -> None:
     missing_workspace_root = tmp_path / "missing-workspace"
     sessions_root = tmp_path / "sessions"
