@@ -229,6 +229,9 @@ Approval carrier rules:
   - `shell` approval may gate obvious network access or outside-workspace
     writes, but approved shell execution still runs on the host path until the
     restricted executor backend lands
+  - the current backend-owned shell escalation heuristics are documented in
+    `permission-execution.md` so they can evolve explicitly instead of staying
+    implicit in implementation detail
 
 ## Tool Contract
 

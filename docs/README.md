@@ -13,6 +13,7 @@ read_when: start here, onboarding, or you need to find the right doc quickly
 - ChatGPT subscription OAuth feasibility spike: [chatgpt-subscription-oauth-spike.md](chatgpt-subscription-oauth-spike.md)
 - Target architecture: [architecture.md](architecture.md)
 - Canonical public contract: [contracts.md](contracts.md)
+- Permission execution and shell approval heuristics: [permission-execution.md](permission-execution.md)
 - PydanticAI grounding sources: [grounding.md](grounding.md)
 - Development workflow and commands: [development.md](development.md)
 - Distribution, install lanes, and release behavior: [distribution.md](distribution.md)
@@ -37,6 +38,7 @@ read_when: start here, onboarding, or you need to find the right doc quickly
 - [chatgpt-subscription-oauth-spike.md](chatgpt-subscription-oauth-spike.md) - narrow feasibility plan for one ChatGPT subscription OAuth path
 - [architecture.md](architecture.md) - package layout and architectural boundaries
 - [contracts.md](contracts.md) - canonical coding-agent contract
+- [permission-execution.md](permission-execution.md) - current backend permission execution model and shell approval heuristics
 - [grounding.md](grounding.md) - official PydanticAI grounding sources
 - [development.md](development.md) - environment, commands, CI, and test workflow
 - [distribution.md](distribution.md) - published install path, repo checkout path, and release packaging rules
