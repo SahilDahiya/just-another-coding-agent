@@ -62,6 +62,7 @@ _RPC_TRANSCRIPT_FILENAME = "exec-prompt-rpc-transcript.jsonl"
 _DEFAULT_FIRST_RPC_EVENT_TIMEOUT_SEC = 10.0
 _EXEC_PROMPT_SPAN_NAME = "jaca.exec_prompt"
 _EXEC_PROMPT_FLUSH_TIMEOUT_MILLIS = 5000
+_PERMISSION_SET_REQUEST_ID = "req-permission-set"
 
 
 def build_server_command(
@@ -214,6 +215,12 @@ def _run_exec_prompt(
         if trace is not None:
             trace.set_attribute("jaca.exec_prompt.session_id", session_id)
         _write_status(status_stream, "session created")
+        _set_benchmark_permission_state(
+            process.stdin,
+            process.stdout,
+            session_id=session_id,
+            diagnostics=diagnostics,
+        )
 
         _write_json_line(
             process.stdin,
@@ -398,6 +405,61 @@ def _extract_session_id(payload: dict[str, object]) -> str:
     if not isinstance(session_id, str):
         raise ExecPromptError("session.create response must include string session_id")
     return session_id
+
+
+def _set_benchmark_permission_state(
+    stdin: TextIO,
+    stdout: TextIO,
+    *,
+    session_id: str,
+    diagnostics: "_ExecPromptDiagnostics" | None = None,
+) -> None:
+    permission_request = {
+        "id": _PERMISSION_SET_REQUEST_ID,
+        "command": "permission.set",
+        "payload": {
+            "session_id": session_id,
+            "sandbox_policy": {
+                "mode": "danger_full_access",
+                "network_access": "enabled",
+            },
+            "approval_policy": {"mode": "never"},
+        },
+    }
+    _write_json_line(stdin, permission_request, diagnostics=diagnostics)
+    if diagnostics is not None:
+        diagnostics.record_phase("permission_set_sent_at")
+    permission_response = _read_json_line(
+        stdout,
+        expected="permission.set response",
+        diagnostics=diagnostics,
+    )
+    if diagnostics is not None:
+        diagnostics.record_phase("permission_set_received_at")
+    _validate_permission_set_response(permission_response, session_id=session_id)
+
+
+def _validate_permission_set_response(
+    payload: dict[str, object],
+    *,
+    session_id: str,
+) -> None:
+    if payload.get("type") == "rpc_error":
+        raise ExecPromptError(f"{payload.get('error_type')}: {payload.get('message')}")
+
+    if payload.get("type") != "rpc_response":
+        raise ExecPromptError("permission.set must return rpc_response")
+    if payload.get("id") != _PERMISSION_SET_REQUEST_ID:
+        raise ExecPromptError("permission.set returned unexpected rpc_response id")
+
+    response = payload.get("response")
+    if not isinstance(response, dict):
+        raise ExecPromptError(
+            "permission.set rpc_response must include response object"
+        )
+    response_session_id = response.get("session_id")
+    if response_session_id != session_id:
+        raise ExecPromptError("permission.set response must echo the current session_id")
 
 
 def _wait_for_process(process: Any) -> None:

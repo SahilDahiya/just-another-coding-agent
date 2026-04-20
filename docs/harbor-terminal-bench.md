@@ -21,6 +21,20 @@ The benchmark-specific workflow guidance lives in this adapter layer, not in the
 repo-root `AGENTS.md`. The one-shot wrapper prepends a small benchmark workflow section
 to the user prompt before `run.start`, so Terminal Bench behavior stays adapter-owned.
 
+For Harbor and Terminal Bench runs, the one-shot wrapper also applies a
+benchmark-specific permission override after `session.create` and before
+`run.start`:
+
+- sandbox policy: `danger_full_access`
+- approval policy: `never`
+
+This is deliberate. Harbor tasks are unattended benchmark runs, not interactive
+operator sessions, so they must not block on approval prompts. The benchmark
+adapter therefore gives the agent the full task-local access it needs and
+disables approval for the lifetime of that session. This override is adapter-owned
+and does not change the canonical interactive default described in
+[contracts.md](contracts.md).
+
 After runs finish, aggregate analysis across repeated runs of the same
 slice (pass-rate spread, per-task history, dashboard refresh) goes
 through [tbench-slice-analysis.md](tbench-slice-analysis.md).

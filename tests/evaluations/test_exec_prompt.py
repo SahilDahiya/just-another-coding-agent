@@ -63,15 +63,15 @@ class FakeProcess:
 
 
 class BlockingStdout:
-    def __init__(self, *, first_line: str, delay_seconds: float) -> None:
-        self._lines = [first_line]
+    def __init__(self, *, initial_lines: list[str], delay_seconds: float) -> None:
+        self._lines = initial_lines
         self._delay_seconds = delay_seconds
         self._read_count = 0
 
     def readline(self) -> str:
         self._read_count += 1
-        if self._read_count == 1:
-            return self._lines[0]
+        if self._read_count <= len(self._lines):
+            return self._lines[self._read_count - 1]
         time.sleep(self._delay_seconds)
         return ""
 
@@ -188,6 +188,44 @@ def _make_popen(stdout_lines: list[dict[str, object] | str], *, returncode: int 
     return factory, process, captured
 
 
+def _permission_set_request(session_id: str) -> dict[str, object]:
+    return {
+        "id": "req-permission-set",
+        "command": "permission.set",
+        "payload": {
+            "session_id": session_id,
+            "sandbox_policy": {
+                "mode": "danger_full_access",
+                "network_access": "enabled",
+            },
+            "approval_policy": {"mode": "never"},
+        },
+    }
+
+
+def _permission_set_response(session_id: str) -> dict[str, object]:
+    return {
+        "type": "rpc_response",
+        "id": "req-permission-set",
+        "response": {
+            "session_id": session_id,
+            "permission_state": {
+                "sandbox_policy": {
+                    "mode": "danger_full_access",
+                    "network_access": "enabled",
+                },
+                "approval_policy": {"mode": "never"},
+                "effective_capabilities": {
+                    "filesystem_access": "full_access",
+                    "network_access": "enabled",
+                    "execution_isolation": "unsandboxed",
+                    "approval_mode": "never",
+                },
+            },
+        },
+    }
+
+
 def test_run_exec_prompt_returns_terminal_output(tmp_path) -> None:
     sessions_root = tmp_path / "sessions"
     popen_factory, process, captured = _make_popen(
@@ -197,6 +235,7 @@ def test_run_exec_prompt_returns_terminal_output(tmp_path) -> None:
                 "id": "req-create",
                 "response": {"session_id": "0" * 32},
             },
+            _permission_set_response("0" * 32),
             {
                 "type": "rpc_event",
                 "id": "req-run",
@@ -247,6 +286,7 @@ def test_run_exec_prompt_returns_terminal_output(tmp_path) -> None:
     ]
     assert requests == [
         {"id": "req-create", "command": "session.create", "payload": {}},
+        _permission_set_request("0" * 32),
         {
             "id": "req-run",
             "command": "run.start",
@@ -298,6 +338,16 @@ def test_run_exec_prompt_returns_terminal_output(tmp_path) -> None:
         {
             "timestamp": transcript[3]["timestamp"],
             "direction": "recv",
+            "payload": _permission_set_response("0" * 32),
+        },
+        {
+            "timestamp": transcript[4]["timestamp"],
+            "direction": "send",
+            "payload": requests[2],
+        },
+        {
+            "timestamp": transcript[5]["timestamp"],
+            "direction": "recv",
             "payload": {
                 "type": "rpc_event",
                 "id": "req-run",
@@ -305,7 +355,7 @@ def test_run_exec_prompt_returns_terminal_output(tmp_path) -> None:
             },
         },
         {
-            "timestamp": transcript[4]["timestamp"],
+            "timestamp": transcript[6]["timestamp"],
             "direction": "recv",
             "payload": {
                 "type": "rpc_event",
@@ -318,7 +368,7 @@ def test_run_exec_prompt_returns_terminal_output(tmp_path) -> None:
             },
         },
         {
-            "timestamp": transcript[5]["timestamp"],
+            "timestamp": transcript[7]["timestamp"],
             "direction": "recv",
             "payload": {
                 "type": "rpc_response",
@@ -339,6 +389,7 @@ def test_run_exec_prompt_waits_for_run_response_after_terminal_event(
                 "id": "req-create",
                 "response": {"session_id": "0" * 32},
             },
+            _permission_set_response("0" * 32),
             {
                 "type": "rpc_event",
                 "id": "req-run",
@@ -391,6 +442,7 @@ def test_run_exec_prompt_emits_liveness_markers_to_status_stream(tmp_path) -> No
                 "id": "req-create",
                 "response": {"session_id": "0" * 32},
             },
+            _permission_set_response("0" * 32),
             {
                 "type": "rpc_event",
                 "id": "req-run",
@@ -496,6 +548,7 @@ def test_run_exec_prompt_emits_logfire_task_span_and_flushes(
                 "id": "req-create",
                 "response": {"session_id": "0" * 32},
             },
+            _permission_set_response("0" * 32),
             {
                 "type": "rpc_event",
                 "id": "req-run",
@@ -605,6 +658,7 @@ def test_run_exec_prompt_marks_logfire_task_span_failed_on_error(
                 "id": "req-create",
                 "response": {"session_id": "0" * 32},
             },
+            _permission_set_response("0" * 32),
             {
                 "type": "rpc_event",
                 "id": "req-run",
@@ -653,6 +707,7 @@ def test_run_exec_prompt_forwards_trace_context_to_backend(
                 "id": "req-create",
                 "response": {"session_id": "0" * 32},
             },
+            _permission_set_response("0" * 32),
             {
                 "type": "rpc_event",
                 "id": "req-run",
@@ -716,6 +771,7 @@ def test_run_exec_prompt_forwards_thinking(tmp_path) -> None:
                 "id": "req-create",
                 "response": {"session_id": "0" * 32},
             },
+            _permission_set_response("0" * 32),
             {
                 "type": "rpc_event",
                 "id": "req-run",
@@ -752,7 +808,7 @@ def test_run_exec_prompt_forwards_thinking(tmp_path) -> None:
         for line in process.stdin.getvalue().splitlines()
         if line.strip()
     ]
-    assert requests[1]["payload"]["thinking"] == "high"
+    assert requests[2]["payload"]["thinking"] == "high"
 
 
 def test_run_exec_prompt_raises_on_run_failed(tmp_path) -> None:
@@ -763,6 +819,7 @@ def test_run_exec_prompt_raises_on_run_failed(tmp_path) -> None:
                 "id": "req-create",
                 "response": {"session_id": "0" * 32},
             },
+            _permission_set_response("0" * 32),
             {
                 "type": "rpc_event",
                 "id": "req-run",
@@ -804,6 +861,7 @@ def test_run_exec_prompt_raises_on_rpc_error(tmp_path) -> None:
                 "id": "req-create",
                 "response": {"session_id": "0" * 32},
             },
+            _permission_set_response("0" * 32),
             {
                 "type": "rpc_error",
                 "id": "req-run",
@@ -829,14 +887,17 @@ def test_run_exec_prompt_raises_on_rpc_error(tmp_path) -> None:
 def test_run_exec_prompt_classifies_missing_first_rpc_event(tmp_path) -> None:
     process = FakeProcess(stdout_text="", returncode=0)
     process.stdout = BlockingStdout(
-        first_line=json.dumps(
-            {
-                "type": "rpc_response",
-                "id": "req-create",
-                "response": {"session_id": "0" * 32},
-            }
-        )
-        + "\n",
+        initial_lines=[
+            json.dumps(
+                {
+                    "type": "rpc_response",
+                    "id": "req-create",
+                    "response": {"session_id": "0" * 32},
+                }
+            )
+            + "\n",
+            json.dumps(_permission_set_response("0" * 32)) + "\n",
+        ],
         delay_seconds=1.0,
     )
     captured: dict[str, object] = {}
@@ -871,7 +932,13 @@ def test_run_exec_prompt_classifies_missing_first_rpc_event(tmp_path) -> None:
         .splitlines()
         if line
     ]
-    assert [entry["direction"] for entry in transcript] == ["send", "recv", "send"]
+    assert [entry["direction"] for entry in transcript] == [
+        "send",
+        "recv",
+        "send",
+        "recv",
+        "send",
+    ]
 
 
 def test_read_prompt_reads_stdin_when_argument_missing() -> None:
