@@ -4,6 +4,8 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
+from just_another_coding_agent.contracts.sandbox import FileSystemSandboxPolicy
+
 READ_ONLY_WORKER_PROTOCOL_VERSION = 1
 READ_ONLY_WORKER_KIND = "read_only"
 READ_ONLY_WORKER_OPERATIONS = ("read", "ls", "find", "grep")
@@ -37,6 +39,7 @@ class HelloWorkerRequest(_WorkerMessageBase):
 
 class _WorkerCallRequestBase(_WorkerMessageBase):
     workspace_root: Annotated[str, Field(min_length=1)]
+    filesystem_policy: FileSystemSandboxPolicy
 
 
 class ReadWorkerRequest(_WorkerCallRequestBase):

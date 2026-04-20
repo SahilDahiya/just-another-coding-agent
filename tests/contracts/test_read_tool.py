@@ -1,7 +1,16 @@
 from __future__ import annotations
 
 import pytest
+from types import SimpleNamespace
 
+from just_another_coding_agent.contracts.platform import detect_default_shell_family
+from just_another_coding_agent.contracts.sandbox import (
+    ApprovalDecision,
+    ApprovalPolicy,
+    WorkspaceWriteSandboxPolicy,
+    build_permission_state,
+)
+from just_another_coding_agent.tools.deps import WorkspaceDeps
 from just_another_coding_agent.tools.errors import (
     ToolEncodingError,
     ToolOperationalError,
@@ -123,12 +132,35 @@ async def test_read_tool_fails_when_offset_is_beyond_end_of_file(tmp_path) -> No
 
 
 @go_worker_required
-async def test_read_tool_allows_relative_path_that_resolves_outside_workspace(
+async def test_read_requests_approval_for_outside_workspace_path_in_default_mode(
     tmp_path,
 ) -> None:
-    ctx = worker_ctx(tmp_path)
+    base_ctx = worker_ctx(tmp_path)
     outside = tmp_path / "outside.txt"
     outside.write_text("secret", encoding="utf-8")
+    requests = []
+
+    async def approval_requester(request):
+        requests.append(request)
+        return ApprovalDecision(
+            request_id=request.request_id,
+            decision="approved",
+        )
+
+    ctx = SimpleNamespace(
+        deps=WorkspaceDeps(
+            workspace_root=base_ctx.deps.workspace_root,
+            shell_family=detect_default_shell_family(),
+            approval_requester=approval_requester,
+            permission_state=build_permission_state(
+                sandbox_policy=WorkspaceWriteSandboxPolicy(),
+                approval_policy=ApprovalPolicy(mode="on_escalation"),
+            ),
+            read_only_worker=base_ctx.deps.read_only_worker,
+        ),
+        tool_call_id="call-1",
+        tool_name="read",
+    )
 
     try:
         result = await read(ctx, "../outside.txt")
@@ -136,3 +168,60 @@ async def test_read_tool_allows_relative_path_that_resolves_outside_workspace(
         await ctx.deps.read_only_worker.close()
 
     assert result.return_value == "secret"
+    assert len(requests) == 1
+    assert requests[0].reason == (
+        "allow read outside workspace: ../outside.txt "
+        f"(read-only roots: {outside.parent.resolve()})"
+    )
+    assert requests[0].requested_permissions is not None
+    assert requests[0].requested_permissions.extra_read_roots == (
+        str(outside.parent.resolve()),
+    )
+
+
+@go_worker_required
+async def test_read_remembers_approved_outside_root_within_one_session(
+    tmp_path,
+) -> None:
+    base_ctx = worker_ctx(tmp_path)
+    outside_dir = tmp_path / "archive"
+    outside_dir.mkdir()
+    (outside_dir / "first.txt").write_text("first", encoding="utf-8")
+    (outside_dir / "second.txt").write_text("second", encoding="utf-8")
+    requests = []
+
+    async def approval_requester(request):
+        requests.append(request)
+        return ApprovalDecision(
+            request_id=request.request_id,
+            decision="approved",
+        )
+
+    ctx = SimpleNamespace(
+        deps=WorkspaceDeps(
+            workspace_root=base_ctx.deps.workspace_root,
+            shell_family=detect_default_shell_family(),
+            approval_requester=approval_requester,
+            permission_state=build_permission_state(
+                sandbox_policy=WorkspaceWriteSandboxPolicy(),
+                approval_policy=ApprovalPolicy(mode="on_escalation"),
+            ),
+            read_only_worker=base_ctx.deps.read_only_worker,
+        ),
+        tool_call_id="call-1",
+        tool_name="read",
+    )
+
+    try:
+        first = await read(ctx, "../archive/first.txt")
+        second = await read(ctx, "../archive/second.txt")
+    finally:
+        await ctx.deps.read_only_worker.close()
+
+    assert first.return_value == "first"
+    assert second.return_value == "second"
+    assert len(requests) == 1
+    assert requests[0].requested_permissions is not None
+    assert requests[0].requested_permissions.extra_read_roots == (
+        str(outside_dir.resolve()),
+    )

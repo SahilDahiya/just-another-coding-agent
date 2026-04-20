@@ -11,6 +11,9 @@ from just_another_coding_agent.tools._activity import (
     make_tool_return,
     truncate_activity_label,
 )
+from just_another_coding_agent.tools._permissions import (
+    maybe_request_file_write_approval,
+)
 from just_another_coding_agent.tools._workspace import resolve_workspace_path
 from just_another_coding_agent.tools.deps import WorkspaceDeps
 from just_another_coding_agent.tools.errors import reraise_path_error
@@ -46,6 +49,11 @@ async def write(
         content: Full UTF-8 file contents to write.
     """
 
+    await maybe_request_file_write_approval(
+        ctx=ctx,
+        tool_path=path,
+        action="write",
+    )
     result = execute_write(
         workspace_root=ctx.deps.workspace_root,
         path=path,

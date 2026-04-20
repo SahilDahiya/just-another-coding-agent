@@ -1,5 +1,13 @@
 import pytest
+from types import SimpleNamespace
 
+from just_another_coding_agent.contracts.sandbox import (
+    ApprovalDecision,
+    ApprovalPolicy,
+    WorkspaceWriteSandboxPolicy,
+    build_permission_state,
+)
+from just_another_coding_agent.tools.deps import WorkspaceDeps
 from just_another_coding_agent.tools.edit import EditResult, execute_edit
 from just_another_coding_agent.tools.errors import (
     ToolEncodingError,
@@ -245,4 +253,93 @@ def test_edit_tool_fuzzy_fallback_preserves_unmatched_surrounding_content(
 
     assert path.read_text(encoding="utf-8") == (
         'keep “smart”\nchange "hello" - agent\n'
+    )
+
+
+async def test_edit_requests_approval_for_outside_workspace_path_in_default_mode(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    outside = tmp_path / "outside.txt"
+    outside.write_text("hello\nworld\n", encoding="utf-8")
+    requests = []
+
+    async def approval_requester(request):
+        requests.append(request)
+        return ApprovalDecision(
+            request_id=request.request_id,
+            decision="approved",
+        )
+
+    ctx = SimpleNamespace(
+        deps=WorkspaceDeps(
+            workspace_root=workspace_root,
+            approval_requester=approval_requester,
+            permission_state=build_permission_state(
+                sandbox_policy=WorkspaceWriteSandboxPolicy(),
+                approval_policy=ApprovalPolicy(mode="on_escalation"),
+            ),
+        )
+    )
+
+    from just_another_coding_agent.tools.edit import edit
+
+    result = await edit(ctx, "../outside.txt", "world", "agent")
+
+    assert result.return_value == f"Edited {outside.resolve()}"
+    assert outside.read_text(encoding="utf-8") == "hello\nagent\n"
+    assert len(requests) == 1
+    assert requests[0].reason == (
+        "allow edit outside workspace: ../outside.txt "
+        f"(writable roots: {outside.parent.resolve()})"
+    )
+    assert requests[0].requested_permissions is not None
+    assert requests[0].requested_permissions.extra_write_roots == (
+        str(outside.parent.resolve()),
+    )
+
+
+async def test_edit_remembers_approved_outside_root_within_one_session(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    outside_dir = tmp_path / "pi-mono"
+    outside_dir.mkdir()
+    first = outside_dir / "first.txt"
+    second = outside_dir / "second.txt"
+    first.write_text("hello\nworld\n", encoding="utf-8")
+    second.write_text("hello\nworld\n", encoding="utf-8")
+    requests = []
+
+    async def approval_requester(request):
+        requests.append(request)
+        return ApprovalDecision(
+            request_id=request.request_id,
+            decision="approved",
+        )
+
+    ctx = SimpleNamespace(
+        deps=WorkspaceDeps(
+            workspace_root=workspace_root,
+            approval_requester=approval_requester,
+            permission_state=build_permission_state(
+                sandbox_policy=WorkspaceWriteSandboxPolicy(),
+                approval_policy=ApprovalPolicy(mode="on_escalation"),
+            ),
+        )
+    )
+
+    from just_another_coding_agent.tools.edit import edit
+
+    await edit(ctx, "../pi-mono/first.txt", "world", "agent")
+    await edit(ctx, "../pi-mono/second.txt", "world", "agent")
+
+    assert first.read_text(encoding="utf-8") == "hello\nagent\n"
+    assert second.read_text(encoding="utf-8") == "hello\nagent\n"
+    assert len(requests) == 1
+    assert requests[0].requested_permissions is not None
+    assert requests[0].requested_permissions.extra_write_roots == (
+        str(outside_dir.resolve()),
     )

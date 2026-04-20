@@ -62,6 +62,8 @@ Rules:
 - each operation request must end in exactly one terminal response
 - cancellation is best-effort and targets a prior `request_id`
 - shutdown is explicit
+- every operation request carries a `filesystem_policy` object describing the
+  allowed roots for that call
 
 The current internal protocol version is `1`.
 
@@ -76,6 +78,22 @@ Requests:
 - `call_grep`
 - `cancel`
 - `shutdown`
+
+`call_read`, `call_ls`, `call_find`, and `call_grep` include:
+
+- `workspace_root`
+- `filesystem_policy`
+
+`filesystem_policy` currently contains:
+
+- `access`
+- `extra_read_roots`
+- `extra_write_roots`
+
+The worker uses that policy to resolve target paths and reject reads that
+escape the workspace root plus any explicitly approved extra read roots.
+`extra_write_roots` is carried for contract symmetry with the Python-owned
+permission model even though the read-only worker does not write files.
 
 Responses:
 

@@ -244,21 +244,36 @@ func TestNormalizeWorkspaceRoot(t *testing.T) {
 
 func TestResolveWorkspacePath(t *testing.T) {
 	dir := t.TempDir()
+	workspacePolicy := filesystemPolicy{Access: "workspace_write"}
 
 	t.Run("relative path joins with root", func(t *testing.T) {
-		result, err := resolveWorkspacePath(dir, "src/main.go")
+		target := filepath.Join(dir, "src", "main.go")
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(target, []byte("package main\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		result, err := resolveWorkspacePath(dir, "src/main.go", workspacePolicy)
 		if err != nil {
 			t.Fatal(err)
 		}
-		expected, _ := filepath.Abs(filepath.Join(dir, "src/main.go"))
+		expected, _ := filepath.Abs(target)
 		if result != expected {
 			t.Errorf("got %q, want %q", result, expected)
 		}
 	})
 
-	t.Run("absolute path stays absolute", func(t *testing.T) {
+	t.Run("full access preserves absolute outside path", func(t *testing.T) {
 		absolutePath := testAbsolutePath(t)
-		result, err := resolveWorkspacePath(dir, absolutePath)
+		if err := os.WriteFile(absolutePath, []byte("outside\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		result, err := resolveWorkspacePath(
+			dir,
+			absolutePath,
+			filesystemPolicy{Access: "full_access"},
+		)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -268,8 +283,46 @@ func TestResolveWorkspacePath(t *testing.T) {
 		}
 	})
 
+	t.Run("workspace write rejects absolute outside path", func(t *testing.T) {
+		absolutePath := testAbsolutePath(t)
+		_, err := resolveWorkspacePath(dir, absolutePath, workspacePolicy)
+		if err == nil {
+			t.Fatal("expected workspace_write to reject outside absolute path")
+		}
+	})
+
+	t.Run("workspace write allows configured extra read root", func(t *testing.T) {
+		extraRoot := filepath.Join(t.TempDir(), "extra")
+		if err := os.MkdirAll(extraRoot, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		target := filepath.Join(extraRoot, "config.toml")
+		if err := os.WriteFile(target, []byte("name = \"test\"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		result, err := resolveWorkspacePath(
+			dir,
+			target,
+			filesystemPolicy{
+				Access:         "workspace_write",
+				ExtraReadRoots: []string{extraRoot},
+			},
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		expected, _ := filepath.Abs(target)
+		if result != expected {
+			t.Errorf("got %q, want %q", result, expected)
+		}
+	})
+
 	t.Run("invalid workspace root fails", func(t *testing.T) {
-		_, err := resolveWorkspacePath(filepath.Join(t.TempDir(), "missing"), "file.txt")
+		_, err := resolveWorkspacePath(
+			filepath.Join(t.TempDir(), "missing"),
+			"file.txt",
+			workspacePolicy,
+		)
 		if err == nil {
 			t.Error("expected error for invalid workspace root")
 		}
