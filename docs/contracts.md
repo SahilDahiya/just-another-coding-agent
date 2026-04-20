@@ -220,10 +220,15 @@ Approval carrier rules:
   - `session_turn_context.effective_capabilities` remains the durable
     model-visible snapshot written after completed runs
 - until a restricted executor backend lands:
-  - effective filesystem, network, and execution-isolation posture remain at
-    the truthful host values (`full_access`, `enabled`, `unsandboxed`)
-  - effective approval posture reflects the live approval policy because
-    `approval_policy=always` already changes `shell` execution behavior
+  - the workspace default permission state is `workspace_write` with
+    `approval_policy=on_escalation`
+  - execution isolation for shell remains the truthful host value
+    (`unsandboxed`)
+  - backend-owned file tools may still enforce narrower filesystem posture
+    directly through approval-gated path policy
+  - `shell` approval may gate obvious network access or outside-workspace
+    writes, but approved shell execution still runs on the host path until the
+    restricted executor backend lands
 
 ## Tool Contract
 

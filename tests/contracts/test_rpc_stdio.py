@@ -26,7 +26,6 @@ from just_another_coding_agent.contracts.sandbox import (
     ApprovalDecision,
     ApprovalPolicy,
     ApprovalRequest,
-    DangerFullAccessSandboxPolicy,
     EffectiveCapabilities,
     PermissionState,
     WorkspaceWriteSandboxPolicy,
@@ -544,13 +543,13 @@ async def test_handle_rpc_json_line_returns_live_permission_state(
             "response": {
                 "session_id": session_id,
                 "permission_state": PermissionState(
-                    sandbox_policy=DangerFullAccessSandboxPolicy(),
-                    approval_policy=ApprovalPolicy(mode="never"),
+                    sandbox_policy=WorkspaceWriteSandboxPolicy(),
+                    approval_policy=ApprovalPolicy(mode="on_escalation"),
                     effective_capabilities=EffectiveCapabilities(
-                        filesystem_access="full_access",
-                        network_access="enabled",
+                        filesystem_access="workspace_write",
+                        network_access="restricted",
                         execution_isolation="unsandboxed",
-                        approval_mode="never",
+                        approval_mode="on_escalation",
                     ),
                 ).model_dump(mode="json"),
             },
@@ -584,13 +583,13 @@ async def test_handle_rpc_json_line_returns_workspace_default_permission_state(
             "response": {
                 "session_id": None,
                 "permission_state": PermissionState(
-                    sandbox_policy=DangerFullAccessSandboxPolicy(),
-                    approval_policy=ApprovalPolicy(mode="never"),
+                    sandbox_policy=WorkspaceWriteSandboxPolicy(),
+                    approval_policy=ApprovalPolicy(mode="on_escalation"),
                     effective_capabilities=EffectiveCapabilities(
-                        filesystem_access="full_access",
-                        network_access="enabled",
+                        filesystem_access="workspace_write",
+                        network_access="restricted",
                         execution_isolation="unsandboxed",
-                        approval_mode="never",
+                        approval_mode="on_escalation",
                     ),
                 ).model_dump(mode="json"),
             },
@@ -629,8 +628,8 @@ async def test_handle_rpc_json_line_sets_live_permission_state_for_session(
         sandbox_policy=WorkspaceWriteSandboxPolicy(),
         approval_policy=ApprovalPolicy(mode="always"),
         effective_capabilities=EffectiveCapabilities(
-            filesystem_access="full_access",
-            network_access="enabled",
+            filesystem_access="workspace_write",
+            network_access="restricted",
             execution_isolation="unsandboxed",
             approval_mode="always",
         ),
@@ -691,11 +690,11 @@ async def test_handle_rpc_json_line_sets_workspace_default_permission_state(
     )
 
     expected_state = PermissionState(
-        sandbox_policy=DangerFullAccessSandboxPolicy(),
+        sandbox_policy=WorkspaceWriteSandboxPolicy(),
         approval_policy=ApprovalPolicy(mode="always"),
         effective_capabilities=EffectiveCapabilities(
-            filesystem_access="full_access",
-            network_access="enabled",
+            filesystem_access="workspace_write",
+            network_access="restricted",
             execution_isolation="unsandboxed",
             approval_mode="always",
         ),
@@ -2229,8 +2228,8 @@ async def test_handle_rpc_json_line_forwards_live_permission_state_to_session_ru
             sandbox_policy=WorkspaceWriteSandboxPolicy(),
             approval_policy=ApprovalPolicy(mode="always"),
             effective_capabilities=EffectiveCapabilities(
-                filesystem_access="full_access",
-                network_access="enabled",
+                filesystem_access="workspace_write",
+                network_access="restricted",
                 execution_isolation="unsandboxed",
                 approval_mode="always",
             ),

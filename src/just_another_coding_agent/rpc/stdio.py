@@ -93,6 +93,7 @@ from just_another_coding_agent.contracts.sandbox import (
     EffectiveCapabilities,
     PermissionState,
     SandboxPolicy,
+    build_default_permission_state,
     build_permission_state,
 )
 from just_another_coding_agent.contracts.tools import CANONICAL_TOOL_NAMES
@@ -115,6 +116,7 @@ from just_another_coding_agent.session import (
     append_session_name_to_session,
     build_session_preview,
 )
+from just_another_coding_agent.tools.deps import SessionPermissionMemory
 
 _RPC_REQUEST_ADAPTER = TypeAdapter(RpcRequest)
 _LOGIN_FLOW_TTL_SECONDS = 15 * 60
@@ -397,8 +399,14 @@ class _PendingApprovalState:
     response_future: asyncio.Future[ApprovalDecision]
 
 
+@dataclass
+class _SessionPermissionContext:
+    permission_state: PermissionState
+    permission_memory: SessionPermissionMemory
+
+
 _OPENAI_CODEX_LOGIN_FLOWS: dict[str, _OpenAICodexLoginFlowState] = {}
-_PERMISSION_STATES: dict[str, PermissionState] = {}
+_PERMISSION_STATES: dict[str, _SessionPermissionContext] = {}
 _PENDING_APPROVALS: dict[str, dict[str, _PendingApprovalState]] = defaultdict(dict)
 _DEFAULT_PERMISSION_STATE_KEY = "__workspace_default__"
 
@@ -431,14 +439,20 @@ def _build_live_permission_state(
     sandbox_policy: SandboxPolicy | None = None,
     approval_policy: ApprovalPolicy | None = None,
 ) -> PermissionState:
-    resolved_sandbox_policy = sandbox_policy or DangerFullAccessSandboxPolicy()
-    resolved_approval_policy = approval_policy or ApprovalPolicy(mode="never")
+    default_state = build_default_permission_state()
+    resolved_sandbox_policy = sandbox_policy or default_state.sandbox_policy
+    resolved_approval_policy = approval_policy or default_state.approval_policy
+    filesystem_access = default_state.effective_capabilities.filesystem_access
+    network_access = default_state.effective_capabilities.network_access
+    if isinstance(resolved_sandbox_policy, DangerFullAccessSandboxPolicy):
+        filesystem_access = "full_access"
+        network_access = "enabled"
     return build_permission_state(
         sandbox_policy=resolved_sandbox_policy,
         approval_policy=resolved_approval_policy,
         effective_capabilities=EffectiveCapabilities(
-            filesystem_access="full_access",
-            network_access="enabled",
+            filesystem_access=filesystem_access,
+            network_access=network_access,
             execution_isolation="unsandboxed",
             approval_mode=resolved_approval_policy.mode,
         ),
@@ -451,10 +465,21 @@ def _permission_state_key(session_id: str | None) -> str:
     return session_id
 
 
-def _get_or_create_permission_state(session_id: str | None) -> PermissionState:
+def _build_permission_context_for_session(
+    session_id: str | None,
+) -> _SessionPermissionContext:
+    return _SessionPermissionContext(
+        permission_state=_build_live_permission_state(),
+        permission_memory=SessionPermissionMemory(),
+    )
+
+
+def _get_or_create_permission_context(
+    session_id: str | None,
+) -> _SessionPermissionContext:
     state = _PERMISSION_STATES.get(_permission_state_key(session_id))
     if state is None:
-        state = _build_live_permission_state()
+        state = _build_permission_context_for_session(session_id)
         _PERMISSION_STATES[_permission_state_key(session_id)] = state
     return state
 
@@ -494,9 +519,12 @@ async def _handle_session_create(
         sessions_root=ctx.sessions_root,
         workspace_root=ctx.workspace_root,
     )
-    _PERMISSION_STATES[session_id] = _get_or_create_permission_state(
-        None
-    ).model_copy(deep=True)
+    _PERMISSION_STATES[session_id] = _SessionPermissionContext(
+        permission_state=_get_or_create_permission_context(
+            None
+        ).permission_state.model_copy(deep=True),
+        permission_memory=SessionPermissionMemory(),
+    )
     yield RpcResponseEnvelope(
         id=request.id,
         response=SessionCreateResponse(
@@ -802,9 +830,9 @@ async def _handle_permission_get(
         id=request.id,
         response=PermissionGetResponse(
             session_id=request.payload.session_id,
-            permission_state=_get_or_create_permission_state(
+            permission_state=_get_or_create_permission_context(
                 request.payload.session_id
-            ),
+            ).permission_state,
         ),
     ).model_dump_json()
 
@@ -827,17 +855,25 @@ async def _handle_permission_set(
             ).model_dump_json()
             return
 
-    existing_state = _get_or_create_permission_state(request.payload.session_id)
+    existing_context = _get_or_create_permission_context(
+        request.payload.session_id
+    )
     permission_state = _build_live_permission_state(
         sandbox_policy=(
-            request.payload.sandbox_policy or existing_state.sandbox_policy
+            request.payload.sandbox_policy
+            or existing_context.permission_state.sandbox_policy
         ),
         approval_policy=(
-            request.payload.approval_policy or existing_state.approval_policy
+            request.payload.approval_policy
+            or existing_context.permission_state.approval_policy
         ),
     )
+    existing_context.permission_memory.clear()
     _PERMISSION_STATES[_permission_state_key(request.payload.session_id)] = (
-        permission_state
+        _SessionPermissionContext(
+            permission_state=permission_state,
+            permission_memory=existing_context.permission_memory,
+        )
     )
 
     yield RpcResponseEnvelope(
@@ -1140,9 +1176,12 @@ async def _handle_run_start(
                     prompt=prompt,
                     tool_names=CANONICAL_TOOL_NAMES,
                     thinking=request.payload.thinking,
-                    permission_state=_get_or_create_permission_state(
+                    permission_state=_get_or_create_permission_context(
                         request.payload.session_id
-                    ),
+                    ).permission_state,
+                    permission_memory=_get_or_create_permission_context(
+                        request.payload.session_id
+                    ).permission_memory,
                     resolve_approval_request=resolve_approval_request,
                     activate_steer_boundary=activate_boundary,
                     submit_steer_boundary=submit_boundary,

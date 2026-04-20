@@ -19,7 +19,10 @@ from just_another_coding_agent.contracts.sandbox import (
 )
 from just_another_coding_agent.contracts.session import SessionName
 from just_another_coding_agent.contracts.thinking import ThinkingSetting
-from just_another_coding_agent.tools._workspace import normalize_workspace_root
+from just_another_coding_agent.tools._workspace import (
+    canonicalize_path_target,
+    normalize_workspace_root,
+)
 from just_another_coding_agent.tools.read_only_worker.runtime import (
     ReadOnlyWorkerRuntime,
 )
@@ -37,6 +40,46 @@ ApprovalRequester: TypeAlias = Callable[
     Awaitable[ApprovalDecision],
 ]
 RunSessionKind: TypeAlias = Literal["root", "subagent"]
+
+
+def _canonicalize_permission_root(root: str) -> str:
+    return str(canonicalize_path_target(root))
+
+
+def _canonicalize_candidate_path(path: Path) -> Path:
+    return canonicalize_path_target(path)
+
+
+def _path_is_within_root(*, path: Path, root: str) -> bool:
+    return _canonicalize_candidate_path(path).is_relative_to(Path(root))
+
+
+@dataclass
+class SessionPermissionMemory:
+    approved_read_roots: set[str] = field(default_factory=set)
+    approved_write_roots: set[str] = field(default_factory=set)
+
+    def allows_read_path(self, path: Path) -> bool:
+        return any(
+            _path_is_within_root(path=path, root=root)
+            for root in self.approved_read_roots
+        )
+
+    def allows_write_path(self, path: Path) -> bool:
+        return any(
+            _path_is_within_root(path=path, root=root)
+            for root in self.approved_write_roots
+        )
+
+    def remember_read_root(self, root: str) -> None:
+        self.approved_read_roots.add(_canonicalize_permission_root(root))
+
+    def remember_write_root(self, root: str) -> None:
+        self.approved_write_roots.add(_canonicalize_permission_root(root))
+
+    def clear(self) -> None:
+        self.approved_read_roots.clear()
+        self.approved_write_roots.clear()
 
 
 @dataclass(frozen=True)
@@ -108,6 +151,11 @@ class WorkspaceDeps:
         compare=False,
         repr=False,
     )
+    permission_memory: SessionPermissionMemory = field(
+        default_factory=SessionPermissionMemory,
+        compare=False,
+        repr=False,
+    )
     sandbox_executor: SandboxExecutor = field(
         default_factory=HostSandboxExecutor,
         compare=False,
@@ -127,6 +175,7 @@ __all__ = [
     "RunSessionKind",
     "RunSessionScope",
     "ApprovalRequester",
+    "SessionPermissionMemory",
     "ToolUpdateSink",
     "WorkspaceDeps",
 ]

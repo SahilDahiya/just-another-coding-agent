@@ -73,6 +73,7 @@ from just_another_coding_agent.tools._workspace import normalize_workspace_root
 from just_another_coding_agent.tools.deps import (
     RunRuntimeFrame,
     RunSessionScope,
+    SessionPermissionMemory,
     WorkspaceDeps,
 )
 
@@ -178,6 +179,7 @@ async def stream_session_run_events(
     tool_names: Sequence[str] = CANONICAL_TOOL_NAMES,
     thinking: ThinkingSetting | None = None,
     permission_state: PermissionState | None = None,
+    permission_memory: SessionPermissionMemory | None = None,
     resolve_approval_request: (
         Callable[[ApprovalRequest], Awaitable[ApprovalDecision]] | None
     ) = None,
@@ -372,6 +374,11 @@ async def stream_session_run_events(
                     thinking=resolved_thinking,
                 ),
                 permission_state=resolved_permission_state,
+                permission_memory=(
+                    permission_memory
+                    if permission_memory is not None
+                    else SessionPermissionMemory()
+                ),
             ),
             message_history_sink=_record_message_history,
             available_tool_names=tool_names,
