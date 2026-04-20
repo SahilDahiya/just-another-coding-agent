@@ -17,6 +17,11 @@ from just_another_coding_agent.tools._activity import (
     make_tool_return,
     truncate_activity_label,
 )
+from just_another_coding_agent.tools._permissions import (
+    describe_shell_permission_delta,
+    plan_shell_execution,
+    remember_approved_permissions,
+)
 from just_another_coding_agent.tools.deps import WorkspaceDeps
 from just_another_coding_agent.tools.errors import (
     ToolCommandError,
@@ -148,28 +153,41 @@ async def execute_shell(
         if ctx is not None
         else WorkspaceDeps.from_workspace_root(workspace_root).permission_state
     )
-    if (
-        ctx is not None
-        and permission_state.approval_policy.mode == "always"
-    ):
-        if ctx.deps.approval_requester is None:
+    plan = plan_shell_execution(
+        permission_state=permission_state,
+        command=command,
+        shell_family=shell_family,
+        workspace_root=Path(workspace_root),
+        permission_memory=(ctx.deps.permission_memory if ctx is not None else None),
+    )
+    if plan.approval_required:
+        if ctx is None or ctx.deps.approval_requester is None:
             raise RuntimeError(
                 "Shell execution requires approval, but no approval "
                 "requester is configured"
             )
+        permission_detail = describe_shell_permission_delta(
+            plan.requested_permissions
+        )
+        reason = f"allow shell command: {truncate_activity_label(command)}"
+        if permission_detail:
+            reason = f"{reason} ({permission_detail})"
         decision = await ctx.deps.approval_requester(
             ApprovalRequest(
                 request_id=f"shell-{uuid4().hex}",
-                reason=(
-                    "allow shell command: "
-                    f"{truncate_activity_label(command)}"
-                ),
-                requested_capabilities=permission_state.effective_capabilities,
+                reason=reason,
+                requested_capabilities=plan.requested_capabilities,
+                requested_permissions=plan.requested_permissions,
             )
         )
         if decision.decision != "approved":
             raise RuntimeError(
                 "Shell execution approval did not return an approved decision"
+            )
+        if plan.requested_permissions is not None:
+            remember_approved_permissions(
+                permission_memory=ctx.deps.permission_memory,
+                permissions=plan.requested_permissions,
             )
     handle = await executor.execute(
         SandboxCommandRequest(

@@ -10,8 +10,10 @@ import pytest
 
 from just_another_coding_agent.contracts.platform import detect_default_shell_family
 from just_another_coding_agent.contracts.sandbox import (
+    AdditionalSandboxPermissions,
     ApprovalDecision,
     ApprovalPolicy,
+    WorkspaceWriteSandboxPolicy,
     build_permission_state,
 )
 from just_another_coding_agent.tools.deps import WorkspaceDeps
@@ -225,6 +227,7 @@ async def test_execute_shell_requests_approval_when_policy_is_always(
     assert len(requests) == 1
     assert requests[0].reason.startswith("allow shell command:")
     assert requests[0].requested_capabilities.approval_mode == "always"
+    assert requests[0].requested_permissions is None
 
 
 async def test_execute_shell_fails_fast_when_approval_is_required_without_requester(
@@ -323,6 +326,205 @@ async def test_shell_tool_fails_for_invalid_utf8_output(monkeypatch, tmp_path) -
             command=_invalid_utf8_command(),
             shell_family=_test_shell_family(),
         )
+
+
+async def test_execute_shell_requests_approval_for_network_escalation(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    monkeypatch.chdir(tmp_path)
+    requests = []
+    executed_requests = []
+
+    class _ExecutorHandle:
+        async def read(self, _max_bytes: int) -> bytes:
+            return b""
+
+        async def wait(self) -> int:
+            return 0
+
+        async def terminate(self) -> None:
+            return None
+
+        @property
+        def exit_code(self) -> int | None:
+            return 0
+
+    class _Executor:
+        async def execute(self, request):
+            executed_requests.append(request)
+            return _ExecutorHandle()
+
+    async def approval_requester(request):
+        requests.append(request)
+        return ApprovalDecision(
+            request_id=request.request_id,
+            decision="approved",
+        )
+
+    ctx = _FakeRunContext(
+        deps=WorkspaceDeps(
+            workspace_root=workspace_root,
+            shell_family=_test_shell_family(),
+            sandbox_executor=_Executor(),
+            approval_requester=approval_requester,
+            permission_state=build_permission_state(
+                sandbox_policy=WorkspaceWriteSandboxPolicy(),
+                approval_policy=ApprovalPolicy(mode="on_escalation"),
+            ),
+        ),
+        tool_call_id="call-shell",
+        tool_name="shell",
+    )
+
+    result = await execute_shell(
+        ctx=ctx,
+        workspace_root=workspace_root,
+        command="curl https://example.com",
+        shell_family=_test_shell_family(),
+    )
+
+    assert result == {"exit_code": 0, "output": ""}
+    assert len(requests) == 1
+    assert requests[0].requested_capabilities.network_access == "enabled"
+    assert requests[0].requested_permissions == AdditionalSandboxPermissions(
+        network_access="enabled"
+    )
+    assert len(executed_requests) == 1
+
+
+async def test_execute_shell_requests_approval_for_outside_workspace_write(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    monkeypatch.chdir(tmp_path)
+    requests = []
+
+    class _ExecutorHandle:
+        async def read(self, _max_bytes: int) -> bytes:
+            return b""
+
+        async def wait(self) -> int:
+            return 0
+
+        async def terminate(self) -> None:
+            return None
+
+        @property
+        def exit_code(self) -> int | None:
+            return 0
+
+    class _Executor:
+        async def execute(self, request):
+            return _ExecutorHandle()
+
+    async def approval_requester(request):
+        requests.append(request)
+        return ApprovalDecision(
+            request_id=request.request_id,
+            decision="approved",
+        )
+
+    ctx = _FakeRunContext(
+        deps=WorkspaceDeps(
+            workspace_root=workspace_root,
+            shell_family=_test_shell_family(),
+            sandbox_executor=_Executor(),
+            approval_requester=approval_requester,
+            permission_state=build_permission_state(
+                sandbox_policy=WorkspaceWriteSandboxPolicy(),
+                approval_policy=ApprovalPolicy(mode="on_escalation"),
+            ),
+        ),
+        tool_call_id="call-shell",
+        tool_name="shell",
+    )
+
+    outside_dir = tmp_path / "outside"
+    outside_dir.mkdir()
+    result = await execute_shell(
+        ctx=ctx,
+        workspace_root=workspace_root,
+        command=f"tee {outside_dir / 'note.txt'}",
+        shell_family=_test_shell_family(),
+    )
+
+    assert result == {"exit_code": 0, "output": ""}
+    assert len(requests) == 1
+    assert requests[0].requested_permissions == AdditionalSandboxPermissions(
+        extra_write_roots=(str(outside_dir.resolve()),),
+    )
+
+
+async def test_execute_shell_remembers_approved_outside_workspace_write_root(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    monkeypatch.chdir(tmp_path)
+    requests = []
+
+    class _ExecutorHandle:
+        async def read(self, _max_bytes: int) -> bytes:
+            return b""
+
+        async def wait(self) -> int:
+            return 0
+
+        async def terminate(self) -> None:
+            return None
+
+        @property
+        def exit_code(self) -> int | None:
+            return 0
+
+    class _Executor:
+        async def execute(self, request):
+            return _ExecutorHandle()
+
+    async def approval_requester(request):
+        requests.append(request)
+        return ApprovalDecision(
+            request_id=request.request_id,
+            decision="approved",
+        )
+
+    ctx = _FakeRunContext(
+        deps=WorkspaceDeps(
+            workspace_root=workspace_root,
+            shell_family=_test_shell_family(),
+            sandbox_executor=_Executor(),
+            approval_requester=approval_requester,
+            permission_state=build_permission_state(
+                sandbox_policy=WorkspaceWriteSandboxPolicy(),
+                approval_policy=ApprovalPolicy(mode="on_escalation"),
+            ),
+        ),
+        tool_call_id="call-shell",
+        tool_name="shell",
+    )
+
+    outside_dir = tmp_path / "outside"
+    outside_dir.mkdir()
+    await execute_shell(
+        ctx=ctx,
+        workspace_root=workspace_root,
+        command=f"tee {outside_dir / 'first.txt'}",
+        shell_family=_test_shell_family(),
+    )
+    await execute_shell(
+        ctx=ctx,
+        workspace_root=workspace_root,
+        command=f"tee {outside_dir / 'second.txt'}",
+        shell_family=_test_shell_family(),
+    )
+
+    assert len(requests) == 1
 
 
 @pytest.mark.skipif(

@@ -1,5 +1,10 @@
 package app
 
+import (
+	"fmt"
+	"strings"
+)
+
 import tea "github.com/charmbracelet/bubbletea"
 
 func (m *model) approvalTitle() string {
@@ -15,16 +20,54 @@ func (m *model) approvalReason() string {
 
 func (m *model) approvalOptionLines() []string {
 	return []string{
-		"1. Approve",
-		"2. Deny",
+		"1. Approve and continue",
+		"2. Deny request",
 	}
+}
+
+func (m *model) approvalDetailLines() []string {
+	if m.pendingApproval == nil {
+		return nil
+	}
+	lines := []string{
+		fmt.Sprintf(
+			"requested posture: fs=%s, net=%s, exec=%s",
+			m.pendingApproval.RequestedCapabilities.FilesystemAccess,
+			m.pendingApproval.RequestedCapabilities.NetworkAccess,
+			m.pendingApproval.RequestedCapabilities.ExecutionIsolation,
+		),
+	}
+	if m.pendingApproval.RequestedPermissions == nil {
+		return lines
+	}
+	permissions := m.pendingApproval.RequestedPermissions
+	if permissions.NetworkAccess != nil {
+		lines = append(lines, fmt.Sprintf("network: %s", *permissions.NetworkAccess))
+	}
+	if len(permissions.ExtraReadRoots) > 0 {
+		lines = append(
+			lines,
+			fmt.Sprintf("read roots: %s", joinForDisplay(permissions.ExtraReadRoots)),
+		)
+	}
+	if len(permissions.ExtraWriteRoots) > 0 {
+		lines = append(
+			lines,
+			fmt.Sprintf("write roots: %s", joinForDisplay(permissions.ExtraWriteRoots)),
+		)
+	}
+	return lines
 }
 
 func (m *model) approvalHelpLines() []string {
 	return []string{
-		"Use up/down to choose an action.",
-		"Enter selects. Esc chooses Deny.",
+		"Select an action for this request.",
+		"Enter confirms the selected action. Esc denies immediately.",
 	}
+}
+
+func joinForDisplay(values []string) string {
+	return strings.Join(values, ", ")
 }
 
 func (m *model) handleApprovalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {

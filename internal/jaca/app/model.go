@@ -774,6 +774,7 @@ func (m *model) currentViewModel() viewModel {
 			Selected:    m.approval.Selected,
 			Title:       m.approvalTitle(),
 			Reason:      m.approvalReason(),
+			Details:     m.approvalDetailLines(),
 			OptionLines: m.approvalOptionLines(),
 			HelpLines:   m.approvalHelpLines(),
 		},

@@ -116,6 +116,7 @@ func themeForPermissionPreset(preset string) theme {
 		return defaultTheme
 	}
 }
+
 type updateOverlayView struct {
 	Active         bool
 	Title          string
@@ -155,6 +156,7 @@ type approvalPromptView struct {
 	Active      bool
 	Title       string
 	Reason      string
+	Details     []string
 	Selected    int
 	OptionLines []string
 	HelpLines   []string
@@ -465,13 +467,37 @@ func renderApprovalPrompt(approval approvalPromptView, th theme) string {
 	reason := lipgloss.NewStyle().
 		Foreground(th.textSoft).
 		Render(approval.Reason)
+	detailLines := make([]string, 0, len(approval.Details))
+	for _, line := range approval.Details {
+		detailLines = append(
+			detailLines,
+			lipgloss.NewStyle().
+				Foreground(th.textMuted).
+				Render("  "+line),
+		)
+	}
 	rows := make([]string, 0, len(approval.OptionLines))
 	for i, line := range approval.OptionLines {
 		prefix := " "
-		style := lipgloss.NewStyle().Foreground(th.textMuted)
+		style := lipgloss.NewStyle()
+		switch i {
+		case 0:
+			style = style.Foreground(th.success)
+		default:
+			style = style.Foreground(th.err)
+		}
 		if i == approval.Selected {
 			prefix = ">"
-			style = lipgloss.NewStyle().Foreground(th.accentSoft)
+			switch i {
+			case 0:
+				style = lipgloss.NewStyle().
+					Foreground(th.successSoft).
+					Bold(true)
+			default:
+				style = lipgloss.NewStyle().
+					Foreground(th.errSoft).
+					Bold(true)
+			}
 		}
 		rows = append(
 			rows,
@@ -479,10 +505,14 @@ func renderApprovalPrompt(approval approvalPromptView, th theme) string {
 		)
 	}
 	helpLines := make([]string, 0, len(approval.HelpLines))
-	for _, line := range approval.HelpLines {
+	for index, line := range approval.HelpLines {
+		style := lipgloss.NewStyle().Foreground(th.textMuted)
+		if index == 0 {
+			style = lipgloss.NewStyle().Foreground(th.textSoft)
+		}
 		helpLines = append(
 			helpLines,
-			lipgloss.NewStyle().Foreground(th.textMuted).Render(line),
+			style.Render(line),
 		)
 	}
 	return lipgloss.JoinVertical(
@@ -490,6 +520,7 @@ func renderApprovalPrompt(approval approvalPromptView, th theme) string {
 		title,
 		"",
 		reason,
+		lipgloss.JoinVertical(lipgloss.Left, detailLines...),
 		"",
 		lipgloss.JoinVertical(lipgloss.Left, rows...),
 		"",

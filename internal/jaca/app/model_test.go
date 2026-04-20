@@ -974,9 +974,11 @@ func TestApprovalEventUpdatesFooterAndTranscript(t *testing.T) {
 	for _, want := range []string{
 		"Approval required",
 		"allow shell command: ls",
-		"1. Approve",
-		"2. Deny",
-		"Enter selects. Esc chooses Deny.",
+		"requested posture: fs=full_access, net=enabled, exec=unsandboxed",
+		"1. Approve and continue",
+		"2. Deny request",
+		"Select an action for this request.",
+		"Enter confirms the selected action. Esc denies immediately.",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("approval request render missing %q in %q", want, rendered)

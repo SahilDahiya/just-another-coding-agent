@@ -262,6 +262,28 @@ def make_write_stream():
     return write_stream
 
 
+def make_shell_approval_stream(command: str):
+    call_count = 0
+
+    async def shell_approval_stream(_messages, _agent_info):
+        nonlocal call_count
+        call_count += 1
+
+        if call_count == 1:
+            yield {
+                0: DeltaToolCall(
+                    name="shell",
+                    json_args=json.dumps({"command": command, "timeout": 10}),
+                    tool_call_id="call-shell-approval",
+                )
+            }
+            return
+
+        yield "done"
+
+    return shell_approval_stream
+
+
 async def resume_aware_write_stream(messages, _agent_info):
     latest_prompt = _last_user_prompt(messages)
     saw_write = _has_tool_return(messages, tool_name="write")
@@ -604,6 +626,61 @@ async def test_stream_session_run_events_persists_turn_context_snapshot(
     assert (
         f"Current workspace root: {workspace_root.resolve()}"
         in loaded.latest_turn_context.runtime_context_text
+    )
+
+
+async def test_stream_session_run_events_persists_shell_approval_events(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    outside_dir = tmp_path / "outside"
+    outside_dir.mkdir()
+    outside_file = outside_dir / "note.txt"
+    session_path = tmp_path / "session.jsonl"
+    requests = []
+
+    async def resolve_approval_request(request):
+        requests.append(request)
+        return runtime_session_module.ApprovalDecision(
+            request_id=request.request_id,
+            decision="approved",
+        )
+
+    events = [
+        event
+        async for event in stream_session_run_events(
+            model=FunctionModel(
+                stream_function=make_shell_approval_stream(
+                    f"touch {outside_file}"
+                )
+            ),
+            workspace_root=workspace_root,
+            session_path=session_path,
+            prompt="create outside file",
+            resolve_approval_request=resolve_approval_request,
+        )
+    ]
+
+    assert [event.type for event in events] == [
+        "run_started",
+        "tool_call_started",
+        "approval_requested",
+        "approval_resolved",
+        "tool_call_succeeded",
+        "assistant_text_delta",
+        "run_succeeded",
+    ]
+    assert len(requests) == 1
+    assert requests[0].requested_permissions is not None
+    assert requests[0].requested_permissions.extra_write_roots == (
+        str(outside_dir.resolve()),
+    )
+    assert outside_file.exists()
+
+    loaded = load_session(path=session_path, workspace_root=workspace_root)
+    assert [event.type for event in loaded.runs[0].events] == _persisted_event_types(
+        events
     )
 
 
