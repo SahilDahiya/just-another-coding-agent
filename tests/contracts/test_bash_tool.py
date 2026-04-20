@@ -225,6 +225,10 @@ async def test_execute_shell_requests_approval_when_policy_is_always(
 
     assert result == {"exit_code": 0, "output": "hello"}
     assert len(requests) == 1
+    assert requests[0].request_kind == "command_execution"
+    assert requests[0].command == _hello_command()
+    assert requests[0].cwd == str(workspace_root.resolve())
+    assert requests[0].shell_family == _test_shell_family()
     assert requests[0].reason.startswith("allow shell command:")
     assert requests[0].requested_capabilities.approval_mode == "always"
     assert requests[0].requested_permissions is None
@@ -388,6 +392,8 @@ async def test_execute_shell_requests_approval_for_network_escalation(
 
     assert result == {"exit_code": 0, "output": ""}
     assert len(requests) == 1
+    assert requests[0].request_kind == "command_execution"
+    assert requests[0].command == "curl https://example.com"
     assert requests[0].requested_capabilities.network_access == "enabled"
     assert requests[0].requested_permissions == AdditionalSandboxPermissions(
         network_access="enabled"
@@ -455,6 +461,8 @@ async def test_execute_shell_requests_approval_for_outside_workspace_write(
 
     assert result == {"exit_code": 0, "output": ""}
     assert len(requests) == 1
+    assert requests[0].request_kind == "command_execution"
+    assert requests[0].command == f"tee {outside_dir / 'note.txt'}"
     assert requests[0].requested_permissions == AdditionalSandboxPermissions(
         extra_write_roots=(str(outside_dir.resolve()),),
     )
@@ -525,6 +533,7 @@ async def test_execute_shell_remembers_approved_outside_workspace_write_root(
     )
 
     assert len(requests) == 1
+    assert requests[0].request_kind == "command_execution"
 
 
 @pytest.mark.skipif(

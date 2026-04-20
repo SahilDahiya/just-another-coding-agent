@@ -24,7 +24,7 @@ from just_another_coding_agent.contracts.run_events import (
 )
 from just_another_coding_agent.contracts.sandbox import (
     ApprovalDecision,
-    ApprovalRequest,
+    PermissionGrantApprovalRequest,
 )
 from just_another_coding_agent.runtime.agent import build_canonical_agent
 from just_another_coding_agent.runtime.run import stream_run_events
@@ -194,9 +194,12 @@ async def approval_tool_stream(
 async def _needs_approval(ctx: RunContext[WorkspaceDeps]) -> str:
     assert ctx.deps.approval_requester is not None
     decision = await ctx.deps.approval_requester(
-        ApprovalRequest(
+        PermissionGrantApprovalRequest(
             request_id="approval-1",
+            request_kind="permission_grant",
             reason="let the tool continue",
+            grant_kind="filesystem_read",
+            target="/tmp",
             requested_capabilities=ctx.deps.permission_state.effective_capabilities,
         )
     )
@@ -395,10 +398,10 @@ async def test_stream_run_events_emits_approval_events_and_succeeds(
             )
         ],
     )
-    requests: list[ApprovalRequest] = []
+    requests: list[PermissionGrantApprovalRequest] = []
 
     async def resolve_approval_request(
-        request: ApprovalRequest,
+        request: PermissionGrantApprovalRequest,
     ) -> ApprovalDecision:
         requests.append(request)
         return ApprovalDecision(
@@ -430,6 +433,7 @@ async def test_stream_run_events_emits_approval_events_and_succeeds(
     approval_resolution = events[3]
     assert isinstance(approval_request, ApprovalRequestedEvent)
     assert isinstance(approval_resolution, ApprovalResolvedEvent)
+    assert approval_request.request.request_kind == "permission_grant"
     assert requests == [approval_request.request]
     assert approval_resolution.decision == ApprovalDecision(
         request_id=approval_request.request.request_id,
@@ -458,7 +462,7 @@ async def test_stream_run_events_denied_approval_fails_run(
     )
 
     async def resolve_approval_request(
-        request: ApprovalRequest,
+        request: PermissionGrantApprovalRequest,
     ) -> ApprovalDecision:
         return ApprovalDecision(
             request_id=request.request_id,

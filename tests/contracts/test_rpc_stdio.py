@@ -25,7 +25,7 @@ from just_another_coding_agent.contracts.model_catalog import (
 from just_another_coding_agent.contracts.sandbox import (
     ApprovalDecision,
     ApprovalPolicy,
-    ApprovalRequest,
+    CommandExecutionApprovalRequest,
     EffectiveCapabilities,
     PermissionState,
     WorkspaceWriteSandboxPolicy,
@@ -798,9 +798,13 @@ async def test_handle_rpc_json_line_resolves_pending_approval_submit(
     ):
         assert resolve_approval_request is not None
         yield {"type": "run_started", "run_id": "run-1"}
-        request = ApprovalRequest(
+        request = CommandExecutionApprovalRequest(
             request_id="approval-1",
+            request_kind="command_execution",
             reason="let the tool continue",
+            command="curl https://example.com",
+            cwd=str(workspace_root.resolve()),
+            shell_family="posix",
             requested_capabilities=EffectiveCapabilities(
                 filesystem_access="full_access",
                 network_access="enabled",

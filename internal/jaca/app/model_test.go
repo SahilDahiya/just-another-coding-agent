@@ -908,8 +908,12 @@ func TestApproveSlashWorksDuringStreaming(t *testing.T) {
 	m.streaming = true
 	m.sessionID = "session-123"
 	m.pendingApproval = &rpc.ApprovalRequest{
-		RequestID: "approval-1",
-		Reason:    "allow shell command: ls",
+		RequestID:   "approval-1",
+		RequestKind: "command_execution",
+		Reason:      "allow shell command: ls",
+		Command:     "ls",
+		Cwd:         "/workspace",
+		ShellFamily: "posix",
 		RequestedCapabilities: rpc.EffectiveCapabilities{
 			FilesystemAccess:   "full_access",
 			NetworkAccess:      "enabled",
@@ -949,8 +953,12 @@ func TestApprovalEventUpdatesFooterAndTranscript(t *testing.T) {
 		Type:  "approval_requested",
 		RunID: "run-1",
 		Request: &rpc.ApprovalRequest{
-			RequestID: "approval-1",
-			Reason:    "allow shell command: ls",
+			RequestID:   "approval-1",
+			RequestKind: "command_execution",
+			Reason:      "allow shell command: ls",
+			Command:     "ls",
+			Cwd:         "/workspace",
+			ShellFamily: "posix",
 			RequestedCapabilities: rpc.EffectiveCapabilities{
 				FilesystemAccess:   "full_access",
 				NetworkAccess:      "enabled",
@@ -972,9 +980,13 @@ func TestApprovalEventUpdatesFooterAndTranscript(t *testing.T) {
 	}
 	rendered := stripANSI(m.View())
 	for _, want := range []string{
-		"Approval required",
+		"Command approval required",
 		"allow shell command: ls",
+		"request kind: command execution",
 		"requested posture: fs=full_access, net=enabled, exec=unsandboxed",
+		"command: ls",
+		"cwd: /workspace",
+		"shell: posix",
 		"1. Approve and continue",
 		"2. Deny request",
 		"Select an action for this request.",
@@ -1011,8 +1023,12 @@ func TestApprovalSubmitResumesAsyncListening(t *testing.T) {
 	m.streaming = true
 	m.asyncCh = make(chan tea.Msg, 1)
 	m.pendingApproval = &rpc.ApprovalRequest{
-		RequestID: "approval-1",
-		Reason:    "allow shell command: pytest -q",
+		RequestID:   "approval-1",
+		RequestKind: "command_execution",
+		Reason:      "allow shell command: pytest -q",
+		Command:     "pytest -q",
+		Cwd:         "/workspace",
+		ShellFamily: "posix",
 		RequestedCapabilities: rpc.EffectiveCapabilities{
 			FilesystemAccess:   "full_access",
 			NetworkAccess:      "enabled",
@@ -1056,8 +1072,12 @@ func TestApprovalSubmitShowsWaitingNoticeUntilBackendResumes(t *testing.T) {
 	m := newTestModel()
 	m.streaming = true
 	m.pendingApproval = &rpc.ApprovalRequest{
-		RequestID: "approval-1",
-		Reason:    "allow shell command: pytest -q",
+		RequestID:   "approval-1",
+		RequestKind: "command_execution",
+		Reason:      "allow shell command: pytest -q",
+		Command:     "pytest -q",
+		Cwd:         "/workspace",
+		ShellFamily: "posix",
 		RequestedCapabilities: rpc.EffectiveCapabilities{
 			FilesystemAccess:   "full_access",
 			NetworkAccess:      "enabled",
@@ -1086,8 +1106,12 @@ func TestApprovalInlineEnterApprovesPendingAction(t *testing.T) {
 	m.streaming = true
 	m.sessionID = "session-123"
 	m.pendingApproval = &rpc.ApprovalRequest{
-		RequestID: "approval-1",
-		Reason:    "allow shell command: ls",
+		RequestID:   "approval-1",
+		RequestKind: "command_execution",
+		Reason:      "allow shell command: ls",
+		Command:     "ls",
+		Cwd:         "/workspace",
+		ShellFamily: "posix",
 		RequestedCapabilities: rpc.EffectiveCapabilities{
 			FilesystemAccess:   "full_access",
 			NetworkAccess:      "enabled",
@@ -1115,8 +1139,12 @@ func TestApprovalInlineEscapeDeniesPendingAction(t *testing.T) {
 	m.streaming = true
 	m.sessionID = "session-123"
 	m.pendingApproval = &rpc.ApprovalRequest{
-		RequestID: "approval-1",
-		Reason:    "allow shell command: ls",
+		RequestID:   "approval-1",
+		RequestKind: "command_execution",
+		Reason:      "allow shell command: ls",
+		Command:     "ls",
+		Cwd:         "/workspace",
+		ShellFamily: "posix",
 		RequestedCapabilities: rpc.EffectiveCapabilities{
 			FilesystemAccess:   "full_access",
 			NetworkAccess:      "enabled",

@@ -672,6 +672,7 @@ async def test_stream_session_run_events_persists_shell_approval_events(
         "run_succeeded",
     ]
     assert len(requests) == 1
+    assert requests[0].request_kind == "command_execution"
     assert requests[0].requested_permissions is not None
     assert requests[0].requested_permissions.extra_write_roots == (
         str(outside_dir.resolve()),

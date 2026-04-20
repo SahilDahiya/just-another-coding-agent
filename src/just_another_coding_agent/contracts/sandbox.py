@@ -4,12 +4,21 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from just_another_coding_agent.contracts.platform import ShellFamily
+
 SandboxNetworkAccess = Literal["restricted", "enabled"]
 FilesystemAccess = Literal["read_only", "workspace_write", "full_access"]
 ExecutionIsolation = Literal["sandboxed", "unsandboxed"]
 ApprovalMode = Literal["never", "on_escalation", "always"]
 ApprovalDecisionValue = Literal["approved", "denied"]
 AdditionalNetworkAccess = Literal["enabled"]
+ApprovalRequestKind = Literal[
+    "command_execution",
+    "file_change",
+    "permission_grant",
+]
+FileChangeKind = Literal["write", "edit"]
+PermissionGrantKind = Literal["filesystem_read", "filesystem_write", "network_access"]
 
 
 class _SandboxContractModel(BaseModel):
@@ -113,11 +122,39 @@ class PermissionState(_SandboxContractModel):
     effective_capabilities: EffectiveCapabilities
 
 
-class ApprovalRequest(_SandboxContractModel):
+class _ApprovalRequestBase(_SandboxContractModel):
     request_id: str
+    request_kind: ApprovalRequestKind
     reason: str
     requested_capabilities: EffectiveCapabilities
     requested_permissions: AdditionalSandboxPermissions | None = None
+
+
+class CommandExecutionApprovalRequest(_ApprovalRequestBase):
+    request_kind: Literal["command_execution"] = "command_execution"
+    command: str
+    cwd: str
+    shell_family: ShellFamily
+
+
+class FileChangeApprovalRequest(_ApprovalRequestBase):
+    request_kind: Literal["file_change"] = "file_change"
+    path: str
+    change_kind: FileChangeKind
+
+
+class PermissionGrantApprovalRequest(_ApprovalRequestBase):
+    request_kind: Literal["permission_grant"] = "permission_grant"
+    grant_kind: PermissionGrantKind
+    target: str | None = None
+
+
+ApprovalRequest = Annotated[
+    CommandExecutionApprovalRequest
+    | FileChangeApprovalRequest
+    | PermissionGrantApprovalRequest,
+    Field(discriminator="request_kind"),
+]
 
 
 class ApprovalDecision(_SandboxContractModel):
@@ -237,17 +274,23 @@ __all__ = [
     "ApprovalMode",
     "ApprovalPolicy",
     "ApprovalRequest",
+    "ApprovalRequestKind",
     "AdditionalNetworkAccess",
     "AdditionalSandboxPermissions",
+    "CommandExecutionApprovalRequest",
     "DangerFullAccessSandboxPolicy",
     "EffectiveCapabilities",
     "ExecutionIsolation",
     "ExternalSandboxPolicy",
+    "FileChangeApprovalRequest",
+    "FileChangeKind",
     "FileSystemSandboxPolicy",
     "FilesystemAccess",
     "NetworkSandboxPolicy",
     "NormalizedSandboxPolicy",
     "PermissionState",
+    "PermissionGrantApprovalRequest",
+    "PermissionGrantKind",
     "ReadOnlySandboxPolicy",
     "SandboxNetworkAccess",
     "SandboxPolicy",

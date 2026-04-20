@@ -111,7 +111,15 @@ type PermissionState struct {
 
 type ApprovalRequest struct {
 	RequestID             string                        `json:"request_id"`
+	RequestKind           string                        `json:"request_kind"`
 	Reason                string                        `json:"reason"`
+	Command               string                        `json:"command,omitempty"`
+	Cwd                   string                        `json:"cwd,omitempty"`
+	ShellFamily           string                        `json:"shell_family,omitempty"`
+	Path                  string                        `json:"path,omitempty"`
+	ChangeKind            string                        `json:"change_kind,omitempty"`
+	GrantKind             string                        `json:"grant_kind,omitempty"`
+	Target                string                        `json:"target,omitempty"`
 	RequestedCapabilities EffectiveCapabilities         `json:"requested_capabilities"`
 	RequestedPermissions  *AdditionalSandboxPermissions `json:"requested_permissions,omitempty"`
 }

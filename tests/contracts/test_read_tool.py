@@ -169,6 +169,9 @@ async def test_read_requests_approval_for_outside_workspace_path_in_default_mode
 
     assert result.return_value == "secret"
     assert len(requests) == 1
+    assert requests[0].request_kind == "permission_grant"
+    assert requests[0].grant_kind == "filesystem_read"
+    assert requests[0].target == str(outside.parent.resolve())
     assert requests[0].reason == (
         "allow read outside workspace: ../outside.txt "
         f"(read-only roots: {outside.parent.resolve()})"
@@ -221,6 +224,7 @@ async def test_read_remembers_approved_outside_root_within_one_session(
     assert first.return_value == "first"
     assert second.return_value == "second"
     assert len(requests) == 1
+    assert requests[0].request_kind == "permission_grant"
     assert requests[0].requested_permissions is not None
     assert requests[0].requested_permissions.extra_read_roots == (
         str(outside_dir.resolve()),

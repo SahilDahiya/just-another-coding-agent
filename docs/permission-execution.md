@@ -27,6 +27,18 @@ This means the current behavior enforces the approval boundary honestly, but it
 does not yet constrain an approved shell command to only the approved network
 or filesystem scope at the OS level.
 
+The current approval request taxonomy is:
+
+- `command_execution`
+  - used for shell command approvals
+- `file_change`
+  - used for backend-owned mutations such as `write` and `edit`
+- `permission_grant`
+  - used when the backend asks to widen capability itself rather than approve a
+    concrete command
+  - currently used for approval-gated outside-workspace reads in the read-only
+    worker path
+
 ## Current Shell Escalation Heuristics
 
 The planner currently performs static command inspection for two categories of
@@ -126,4 +138,3 @@ Likely improvement directions:
   context
 - keep the Go TUI presentation-only: if richer approval meaning is needed, add
   it in Python-owned contracts first
-

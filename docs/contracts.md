@@ -202,6 +202,19 @@ Initial approval policy modes:
 Approval carrier rules:
 
 - approval requests and decisions are backend-owned typed contract models
+- the current approval request taxonomy is:
+  - `command_execution`
+    - used for shell command approvals
+    - carries command-specific context such as the command string, cwd, and
+      shell family
+  - `file_change`
+    - used for backend-owned file mutations such as `write` and `edit`
+    - carries the target path and change kind
+  - `permission_grant`
+    - used when the backend is asking to widen capability itself rather than
+      approve a concrete command
+    - currently used for approval-gated outside-workspace read access in the
+      read-only worker path
 - approval decisions must refer to one request id and produce one explicit
   result
 - approval lifecycle semantics belong to Python-owned RPC and streamed-event
@@ -226,9 +239,10 @@ Approval carrier rules:
     (`unsandboxed`)
   - backend-owned file tools may still enforce narrower filesystem posture
     directly through approval-gated path policy
-  - `shell` approval may gate obvious network access or outside-workspace
-    writes, but approved shell execution still runs on the host path until the
-    restricted executor backend lands
+  - `shell` approval is currently modeled as `command_execution`; it may gate
+    obvious network access or outside-workspace writes, but approved shell
+    execution still runs on the host path until the restricted executor backend
+    lands
   - the current backend-owned shell escalation heuristics are documented in
     `permission-execution.md` so they can evolve explicitly instead of staying
     implicit in implementation detail

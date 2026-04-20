@@ -129,6 +129,9 @@ async def test_write_requests_approval_for_outside_workspace_path_in_default_mod
 
     assert outside.read_text(encoding="utf-8") == "hello"
     assert len(requests) == 1
+    assert requests[0].request_kind == "file_change"
+    assert requests[0].path == "../outside.txt"
+    assert requests[0].change_kind == "write"
     assert requests[0].reason == (
         "allow write outside workspace: ../outside.txt "
         f"(writable roots: {outside.parent.resolve()})"
@@ -203,6 +206,7 @@ async def test_write_remembers_approved_outside_root_within_one_session(
     assert (outside_dir / "first.txt").read_text(encoding="utf-8") == "one"
     assert (outside_dir / "second.txt").read_text(encoding="utf-8") == "two"
     assert len(requests) == 1
+    assert requests[0].request_kind == "file_change"
     assert requests[0].requested_permissions is not None
     assert requests[0].requested_permissions.extra_write_roots == (
         str(outside_dir.resolve()),

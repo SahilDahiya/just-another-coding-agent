@@ -12,7 +12,9 @@ from pydantic_ai import RunContext, Tool
 
 from just_another_coding_agent.contracts.platform import ShellFamily
 from just_another_coding_agent.contracts.run_events import ShellActivityDetails
-from just_another_coding_agent.contracts.sandbox import ApprovalRequest
+from just_another_coding_agent.contracts.sandbox import (
+    CommandExecutionApprovalRequest,
+)
 from just_another_coding_agent.tools._activity import (
     make_tool_return,
     truncate_activity_label,
@@ -173,9 +175,13 @@ async def execute_shell(
         if permission_detail:
             reason = f"{reason} ({permission_detail})"
         decision = await ctx.deps.approval_requester(
-            ApprovalRequest(
+            CommandExecutionApprovalRequest(
                 request_id=f"shell-{uuid4().hex}",
+                request_kind="command_execution",
                 reason=reason,
+                command=command,
+                cwd=str(Path(workspace_root).resolve()),
+                shell_family=shell_family,
                 requested_capabilities=plan.requested_capabilities,
                 requested_permissions=plan.requested_permissions,
             )

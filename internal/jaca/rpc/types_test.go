@@ -272,7 +272,11 @@ func TestDecodeEnvelopePreservesApprovalEventFields(t *testing.T) {
 			"tool_call_id":"tool-1",
 			"request":{
 				"request_id":"approval-1",
+				"request_kind":"command_execution",
 				"reason":"allow shell command: ls",
+				"command":"ls",
+				"cwd":"/workspace",
+				"shell_family":"posix",
 				"requested_capabilities":{
 					"filesystem_access":"full_access",
 					"network_access":"enabled",
@@ -297,6 +301,9 @@ func TestDecodeEnvelopePreservesApprovalEventFields(t *testing.T) {
 	}
 	if envelope.Event.Request.RequestID != "approval-1" {
 		t.Fatalf("RequestID = %q, want approval-1", envelope.Event.Request.RequestID)
+	}
+	if envelope.Event.Request.RequestKind != "command_execution" {
+		t.Fatalf("RequestKind = %q, want command_execution", envelope.Event.Request.RequestKind)
 	}
 	if envelope.Event.ToolName != "shell" {
 		t.Fatalf("ToolName = %q, want shell", envelope.Event.ToolName)

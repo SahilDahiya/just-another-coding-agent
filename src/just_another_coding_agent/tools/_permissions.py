@@ -10,11 +10,12 @@ from uuid import uuid4
 from just_another_coding_agent.contracts.platform import ShellFamily
 from just_another_coding_agent.contracts.sandbox import (
     AdditionalSandboxPermissions,
-    ApprovalRequest,
     EffectiveCapabilities,
+    FileChangeApprovalRequest,
     FileSystemSandboxPolicy,
     NormalizedSandboxPolicy,
     PermissionState,
+    PermissionGrantApprovalRequest,
     derive_normalized_sandbox_policy,
     derive_requested_capabilities,
 )
@@ -575,14 +576,27 @@ async def _approved_file_access_plan(
     reason = f"{reason_prefix}: {truncate_activity_label(tool_path)}"
     if permission_detail:
         reason = f"{reason} ({permission_detail})"
-    decision = await ctx.deps.approval_requester(
-        ApprovalRequest(
+    if access_kind == "read":
+        request = PermissionGrantApprovalRequest(
             request_id=f"{action}-{uuid4().hex}",
+            request_kind="permission_grant",
             reason=reason,
+            grant_kind="filesystem_read",
+            target=approval_scope_root,
             requested_capabilities=plan.requested_capabilities,
             requested_permissions=plan.requested_permissions,
         )
-    )
+    else:
+        request = FileChangeApprovalRequest(
+            request_id=f"{action}-{uuid4().hex}",
+            request_kind="file_change",
+            reason=reason,
+            path=tool_path or "",
+            change_kind=action if action in {"write", "edit"} else "write",
+            requested_capabilities=plan.requested_capabilities,
+            requested_permissions=plan.requested_permissions,
+        )
+    decision = await ctx.deps.approval_requester(request)
     if decision.decision != "approved":
         raise RuntimeError(
             f"{action.capitalize()} approval did not return an approved decision"

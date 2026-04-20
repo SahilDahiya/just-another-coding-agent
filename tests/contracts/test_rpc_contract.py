@@ -115,7 +115,11 @@ def test_rpc_event_envelope_accepts_approval_events() -> None:
                 "run_id": "run-1",
                 "request": {
                     "request_id": "approval-1",
+                    "request_kind": "command_execution",
                     "reason": "Enable network for a package install.",
+                    "command": "curl https://example.com",
+                    "cwd": "/workspace",
+                    "shell_family": "posix",
                     "requested_capabilities": {
                         "filesystem_access": "workspace_write",
                         "network_access": "enabled",
@@ -130,6 +134,7 @@ def test_rpc_event_envelope_accepts_approval_events() -> None:
     )
 
     assert requested_event.event.type == "approval_requested"
+    assert requested_event.event.request.request_kind == "command_execution"
 
     resolved_event = RpcEventEnvelope.model_validate(
         {

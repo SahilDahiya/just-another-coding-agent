@@ -10,13 +10,16 @@ from just_another_coding_agent.contracts.sandbox import (
     ApprovalDecision,
     ApprovalPolicy,
     ApprovalRequest,
+    CommandExecutionApprovalRequest,
     DangerFullAccessSandboxPolicy,
     EffectiveCapabilities,
     ExternalSandboxPolicy,
+    FileChangeApprovalRequest,
     FileSystemSandboxPolicy,
     NetworkSandboxPolicy,
     NormalizedSandboxPolicy,
     ReadOnlySandboxPolicy,
+    PermissionGrantApprovalRequest,
     SandboxPolicy,
     WorkspaceWriteSandboxPolicy,
     build_permission_state,
@@ -107,12 +110,55 @@ def test_approval_request_and_decision_are_strict_contract_models() -> None:
         approval_mode="on_escalation",
     )
 
-    request = ApprovalRequest(
+    request = CommandExecutionApprovalRequest(
         request_id="approval-1",
+        request_kind="command_execution",
         reason="Enable network for a package install.",
+        command="curl https://example.com",
+        cwd="/workspace",
+        shell_family="posix",
         requested_capabilities=capabilities,
     )
     assert request.requested_capabilities == capabilities
+
+    adapter = TypeAdapter(ApprovalRequest)
+    assert adapter.validate_python(
+        request.model_dump(mode="json")
+    ) == request
+    assert adapter.validate_python(
+        FileChangeApprovalRequest(
+            request_id="approval-2",
+            request_kind="file_change",
+            reason="Allow edit outside workspace.",
+            path="../outside.txt",
+            change_kind="edit",
+            requested_capabilities=capabilities,
+        ).model_dump(mode="json")
+    ) == FileChangeApprovalRequest(
+        request_id="approval-2",
+        request_kind="file_change",
+        reason="Allow edit outside workspace.",
+        path="../outside.txt",
+        change_kind="edit",
+        requested_capabilities=capabilities,
+    )
+    assert adapter.validate_python(
+        PermissionGrantApprovalRequest(
+            request_id="approval-3",
+            request_kind="permission_grant",
+            reason="Grant read access outside workspace.",
+            grant_kind="filesystem_read",
+            target="/tmp",
+            requested_capabilities=capabilities,
+        ).model_dump(mode="json")
+    ) == PermissionGrantApprovalRequest(
+        request_id="approval-3",
+        request_kind="permission_grant",
+        reason="Grant read access outside workspace.",
+        grant_kind="filesystem_read",
+        target="/tmp",
+        requested_capabilities=capabilities,
+    )
 
     decision = ApprovalDecision(
         request_id="approval-1",
@@ -121,9 +167,13 @@ def test_approval_request_and_decision_are_strict_contract_models() -> None:
     assert decision.decision == "approved"
 
     with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
-        ApprovalRequest(
+        CommandExecutionApprovalRequest(
             request_id="approval-2",
+            request_kind="command_execution",
             reason="bad",
+            command="pwd",
+            cwd="/workspace",
+            shell_family="posix",
             requested_capabilities=capabilities,
             extra_field=True,
         )

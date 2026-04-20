@@ -8,7 +8,19 @@ import (
 import tea "github.com/charmbracelet/bubbletea"
 
 func (m *model) approvalTitle() string {
-	return "Approval required"
+	if m.pendingApproval == nil {
+		return "Approval required"
+	}
+	switch m.pendingApproval.RequestKind {
+	case "command_execution":
+		return "Command approval required"
+	case "file_change":
+		return "File change approval required"
+	case "permission_grant":
+		return "Permission grant required"
+	default:
+		return "Approval required"
+	}
 }
 
 func (m *model) approvalReason() string {
@@ -30,12 +42,37 @@ func (m *model) approvalDetailLines() []string {
 		return nil
 	}
 	lines := []string{
+		fmt.Sprintf("request kind: %s", approvalRequestKindLabel(m.pendingApproval.RequestKind)),
 		fmt.Sprintf(
 			"requested posture: fs=%s, net=%s, exec=%s",
 			m.pendingApproval.RequestedCapabilities.FilesystemAccess,
 			m.pendingApproval.RequestedCapabilities.NetworkAccess,
 			m.pendingApproval.RequestedCapabilities.ExecutionIsolation,
 		),
+	}
+	switch m.pendingApproval.RequestKind {
+	case "command_execution":
+		lines = append(lines, fmt.Sprintf("command: %s", m.pendingApproval.Command))
+		if m.pendingApproval.Cwd != "" {
+			lines = append(lines, fmt.Sprintf("cwd: %s", m.pendingApproval.Cwd))
+		}
+		if m.pendingApproval.ShellFamily != "" {
+			lines = append(lines, fmt.Sprintf("shell: %s", m.pendingApproval.ShellFamily))
+		}
+	case "file_change":
+		if m.pendingApproval.Path != "" {
+			lines = append(lines, fmt.Sprintf("path: %s", m.pendingApproval.Path))
+		}
+		if m.pendingApproval.ChangeKind != "" {
+			lines = append(lines, fmt.Sprintf("change: %s", m.pendingApproval.ChangeKind))
+		}
+	case "permission_grant":
+		if m.pendingApproval.GrantKind != "" {
+			lines = append(lines, fmt.Sprintf("grant: %s", m.pendingApproval.GrantKind))
+		}
+		if m.pendingApproval.Target != "" {
+			lines = append(lines, fmt.Sprintf("target: %s", m.pendingApproval.Target))
+		}
 	}
 	if m.pendingApproval.RequestedPermissions == nil {
 		return lines
@@ -68,6 +105,19 @@ func (m *model) approvalHelpLines() []string {
 
 func joinForDisplay(values []string) string {
 	return strings.Join(values, ", ")
+}
+
+func approvalRequestKindLabel(kind string) string {
+	switch kind {
+	case "command_execution":
+		return "command execution"
+	case "file_change":
+		return "file change"
+	case "permission_grant":
+		return "permission grant"
+	default:
+		return kind
+	}
 }
 
 func (m *model) handleApprovalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
