@@ -12,7 +12,7 @@ The adapter path is intentionally thin:
 - that agent uploads the local repo source into the task container
 - the container installs the backend package
 - the adapter runs the one-shot wrapper `just-another-coding-agent-exec-prompt`
-- the wrapper launches the backend in `--headless` stdio-RPC mode and talks to it through `session.create` and `run.start`
+- the wrapper launches the backend in `--headless` stdio-RPC mode and talks to it through `workspace.trust_accept`, `session.create`, `permission.set`, and `run.start`
 - the wrapper can also forward an optional explicit `thinking` setting into `run.start`
 
 This is an adapter around the existing backend contract, not a second execution architecture.
@@ -21,18 +21,20 @@ The benchmark-specific workflow guidance lives in this adapter layer, not in the
 repo-root `AGENTS.md`. The one-shot wrapper prepends a small benchmark workflow section
 to the user prompt before `run.start`, so Terminal Bench behavior stays adapter-owned.
 
-For Harbor and Terminal Bench runs, the one-shot wrapper also applies a
-benchmark-specific permission override after `session.create` and before
-`run.start`:
+For Harbor and Terminal Bench runs, the one-shot wrapper also bootstraps trust
+and permissions before `run.start`:
+
+- workspace trust: `workspace.trust_accept`
 
 - sandbox policy: `danger_full_access`
 - approval policy: `never`
 
 This is deliberate. Harbor tasks are unattended benchmark runs, not interactive
 operator sessions, so they must not block on approval prompts. The benchmark
-adapter therefore gives the agent the full task-local access it needs and
-disables approval for the lifetime of that session. This override is adapter-owned
-and does not change the canonical interactive default described in
+adapter therefore accepts the workspace trust boundary up front, gives the
+agent the full task-local access it needs, and disables approval for the
+lifetime of that session. These overrides are adapter-owned and do not change
+the canonical interactive default described in
 [contracts.md](contracts.md).
 
 After runs finish, aggregate analysis across repeated runs of the same

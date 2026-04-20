@@ -188,6 +188,27 @@ def _make_popen(stdout_lines: list[dict[str, object] | str], *, returncode: int 
     return factory, process, captured
 
 
+def _workspace_trust_accept_request() -> dict[str, object]:
+    return {
+        "id": "req-workspace-trust-accept",
+        "command": "workspace.trust_accept",
+        "payload": {},
+    }
+
+
+def _workspace_trust_accept_response(
+    *, trust_target: str = "/tmp/benchmark-workspace"
+) -> dict[str, object]:
+    return {
+        "type": "rpc_response",
+        "id": "req-workspace-trust-accept",
+        "response": {
+            "trusted": True,
+            "trust_target": trust_target,
+        },
+    }
+
+
 def _permission_set_request(session_id: str) -> dict[str, object]:
     return {
         "id": "req-permission-set",
@@ -230,6 +251,7 @@ def test_run_exec_prompt_returns_terminal_output(tmp_path) -> None:
     sessions_root = tmp_path / "sessions"
     popen_factory, process, captured = _make_popen(
         [
+            _workspace_trust_accept_response(),
             {
                 "type": "rpc_response",
                 "id": "req-create",
@@ -285,6 +307,7 @@ def test_run_exec_prompt_returns_terminal_output(tmp_path) -> None:
         if line.strip()
     ]
     assert requests == [
+        _workspace_trust_accept_request(),
         {"id": "req-create", "command": "session.create", "payload": {}},
         _permission_set_request("0" * 32),
         {
@@ -309,6 +332,8 @@ def test_run_exec_prompt_returns_terminal_output(tmp_path) -> None:
 
     assert phases["session_id"] == "0" * 32
     assert "subprocess_started_at" in phases
+    assert "workspace_trust_accept_sent_at" in phases
+    assert "workspace_trust_accept_received_at" in phases
     assert "session_create_sent_at" in phases
     assert "session_create_received_at" in phases
     assert "run_start_sent_at" in phases
@@ -319,26 +344,33 @@ def test_run_exec_prompt_returns_terminal_output(tmp_path) -> None:
         {
             "timestamp": transcript[0]["timestamp"],
             "direction": "send",
-            "payload": {"id": "req-create", "command": "session.create", "payload": {}},
+            "payload": _workspace_trust_accept_request(),
         },
         {
             "timestamp": transcript[1]["timestamp"],
             "direction": "recv",
             "payload": {
                 "type": "rpc_response",
-                "id": "req-create",
-                "response": {"session_id": "0" * 32},
+                "id": "req-workspace-trust-accept",
+                "response": {
+                    "trusted": True,
+                    "trust_target": "/tmp/benchmark-workspace",
+                },
             },
         },
         {
             "timestamp": transcript[2]["timestamp"],
             "direction": "send",
-            "payload": requests[1],
+            "payload": {"id": "req-create", "command": "session.create", "payload": {}},
         },
         {
             "timestamp": transcript[3]["timestamp"],
             "direction": "recv",
-            "payload": _permission_set_response("0" * 32),
+            "payload": {
+                "type": "rpc_response",
+                "id": "req-create",
+                "response": {"session_id": "0" * 32},
+            },
         },
         {
             "timestamp": transcript[4]["timestamp"],
@@ -348,6 +380,16 @@ def test_run_exec_prompt_returns_terminal_output(tmp_path) -> None:
         {
             "timestamp": transcript[5]["timestamp"],
             "direction": "recv",
+            "payload": _permission_set_response("0" * 32),
+        },
+        {
+            "timestamp": transcript[6]["timestamp"],
+            "direction": "send",
+            "payload": requests[3],
+        },
+        {
+            "timestamp": transcript[7]["timestamp"],
+            "direction": "recv",
             "payload": {
                 "type": "rpc_event",
                 "id": "req-run",
@@ -355,7 +397,7 @@ def test_run_exec_prompt_returns_terminal_output(tmp_path) -> None:
             },
         },
         {
-            "timestamp": transcript[6]["timestamp"],
+            "timestamp": transcript[8]["timestamp"],
             "direction": "recv",
             "payload": {
                 "type": "rpc_event",
@@ -368,7 +410,7 @@ def test_run_exec_prompt_returns_terminal_output(tmp_path) -> None:
             },
         },
         {
-            "timestamp": transcript[7]["timestamp"],
+            "timestamp": transcript[9]["timestamp"],
             "direction": "recv",
             "payload": {
                 "type": "rpc_response",
@@ -384,6 +426,7 @@ def test_run_exec_prompt_waits_for_run_response_after_terminal_event(
 ) -> None:
     popen_factory, process, _captured = _make_popen(
         [
+            _workspace_trust_accept_response(),
             {
                 "type": "rpc_response",
                 "id": "req-create",
@@ -437,6 +480,7 @@ def test_run_exec_prompt_emits_liveness_markers_to_status_stream(tmp_path) -> No
     status_stream = io.StringIO()
     popen_factory, _process, _captured = _make_popen(
         [
+            _workspace_trust_accept_response(),
             {
                 "type": "rpc_response",
                 "id": "req-create",
@@ -505,6 +549,7 @@ def test_run_exec_prompt_emits_liveness_markers_to_status_stream(tmp_path) -> No
     assert output == "done"
     assert status_stream.getvalue().splitlines() == [
         "[exec_prompt] subprocess started",
+        "[exec_prompt] workspace trust accepted",
         "[exec_prompt] session created",
         "[exec_prompt] run.start sent",
         "[exec_prompt] first rpc event received",
@@ -543,6 +588,7 @@ def test_run_exec_prompt_emits_logfire_task_span_and_flushes(
     )
     popen_factory, _process, _captured = _make_popen(
         [
+            _workspace_trust_accept_response(),
             {
                 "type": "rpc_response",
                 "id": "req-create",
@@ -608,6 +654,10 @@ def test_run_exec_prompt_emits_logfire_task_span_and_flushes(
         span.attributes["jaca.exec_prompt.env.jaca_harbor_submission_id"]
         == "submission-abc"
     )
+    assert (
+        span.attributes["jaca.exec_prompt.workspace_trust_target"]
+        == "/tmp/benchmark-workspace"
+    )
     assert span.attributes["jaca.exec_prompt.session_id"] == "0" * 32
     assert span.attributes["jaca.exec_prompt.terminal_event_type"] == "run_succeeded"
     assert span.attributes["jaca.exec_prompt.status"] == "succeeded"
@@ -653,6 +703,7 @@ def test_run_exec_prompt_marks_logfire_task_span_failed_on_error(
     )
     popen_factory, _process, _captured = _make_popen(
         [
+            _workspace_trust_accept_response(),
             {
                 "type": "rpc_response",
                 "id": "req-create",
@@ -702,6 +753,7 @@ def test_run_exec_prompt_forwards_trace_context_to_backend(
 ) -> None:
     popen_factory, _process, captured = _make_popen(
         [
+            _workspace_trust_accept_response(),
             {
                 "type": "rpc_response",
                 "id": "req-create",
@@ -766,6 +818,7 @@ def test_run_exec_prompt_forwards_thinking(tmp_path) -> None:
     sessions_root = tmp_path / "sessions"
     popen_factory, process, _captured = _make_popen(
         [
+            _workspace_trust_accept_response(),
             {
                 "type": "rpc_response",
                 "id": "req-create",
@@ -808,12 +861,13 @@ def test_run_exec_prompt_forwards_thinking(tmp_path) -> None:
         for line in process.stdin.getvalue().splitlines()
         if line.strip()
     ]
-    assert requests[2]["payload"]["thinking"] == "high"
+    assert requests[3]["payload"]["thinking"] == "high"
 
 
 def test_run_exec_prompt_raises_on_run_failed(tmp_path) -> None:
     popen_factory, _process, _captured = _make_popen(
         [
+            _workspace_trust_accept_response(),
             {
                 "type": "rpc_response",
                 "id": "req-create",
@@ -856,6 +910,7 @@ def test_run_exec_prompt_raises_on_run_failed(tmp_path) -> None:
 def test_run_exec_prompt_raises_on_rpc_error(tmp_path) -> None:
     popen_factory, _process, _captured = _make_popen(
         [
+            _workspace_trust_accept_response(),
             {
                 "type": "rpc_response",
                 "id": "req-create",
@@ -888,6 +943,7 @@ def test_run_exec_prompt_classifies_missing_first_rpc_event(tmp_path) -> None:
     process = FakeProcess(stdout_text="", returncode=0)
     process.stdout = BlockingStdout(
         initial_lines=[
+            json.dumps(_workspace_trust_accept_response()) + "\n",
             json.dumps(
                 {
                     "type": "rpc_response",
@@ -938,7 +994,34 @@ def test_run_exec_prompt_classifies_missing_first_rpc_event(tmp_path) -> None:
         "send",
         "recv",
         "send",
+        "recv",
+        "send",
     ]
+
+
+def test_run_exec_prompt_raises_on_workspace_trust_error(tmp_path: Path) -> None:
+    popen_factory, _process, _captured = _make_popen(
+        [
+            {
+                "type": "rpc_error",
+                "id": "req-workspace-trust-accept",
+                "error_type": "WorkspaceUntrusted",
+                "message": "benchmark trust bootstrap failed",
+            }
+        ]
+    )
+
+    with pytest.raises(
+        ExecPromptError,
+        match="WorkspaceUntrusted: benchmark trust bootstrap failed",
+    ):
+        run_exec_prompt(
+            prompt="solve it",
+            model="openai-responses:gpt-5.4-chatgpt",
+            workspace_root=tmp_path,
+            sessions_root=tmp_path / "sessions",
+            popen_factory=popen_factory,
+        )
 
 
 def test_read_prompt_reads_stdin_when_argument_missing() -> None:

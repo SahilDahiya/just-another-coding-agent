@@ -62,6 +62,7 @@ _RPC_TRANSCRIPT_FILENAME = "exec-prompt-rpc-transcript.jsonl"
 _DEFAULT_FIRST_RPC_EVENT_TIMEOUT_SEC = 10.0
 _EXEC_PROMPT_SPAN_NAME = "jaca.exec_prompt"
 _EXEC_PROMPT_FLUSH_TIMEOUT_MILLIS = 5000
+_WORKSPACE_TRUST_ACCEPT_REQUEST_ID = "req-workspace-trust-accept"
 _PERMISSION_SET_REQUEST_ID = "req-permission-set"
 
 
@@ -198,6 +199,14 @@ def _run_exec_prompt(
         )
 
     try:
+        trust_target = _accept_benchmark_workspace_trust(
+            process.stdin,
+            process.stdout,
+            diagnostics=diagnostics,
+        )
+        if trace is not None:
+            trace.set_attribute("jaca.exec_prompt.workspace_trust_target", trust_target)
+        _write_status(status_stream, "workspace trust accepted")
         _write_json_line(
             process.stdin,
             {"id": "req-create", "command": "session.create", "payload": {}},
@@ -405,6 +414,54 @@ def _extract_session_id(payload: dict[str, object]) -> str:
     if not isinstance(session_id, str):
         raise ExecPromptError("session.create response must include string session_id")
     return session_id
+
+
+def _accept_benchmark_workspace_trust(
+    stdin: TextIO,
+    stdout: TextIO,
+    *,
+    diagnostics: "_ExecPromptDiagnostics" | None = None,
+) -> str:
+    trust_request = {
+        "id": _WORKSPACE_TRUST_ACCEPT_REQUEST_ID,
+        "command": "workspace.trust_accept",
+        "payload": {},
+    }
+    _write_json_line(stdin, trust_request, diagnostics=diagnostics)
+    if diagnostics is not None:
+        diagnostics.record_phase("workspace_trust_accept_sent_at")
+    trust_response = _read_json_line(
+        stdout,
+        expected="workspace.trust_accept response",
+        diagnostics=diagnostics,
+    )
+    if diagnostics is not None:
+        diagnostics.record_phase("workspace_trust_accept_received_at")
+    return _validate_workspace_trust_accept_response(trust_response)
+
+
+def _validate_workspace_trust_accept_response(payload: dict[str, object]) -> str:
+    if payload.get("type") == "rpc_error":
+        raise ExecPromptError(f"{payload.get('error_type')}: {payload.get('message')}")
+
+    if payload.get("type") != "rpc_response":
+        raise ExecPromptError("workspace.trust_accept must return rpc_response")
+    if payload.get("id") != _WORKSPACE_TRUST_ACCEPT_REQUEST_ID:
+        raise ExecPromptError("workspace.trust_accept returned unexpected rpc_response id")
+
+    response = payload.get("response")
+    if not isinstance(response, dict):
+        raise ExecPromptError(
+            "workspace.trust_accept rpc_response must include response object"
+        )
+    if response.get("trusted") is not True:
+        raise ExecPromptError("workspace.trust_accept response must mark trusted=true")
+    trust_target = response.get("trust_target")
+    if not isinstance(trust_target, str):
+        raise ExecPromptError(
+            "workspace.trust_accept response must include string trust_target"
+        )
+    return trust_target
 
 
 def _set_benchmark_permission_state(

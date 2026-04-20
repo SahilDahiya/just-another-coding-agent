@@ -38,6 +38,11 @@ Python-owned RPC exposes:
 The Go TUI renders that backend contract through a dedicated startup overlay. Go
 does not infer trust locally.
 
+The Harbor benchmark wrapper is a deliberate exception at the adapter layer: it
+calls `workspace.trust_accept` before `session.create` so unattended benchmark
+runs do not fail on the startup trust gate. That benchmark-specific bootstrap
+does not change the interactive default.
+
 ## Implementation Notes
 
 - trust persistence lives in
