@@ -4,13 +4,9 @@ import pytest
 
 from just_another_coding_agent.tools.errors import ToolPathError
 from just_another_coding_agent.tools.ls import ls
-from tests.contracts.read_only_tool_test_support import (
-    go_worker_required,
-    worker_ctx,
-)
+from tests.contracts.read_only_tool_test_support import worker_ctx
 
 
-@go_worker_required
 async def test_ls_tool_lists_directory_entries_with_directory_suffix(tmp_path) -> None:
     ctx = worker_ctx(tmp_path)
     (ctx.deps.workspace_root / ".hidden").write_text("", encoding="utf-8")
@@ -25,7 +21,6 @@ async def test_ls_tool_lists_directory_entries_with_directory_suffix(tmp_path) -
     assert result.return_value == ".hidden\nalpha.txt\nbeta/"
 
 
-@go_worker_required
 async def test_ls_tool_returns_empty_directory_marker(tmp_path) -> None:
     ctx = worker_ctx(tmp_path)
 
@@ -37,7 +32,6 @@ async def test_ls_tool_returns_empty_directory_marker(tmp_path) -> None:
     assert result.return_value == "(empty directory)"
 
 
-@go_worker_required
 async def test_ls_tool_fails_for_missing_path(tmp_path) -> None:
     ctx = worker_ctx(tmp_path)
 
@@ -48,7 +42,6 @@ async def test_ls_tool_fails_for_missing_path(tmp_path) -> None:
         await ctx.deps.read_only_worker.close()
 
 
-@go_worker_required
 async def test_ls_tool_fails_for_non_directory_path(tmp_path) -> None:
     ctx = worker_ctx(tmp_path)
     (ctx.deps.workspace_root / "alpha.txt").write_text("", encoding="utf-8")
@@ -60,7 +53,6 @@ async def test_ls_tool_fails_for_non_directory_path(tmp_path) -> None:
         await ctx.deps.read_only_worker.close()
 
 
-@go_worker_required
 async def test_ls_tool_respects_entry_limit(tmp_path) -> None:
     ctx = worker_ctx(tmp_path)
     for name in ("alpha.txt", "beta.txt", "gamma.txt"):

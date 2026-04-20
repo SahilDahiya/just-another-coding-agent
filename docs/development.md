@@ -23,6 +23,9 @@ commands, or docs that treat them as supported lanes.
 - `vulture` for Python dead-code checks
 - `staticcheck` for Go static analysis
 - `pytest` for tests
+- Most Python contract/e2e tests now use a test-only Python reference
+  read-only worker; local Go `1.23+` is only required for Go package tests and
+  the dedicated Go worker smoke tests
 
 ## Commands
 

@@ -9,13 +9,8 @@ from just_another_coding_agent.tools.read_only_worker.runtime import (
     ReadOnlyWorkerRuntime,
 )
 from tests.read_only_worker_test_support import (
-    go_worker_required as _go_worker_required,
-)
-from tests.read_only_worker_test_support import (
     read_only_worker_command,
 )
-
-go_worker_required = _go_worker_required
 
 
 def worker_ctx(tmp_path: Path):

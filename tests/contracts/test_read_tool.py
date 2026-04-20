@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import pytest
 from types import SimpleNamespace
+
+import pytest
 
 from just_another_coding_agent.contracts.platform import detect_default_shell_family
 from just_another_coding_agent.contracts.sandbox import (
@@ -17,13 +18,9 @@ from just_another_coding_agent.tools.errors import (
     ToolPathError,
 )
 from just_another_coding_agent.tools.read import read
-from tests.contracts.read_only_tool_test_support import (
-    go_worker_required,
-    worker_ctx,
-)
+from tests.contracts.read_only_tool_test_support import worker_ctx
 
 
-@go_worker_required
 async def test_read_tool_reads_utf8_text_file(tmp_path) -> None:
     ctx = worker_ctx(tmp_path)
     path = ctx.deps.workspace_root / "note.txt"
@@ -37,7 +34,6 @@ async def test_read_tool_reads_utf8_text_file(tmp_path) -> None:
     assert result.return_value == "hello\nworld\n"
 
 
-@go_worker_required
 async def test_read_tool_reads_requested_line_window(tmp_path) -> None:
     ctx = worker_ctx(tmp_path)
     path = ctx.deps.workspace_root / "note.txt"
@@ -54,7 +50,6 @@ async def test_read_tool_reads_requested_line_window(tmp_path) -> None:
     )
 
 
-@go_worker_required
 async def test_read_tool_truncates_large_file_and_returns_continuation_hint(
     tmp_path,
 ) -> None:
@@ -79,7 +74,6 @@ async def test_read_tool_truncates_large_file_and_returns_continuation_hint(
     )
 
 
-@go_worker_required
 async def test_read_tool_fails_for_missing_file(tmp_path) -> None:
     ctx = worker_ctx(tmp_path)
 
@@ -90,7 +84,6 @@ async def test_read_tool_fails_for_missing_file(tmp_path) -> None:
         await ctx.deps.read_only_worker.close()
 
 
-@go_worker_required
 async def test_read_tool_fails_for_directory(tmp_path) -> None:
     ctx = worker_ctx(tmp_path)
     (ctx.deps.workspace_root / "nested").mkdir()
@@ -102,7 +95,6 @@ async def test_read_tool_fails_for_directory(tmp_path) -> None:
         await ctx.deps.read_only_worker.close()
 
 
-@go_worker_required
 async def test_read_tool_fails_for_invalid_utf8(tmp_path) -> None:
     ctx = worker_ctx(tmp_path)
     path = ctx.deps.workspace_root / "binary.bin"
@@ -115,7 +107,6 @@ async def test_read_tool_fails_for_invalid_utf8(tmp_path) -> None:
         await ctx.deps.read_only_worker.close()
 
 
-@go_worker_required
 async def test_read_tool_fails_when_offset_is_beyond_end_of_file(tmp_path) -> None:
     ctx = worker_ctx(tmp_path)
     path = ctx.deps.workspace_root / "note.txt"
@@ -131,7 +122,6 @@ async def test_read_tool_fails_when_offset_is_beyond_end_of_file(tmp_path) -> No
         await ctx.deps.read_only_worker.close()
 
 
-@go_worker_required
 async def test_read_requests_approval_for_outside_workspace_path_in_default_mode(
     tmp_path,
 ) -> None:
@@ -182,7 +172,6 @@ async def test_read_requests_approval_for_outside_workspace_path_in_default_mode
     )
 
 
-@go_worker_required
 async def test_read_remembers_approved_outside_root_within_one_session(
     tmp_path,
 ) -> None:

@@ -27,10 +27,12 @@ from just_another_coding_agent.tools.read_only_worker.protocol import (
     encode_worker_message,
     parse_worker_response_line,
 )
-from tests.read_only_worker_test_support import ensure_built_read_only_worker
 from tests.read_only_worker_test_support import (
     default_read_only_worker_filesystem_policy,
+    ensure_built_go_read_only_worker,
 )
+
+pytestmark = pytest.mark.skipif(shutil.which("go") is None, reason="go required")
 
 
 def _ripgrep_is_runnable() -> bool:
@@ -134,7 +136,7 @@ def test_go_read_only_worker_handles_handshake_read_and_ls(tmp_path: Path) -> No
     (workspace_root / "note.txt").write_text("one\ntwo\nthree\n", encoding="utf-8")
     (workspace_root / "src").mkdir()
 
-    with _GoWorkerProcess(worker_path=ensure_built_read_only_worker()) as worker:
+    with _GoWorkerProcess(worker_path=ensure_built_go_read_only_worker()) as worker:
         hello = worker.send(HelloWorkerRequest(request_id="hello-1"))
         assert isinstance(hello, HelloWorkerResponse)
         assert hello.supported_operations == READ_ONLY_WORKER_OPERATIONS
@@ -188,7 +190,7 @@ def test_go_read_only_worker_grep_returns_after_limit_hit(tmp_path: Path) -> Non
             + "'\n",
             encoding="utf-8",
         )
-    with _GoWorkerProcess(worker_path=ensure_built_read_only_worker()) as worker:
+    with _GoWorkerProcess(worker_path=ensure_built_go_read_only_worker()) as worker:
         hello = worker.send(HelloWorkerRequest(request_id="hello-limit"))
         assert isinstance(hello, HelloWorkerResponse)
 
@@ -227,7 +229,7 @@ def test_go_read_only_worker_grep_returns_after_byte_limit_hit(
             "needle = '" + ("x" * 120) + "'\n",
             encoding="utf-8",
         )
-    with _GoWorkerProcess(worker_path=ensure_built_read_only_worker()) as worker:
+    with _GoWorkerProcess(worker_path=ensure_built_go_read_only_worker()) as worker:
         hello = worker.send(HelloWorkerRequest(request_id="hello-byte-limit"))
         assert isinstance(hello, HelloWorkerResponse)
 
@@ -260,7 +262,7 @@ async def test_go_read_only_worker_rejects_binary_read_input(tmp_path: Path) -> 
     (workspace_root / "weights.pt").write_bytes(b"\x80\n" * 40000)
 
     async with ReadOnlyWorkerClient(
-        [str(ensure_built_read_only_worker())],
+        [str(ensure_built_go_read_only_worker())],
     ) as client:
         with pytest.raises(ToolEncodingError, match="not valid UTF-8 text"):
             await client.send(

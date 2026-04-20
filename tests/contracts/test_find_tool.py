@@ -1,21 +1,13 @@
 from __future__ import annotations
 
-import shutil
-
 import pytest
 
 from just_another_coding_agent.tools import find as find_module
 from just_another_coding_agent.tools.errors import ToolPathError
 from just_another_coding_agent.tools.find import find
-from tests.contracts.read_only_tool_test_support import (
-    go_worker_required,
-    worker_ctx,
-)
-
-pytestmark = pytest.mark.skipif(shutil.which("rg") is None, reason="rg required")
+from tests.contracts.read_only_tool_test_support import worker_ctx
 
 
-@go_worker_required
 async def test_find_tool_lists_matching_files_relative_to_search_path(
     tmp_path,
 ) -> None:
@@ -36,7 +28,6 @@ async def test_find_tool_lists_matching_files_relative_to_search_path(
     assert result.return_value == "alpha.py\nnested/gamma.py"
 
 
-@go_worker_required
 async def test_find_tool_returns_explicit_no_match_message(tmp_path) -> None:
     ctx = worker_ctx(tmp_path)
     (ctx.deps.workspace_root / "alpha.txt").write_text("", encoding="utf-8")
@@ -49,7 +40,6 @@ async def test_find_tool_returns_explicit_no_match_message(tmp_path) -> None:
     assert result.return_value == "No files found matching pattern."
 
 
-@go_worker_required
 async def test_find_tool_fails_for_missing_search_path(tmp_path) -> None:
     ctx = worker_ctx(tmp_path)
 
@@ -60,7 +50,6 @@ async def test_find_tool_fails_for_missing_search_path(tmp_path) -> None:
         await ctx.deps.read_only_worker.close()
 
 
-@go_worker_required
 async def test_find_tool_fails_for_non_directory_search_path(tmp_path) -> None:
     ctx = worker_ctx(tmp_path)
     (ctx.deps.workspace_root / "alpha.py").write_text("", encoding="utf-8")
@@ -72,7 +61,6 @@ async def test_find_tool_fails_for_non_directory_search_path(tmp_path) -> None:
         await ctx.deps.read_only_worker.close()
 
 
-@go_worker_required
 async def test_find_tool_respects_result_limit(tmp_path) -> None:
     ctx = worker_ctx(tmp_path)
     for name in ("alpha.py", "beta.py", "gamma.py"):

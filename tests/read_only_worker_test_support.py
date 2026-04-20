@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 from functools import lru_cache
 from pathlib import Path
 
@@ -41,8 +42,16 @@ def _worker_go_tmp_dir() -> Path:
     return repo_root() / ".pytest_cache" / "jaca-go-tmp"
 
 
+def _reference_worker_path() -> Path:
+    return repo_root() / "tests" / "reference_read_only_worker.py"
+
+
+def reference_read_only_worker_command() -> list[str]:
+    return [sys.executable, "-u", str(_reference_worker_path())]
+
+
 @lru_cache(maxsize=1)
-def ensure_built_read_only_worker() -> Path:
+def ensure_built_go_read_only_worker() -> Path:
     executable = _worker_build_dir() / READ_ONLY_WORKER_BINARY
     executable.parent.mkdir(parents=True, exist_ok=True)
 
@@ -84,8 +93,16 @@ def ensure_built_read_only_worker() -> Path:
     return executable
 
 
+def ensure_built_read_only_worker() -> Path:
+    return ensure_built_go_read_only_worker()
+
+
+def go_read_only_worker_command() -> list[str]:
+    return [str(ensure_built_go_read_only_worker())]
+
+
 def read_only_worker_command() -> list[str]:
-    return [str(ensure_built_read_only_worker())]
+    return reference_read_only_worker_command()
 
 
 def default_read_only_worker_filesystem_policy() -> FileSystemSandboxPolicy:
