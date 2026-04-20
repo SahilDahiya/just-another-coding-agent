@@ -236,15 +236,19 @@ def append_project_docs_to_session(
     *,
     path: Path,
     workspace_root: Path | str,
+    project_docs_root: Path | str | None = None,
     shell_family: ShellFamily | None = None,
 ) -> SessionProjectDocsEntry | None:
     normalized_workspace_root = normalize_workspace_root(workspace_root)
+    normalized_project_docs_root = normalize_workspace_root(
+        project_docs_root if project_docs_root is not None else normalized_workspace_root
+    )
     load_session(
         path=path,
         workspace_root=normalized_workspace_root,
         shell_family=shell_family,
     )
-    loaded_docs = load_workspace_project_docs(normalized_workspace_root)
+    loaded_docs = load_workspace_project_docs(normalized_project_docs_root)
     if not loaded_docs:
         return None
 

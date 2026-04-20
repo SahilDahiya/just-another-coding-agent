@@ -99,6 +99,12 @@ type permissionStateLoadedMsg struct {
 	Display bool
 }
 
+type workspaceTrustLoadedMsg struct {
+	Status  rpc.WorkspaceTrustStatusResponse
+	Err     error
+	Updated bool
+}
+
 type approvalSubmittedMsg struct {
 	Decision rpc.ApprovalDecision
 	Err      error
@@ -115,6 +121,12 @@ type onboardingState struct {
 	Active   bool
 	Kind     string
 	Selected int
+}
+
+type trustState struct {
+	Active      bool
+	Selected    int
+	TrustTarget string
 }
 
 type approvalOverlayState struct {
@@ -170,18 +182,21 @@ type layoutState struct {
 }
 
 type backendState struct {
-	configErrLogged     bool
-	modelCatalog        *rpc.ModelCatalogResponse
-	modelCatalogLoading bool
-	authStatus          *rpc.AuthStatusResponse
-	authStatusLoading   bool
-	permissionState     *rpc.PermissionState
+	configErrLogged       bool
+	modelCatalog          *rpc.ModelCatalogResponse
+	modelCatalogLoading   bool
+	authStatus            *rpc.AuthStatusResponse
+	authStatusLoading     bool
+	permissionState       *rpc.PermissionState
+	workspaceTrust        *rpc.WorkspaceTrustStatusResponse
+	workspaceTrustLoading bool
 }
 
 type overlayState struct {
 	update               updateState
 	auth                 authState
 	login                loginState
+	trust                trustState
 	startupOnboardingSet bool
 	onboarding           onboardingState
 	approval             approvalOverlayState
@@ -282,6 +297,9 @@ func (m *model) Init() tea.Cmd {
 		cmds = append(cmds, cmd)
 	}
 	if cmd := m.requestAuthStatus(); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	if cmd := m.requestWorkspaceTrust(); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
 	if cmd := m.requestSessionPreview(); cmd != nil {
@@ -532,6 +550,37 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.syncSlashMenu()
 		m.refreshViewport()
 		return m, cmd
+	case workspaceTrustLoadedMsg:
+		m.workspaceTrustLoading = false
+		if msg.Err != nil {
+			m.transcript.WriteError(fmt.Sprintf("workspace trust: %v", msg.Err))
+			m.refreshViewport()
+			return m, nil
+		}
+		status := msg.Status
+		m.workspaceTrust = &status
+		m.trust.TrustTarget = status.TrustTarget
+		m.trust.Selected = 0
+		if !status.Trusted {
+			m.trust.Active = true
+			m.refreshViewport()
+			return m, nil
+		}
+		m.trust.Active = false
+		if msg.Updated {
+			m.transcript.WriteNote("trust", []string{
+				fmt.Sprintf("trusted workspace: %s", status.TrustTarget),
+			})
+		}
+		var cmds []tea.Cmd
+		if cmd := m.requestSessionPreview(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+		if cmd := m.maybeStartOnboarding(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+		m.refreshViewport()
+		return m, tea.Batch(cmds...)
 	case permissionStateLoadedMsg:
 		if msg.Err != nil {
 			m.transcript.WriteError(msg.Err.Error())
@@ -738,6 +787,14 @@ func (m *model) currentViewModel() viewModel {
 		DetachedLive:        m.streaming && !m.viewport.AtBottom(),
 		VisibleZones:        m.visibleZones,
 		SlashMenu:           m.slashMenu,
+		Trust: trustOverlayView{
+			Active:      m.trust.Active,
+			Selected:    m.trust.Selected,
+			Title:       m.trustTitle(),
+			BodyLines:   m.trustBodyLines(),
+			OptionLines: m.trustOptionLines(),
+			HelpLines:   m.trustHelpLines(),
+		},
 		Update: updateOverlayView{
 			Active:         m.update.Active,
 			Selected:       m.update.Selected,
@@ -785,6 +842,9 @@ func (m *model) currentPromptFooter() string {
 	if m.promptFooterNotice != "" {
 		return m.promptFooterNotice
 	}
+	if m.trust.Active {
+		return ""
+	}
 	if m.update.Active {
 		return ""
 	}
@@ -818,6 +878,9 @@ func (m *model) waitingOAuthLoginFooter() string {
 }
 
 func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.trust.Active {
+		return m.handleTrustKey(msg)
+	}
 	if m.update.Active {
 		return m.handleUpdateKey(msg)
 	}
@@ -1005,6 +1068,16 @@ func (m *model) handleEnter() (tea.Model, tea.Cmd) {
 	}
 	prompt := strings.TrimSpace(m.textInput.Value())
 	if prompt == "" || m.streaming {
+		return m, nil
+	}
+	if m.workspaceTrustLoading || m.workspaceTrust == nil {
+		m.promptFooterNotice = "checking workspace trust"
+		m.refreshViewport()
+		return m, nil
+	}
+	if !m.workspaceTrust.Trusted {
+		m.trust.Active = true
+		m.refreshViewport()
 		return m, nil
 	}
 	if m.waitingOAuthLoginBlocksInput() {
@@ -1242,8 +1315,19 @@ func (m *model) requestSessionPreview() tea.Cmd {
 	if m.options.SessionID == "" || m.sessionPreviewLoaded || m.sessionPreviewLoading || m.options.Backend == nil {
 		return nil
 	}
+	if m.workspaceTrust == nil || !m.workspaceTrust.Trusted {
+		return nil
+	}
 	m.sessionPreviewLoading = true
 	return fetchSessionPreview(m.options.Backend, m.options.SessionID)
+}
+
+func (m *model) requestWorkspaceTrust() tea.Cmd {
+	if m.workspaceTrust != nil || m.workspaceTrustLoading || m.options.Backend == nil {
+		return nil
+	}
+	m.workspaceTrustLoading = true
+	return fetchWorkspaceTrust(m.options.Backend)
 }
 
 func fetchModelCatalog(backend Backend) tea.Cmd {
@@ -1274,6 +1358,35 @@ func fetchPermissionState(backend Backend, sessionID string, display bool) tea.C
 			Err:     err,
 			Updated: false,
 			Display: display,
+		}
+	}
+}
+
+func fetchWorkspaceTrust(backend Backend) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), queueControlTimeout)
+		defer cancel()
+		response, err := backend.WorkspaceTrustStatus(ctx)
+		return workspaceTrustLoadedMsg{
+			Status:  response,
+			Err:     err,
+			Updated: false,
+		}
+	}
+}
+
+func acceptWorkspaceTrust(backend Backend) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), queueControlTimeout)
+		defer cancel()
+		response, err := backend.AcceptWorkspaceTrust(ctx)
+		return workspaceTrustLoadedMsg{
+			Status: rpc.WorkspaceTrustStatusResponse{
+				Trusted:     response.Trusted,
+				TrustTarget: response.TrustTarget,
+			},
+			Err:     err,
+			Updated: true,
 		}
 	}
 }

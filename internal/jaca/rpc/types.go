@@ -25,6 +25,10 @@ type SessionPreviewPayload struct {
 
 type WorkspaceProjectDocsPayload struct{}
 
+type WorkspaceTrustStatusPayload struct{}
+
+type WorkspaceTrustAcceptPayload struct{}
+
 type ModelCatalogPayload struct{}
 
 type AuthStatusPayload struct{}
@@ -208,6 +212,16 @@ type WorkspaceProjectDoc struct {
 
 type WorkspaceProjectDocsResponse struct {
 	Documents []WorkspaceProjectDoc `json:"documents"`
+}
+
+type WorkspaceTrustStatusResponse struct {
+	Trusted     bool   `json:"trusted"`
+	TrustTarget string `json:"trust_target"`
+}
+
+type WorkspaceTrustAcceptResponse struct {
+	Trusted     bool   `json:"trusted"`
+	TrustTarget string `json:"trust_target"`
 }
 
 type ModelCatalogModel struct {

@@ -66,6 +66,10 @@ func TestModelRunsAgainstRealRPCBackendProcess(t *testing.T) {
 	m.height = 14
 	m.visibleZones = 3
 
+	m.workspaceTrust = &rpc.WorkspaceTrustStatusResponse{
+		Trusted:     true,
+		TrustTarget: workspaceRoot,
+	}
 	m.textInput.SetValue("ship it")
 	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = runIntegrationCmd(updated.(*model), cmd)
@@ -182,6 +186,30 @@ func TestGoTUIRPCBackendHelperProcess(t *testing.T) {
 				},
 			}); err != nil {
 				fmt.Fprintf(os.Stderr, "helper encode auth.status response: %v\n", err)
+				os.Exit(1)
+			}
+		case "workspace.trust_status":
+			if err := encoder.Encode(map[string]any{
+				"type": "rpc_response",
+				"id":   request.ID,
+				"response": map[string]any{
+					"trusted":      true,
+					"trust_target": "/workspace",
+				},
+			}); err != nil {
+				fmt.Fprintf(os.Stderr, "helper encode workspace.trust_status response: %v\n", err)
+				os.Exit(1)
+			}
+		case "workspace.trust_accept":
+			if err := encoder.Encode(map[string]any{
+				"type": "rpc_response",
+				"id":   request.ID,
+				"response": map[string]any{
+					"trusted":      true,
+					"trust_target": "/workspace",
+				},
+			}); err != nil {
+				fmt.Fprintf(os.Stderr, "helper encode workspace.trust_accept response: %v\n", err)
 				os.Exit(1)
 			}
 		case "session.create":

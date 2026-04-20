@@ -48,6 +48,7 @@ def create_session(
     *,
     sessions_root: Path | str,
     workspace_root: Path | str,
+    project_docs_root: Path | str | None = None,
 ) -> str:
     while True:
         session_id = uuid4().hex
@@ -63,6 +64,7 @@ def create_session(
         append_project_docs_to_session(
             path=session_path,
             workspace_root=workspace_root,
+            project_docs_root=project_docs_root,
         )
         return session_id
 

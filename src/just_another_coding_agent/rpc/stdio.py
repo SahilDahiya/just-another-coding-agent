@@ -78,6 +78,10 @@ from just_another_coding_agent.contracts.rpc import (
     WorkspaceProjectDoc,
     WorkspaceProjectDocsRequest,
     WorkspaceProjectDocsResponse,
+    WorkspaceTrustAcceptRequest,
+    WorkspaceTrustAcceptResponse,
+    WorkspaceTrustStatusRequest,
+    WorkspaceTrustStatusResponse,
 )
 from just_another_coding_agent.contracts.run_events import (
     RunEvent,
@@ -110,6 +114,11 @@ from just_another_coding_agent.runtime.project_docs import (
     load_workspace_project_docs,
 )
 from just_another_coding_agent.runtime.session import stream_session_run_events
+from just_another_coding_agent.runtime.workspace_trust import (
+    accept_workspace_trust,
+    resolve_workspace_trust_target,
+    workspace_trust_status,
+)
 from just_another_coding_agent.session import (
     SessionFormatError,
     SessionNameValidationError,
@@ -511,13 +520,45 @@ def _rpc_error_handler(
     return decorator
 
 
+def _workspace_is_trusted(workspace_root: Path | str) -> bool:
+    return workspace_trust_status(workspace_root).trusted
+
+
+def _workspace_project_docs_root(workspace_root: Path | str) -> Path:
+    return resolve_workspace_trust_target(workspace_root)
+
+
+def _workspace_untrusted_error(
+    *,
+    request_id: str,
+    workspace_root: Path | str,
+) -> RpcErrorEnvelope:
+    status = workspace_trust_status(workspace_root)
+    return RpcErrorEnvelope(
+        id=request_id,
+        error_type="WorkspaceUntrusted",
+        message=(
+            "Workspace is not trusted yet. Accept trust for "
+            f"{status.trust_target} before loading project instructions or "
+            "starting a session."
+        ),
+    )
+
+
 async def _handle_session_create(
     request: SessionCreateRequest,
     ctx: _RpcContext,
 ) -> AsyncIterator[str]:
+    if not _workspace_is_trusted(ctx.workspace_root):
+        yield _workspace_untrusted_error(
+            request_id=request.id,
+            workspace_root=ctx.workspace_root,
+        ).model_dump_json()
+        return
     session_id = create_session(
         sessions_root=ctx.sessions_root,
         workspace_root=ctx.workspace_root,
+        project_docs_root=_workspace_project_docs_root(ctx.workspace_root),
     )
     _PERMISSION_STATES[session_id] = _SessionPermissionContext(
         permission_state=_get_or_create_permission_context(
@@ -535,7 +576,9 @@ async def _handle_session_create(
                     filename=doc.filename,
                     truncated=doc.truncated,
                 )
-                for doc in load_workspace_project_docs(ctx.workspace_root)
+                for doc in load_workspace_project_docs(
+                    _workspace_project_docs_root(ctx.workspace_root)
+                )
             ],
         ),
     ).model_dump_json()
@@ -1024,6 +1067,12 @@ async def _handle_workspace_project_docs(
     request: WorkspaceProjectDocsRequest,
     ctx: _RpcContext,
 ) -> AsyncIterator[str]:
+    if not _workspace_is_trusted(ctx.workspace_root):
+        yield _workspace_untrusted_error(
+            request_id=request.id,
+            workspace_root=ctx.workspace_root,
+        ).model_dump_json()
+        return
     yield RpcResponseEnvelope(
         id=request.id,
         response=WorkspaceProjectDocsResponse(
@@ -1033,8 +1082,38 @@ async def _handle_workspace_project_docs(
                     filename=doc.filename,
                     truncated=doc.truncated,
                 )
-                for doc in load_workspace_project_docs(ctx.workspace_root)
+                for doc in load_workspace_project_docs(
+                    _workspace_project_docs_root(ctx.workspace_root)
+                )
             ]
+        ),
+    ).model_dump_json()
+
+
+async def _handle_workspace_trust_status(
+    request: WorkspaceTrustStatusRequest,
+    ctx: _RpcContext,
+) -> AsyncIterator[str]:
+    status = workspace_trust_status(ctx.workspace_root)
+    yield RpcResponseEnvelope(
+        id=request.id,
+        response=WorkspaceTrustStatusResponse(
+            trusted=status.trusted,
+            trust_target=status.trust_target,
+        ),
+    ).model_dump_json()
+
+
+async def _handle_workspace_trust_accept(
+    request: WorkspaceTrustAcceptRequest,
+    ctx: _RpcContext,
+) -> AsyncIterator[str]:
+    status = accept_workspace_trust(ctx.workspace_root)
+    yield RpcResponseEnvelope(
+        id=request.id,
+        response=WorkspaceTrustAcceptResponse(
+            trusted=status.trusted,
+            trust_target=status.trust_target,
         ),
     ).model_dump_json()
 
@@ -1263,6 +1342,8 @@ _RPC_HANDLERS: dict[type[Any], RpcHandler] = {
     SessionNameRequest: _handle_session_name,
     SessionPreviewRequest: _handle_session_preview,
     WorkspaceProjectDocsRequest: _handle_workspace_project_docs,
+    WorkspaceTrustStatusRequest: _handle_workspace_trust_status,
+    WorkspaceTrustAcceptRequest: _handle_workspace_trust_accept,
     SessionCompactRequest: _handle_session_compact,
     RunStartRequest: _handle_run_start,
 }

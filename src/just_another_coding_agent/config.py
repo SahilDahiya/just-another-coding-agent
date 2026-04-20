@@ -14,13 +14,32 @@ CONFIG_PATH = CONFIG_DIR / "config.json"
 DEFAULT_MODEL = default_model_for_provider("openai")
 
 
+def _config_dir() -> Path:
+    return Path.home() / ".jaca"
+
+
+def _config_path() -> Path:
+    return _config_dir() / "config.json"
+
+
 def load_config() -> dict[str, str]:
-    if not CONFIG_PATH.exists():
+    config_path = _config_path()
+    if not config_path.exists():
         return {}
     try:
-        return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+        return json.loads(config_path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return {}
+
+
+def save_config(config: Mapping[str, str]) -> None:
+    config_dir = _config_dir()
+    config_path = _config_path()
+    config_dir.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(
+        json.dumps(dict(config), indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
 
 
 def apply_config_to_env(config: dict[str, str]) -> None:
@@ -68,4 +87,5 @@ __all__ = [
     "DEFAULT_MODEL",
     "load_config",
     "resolve_default_model",
+    "save_config",
 ]

@@ -232,6 +232,11 @@ Approval carrier rules:
   - `session.create` inherits the current workspace default permission state
   - `session_turn_context.effective_capabilities` remains the durable
     model-visible snapshot written after completed runs
+- workspace trust is a separate startup gate:
+  - it is stored per repo-root trust target rather than per nested cwd
+  - it blocks repo instruction loading and session bootstrap before any run
+    starts
+  - it does not grant sandbox or approval capability by itself
 - until a restricted executor backend lands:
   - the workspace default permission state is `workspace_write` with
     `approval_policy=on_escalation`
@@ -849,6 +854,8 @@ Initial executable RPC slice:
     - `auth.status` with payload `{}`
     - `auth.set` with payload `{"provider": <provider-name>, "secret": <string>, "storage": "file"}`
     - `auth.clear` with payload `{"provider": <provider-name>}`
+    - `workspace.trust_status` with payload `{}`
+    - `workspace.trust_accept` with payload `{}`
     - `session.create` with payload `{}`
     - `session.name` with payload `{"session_id": <opaque-lowercase-hex-string>, "name": <string>}`
     - `session.preview` with payload `{"session_id": <opaque-lowercase-hex-string>}`
@@ -862,6 +869,8 @@ Initial executable RPC slice:
     - `{"providers": [{"provider": <provider-name>, "configured": <bool>, "secret_configured": <bool>, "requires_secret": <bool>, "source": "env" | "file" | "none", "env_key": <provider-env-var>, "reason": "ok" | "missing_secret" | "local_endpoint_no_secret_required"}, ...], "local_secret_store": {"available": <bool>, "message": <optional-string>, "file_store_path": <abs-path>}}`
     - `{"status": {"provider": <provider-name>, "configured": <bool>, "secret_configured": <bool>, "requires_secret": <bool>, "source": "env" | "file" | "none", "env_key": <provider-env-var>, "reason": "ok" | "missing_secret" | "local_endpoint_no_secret_required"}}` for `auth.set`
     - `{"status": {"provider": <provider-name>, "configured": <bool>, "secret_configured": <bool>, "requires_secret": <bool>, "source": "env" | "file" | "none", "env_key": <provider-env-var>, "reason": "ok" | "missing_secret" | "local_endpoint_no_secret_required"}}` for `auth.clear`
+    - `{"trusted": <bool>, "trust_target": <abs-path>}` for `workspace.trust_status`
+    - `{"trusted": true, "trust_target": <abs-path>}` for `workspace.trust_accept`
     - `{"session_id": <opaque-lowercase-hex-string>}`
     - `{"session_id": <opaque-lowercase-hex-string>, "name": <backend-normalized-session-name>}` for `session.name`
     - `{"session_id": <opaque-lowercase-hex-string>, "entries": [{"kind": "instructions" | "user" | "activity" | "assistant" | "error", "text": <string>}], "truncated": <bool>}` for `session.preview`
@@ -891,8 +900,18 @@ Ordering rules for the RPC slice:
   secret in the backend-owned local auth file without echoing the secret back
 - A valid `auth.clear` request yields exactly one `rpc_response` and removes
   the stored local secret for that provider from the explicit local auth file
+- A valid `workspace.trust_status` request yields exactly one `rpc_response`
+  describing whether the repo-root trust target is currently trusted
+- A valid `workspace.trust_accept` request yields exactly one `rpc_response`,
+  persists trust for the repo-root trust target, and unblocks repo instruction
+  loading plus `session.create`
 - A valid `session.create` request yields exactly one `rpc_response` containing a server-generated opaque `session_id`
-- `session.create` may also append one backend-owned `session_project_docs` entry when workspace project docs were loaded for that new session
+- `session.create` must fail hard with `WorkspaceUntrusted` until trust is
+  accepted for the current trust target
+- `session.create` may also append one backend-owned `session_project_docs`
+  entry when workspace project docs were loaded for that new session
+- `workspace.project_docs` must fail hard with `WorkspaceUntrusted` until trust
+  is accepted for the current trust target
 - A valid `session.name` request must reference an existing `session_id`, append one backend-normalized `session_info` entry when the requested name changes, enforce workspace-local name uniqueness, and yield exactly one `rpc_response` containing that normalized session name
 - A valid `session.preview` request must reference an existing `session_id` and yields exactly one `rpc_response` containing a bounded recent-history preview derived from durable session runs plus any persisted `session_project_docs` disclosure; it is a presentation helper and does not change resume authority
 - Session preview may include `activity` entries derived from persisted

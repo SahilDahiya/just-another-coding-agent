@@ -59,6 +59,13 @@ async def _noop_emit_rpc_event(_request_id: str, _event) -> None:
     return None
 
 
+@pytest.fixture(autouse=True)
+def _isolate_jaca_home(tmp_path, monkeypatch) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+
+
 def _all_parts(messages: list[ModelMessage]):
     for message in messages:
         for part in message.parts:
@@ -221,6 +228,20 @@ async def _rpc_messages(
 
 
 async def _create_session_id(*, workspace_root, sessions_root) -> str:
+    trust_messages = await _rpc_messages(
+        request_payload={
+            "id": "req-trust-accept",
+            "command": "workspace.trust_accept",
+            "payload": {},
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    assert trust_messages[0]["type"] == "rpc_response"
+    assert trust_messages[0]["response"]["trusted"] is True
+
     messages = await _rpc_messages(
         request_payload={
             "id": "req-create",
@@ -2607,7 +2628,9 @@ async def test_handle_rpc_json_line_returns_invalid_request_error(
 
 async def test_handle_rpc_json_line_lists_workspace_project_docs(
     tmp_path,
+    monkeypatch,
 ) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
     sessions_root = tmp_path / "sessions"
@@ -2616,6 +2639,27 @@ async def test_handle_rpc_json_line_lists_workspace_project_docs(
         "Be repo-grounded.\n",
         encoding="utf-8",
     )
+
+    accept_messages = await _rpc_messages(
+        request_payload={
+            "id": "req-trust-accept",
+            "command": "workspace.trust_accept",
+            "payload": {},
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+    assert accept_messages == [
+        {
+            "type": "rpc_response",
+            "id": "req-trust-accept",
+            "response": {
+                "trusted": True,
+                "trust_target": str(workspace_root),
+            },
+        }
+    ]
 
     messages = await _rpc_messages(
         request_payload={
@@ -2644,6 +2688,153 @@ async def test_handle_rpc_json_line_lists_workspace_project_docs(
                         "filename": "CLAUDE.md",
                         "truncated": False,
                     },
+                ]
+            },
+        }
+    ]
+
+
+async def test_workspace_trust_status_accept_and_session_gate(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    workspace_root = tmp_path / "repo" / "nested"
+    workspace_root.mkdir(parents=True)
+    repo_root = workspace_root.parent
+    (repo_root / ".git").mkdir()
+    (repo_root / "AGENTS.md").write_text("Read docs first.\n", encoding="utf-8")
+    sessions_root = tmp_path / "sessions"
+
+    status_messages = await _rpc_messages(
+        request_payload={
+            "id": "req-trust-status",
+            "command": "workspace.trust_status",
+            "payload": {},
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+    assert status_messages == [
+        {
+            "type": "rpc_response",
+            "id": "req-trust-status",
+            "response": {
+                "trusted": False,
+                "trust_target": str(repo_root),
+            },
+        }
+    ]
+
+    create_messages = await _rpc_messages(
+        request_payload={
+            "id": "req-create-untrusted",
+            "command": "session.create",
+            "payload": {},
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+    assert create_messages == [
+        {
+            "type": "rpc_error",
+            "id": "req-create-untrusted",
+            "error_type": "WorkspaceUntrusted",
+            "message": (
+                "Workspace is not trusted yet. Accept trust for "
+                f"{repo_root} before loading project instructions or "
+                "starting a session."
+            ),
+        }
+    ]
+
+    docs_messages = await _rpc_messages(
+        request_payload={
+            "id": "req-docs-untrusted",
+            "command": "workspace.project_docs",
+            "payload": {},
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+    assert docs_messages == [
+        {
+            "type": "rpc_error",
+            "id": "req-docs-untrusted",
+            "error_type": "WorkspaceUntrusted",
+            "message": (
+                "Workspace is not trusted yet. Accept trust for "
+                f"{repo_root} before loading project instructions or "
+                "starting a session."
+            ),
+        }
+    ]
+
+    accept_messages = await _rpc_messages(
+        request_payload={
+            "id": "req-trust-accept",
+            "command": "workspace.trust_accept",
+            "payload": {},
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+    assert accept_messages == [
+        {
+            "type": "rpc_response",
+            "id": "req-trust-accept",
+            "response": {
+                "trusted": True,
+                "trust_target": str(repo_root),
+            },
+        }
+    ]
+
+    trusted_create_messages = await _rpc_messages(
+        request_payload={
+            "id": "req-create-trusted",
+            "command": "session.create",
+            "payload": {},
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+    assert trusted_create_messages[0]["type"] == "rpc_response"
+    assert trusted_create_messages[0]["id"] == "req-create-trusted"
+    assert trusted_create_messages[0]["response"]["project_docs"] == [
+        {
+            "path": str(repo_root / "AGENTS.md"),
+            "filename": "AGENTS.md",
+            "truncated": False,
+        }
+    ]
+
+    trusted_docs_messages = await _rpc_messages(
+        request_payload={
+            "id": "req-docs-trusted",
+            "command": "workspace.project_docs",
+            "payload": {},
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+    assert trusted_docs_messages == [
+        {
+            "type": "rpc_response",
+            "id": "req-docs-trusted",
+            "response": {
+                "documents": [
+                    {
+                        "path": str(repo_root / "AGENTS.md"),
+                        "filename": "AGENTS.md",
+                        "truncated": False,
+                    }
                 ]
             },
         }
