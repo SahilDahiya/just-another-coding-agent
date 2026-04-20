@@ -7,7 +7,7 @@ import json
 import time
 from collections import defaultdict, deque
 from collections.abc import AsyncIterator, Awaitable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, TextIO
 
@@ -393,9 +393,6 @@ class _FollowUpState:
         )
 
 
-_FOLLOW_UP_STATE = _FollowUpState()
-
-
 @dataclass
 class _OpenAICodexLoginFlowState:
     flow: OpenAICodexLoginFlow
@@ -416,9 +413,25 @@ class _SessionPermissionContext:
     permission_memory: SessionPermissionMemory
 
 
-_OPENAI_CODEX_LOGIN_FLOWS: dict[str, _OpenAICodexLoginFlowState] = {}
-_PERMISSION_STATES: dict[str, _SessionPermissionContext] = {}
-_PENDING_APPROVALS: dict[str, dict[str, _PendingApprovalState]] = defaultdict(dict)
+@dataclass
+class _RpcRuntimeState:
+    follow_up_state: _FollowUpState = field(default_factory=_FollowUpState)
+    openai_codex_login_flows: dict[str, _OpenAICodexLoginFlowState] = field(
+        default_factory=dict
+    )
+    permission_states: dict[str, _SessionPermissionContext] = field(
+        default_factory=dict
+    )
+    pending_approvals: dict[str, dict[str, _PendingApprovalState]] = field(
+        default_factory=lambda: defaultdict(dict)
+    )
+
+
+def _new_runtime_state() -> _RpcRuntimeState:
+    return _RpcRuntimeState()
+
+
+_RUNTIME_STATE = _new_runtime_state()
 _DEFAULT_PERMISSION_STATE_KEY = "__workspace_default__"
 
 
@@ -488,10 +501,10 @@ def _build_permission_context_for_session(
 def _get_or_create_permission_context(
     session_id: str | None,
 ) -> _SessionPermissionContext:
-    state = _PERMISSION_STATES.get(_permission_state_key(session_id))
+    state = _RUNTIME_STATE.permission_states.get(_permission_state_key(session_id))
     if state is None:
         state = _build_permission_context_for_session(session_id)
-        _PERMISSION_STATES[_permission_state_key(session_id)] = state
+        _RUNTIME_STATE.permission_states[_permission_state_key(session_id)] = state
     return state
 
 
@@ -562,7 +575,7 @@ async def _handle_session_create(
         workspace_root=ctx.workspace_root,
         project_docs_root=_workspace_project_docs_root(ctx.workspace_root),
     )
-    _PERMISSION_STATES[session_id] = _SessionPermissionContext(
+    _RUNTIME_STATE.permission_states[session_id] = _SessionPermissionContext(
         permission_state=_get_or_create_permission_context(
             None
         ).permission_state.model_copy(deep=True),
@@ -697,13 +710,13 @@ async def _handle_auth_login_openai_codex_start(
     _ctx: _RpcContext,
 ) -> AsyncIterator[str]:
     flow, flow_id, auth_url, instructions = start_openai_codex_oauth_login()
-    for state in _OPENAI_CODEX_LOGIN_FLOWS.values():
+    for state in _RUNTIME_STATE.openai_codex_login_flows.values():
         _cancel_login_flow_task(state.task)
         _fail_login_result(state.result, "login flow cancelled")
-    _OPENAI_CODEX_LOGIN_FLOWS.clear()
+    _RUNTIME_STATE.openai_codex_login_flows.clear()
 
     result = asyncio.get_running_loop().create_future()
-    _OPENAI_CODEX_LOGIN_FLOWS[flow_id] = _OpenAICodexLoginFlowState(
+    _RUNTIME_STATE.openai_codex_login_flows[flow_id] = _OpenAICodexLoginFlowState(
         flow=flow,
         task=asyncio.create_task(
             _drive_login_result(
@@ -728,7 +741,7 @@ async def _handle_auth_login_openai_codex_wait(
     request: AuthLoginOpenAICodexWaitRequest,
     _ctx: _RpcContext,
 ) -> AsyncIterator[str]:
-    state = _OPENAI_CODEX_LOGIN_FLOWS.get(request.payload.flow_id)
+    state = _RUNTIME_STATE.openai_codex_login_flows.get(request.payload.flow_id)
     result = state.result if state is not None else None
     if result is None:
         status = _find_oauth_provider_status("openai-codex")
@@ -765,7 +778,7 @@ async def _handle_auth_login_openai_codex_complete(
     request: AuthLoginOpenAICodexCompleteRequest,
     _ctx: _RpcContext,
 ) -> AsyncIterator[str]:
-    state = _OPENAI_CODEX_LOGIN_FLOWS.get(request.payload.flow_id)
+    state = _RUNTIME_STATE.openai_codex_login_flows.get(request.payload.flow_id)
     if state is None or state.result is None:
         yield RpcErrorEnvelope(
             id=request.id,
@@ -807,7 +820,7 @@ async def _handle_run_enqueue(
         ).model_dump_json()
         return
     try:
-        queued_count = await _FOLLOW_UP_STATE.enqueue(
+        queued_count = await _RUNTIME_STATE.follow_up_state.enqueue(
             request.payload.session_id,
             request.payload.prompt,
             mode=request.payload.mode,
@@ -833,7 +846,7 @@ async def _handle_run_interrupt(
     _ctx: _RpcContext,
 ) -> AsyncIterator[str]:
     try:
-        promoted_count = await _FOLLOW_UP_STATE.interrupt(
+        promoted_count = await _RUNTIME_STATE.follow_up_state.interrupt(
             request.payload.session_id,
             promote_queued_steer=request.payload.promote_queued_steer,
         )
@@ -914,11 +927,10 @@ async def _handle_permission_set(
         ),
     )
     existing_context.permission_memory.clear()
-    _PERMISSION_STATES[_permission_state_key(request.payload.session_id)] = (
-        _SessionPermissionContext(
-            permission_state=permission_state,
-            permission_memory=existing_context.permission_memory,
-        )
+    state_key = _permission_state_key(request.payload.session_id)
+    _RUNTIME_STATE.permission_states[state_key] = _SessionPermissionContext(
+        permission_state=permission_state,
+        permission_memory=existing_context.permission_memory,
     )
 
     yield RpcResponseEnvelope(
@@ -947,7 +959,7 @@ async def _handle_approval_submit(
         ).model_dump_json()
         return
 
-    pending = _PENDING_APPROVALS.get(request.payload.session_id, {})
+    pending = _RUNTIME_STATE.pending_approvals.get(request.payload.session_id, {})
     approval_state = pending.get(request.payload.decision.request_id)
     if approval_state is None:
         yield RpcErrorEnvelope(
@@ -1207,13 +1219,15 @@ async def _handle_run_start(
     async def activate_boundary(
         attach: Callable[[list[str]], None],
     ) -> None:
-        await _FOLLOW_UP_STATE.activate_steer_boundary(
+        await _RUNTIME_STATE.follow_up_state.activate_steer_boundary(
             request.payload.session_id,
             attach,
         )
 
     async def submit_boundary() -> None:
-        await _FOLLOW_UP_STATE.submit_active_steer_boundary(request.payload.session_id)
+        await _RUNTIME_STATE.follow_up_state.submit_active_steer_boundary(
+            request.payload.session_id
+        )
 
     async def resolve_approval_request(
         decision_request: ApprovalRequest,
@@ -1224,7 +1238,9 @@ async def _handle_run_start(
                 asyncio.get_running_loop().create_future()
             ),
         )
-        session_pending = _PENDING_APPROVALS[request.payload.session_id]
+        session_pending = _RUNTIME_STATE.pending_approvals[
+            request.payload.session_id
+        ]
         if decision_request.request_id in session_pending:
             raise RuntimeError(
                 "Approval request already pending for session: "
@@ -1234,13 +1250,17 @@ async def _handle_run_start(
         try:
             return await approval_state.response_future
         finally:
-            current_pending = _PENDING_APPROVALS.get(request.payload.session_id)
+            current_pending = _RUNTIME_STATE.pending_approvals.get(
+                request.payload.session_id
+            )
             if current_pending is not None:
                 current_pending.pop(decision_request.request_id, None)
                 if not current_pending:
-                    _PENDING_APPROVALS.pop(request.payload.session_id, None)
+                    _RUNTIME_STATE.pending_approvals.pop(
+                        request.payload.session_id, None
+                    )
 
-    await _FOLLOW_UP_STATE.activate(
+    await _RUNTIME_STATE.follow_up_state.activate(
         request.payload.session_id,
         run_task=current_task,
         emit_queue_state=emit_queue_state,
@@ -1267,7 +1287,7 @@ async def _handle_run_start(
                     activate_steer_boundary=activate_boundary,
                     submit_steer_boundary=submit_boundary,
                     deactivate_steer_boundary=lambda: (
-                        _FOLLOW_UP_STATE.deactivate_steer_boundary(
+                        _RUNTIME_STATE.follow_up_state.deactivate_steer_boundary(
                             request.payload.session_id
                         )
                     ),
@@ -1307,10 +1327,11 @@ async def _handle_run_start(
                 ).model_dump_json()
                 return
 
-            await _FOLLOW_UP_STATE.downgrade_pending_steers_to_follow_ups(
+            follow_up_state = _RUNTIME_STATE.follow_up_state
+            await follow_up_state.downgrade_pending_steers_to_follow_ups(
                 request.payload.session_id
             )
-            prompt_batch = await _FOLLOW_UP_STATE.take_next_follow_up_batch(
+            prompt_batch = await follow_up_state.take_next_follow_up_batch(
                 request.payload.session_id
             )
             if prompt_batch is None:
@@ -1318,7 +1339,7 @@ async def _handle_run_start(
             await emit_submitted_prompt_batch("later", prompt_batch)
             prompt = _combine_prompt_batch(prompt_batch)
     finally:
-        await _FOLLOW_UP_STATE.deactivate(request.payload.session_id)
+        await _RUNTIME_STATE.follow_up_state.deactivate(request.payload.session_id)
     yield RpcResponseEnvelope(
         id=request.id,
         response=RunStartResponse(session_id=request.payload.session_id),
@@ -1547,7 +1568,7 @@ def _prune_stale_login_flows(now: float | None = None) -> None:
     current = time.monotonic() if now is None else now
     stale_ids = [
         flow_id
-        for flow_id, state in _OPENAI_CODEX_LOGIN_FLOWS.items()
+        for flow_id, state in _RUNTIME_STATE.openai_codex_login_flows.items()
         if (
             state.started_at is not None
             and (current - state.started_at) > _LOGIN_FLOW_TTL_SECONDS
@@ -1562,7 +1583,7 @@ def _prune_stale_login_flows(now: float | None = None) -> None:
 
 
 def _pop_login_flow_state(flow_id: str) -> _OpenAICodexLoginFlowState | None:
-    return _OPENAI_CODEX_LOGIN_FLOWS.pop(flow_id, None)
+    return _RUNTIME_STATE.openai_codex_login_flows.pop(flow_id, None)
 
 
 def _cancel_login_flow_task(task: asyncio.Task | None) -> None:
