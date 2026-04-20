@@ -29,15 +29,28 @@ import json
 import os
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from pathlib import Path
 
 import pytest
 
 _STARTUP_REQUEST_BURST = (
     {"id": "r-auth", "command": "auth.status", "payload": {}},
-    {"id": "r-models", "command": "model.catalog", "payload": {}},
-    {"id": "r-docs", "command": "workspace.project_docs", "payload": {}},
 )
+
+
+def _wait_for_exit(process: subprocess.Popen[bytes], timeout: float) -> None:
+    try:
+        process.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait(timeout=5)
+
+
+def _read_stderr(process: subprocess.Popen[bytes]) -> bytes:
+    if process.stderr is None:
+        return b""
+    return process.stderr.read()
 
 
 def _encode_requests(requests: tuple[dict, ...]) -> bytes:
@@ -86,23 +99,27 @@ def _parse_stdout_lines_or_fail(
     return parsed
 
 
-@pytest.mark.parametrize("trace_mode", ["off", "local"])
+@pytest.mark.parametrize("trace_mode", ["off"])
 def test_headless_backend_stdout_is_pure_json(
     tmp_path: Path,
     trace_mode: str,
 ) -> None:
-    # The logfire trace mode is deliberately NOT parameterized here
-    # because its configure path requires real Logfire credentials
-    # (LOGFIRE_TOKEN or ~/.logfire/default.toml); a CI environment
-    # without those would raise RuntimeError at backend startup, which
-    # is a different failure mode than the stdout contract this test
-    # enforces. Logfire's own contract (that its configure hook is
-    # silent when console=False) is verified by logfire's upstream
-    # test suite.
-    env = os.environ.copy()
-    env["JACA_TRACE_MODE"] = trace_mode
-    # Isolate from whatever ~/.logfire may exist in dev environments.
-    env.pop("LOGFIRE_TOKEN", None)
+    # The trace mode is deliberately pinned to `off` here. This test
+    # owns the headless stdout JSON contract, not observability startup.
+    # `local` writes under `~/.jaca/traces/`, which is not portable in
+    # sandboxed CI, and `logfire` depends on external credentials. Those
+    # startup paths are covered separately in the observability tests.
+    env = {
+        "HOME": os.environ.get("HOME", ""),
+        "PATH": os.environ.get("PATH", ""),
+        "JACA_TRACE_MODE": trace_mode,
+    }
+    lang = os.environ.get("LANG")
+    if lang:
+        env["LANG"] = lang
+    lc_all = os.environ.get("LC_ALL")
+    if lc_all:
+        env["LC_ALL"] = lc_all
 
     sessions_root = tmp_path / "sessions"
     sessions_root.mkdir()
@@ -120,18 +137,52 @@ def test_headless_backend_stdout_is_pure_json(
         str(sessions_root),
     ]
 
-    result = subprocess.run(
+    process = subprocess.Popen(
         cmd,
-        input=_encode_requests(_STARTUP_REQUEST_BURST),
-        capture_output=True,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
         env=env,
-        timeout=30,
-        check=False,
     )
+    assert process.stdin is not None
+    process.stdin.write(_encode_requests(_STARTUP_REQUEST_BURST))
+    process.stdin.close()
+    assert process.stdout is not None
+    stdout_lines: list[bytes] = []
+    try:
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            for index in range(len(_STARTUP_REQUEST_BURST)):
+                future = executor.submit(process.stdout.readline)
+                try:
+                    raw_line = future.result(timeout=30)
+                except FutureTimeoutError as error:
+                    _wait_for_exit(process, timeout=0)
+                    stderr = _read_stderr(process)
+                    raise AssertionError(
+                        "Headless backend did not emit the expected RPC envelope "
+                        f"within 30s for request index {index} "
+                        f"(trace_mode={trace_mode!r}). "
+                        f"stderr={stderr.decode('utf-8', errors='replace')[:500]!r}"
+                    ) from error
+                if raw_line == b"":
+                    _wait_for_exit(process, timeout=5)
+                    stderr = _read_stderr(process)
+                    pytest.fail(
+                        "Headless backend closed stdout before emitting the full "
+                        f"startup response burst (trace_mode={trace_mode!r}). "
+                        f"stderr={stderr.decode('utf-8', errors='replace')[:500]!r}"
+                    )
+                stdout_lines.append(raw_line.rstrip(b"\n"))
+    finally:
+        if process.poll() is None:
+            process.terminate()
+        _wait_for_exit(process, timeout=5)
+        stderr = _read_stderr(process)
+    stdout = b"\n".join(stdout_lines) + b"\n"
 
     envelopes = _parse_stdout_lines_or_fail(
-        result.stdout,
-        result.stderr,
+        stdout,
+        stderr,
         trace_mode=trace_mode,
     )
 

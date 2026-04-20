@@ -33,6 +33,14 @@ def _worker_build_dir() -> Path:
     return repo_root() / ".pytest_cache" / "jaca-test-bin"
 
 
+def _worker_go_cache_dir() -> Path:
+    return repo_root() / ".pytest_cache" / "jaca-go-cache"
+
+
+def _worker_go_tmp_dir() -> Path:
+    return repo_root() / ".pytest_cache" / "jaca-go-tmp"
+
+
 @lru_cache(maxsize=1)
 def ensure_built_read_only_worker() -> Path:
     executable = _worker_build_dir() / READ_ONLY_WORKER_BINARY
@@ -40,6 +48,13 @@ def ensure_built_read_only_worker() -> Path:
 
     env = os.environ.copy()
     env.setdefault("CGO_ENABLED", "0")
+    env.setdefault("GOTOOLCHAIN", "local")
+    go_cache_dir = _worker_go_cache_dir()
+    go_tmp_dir = _worker_go_tmp_dir()
+    go_cache_dir.mkdir(parents=True, exist_ok=True)
+    go_tmp_dir.mkdir(parents=True, exist_ok=True)
+    env.setdefault("GOCACHE", str(go_cache_dir))
+    env.setdefault("GOTMPDIR", str(go_tmp_dir))
     completed = subprocess.run(
         ["go", "build", "-o", str(executable), "./cmd/jaca-read-only-worker"],
         cwd=repo_root(),
@@ -54,6 +69,11 @@ def ensure_built_read_only_worker() -> Path:
             or completed.stdout.strip()
             or f"go build exited with status {completed.returncode}"
         )
+        if "go.mod requires go >=" in detail and "GOTOOLCHAIN=local" in detail:
+            pytest.skip(
+                "go 1.23+ is required to build read-only worker e2e tests in this "
+                "environment"
+            )
         raise RuntimeError(f"failed to build read-only worker test binary: {detail}")
     if not executable.is_file():
         raise RuntimeError(

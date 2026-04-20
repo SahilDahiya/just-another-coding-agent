@@ -169,7 +169,7 @@ The minimum Windows health bar for this repo is:
 
 - `uv sync --extra dev --extra test` succeeds
 - shipped provider imports resolve from that environment
-- `uv run python -m pytest tests/contracts tests/e2e --ignore=tests/e2e/test_rust_read_only_worker.py tests/evaluations` succeeds
+- `uv run python -m pytest tests/contracts tests/e2e tests/evaluations` succeeds
 - `go test ./cmd/jaca ./cmd/jaca-read-only-worker ./internal/jaca/...` succeeds
 - bundled wheel verification succeeds
 

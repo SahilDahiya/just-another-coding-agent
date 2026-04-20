@@ -249,7 +249,7 @@ async def wait_for_openai_codex_callback(
         return await asyncio.wait_for(result, timeout=timeout_seconds)
     finally:
         server.close()
-        asyncio.create_task(server.wait_closed())
+        await server.wait_closed()
 
 
 def _build_authorize_url(*, verifier: str, challenge: str, state: str) -> str:

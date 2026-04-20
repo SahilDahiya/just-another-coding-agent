@@ -14,6 +14,7 @@ from just_another_coding_agent.contracts.run_events import (
 )
 from just_another_coding_agent.rpc.session_store import session_path_for_id
 from just_another_coding_agent.rpc.stdio import handle_rpc_json_line
+from just_another_coding_agent.runtime.workspace_trust import accept_workspace_trust
 from just_another_coding_agent.session.jsonl import load_session
 
 _RUN_EVENT_ADAPTER = TypeAdapter(RunEvent)
@@ -117,6 +118,7 @@ async def _rpc_messages(
 
 
 async def _create_session_id(*, workspace_root, sessions_root) -> str:
+    accept_workspace_trust(workspace_root)
     messages = await _rpc_messages(
         request_payload={
             "id": "req-create",

@@ -515,26 +515,25 @@ def _run_headless(
     input_stream: TextIO | None,
     output_stream: TextIO | None,
 ) -> int:
-    apply_managed_tool_path()
+    rpc_input_stream = sys.stdin if input_stream is None else input_stream
+    rpc_output_stream = sys.stdout if output_stream is None else output_stream
     with redirect_stdout(sys.stderr):
+        apply_managed_tool_path()
         configure_observability()
-    try:
-        with use_inherited_trace_context():
-            asyncio.run(
-                serve_rpc_stdio(
-                    input_stream=sys.stdin if input_stream is None else input_stream,
-                    output_stream=sys.stdout
-                    if output_stream is None
-                    else output_stream,
-                    model=model,
-                    workspace_root=workspace_root,
-                    sessions_root=sessions_root,
+        try:
+            with use_inherited_trace_context():
+                asyncio.run(
+                    serve_rpc_stdio(
+                        input_stream=rpc_input_stream,
+                        output_stream=rpc_output_stream,
+                        model=model,
+                        workspace_root=workspace_root,
+                        sessions_root=sessions_root,
+                    )
                 )
-            )
-    except KeyboardInterrupt:
-        return 130
-    finally:
-        with redirect_stdout(sys.stderr):
+        except KeyboardInterrupt:
+            return 130
+        finally:
             flush_observability()
     return 0
 

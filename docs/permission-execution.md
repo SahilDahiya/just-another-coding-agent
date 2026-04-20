@@ -130,6 +130,8 @@ Likely improvement directions:
 
 - make the heuristic set explicit and test-driven for each supported command
   family
+- separate heuristic action extraction from explicit policy evaluation through a
+  small backend rule engine; see `permission-rule-engine.md`
 - enrich approval requests with more parsed command context
 - separate read, write, and network escalation reasons more clearly in the
   backend contract

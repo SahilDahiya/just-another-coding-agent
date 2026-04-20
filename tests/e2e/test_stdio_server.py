@@ -24,6 +24,7 @@ from just_another_coding_agent.contracts.run_events import (
 )
 from just_another_coding_agent.rpc import serve_rpc_stdio
 from just_another_coding_agent.rpc.session_store import session_path_for_id
+from just_another_coding_agent.runtime.workspace_trust import accept_workspace_trust
 from just_another_coding_agent.runtime.turn_context import (
     build_runtime_context_message,
     build_runtime_context_update_message,
@@ -65,6 +66,10 @@ def _assistant_texts(messages: list[ModelMessage]) -> list[str]:
         for part in _all_parts(messages)
         if isinstance(part, TextPart)
     ]
+
+
+def _trust_workspace(workspace_root) -> None:
+    accept_workspace_trust(workspace_root)
 
 
 async def resume_aware_write_stream(
@@ -146,6 +151,7 @@ async def test_serve_rpc_stdio_handles_multiple_lines_in_one_process(
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
     sessions_root = tmp_path / "sessions"
+    _trust_workspace(workspace_root)
     input_stream = io.StringIO(
         "\n".join(
             [
@@ -379,6 +385,7 @@ async def test_headless_auth_status_responds_without_waiting_for_second_line(
     )
     assert process.stdin is not None
     assert process.stdout is not None
+    assert process.stderr is not None
     request = {
         "id": "req-auth",
         "command": "auth.status",
@@ -388,16 +395,26 @@ async def test_headless_auth_status_responds_without_waiting_for_second_line(
         process.stdin.write((json.dumps(request) + "\n").encode("utf-8"))
         await process.stdin.drain()
 
-        line = await asyncio.wait_for(process.stdout.readline(), timeout=5)
+        try:
+            line = await asyncio.wait_for(process.stdout.readline(), timeout=15)
+        except asyncio.TimeoutError as error:
+            process.terminate()
+            _stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=5)
+            raise AssertionError(
+                "headless auth.status did not respond after the first request line "
+                f"within 15s; stderr={stderr.decode('utf-8', errors='replace')[:500]!r}"
+            ) from error
         message = json.loads(line)
         assert message["type"] == "rpc_response"
         assert message["id"] == "req-auth"
         assert "providers" in message["response"]
     finally:
-        process.stdin.close()
-        await process.stdin.wait_closed()
-        process.terminate()
-        await asyncio.wait_for(process.communicate(), timeout=5)
+        if not process.stdin.is_closing():
+            process.stdin.close()
+            await process.stdin.wait_closed()
+        if process.returncode is None:
+            process.terminate()
+            await asyncio.wait_for(process.communicate(), timeout=5)
 
 
 async def test_serve_rpc_stdio_drains_queued_follow_up_after_run(
@@ -919,6 +936,7 @@ async def test_serve_rpc_stdio_emits_model_and_thinking_runtime_context_update(
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
     sessions_root = tmp_path / "sessions"
+    _trust_workspace(workspace_root)
 
     monkeypatch.setattr(
         "just_another_coding_agent.rpc.session_store.uuid4",
@@ -1050,6 +1068,7 @@ async def test_serve_rpc_stdio_scopes_sessions_to_workspace_root(
     second_workspace_root = tmp_path / "workspace-b"
     second_workspace_root.mkdir()
     sessions_root = tmp_path / "sessions"
+    _trust_workspace(first_workspace_root)
 
     monkeypatch.setattr(
         "just_another_coding_agent.rpc.session_store.uuid4",
@@ -1165,6 +1184,7 @@ async def test_serve_rpc_stdio_supports_session_compact(
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
     sessions_root = tmp_path / "sessions"
+    _trust_workspace(workspace_root)
     input_stream = io.StringIO(
         "\n".join(
             [
@@ -1344,6 +1364,62 @@ def test_main_headless_redirects_startup_stdout_to_stderr(tmp_path, monkeypatch)
     assert "No Logfire project credentials found." in stderr_stream.getvalue()
 
 
+def test_main_headless_redirects_serve_phase_stdout_to_stderr(
+    tmp_path, monkeypatch
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    input_stream = io.StringIO("")
+    stdout_stream = io.StringIO()
+    stderr_stream = io.StringIO()
+
+    async def fake_serve_rpc_stdio(**kwargs) -> None:
+        print("request-phase stdout noise")
+        kwargs["output_stream"].write(
+            json.dumps(
+                {
+                    "type": "rpc_response",
+                    "id": "1",
+                    "response": {"providers": []},
+                }
+            )
+            + "\n"
+        )
+
+    monkeypatch.setattr(
+        "just_another_coding_agent.__main__.serve_rpc_stdio",
+        fake_serve_rpc_stdio,
+    )
+    monkeypatch.setattr(
+        "just_another_coding_agent.__main__.flush_observability",
+        lambda: print("flush-phase stdout noise"),
+    )
+    monkeypatch.setattr("sys.stdout", stdout_stream)
+    monkeypatch.setattr("sys.stderr", stderr_stream)
+
+    exit_code = main(
+        [
+            "--model",
+            "openai:test-model",
+            "--headless",
+            "--workspace-root",
+            str(workspace_root),
+            "--sessions-root",
+            str(sessions_root),
+        ],
+        input_stream=input_stream,
+        output_stream=None,
+    )
+
+    assert exit_code == 0
+    assert stdout_stream.getvalue() == (
+        '{"type": "rpc_response", "id": "1", "response": {"providers": []}}\n'
+    )
+    assert "request-phase stdout noise" in stderr_stream.getvalue()
+    assert "flush-phase stdout noise" in stderr_stream.getvalue()
+
+
 def test_main_fails_fast_when_workspace_root_is_missing(tmp_path) -> None:
     missing_workspace_root = tmp_path / "missing-workspace"
     sessions_root = tmp_path / "sessions"
@@ -1451,6 +1527,7 @@ async def test_serve_rpc_stdio_keeps_event_loop_live_under_slow_output_stream(
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
     sessions_root = tmp_path / "sessions"
+    _trust_workspace(workspace_root)
     monkeypatch.setattr(
         "just_another_coding_agent.rpc.session_store.uuid4",
         lambda: SimpleNamespace(hex=fixed_session_id),

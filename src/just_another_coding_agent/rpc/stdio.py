@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
+import io
 import json
 import time
 from collections import defaultdict, deque
@@ -1411,6 +1413,16 @@ async def serve_rpc_stdio(
 ) -> None:
     session_locks: dict[str, asyncio.Lock] = {}
     pending_tasks: set[asyncio.Task[None]] = set()
+    input_is_memory_stream = isinstance(input_stream, io.StringIO)
+    output_is_memory_stream = isinstance(output_stream, io.StringIO)
+    output_executor = (
+        None
+        if output_is_memory_stream
+        else concurrent.futures.ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="jaca-stdio-out"
+        )
+    )
+    loop = asyncio.get_running_loop()
 
     # Unbounded outbound queue + single dedicated writer task. This makes
     # write_response non-blocking and non-yielding from the producers'
@@ -1442,11 +1454,17 @@ async def serve_rpc_stdio(
                 except asyncio.QueueEmpty:
                     break
                 if nxt is None:
-                    await asyncio.to_thread(_sync_drain, batch)
+                    if output_is_memory_stream:
+                        _sync_drain(batch)
+                    else:
+                        await loop.run_in_executor(output_executor, _sync_drain, batch)
                     return
                 batch.append(nxt)
             try:
-                await asyncio.to_thread(_sync_drain, batch)
+                if output_is_memory_stream:
+                    _sync_drain(batch)
+                else:
+                    await loop.run_in_executor(output_executor, _sync_drain, batch)
             except Exception:
                 # Never let a broken-pipe condition kill the writer
                 # task; the rest of the backend should still drain
@@ -1499,7 +1517,10 @@ async def serve_rpc_stdio(
 
     try:
         while True:
-            line = await asyncio.to_thread(input_stream.readline)
+            if input_is_memory_stream:
+                line = input_stream.readline()
+            else:
+                line = await asyncio.to_thread(input_stream.readline)
             if line == "":
                 break
 
@@ -1518,6 +1539,8 @@ async def serve_rpc_stdio(
             await writer_task
         except Exception:
             pass
+        if output_executor is not None:
+            output_executor.shutdown(wait=True, cancel_futures=True)
 
 
 def _prune_stale_login_flows(now: float | None = None) -> None:

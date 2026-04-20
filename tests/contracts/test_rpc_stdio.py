@@ -9,6 +9,7 @@ import pytest
 from pydantic_ai.messages import ModelMessage, ToolReturnPart, UserPromptPart
 from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 
+import just_another_coding_agent.rpc.stdio as rpc_stdio
 from just_another_coding_agent.auth import (
     AuthStoreError,
     OpenAICodexLoginFlow,
@@ -64,6 +65,14 @@ def _isolate_jaca_home(tmp_path, monkeypatch) -> None:
     home = tmp_path / "home"
     home.mkdir()
     monkeypatch.setenv("HOME", str(home))
+
+
+@pytest.fixture(autouse=True)
+def _reset_rpc_stdio_state(monkeypatch) -> None:
+    _OPENAI_CODEX_LOGIN_FLOWS.clear()
+    _PERMISSION_STATES.clear()
+    _PENDING_APPROVALS.clear()
+    monkeypatch.setattr(rpc_stdio, "_FOLLOW_UP_STATE", _FollowUpState())
 
 
 def _all_parts(messages: list[ModelMessage]):

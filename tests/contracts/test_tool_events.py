@@ -1,7 +1,7 @@
 import asyncio
 import json
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager, contextmanager
+from contextlib import asynccontextmanager, contextmanager, suppress
 from datetime import date
 
 from pydantic_ai import (
@@ -1956,7 +1956,10 @@ async def test_stream_run_events_injects_pending_steer_after_tool_phase_complete
             )
         ]
     finally:
-        await steer_task
+        if not steer_task.done():
+            steer_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await steer_task
 
     assert isinstance(events[0], RunStartedEvent)
     assert isinstance(events[1], ToolCallStartedEvent)
