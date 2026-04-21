@@ -66,6 +66,28 @@ The current grant contract is explicit:
     - used for outside-workspace filesystem grants
 - only `session` grants are remembered in session permission memory
 
+The current approval prompt UX is intentionally minimal:
+
+- the prompt title stays generic: `Approval required`
+- the main prompt body shows the backend-authored subject such as:
+  - `curl https://example.com`
+  - `read ../outside.txt`
+  - `write ../outside.txt`
+- the prompt options are backend-authored too
+  - exact approval is rendered as `Allow once`
+  - reusable session approval is only shown when the backend can safely derive
+    a reusable boundary
+  - deny is rendered simply as `Deny`
+- reusable filesystem grants are rendered in human terms such as:
+  - `Allow reads under /tmp for this session`
+  - `Allow writes under /home/dahiy/repos for this session`
+- reusable shell command-family grants are rendered in human terms such as:
+  - `Allow curl for this session`
+
+The UI should not expose glob syntax, raw permission JSON, or internal rule ids
+by default. Those remain backend contract/debug information rather than the
+default approval prompt.
+
 ## Current Shell Escalation Heuristics
 
 The planner currently performs static command inspection for three categories of
@@ -143,6 +165,14 @@ Current grant behavior:
 - shell network approvals are requested as `once` grants
 - they do not populate session permission memory, so a later network command
   still prompts again unless broader policy changes
+- when the backend can safely derive a reusable command family, the prompt may
+  also expose a session-wide option such as `Allow curl for this session`
+- if the user selects that session-wide option, the resulting granted decision
+  includes a `session` grant with a `command_prefix` and later matching shell
+  commands reuse it without a second prompt
+- session-scoped grants are also persisted in the canonical session file as
+  backend-owned operational state, so `for this session` survives backend
+  restarts for the same session
 
 ### Outside-Workspace Writes
 
@@ -170,6 +200,11 @@ Current grant behavior:
 - outside-workspace shell writes are requested as `session` grants
 - once approved, those writable roots are remembered for the rest of the
   session
+- those remembered session grants are also durably restored on later resumed
+  runs from the same canonical session file
+- prompts render those reusable approvals in human terms such as `Allow writes
+  under /home/dahiy/repos for this session` rather than exposing internal path
+  pattern syntax
 
 Implementation reference:
 

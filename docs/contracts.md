@@ -202,6 +202,15 @@ Initial approval policy modes:
 Approval carrier rules:
 
 - approval requests and decisions are backend-owned typed contract models
+- approval requests may also carry:
+  - `display_subject`
+    - the minimal user-facing subject for the approval prompt
+  - `options`
+    - backend-authored approval choices such as:
+      - exact one-time approval
+      - safe session-wide approval when the backend can derive a reusable
+        boundary
+      - deny
 - approval requests may carry both:
   - `requested_permissions`
     - the aggregate permission delta being requested
@@ -212,14 +221,22 @@ Approval carrier rules:
     - the aggregate permission delta that was granted
   - `granted_grants`
     - the explicit scoped grants that make up that granted delta
+- approval decisions may also carry:
+  - `option_id`
+    - the specific backend-authored approval option the user selected
 - scoped grants are typed as `SandboxPermissionGrant` and currently use
   `once` or `session` scope
+- `SandboxPermissionGrant` may also carry `command_prefix` when a session-wide
+  grant is safely generalized to a reusable command family such as `curl`
 - when approval submitters send a lean approved or denied decision, the backend
   normalizes the final decision against the request before persistence or tool
   continuation
   - denied decisions must not include grants
   - approved decisions without explicit granted fields are normalized to the
-    request's explicit grant set
+    first approved backend option when options are present; this keeps
+    `Allow once` as the canonical conservative default for lean approve flows
+  - explicit option selection may widen that default to a safe session-wide
+    grant when the backend exposed one
   - this keeps current submit flows small while preserving an explicit durable
     contract for resolved approvals
 - the current approval request taxonomy is:
@@ -254,7 +271,14 @@ Approval carrier rules:
     run
 - the current scoped-grant behavior is:
   - shell network approvals request `once` grants
+    - when the backend can safely derive a reusable command family, the prompt
+      may also expose a session-wide option such as `Allow curl for this
+      session`; that session option resolves to a grant with
+      `command_prefix=("curl",)`
   - outside-workspace filesystem approvals request `session` grants
+    - prompts describe those reusable filesystem grants in human terms such as
+      `Allow reads under /tmp for this session` rather than exposing glob
+      syntax
   - only `session` grants populate session permission memory
 - live permission state is distinct from durable turn-context history:
   - `PermissionState` is live control-plane state for RPC and approval flows
@@ -786,6 +810,12 @@ Initial executable session slice:
   - static agent instructions are not persisted in `session_turn_context`
   - resumed runs reconstruct the last full model-visible runtime-context prefix from the latest active persisted snapshot when it is safe to do so
   - when visible runtime framing changed but the prior snapshot is still valid for reconstruction, resumed runs append one runtime-context update message before the new user prompt instead of replaying a second full prefix; this now covers model, thinking, effective capability posture, timezone, shell family, current date, and workspace-root changes
+- `session_permission_grants`
+  - fields: `type`, `run_id`, `grants`
+  - records the latest backend-owned session-scoped grant snapshot for that completed run
+  - `grants` is a tuple of `SandboxPermissionGrant` values with `scope="session"`
+  - `session_permission_grants` persists durable operational permission memory such as approved filesystem roots and approved shell command prefixes
+  - `session_permission_grants` is separate from `session_turn_context`; grants are operational session state, not model-visible runtime framing
 - `session_event`
   - fields: `type`, `run_id`, `event`
   - `event` must be one canonical persisted run event payload
@@ -807,16 +837,19 @@ Ordering rules for the session slice:
 - `session_project_docs` may appear at most once before the first run and never inside or after a completed run
 - `session_info` may appear only at completed-run boundaries, never in the middle of a run
 - `session_info.name` is unique within the current workspace-backed session shard
-- Each completed `session_run` is followed by one or more `session_event` lines for the same `run_id`, then exactly one trailing `session_messages` line for that run, and then optionally exactly one trailing `session_turn_context` line for that same run
+- Each completed `session_run` is followed by one or more `session_event` lines for the same `run_id`, then exactly one trailing `session_messages` line for that run, and then optionally exactly one trailing `session_turn_context` line and optionally exactly one trailing `session_permission_grants` line for that same run
 - A trailing run without `session_messages` is an incomplete run and authoritative session load must fail hard
 - `session_turn_context` may appear only immediately after the completed run's trailing `session_messages`
 - `session_turn_context` is optional so older sessions remain loadable, but a run may not have more than one
 - `session_turn_context.workspace_root` must match the authoritative session workspace root exactly
+- `session_permission_grants` may appear only at a completed run boundary, immediately after `session_messages` or immediately after that run's optional `session_turn_context`
+- `session_permission_grants` is optional, but a run may not have more than one
 - `session_compaction` may appear only at a completed run boundary, never in the middle of a run
 - `session_compaction` entries are append-only and must not move the compaction boundary backward
 - Authoritative session loads must provide the expected workspace root and it must match the persisted `session_header.workspace_root` exactly
 - Session resume semantics must reconstruct effective conversation context from the latest compaction `replacement_messages` plus later `session_messages` strictly after `compacted_through_run_id`
 - Session resume semantics must treat `session_turn_context` as separate runtime framing state rather than as conversation memory
+- Session resume semantics must treat `session_permission_grants` as separate durable operational permission state rather than as conversation memory or runtime framing
 - The latest active persisted `session_turn_context` baseline is invalidated by a later `session_compaction` entry
 - Before a session-backed run starts, the runtime must explicitly classify the
   active persisted `session_turn_context` baseline as missing, reused, or

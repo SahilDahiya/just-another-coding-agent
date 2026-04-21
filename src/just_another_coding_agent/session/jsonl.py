@@ -47,6 +47,7 @@ from just_another_coding_agent.contracts.session import (
     SessionMessagesEntry,
     SessionMetadata,
     SessionName,
+    SessionPermissionGrantsEntry,
     SessionProjectDocReference,
     SessionProjectDocsEntry,
     SessionRunEntry,
@@ -149,6 +150,7 @@ class SessionRunAppender:
         *,
         messages: Sequence[ModelMessage],
         turn_context: SessionTurnContextEntry | None = None,
+        permission_grants: SessionPermissionGrantsEntry | None = None,
     ) -> None:
         if self._finalized:
             raise RuntimeError("Session run already finalized")
@@ -183,6 +185,13 @@ class SessionRunAppender:
                         "session shell_family"
                     )
                 _write_entry(file_handle, turn_context)
+            if permission_grants is not None:
+                if permission_grants.run_id != self._run_id:
+                    raise SessionFormatError(
+                        "Session permission grants entry run_id must belong "
+                        "to the current run"
+                    )
+                _write_entry(file_handle, permission_grants)
             _flush_file_handle(file_handle, sync_to_disk=True)
             _update_session_metadata(path=self._path, updated_at=_utc_now())
             self._finalized = True
@@ -241,7 +250,11 @@ def append_project_docs_to_session(
 ) -> SessionProjectDocsEntry | None:
     normalized_workspace_root = normalize_workspace_root(workspace_root)
     normalized_project_docs_root = normalize_workspace_root(
-        project_docs_root if project_docs_root is not None else normalized_workspace_root
+        (
+            project_docs_root
+            if project_docs_root is not None
+            else normalized_workspace_root
+        )
     )
     load_session(
         path=path,
@@ -276,6 +289,7 @@ def append_run_to_session(
     events: Sequence[RunEvent],
     messages: Sequence[ModelMessage],
     turn_context: SessionTurnContextEntry | None = None,
+    permission_grants: SessionPermissionGrantsEntry | None = None,
 ) -> None:
     run_events = list(events)
     run_messages = list(messages)
@@ -290,7 +304,11 @@ def append_run_to_session(
     )
     for event in run_events:
         appender.append_event(event)
-    appender.finalize(messages=run_messages, turn_context=turn_context)
+    appender.finalize(
+        messages=run_messages,
+        turn_context=turn_context,
+        permission_grants=permission_grants,
+    )
 
 
 def append_compaction_to_session(
@@ -491,6 +509,7 @@ def load_session(
     project_docs: SessionProjectDocsEntry | None = None
     runs: list[SessionRunRecord] = []
     latest_turn_context: SessionTurnContextEntry | None = None
+    latest_permission_grants: SessionPermissionGrantsEntry | None = None
     has_persisted_turn_context_history = False
     compactions: list[SessionCompactionEntry] = []
     current_run: SessionRunRecord | None = None
@@ -613,6 +632,31 @@ def load_session(
             latest_turn_context = entry
             continue
 
+        if isinstance(entry, SessionPermissionGrantsEntry):
+            if current_run is not None:
+                raise SessionFormatError(
+                    "Session permission grants entry must follow a complete run"
+                )
+            if not runs:
+                raise SessionFormatError(
+                    "Session permission grants entry must follow a complete run"
+                )
+            if entry.run_id != runs[-1].run_id:
+                raise SessionFormatError(
+                    "Session permission grants entry must belong to the latest "
+                    "complete run"
+                )
+            if (
+                latest_permission_grants is not None
+                and latest_permission_grants.run_id == entry.run_id
+            ):
+                raise SessionFormatError(
+                    "Session permission grants entry must appear at most once "
+                    "per run"
+                )
+            latest_permission_grants = entry
+            continue
+
         if isinstance(entry, SessionCompactionEntry):
             if current_run is not None:
                 raise SessionFormatError(
@@ -678,6 +722,7 @@ def load_session(
         project_docs=project_docs,
         runs=runs,
         latest_turn_context=latest_turn_context,
+        latest_permission_grants=latest_permission_grants,
         has_persisted_turn_context_history=has_persisted_turn_context_history,
         compactions=compactions,
     )

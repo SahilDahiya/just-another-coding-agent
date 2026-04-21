@@ -8,10 +8,10 @@ from pydantic_ai.messages import ModelMessage
 
 from .platform import ShellFamily
 from .run_events import RunEvent
-from .sandbox import EffectiveCapabilities
+from .sandbox import EffectiveCapabilities, SandboxPermissionGrant
 from .thinking import ThinkingSetting
 
-SESSION_FORMAT_VERSION = 10
+SESSION_FORMAT_VERSION = 11
 SessionName = Annotated[
     str,
     StringConstraints(pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$"),
@@ -82,6 +82,12 @@ class SessionTurnContextEntry(_SessionEntryBase):
     runtime_context_text: str
 
 
+class SessionPermissionGrantsEntry(_SessionEntryBase):
+    type: Literal["session_permission_grants"] = "session_permission_grants"
+    run_id: str
+    grants: tuple[SandboxPermissionGrant, ...] = ()
+
+
 class SessionCompactionEntry(_SessionEntryBase):
     type: Literal["session_compaction"] = "session_compaction"
     compaction_id: str
@@ -98,6 +104,7 @@ SessionEntry = Annotated[
     | SessionMessagesEntry
     | SessionEventEntry
     | SessionTurnContextEntry
+    | SessionPermissionGrantsEntry
     | SessionCompactionEntry,
     Field(discriminator="type"),
 ]
@@ -118,6 +125,7 @@ class LoadedSession(_SessionEntryBase):
     project_docs: SessionProjectDocsEntry | None = None
     runs: list[SessionRunRecord]
     latest_turn_context: SessionTurnContextEntry | None = None
+    latest_permission_grants: SessionPermissionGrantsEntry | None = None
     has_persisted_turn_context_history: bool = False
     compactions: list[SessionCompactionEntry] = Field(default_factory=list)
 
@@ -171,6 +179,7 @@ __all__ = [
     "SessionMessagesEntry",
     "SessionMetadata",
     "SessionName",
+    "SessionPermissionGrantsEntry",
     "SessionPreview",
     "SessionPreviewEntry",
     "SessionProjectDocReference",

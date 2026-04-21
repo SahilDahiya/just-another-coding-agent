@@ -12,9 +12,11 @@ from just_another_coding_agent.contracts.platform import (
 )
 from just_another_coding_agent.contracts.run_events import JsonValue
 from just_another_coding_agent.contracts.sandbox import (
+    AdditionalSandboxPermissions,
     ApprovalDecision,
     ApprovalRequest,
     PermissionState,
+    SandboxPermissionGrant,
     build_default_permission_state,
 )
 from just_another_coding_agent.contracts.session import SessionName
@@ -58,6 +60,7 @@ def _path_is_within_root(*, path: Path, root: str) -> bool:
 class SessionPermissionMemory:
     approved_read_roots: set[str] = field(default_factory=set)
     approved_write_roots: set[str] = field(default_factory=set)
+    approved_command_prefixes: set[tuple[str, ...]] = field(default_factory=set)
 
     def allows_read_path(self, path: Path) -> bool:
         return any(
@@ -77,9 +80,61 @@ class SessionPermissionMemory:
     def remember_write_root(self, root: str) -> None:
         self.approved_write_roots.add(_canonicalize_permission_root(root))
 
+    def allows_command_prefix(self, tokens: tuple[str, ...]) -> bool:
+        return any(
+            len(prefix) <= len(tokens) and tokens[: len(prefix)] == prefix
+            for prefix in self.approved_command_prefixes
+        )
+
+    def remember_command_prefix(self, prefix: tuple[str, ...]) -> None:
+        if prefix:
+            self.approved_command_prefixes.add(prefix)
+
+    def snapshot_session_grants(self) -> tuple[SandboxPermissionGrant, ...]:
+        grants: list[SandboxPermissionGrant] = []
+        if self.approved_read_roots or self.approved_write_roots:
+            grants.append(
+                SandboxPermissionGrant(
+                    permissions=AdditionalSandboxPermissions(
+                        extra_read_roots=tuple(sorted(self.approved_read_roots)),
+                        extra_write_roots=tuple(
+                            sorted(self.approved_write_roots)
+                        ),
+                    ),
+                    scope="session",
+                )
+            )
+        for prefix in sorted(self.approved_command_prefixes):
+            grants.append(
+                SandboxPermissionGrant(
+                    permissions=AdditionalSandboxPermissions(
+                        network_access="enabled",
+                    ),
+                    scope="session",
+                    command_prefix=prefix,
+                )
+            )
+        return tuple(grants)
+
+    def remember_session_grants(
+        self,
+        grants: tuple[SandboxPermissionGrant, ...],
+    ) -> None:
+        self.clear()
+        for grant in grants:
+            if grant.scope != "session":
+                continue
+            for root in grant.permissions.extra_read_roots:
+                self.remember_read_root(root)
+            for root in grant.permissions.extra_write_roots:
+                self.remember_write_root(root)
+            if grant.command_prefix:
+                self.remember_command_prefix(grant.command_prefix)
+
     def clear(self) -> None:
         self.approved_read_roots.clear()
         self.approved_write_roots.clear()
+        self.approved_command_prefixes.clear()
 
 
 @dataclass(frozen=True)

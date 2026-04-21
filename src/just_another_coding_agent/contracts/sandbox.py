@@ -104,6 +104,17 @@ class AdditionalSandboxPermissions(_SandboxContractModel):
 class SandboxPermissionGrant(_SandboxContractModel):
     permissions: AdditionalSandboxPermissions
     scope: PermissionGrantScope
+    command_prefix: tuple[str, ...] = ()
+
+    @model_validator(mode="after")
+    def _validate_command_prefix(self) -> "SandboxPermissionGrant":
+        if not self.command_prefix:
+            return self
+        if self.permissions.network_access != "enabled":
+            raise ValueError(
+                "command_prefix grants require enabled network access permissions"
+            )
+        return self
 
 
 class FileSystemSandboxPolicy(_SandboxContractModel):
@@ -135,6 +146,8 @@ class _ApprovalRequestBase(_SandboxContractModel):
     requested_capabilities: EffectiveCapabilities
     requested_permissions: AdditionalSandboxPermissions | None = None
     requested_grants: tuple[SandboxPermissionGrant, ...] = ()
+    display_subject: str | None = None
+    options: tuple["ApprovalOption", ...] = ()
 
     @model_validator(mode="after")
     def _validate_requested_grants(self) -> "_ApprovalRequestBase":
@@ -154,6 +167,46 @@ class _ApprovalRequestBase(_SandboxContractModel):
         ):
             raise ValueError(
                 "requested_permissions must match the flattened requested_grants"
+            )
+        if self.options:
+            option_ids: set[str] = set()
+            for option in self.options:
+                if option.option_id in option_ids:
+                    raise ValueError(
+                        "approval request options must have unique option_id values"
+                    )
+                option_ids.add(option.option_id)
+        return self
+
+
+class ApprovalOption(_SandboxContractModel):
+    option_id: str
+    label: str
+    decision: ApprovalDecisionValue
+    granted_permissions: AdditionalSandboxPermissions | None = None
+    granted_grants: tuple[SandboxPermissionGrant, ...] = ()
+
+    @model_validator(mode="after")
+    def _validate_granted_permissions(self) -> "ApprovalOption":
+        if self.decision == "denied":
+            if self.granted_permissions is not None or self.granted_grants:
+                raise ValueError(
+                    "Denied approval options cannot include granted permissions"
+                )
+            return self
+        if self.granted_permissions is None and not self.granted_grants:
+            return self
+        if self.granted_permissions is None:
+            raise ValueError(
+                "granted_grants require granted_permissions to be present"
+            )
+        if not self.granted_grants:
+            raise ValueError(
+                "granted_permissions require granted_grants to be present"
+            )
+        if _flatten_permission_grants(self.granted_grants) != self.granted_permissions:
+            raise ValueError(
+                "granted_permissions must match the flattened granted_grants"
             )
         return self
 
@@ -188,6 +241,7 @@ ApprovalRequest = Annotated[
 class ApprovalDecision(_SandboxContractModel):
     request_id: str
     decision: ApprovalDecisionValue
+    option_id: str | None = None
     granted_permissions: AdditionalSandboxPermissions | None = None
     granted_grants: tuple[SandboxPermissionGrant, ...] = ()
 
@@ -247,6 +301,24 @@ def normalize_approval_decision(
         raise ValueError(
             "Approval decision request_id must match the approval request"
         )
+    selected_option = _resolve_selected_approval_option(
+        request=request,
+        decision=decision,
+    )
+    if selected_option is not None:
+        if selected_option.decision == "denied":
+            return ApprovalDecision(
+                request_id=decision.request_id,
+                decision="denied",
+                option_id=selected_option.option_id,
+            )
+        return ApprovalDecision(
+            request_id=decision.request_id,
+            decision="approved",
+            option_id=selected_option.option_id,
+            granted_permissions=selected_option.granted_permissions,
+            granted_grants=selected_option.granted_grants,
+        )
     if decision.decision == "denied":
         return decision
     if request.requested_permissions is None:
@@ -276,6 +348,47 @@ def normalize_approval_decision(
             "Approved decisions with explicit grants must match requested_grants"
         )
     return decision
+
+
+def _resolve_selected_approval_option(
+    *,
+    request: ApprovalRequest,
+    decision: ApprovalDecision,
+) -> ApprovalOption | None:
+    if not request.options:
+        return None
+    if decision.option_id is not None:
+        for option in request.options:
+            if option.option_id != decision.option_id:
+                continue
+            if option.decision != decision.decision:
+                raise ValueError(
+                    "Approval decision option_id must match the decision value"
+                )
+            return option
+        raise ValueError(
+            "Approval decision option_id must reference a request approval option"
+        )
+    if decision.decision == "denied":
+        denied_options = tuple(
+            option for option in request.options if option.decision == "denied"
+        )
+        if len(denied_options) == 1:
+            return denied_options[0]
+        return None
+    if decision.granted_permissions is not None or decision.granted_grants:
+        for option in request.options:
+            if option.decision != "approved":
+                continue
+            if (
+                option.granted_permissions == decision.granted_permissions
+                and option.granted_grants == decision.granted_grants
+            ):
+                return option
+        raise ValueError(
+            "Approved decisions with explicit grants must match an approval option"
+        )
+    return None
 
 
 def derive_effective_capabilities(
@@ -388,6 +501,7 @@ __all__ = [
     "ApprovalDecision",
     "ApprovalDecisionValue",
     "ApprovalMode",
+    "ApprovalOption",
     "ApprovalPolicy",
     "ApprovalRequest",
     "ApprovalRequestKind",

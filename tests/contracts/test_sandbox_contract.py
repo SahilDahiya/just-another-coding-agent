@@ -8,6 +8,7 @@ from pydantic import TypeAdapter, ValidationError
 from just_another_coding_agent.contracts.sandbox import (
     AdditionalSandboxPermissions,
     ApprovalDecision,
+    ApprovalOption,
     ApprovalPolicy,
     ApprovalRequest,
     CommandExecutionApprovalRequest,
@@ -360,6 +361,159 @@ def test_normalize_approval_decision_rejects_grants_that_do_not_match_request() 
                 ),
             ),
         )
+
+
+def test_normalize_approval_decision_defaults_to_requested_grants() -> None:
+    capabilities = EffectiveCapabilities(
+        filesystem_access="workspace_write",
+        network_access="restricted",
+        execution_isolation="unsandboxed",
+        approval_mode="on_escalation",
+    )
+    request = CommandExecutionApprovalRequest(
+        request_id="approval-1",
+        request_kind="command_execution",
+        reason="allow shell command: curl https://example.com (network enabled)",
+        display_subject="curl https://example.com",
+        command="curl https://example.com",
+        cwd="/workspace",
+        shell_family="posix",
+        requested_capabilities=capabilities,
+        requested_permissions=AdditionalSandboxPermissions(network_access="enabled"),
+        requested_grants=(
+            {
+                "permissions": {"network_access": "enabled"},
+                "scope": "once",
+            },
+        ),
+        options=(
+            ApprovalOption(
+                option_id="allow-once",
+                label="Allow once",
+                decision="approved",
+                granted_permissions=AdditionalSandboxPermissions(
+                    network_access="enabled"
+                ),
+                granted_grants=(
+                    {
+                        "permissions": {"network_access": "enabled"},
+                        "scope": "once",
+                    },
+                ),
+            ),
+            ApprovalOption(
+                option_id="allow-session",
+                label="Allow curl for this session",
+                decision="approved",
+                granted_permissions=AdditionalSandboxPermissions(
+                    network_access="enabled"
+                ),
+                granted_grants=(
+                    {
+                        "permissions": {"network_access": "enabled"},
+                        "scope": "session",
+                        "command_prefix": ["curl"],
+                    },
+                ),
+            ),
+            ApprovalOption(
+                option_id="deny",
+                label="Deny",
+                decision="denied",
+            ),
+        ),
+    )
+
+    decision = normalize_approval_decision(
+        request=request,
+        decision=ApprovalDecision(
+            request_id=request.request_id,
+            decision="approved",
+        ),
+    )
+
+    assert decision.option_id is None
+    assert decision.granted_permissions == AdditionalSandboxPermissions(
+        network_access="enabled"
+    )
+    assert len(decision.granted_grants) == 1
+    assert decision.granted_grants[0].scope == "once"
+
+
+def test_normalize_approval_decision_accepts_explicit_option_id() -> None:
+    capabilities = EffectiveCapabilities(
+        filesystem_access="workspace_write",
+        network_access="restricted",
+        execution_isolation="unsandboxed",
+        approval_mode="on_escalation",
+    )
+    request = CommandExecutionApprovalRequest(
+        request_id="approval-1",
+        request_kind="command_execution",
+        reason="allow shell command: curl https://example.com (network enabled)",
+        display_subject="curl https://example.com",
+        command="curl https://example.com",
+        cwd="/workspace",
+        shell_family="posix",
+        requested_capabilities=capabilities,
+        requested_permissions=AdditionalSandboxPermissions(network_access="enabled"),
+        requested_grants=(
+            {
+                "permissions": {"network_access": "enabled"},
+                "scope": "once",
+            },
+        ),
+        options=(
+            ApprovalOption(
+                option_id="allow-once",
+                label="Allow once",
+                decision="approved",
+                granted_permissions=AdditionalSandboxPermissions(
+                    network_access="enabled"
+                ),
+                granted_grants=(
+                    {
+                        "permissions": {"network_access": "enabled"},
+                        "scope": "once",
+                    },
+                ),
+            ),
+            ApprovalOption(
+                option_id="allow-session",
+                label="Allow curl for this session",
+                decision="approved",
+                granted_permissions=AdditionalSandboxPermissions(
+                    network_access="enabled"
+                ),
+                granted_grants=(
+                    {
+                        "permissions": {"network_access": "enabled"},
+                        "scope": "session",
+                        "command_prefix": ["curl"],
+                    },
+                ),
+            ),
+            ApprovalOption(
+                option_id="deny",
+                label="Deny",
+                decision="denied",
+            ),
+        ),
+    )
+
+    decision = normalize_approval_decision(
+        request=request,
+        decision=ApprovalDecision(
+            request_id=request.request_id,
+            decision="approved",
+            option_id="allow-session",
+        ),
+    )
+
+    assert decision.option_id == "allow-session"
+    assert len(decision.granted_grants) == 1
+    assert decision.granted_grants[0].scope == "session"
+    assert decision.granted_grants[0].command_prefix == ("curl",)
 
 
 def test_normalized_sandbox_policy_derives_network_and_filesystem_deltas() -> None:

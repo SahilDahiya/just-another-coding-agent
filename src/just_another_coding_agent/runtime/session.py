@@ -30,6 +30,7 @@ from just_another_coding_agent.contracts.sandbox import (
 from just_another_coding_agent.contracts.session import (
     LoadedSession,
     SessionHeaderEntry,
+    SessionPermissionGrantsEntry,
     SessionRunRecord,
 )
 from just_another_coding_agent.contracts.thinking import ThinkingSetting
@@ -129,6 +130,11 @@ def _build_loaded_session_after_success(
         name=loaded_session.name if loaded_session is not None else None,
         runs=runs,
         latest_turn_context=turn_context,
+        latest_permission_grants=(
+            loaded_session.latest_permission_grants
+            if loaded_session is not None
+            else None
+        ),
         has_persisted_turn_context_history=True,
         compactions=compactions,
     )
@@ -337,6 +343,18 @@ async def stream_session_run_events(
         effective_capabilities=resolved_permission_state.effective_capabilities,
         tool_names=tool_names,
     )
+    resolved_permission_memory = (
+        permission_memory
+        if permission_memory is not None
+        else SessionPermissionMemory()
+    )
+    if (
+        loaded_session is not None
+        and loaded_session.latest_permission_grants is not None
+    ):
+        resolved_permission_memory.remember_session_grants(
+            loaded_session.latest_permission_grants.grants
+        )
     agent = build_canonical_agent(
         model=model,
         workspace_root=normalized_workspace_root,
@@ -374,11 +392,7 @@ async def stream_session_run_events(
                     thinking=resolved_thinking,
                 ),
                 permission_state=resolved_permission_state,
-                permission_memory=(
-                    permission_memory
-                    if permission_memory is not None
-                    else SessionPermissionMemory()
-                ),
+                permission_memory=resolved_permission_memory,
             ),
             message_history_sink=_record_message_history,
             available_tool_names=tool_names,
@@ -556,6 +570,10 @@ async def stream_session_run_events(
                 run_appender.finalize(
                     messages=finalized_messages,
                     turn_context=run_turn_context,
+                    permission_grants=SessionPermissionGrantsEntry(
+                        run_id=active_run_id,
+                        grants=resolved_permission_memory.snapshot_session_grants(),
+                    ),
                 )
         finally:
             if run_appender is not None:

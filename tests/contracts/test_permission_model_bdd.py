@@ -116,7 +116,11 @@ async def test_given_default_policy_when_non_workspace_read_then_permission_gran
 
     async def approval_requester(request, _tool_call_id=None, _tool_name=None):
         requests.append(request)
-        return ApprovalDecision(request_id=request.request_id, decision="approved")
+        return ApprovalDecision(
+            request_id=request.request_id,
+            decision="approved",
+            option_id="allow-session",
+        )
 
     ctx = SimpleNamespace(
         deps=WorkspaceDeps(
@@ -152,7 +156,11 @@ async def test_given_default_policy_when_non_workspace_write_then_file_change_ap
 
     async def approval_requester(request, _tool_call_id=None, _tool_name=None):
         requests.append(request)
-        return ApprovalDecision(request_id=request.request_id, decision="approved")
+        return ApprovalDecision(
+            request_id=request.request_id,
+            decision="approved",
+            option_id="allow-session",
+        )
 
     ctx = SimpleNamespace(
         deps=WorkspaceDeps(
@@ -182,7 +190,11 @@ async def test_given_default_policy_when_shell_requests_network_then_command_exe
 
     async def approval_requester(request, _tool_call_id=None, _tool_name=None):
         requests.append(request)
-        return ApprovalDecision(request_id=request.request_id, decision="approved")
+        return ApprovalDecision(
+            request_id=request.request_id,
+            decision="approved",
+            option_id="allow-session",
+        )
 
     ctx = _FakeShellContext(
         deps=WorkspaceDeps(
@@ -221,7 +233,11 @@ async def test_given_default_policy_when_shell_requests_non_workspace_write_then
 
     async def approval_requester(request, _tool_call_id=None, _tool_name=None):
         requests.append(request)
-        return ApprovalDecision(request_id=request.request_id, decision="approved")
+        return ApprovalDecision(
+            request_id=request.request_id,
+            decision="approved",
+            option_id="allow-session",
+        )
 
     ctx = _FakeShellContext(
         deps=WorkspaceDeps(
@@ -261,7 +277,11 @@ async def test_given_default_policy_when_shell_requests_non_workspace_read_then_
 
     async def approval_requester(request, _tool_call_id=None, _tool_name=None):
         requests.append(request)
-        return ApprovalDecision(request_id=request.request_id, decision="approved")
+        return ApprovalDecision(
+            request_id=request.request_id,
+            decision="approved",
+            option_id="allow-session",
+        )
 
     ctx = _FakeShellContext(
         deps=WorkspaceDeps(
@@ -298,7 +318,11 @@ async def test_given_default_policy_when_non_workspace_read_is_session_approved_
 
     async def approval_requester(request, _tool_call_id=None, _tool_name=None):
         requests.append(request)
-        return ApprovalDecision(request_id=request.request_id, decision="approved")
+        return ApprovalDecision(
+            request_id=request.request_id,
+            decision="approved",
+            option_id="allow-session",
+        )
 
     ctx = SimpleNamespace(
         deps=WorkspaceDeps(
@@ -336,7 +360,11 @@ async def test_given_default_policy_when_non_workspace_write_is_session_approved
 
     async def approval_requester(request, _tool_call_id=None, _tool_name=None):
         requests.append(request)
-        return ApprovalDecision(request_id=request.request_id, decision="approved")
+        return ApprovalDecision(
+            request_id=request.request_id,
+            decision="approved",
+            option_id="allow-session",
+        )
 
     ctx = SimpleNamespace(
         deps=WorkspaceDeps(
@@ -370,7 +398,11 @@ async def test_given_default_policy_when_shell_non_workspace_read_is_session_app
 
     async def approval_requester(request, _tool_call_id=None, _tool_name=None):
         requests.append(request)
-        return ApprovalDecision(request_id=request.request_id, decision="approved")
+        return ApprovalDecision(
+            request_id=request.request_id,
+            decision="approved",
+            option_id="allow-session",
+        )
 
     ctx = _FakeShellContext(
         deps=WorkspaceDeps(
@@ -448,6 +480,56 @@ async def test_given_default_policy_when_shell_network_is_approved_then_second_n
     assert all(request.request_kind == "command_execution" for request in requests)
     assert all(len(request.requested_grants) == 1 for request in requests)
     assert all(request.requested_grants[0].scope == "once" for request in requests)
+
+
+async def test_given_default_policy_when_shell_network_is_session_approved_then_second_network_command_does_not_prompt(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    monkeypatch.chdir(tmp_path)
+    requests = []
+    executor = _Executor()
+
+    async def approval_requester(request, _tool_call_id=None, _tool_name=None):
+        requests.append(request)
+        return ApprovalDecision(
+            request_id=request.request_id,
+            decision="approved",
+            option_id="allow-session",
+        )
+
+    ctx = _FakeShellContext(
+        deps=WorkspaceDeps(
+            workspace_root=workspace_root,
+            shell_family=detect_default_shell_family(),
+            sandbox_executor=executor,
+            approval_requester=approval_requester,
+            permission_state=_default_permission_state(),
+        )
+    )
+
+    first = await execute_shell(
+        ctx=ctx,
+        workspace_root=workspace_root,
+        command="curl https://example.com",
+        shell_family=detect_default_shell_family(),
+    )
+    second = await execute_shell(
+        ctx=ctx,
+        workspace_root=workspace_root,
+        command="curl https://example.com/status",
+        shell_family=detect_default_shell_family(),
+    )
+
+    assert first == {"exit_code": 0, "output": ""}
+    assert second == {"exit_code": 0, "output": ""}
+    assert executor.calls == 2
+    assert len(requests) == 1
+    assert requests[0].request_kind == "command_execution"
+    assert len(requests[0].requested_grants) == 1
+    assert requests[0].requested_grants[0].scope == "once"
 
 
 async def test_given_default_policy_when_non_workspace_read_is_denied_then_read_fails_without_executing(

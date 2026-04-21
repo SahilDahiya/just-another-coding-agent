@@ -77,6 +77,7 @@ from just_another_coding_agent.session.replacement_history import (
     is_compaction_summary_message,
 )
 from just_another_coding_agent.tools.deps import WorkspaceDeps
+from just_another_coding_agent.tools.sandbox_executor import HostSandboxExecutor
 
 _SHELL_FAMILY = detect_default_shell_family()
 
@@ -685,6 +686,83 @@ async def test_stream_session_run_events_persists_shell_approval_events(
     assert [event.type for event in loaded.runs[0].events] == _persisted_event_types(
         events
     )
+
+
+async def test_stream_session_run_events_restores_session_command_grants_across_runs(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    session_path = tmp_path / "session.jsonl"
+    approval_requests = []
+
+    class _Handle:
+        async def read(self, _max_bytes: int) -> bytes:
+            return b""
+
+        async def wait(self, timeout=None) -> int:
+            del timeout
+            return 0
+
+        async def terminate(self) -> None:
+            return None
+
+        @property
+        def exit_code(self) -> int | None:
+            return 0
+
+    async def _execute(self, request):
+        del self, request
+        return _Handle()
+
+    monkeypatch.setattr(HostSandboxExecutor, "execute", _execute)
+
+    async def approve_session(request):
+        approval_requests.append(request)
+        return runtime_session_module.ApprovalDecision(
+            request_id=request.request_id,
+            decision="approved",
+            option_id="allow-session",
+        )
+
+    first_events = [
+        event
+        async for event in stream_session_run_events(
+            model=FunctionModel(
+                stream_function=make_shell_approval_stream(
+                    "curl https://example.com"
+                )
+            ),
+            workspace_root=workspace_root,
+            session_path=session_path,
+            prompt="fetch once",
+            resolve_approval_request=approve_session,
+        )
+    ]
+
+    assert "approval_requested" in [event.type for event in first_events]
+    assert len(approval_requests) == 1
+
+    async def unexpected_approval(_request):
+        raise AssertionError("second curl should reuse persisted session grant")
+
+    second_events = [
+        event
+        async for event in stream_session_run_events(
+            model=FunctionModel(
+                stream_function=make_shell_approval_stream(
+                    "curl https://example.com/status"
+                )
+            ),
+            workspace_root=workspace_root,
+            session_path=session_path,
+            prompt="fetch again",
+            resolve_approval_request=unexpected_approval,
+        )
+    ]
+
+    assert "approval_requested" not in [event.type for event in second_events]
 
 
 async def test_stream_session_run_events_reports_next_request_context_window_used(
@@ -2610,8 +2688,18 @@ async def test_stream_session_run_events_closes_non_finalized_appender_on_abort(
         def append_event(self, event) -> None:
             self._inner.append_event(event)
 
-        def finalize(self, *, messages, turn_context=None) -> None:
-            self._inner.finalize(messages=messages, turn_context=turn_context)
+        def finalize(
+            self,
+            *,
+            messages,
+            turn_context=None,
+            permission_grants=None,
+        ) -> None:
+            self._inner.finalize(
+                messages=messages,
+                turn_context=turn_context,
+                permission_grants=permission_grants,
+            )
 
         def close(self) -> None:
             nonlocal close_calls

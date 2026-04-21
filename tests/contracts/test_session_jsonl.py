@@ -32,6 +32,7 @@ from just_another_coding_agent.contracts.run_events import (
 from just_another_coding_agent.contracts.sandbox import EffectiveCapabilities
 from just_another_coding_agent.contracts.session import (
     SESSION_FORMAT_VERSION,
+    SessionPermissionGrantsEntry,
     SessionTurnContextEntry,
 )
 from just_another_coding_agent.runtime.run import stream_run_events
@@ -51,6 +52,7 @@ from just_another_coding_agent.session.jsonl import (
 from just_another_coding_agent.session.replacement_history import (
     build_compaction_summary_message,
 )
+from just_another_coding_agent.tools.deps import SessionPermissionMemory
 from tests.session_test_helpers import _compaction_entry_payload
 
 _SHELL_FAMILY = detect_default_shell_family()
@@ -288,6 +290,40 @@ def test_append_run_persists_turn_context_effective_capabilities(tmp_path) -> No
         execution_isolation="sandboxed",
         approval_mode="on_escalation",
     )
+
+
+def test_append_run_persists_session_permission_grants_separately_from_turn_context(
+    tmp_path,
+) -> None:
+    path = tmp_path / "session.jsonl"
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    permission_memory = SessionPermissionMemory()
+    permission_memory.remember_command_prefix(("curl",))
+    permission_memory.remember_read_root(str((tmp_path / "outside").resolve()))
+
+    grants_entry = SessionPermissionGrantsEntry(
+        run_id="run-1",
+        grants=permission_memory.snapshot_session_grants(),
+    )
+
+    append_run_to_session(
+        path=path,
+        workspace_root=workspace_root,
+        prompt="go",
+        thinking="high",
+        events=[
+            RunStartedEvent(run_id="run-1"),
+            RunSucceededEvent(run_id="run-1", output_text="done"),
+        ],
+        messages=[ModelRequest(parts=[UserPromptPart(content="go")])],
+        permission_grants=grants_entry,
+    )
+
+    loaded = load_session(path=path, workspace_root=workspace_root)
+
+    assert loaded.latest_turn_context is None
+    assert loaded.latest_permission_grants == grants_entry
 
 
 def test_load_session_compaction_invalidates_latest_turn_context(tmp_path) -> None:

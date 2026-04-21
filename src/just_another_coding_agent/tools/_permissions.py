@@ -10,6 +10,7 @@ from uuid import uuid4
 from just_another_coding_agent.contracts.platform import ShellFamily
 from just_another_coding_agent.contracts.sandbox import (
     AdditionalSandboxPermissions,
+    ApprovalOption,
     EffectiveCapabilities,
     FileChangeApprovalRequest,
     FileSystemSandboxPolicy,
@@ -236,6 +237,59 @@ def _tokens_request_network_access(tokens: list[str], *, _depth: int = 0) -> boo
     return any(_token_looks_like_network_target(token) for token in tokens[1:])
 
 
+def _parse_posix_shell_tokens(command: str) -> list[str] | None:
+    try:
+        tokens = shlex.split(command, posix=True)
+    except ValueError:
+        return None
+    if not tokens:
+        return None
+    return tokens
+
+
+def _shell_network_command_prefix(
+    command: str,
+    *,
+    shell_family: ShellFamily,
+) -> tuple[str, ...]:
+    if shell_family != "posix":
+        return ()
+    tokens = _parse_posix_shell_tokens(command)
+    if tokens is None:
+        return ()
+    return _tokens_network_command_prefix(tokens)
+
+
+def _tokens_network_command_prefix(
+    tokens: list[str],
+    *,
+    _depth: int = 0,
+) -> tuple[str, ...]:
+    if not tokens or _depth > 4:
+        return ()
+    executable = tokens[0]
+    if executable in _SHELL_WRAPPERS:
+        unwrapped = _unwrap_shell_wrapper(tokens)
+        if unwrapped is not None:
+            return _tokens_network_command_prefix(unwrapped, _depth=_depth + 1)
+        return ()
+    if executable in _NETWORK_COMMANDS:
+        return (executable,)
+    if (
+        executable == "git"
+        and len(tokens) > 1
+        and tokens[1] in _GIT_NETWORK_SUBCOMMANDS
+    ):
+        return ("git", tokens[1])
+    if (
+        executable in _NETWORK_PACKAGE_MANAGER_SUBCOMMANDS
+        and len(tokens) > 1
+        and tokens[1] in _NETWORK_PACKAGE_MANAGER_SUBCOMMANDS[executable]
+    ):
+        return (executable, tokens[1])
+    return ()
+
+
 def _unwrap_shell_wrapper(tokens: list[str]) -> list[str] | None:
     executable = tokens[0]
     if executable == "env":
@@ -303,6 +357,10 @@ def extract_shell_permission_actions(
     permission_memory,
 ) -> tuple[PermissionAction, ...]:
     actions: list[PermissionAction] = []
+    network_command_prefix = _shell_network_command_prefix(
+        command,
+        shell_family=shell_family,
+    )
 
     if _shell_command_requests_network_access(
         command=command,
@@ -312,8 +370,15 @@ def extract_shell_permission_actions(
             PermissionAction(
                 action_kind="network_access",
                 source="shell",
+                command_prefix=network_command_prefix,
                 covered_by_current_permissions=(
                     permission_state.effective_capabilities.network_access == "enabled"
+                    or (
+                        bool(network_command_prefix)
+                        and permission_memory.allows_command_prefix(
+                            network_command_prefix
+                        )
+                    )
                 ),
                 extracted_by="shell_network_heuristics",
             )
@@ -664,11 +729,42 @@ def _approval_scope_root(resolved_path: Path) -> str:
     return str(canonical_path)
 
 
+def _approval_option(
+    *,
+    option_id: str,
+    label: str,
+    decision: Literal["approved", "denied"],
+    granted_permissions: AdditionalSandboxPermissions | None = None,
+    granted_grants: tuple[SandboxPermissionGrant, ...] = (),
+) -> ApprovalOption:
+    return ApprovalOption(
+        option_id=option_id,
+        label=label,
+        decision=decision,
+        granted_permissions=granted_permissions,
+        granted_grants=granted_grants,
+    )
+
+
+def _filesystem_session_option_label(
+    *,
+    access_kind: Literal["read", "write"],
+    root: str,
+) -> str:
+    verb = "reads" if access_kind == "read" else "writes"
+    return f"Allow {verb} under {root} for this session"
+
+
+def _shell_network_session_option_label(command_prefix: tuple[str, ...]) -> str:
+    return f"Allow {' '.join(command_prefix)} for this session"
+
+
 def build_permission_grants(
     *,
     permissions: AdditionalSandboxPermissions | None,
     network_scope: PermissionGrantScope = "once",
     filesystem_scope: PermissionGrantScope = "session",
+    network_command_prefix: tuple[str, ...] = (),
 ) -> tuple[SandboxPermissionGrant, ...]:
     if permissions is None:
         return ()
@@ -680,6 +776,9 @@ def build_permission_grants(
                     network_access=permissions.network_access,
                 ),
                 scope=network_scope,
+                command_prefix=(
+                    network_command_prefix if network_scope == "session" else ()
+                ),
             )
         )
     if permissions.extra_read_roots or permissions.extra_write_roots:
@@ -695,6 +794,96 @@ def build_permission_grants(
     return tuple(grants)
 
 
+def build_permission_approval_options(
+    *,
+    permissions: AdditionalSandboxPermissions,
+    once_label: str,
+    session_label: str | None = None,
+    network_command_prefix: tuple[str, ...] = (),
+) -> tuple[ApprovalOption, ...]:
+    options = [
+        _approval_option(
+            option_id="allow-once",
+            label=once_label,
+            decision="approved",
+            granted_permissions=permissions,
+            granted_grants=build_permission_grants(
+                permissions=permissions,
+                network_scope="once",
+                filesystem_scope="once",
+            ),
+        )
+    ]
+    if session_label is not None:
+        options.append(
+            _approval_option(
+                option_id="allow-session",
+                label=session_label,
+                decision="approved",
+                granted_permissions=permissions,
+                granted_grants=build_permission_grants(
+                    permissions=permissions,
+                    network_scope="session",
+                    filesystem_scope="session",
+                    network_command_prefix=network_command_prefix,
+                ),
+            )
+        )
+    options.append(
+        _approval_option(
+            option_id="deny",
+            label="Deny",
+            decision="denied",
+        )
+    )
+    return tuple(options)
+
+
+def build_shell_approval_options(
+    *,
+    command: str,
+    shell_family: ShellFamily,
+    permissions: AdditionalSandboxPermissions,
+) -> tuple[ApprovalOption, ...]:
+    session_label: str | None = None
+    network_prefix = _shell_network_command_prefix(
+        command,
+        shell_family=shell_family,
+    )
+    if (
+        permissions.network_access is not None
+        and not permissions.extra_read_roots
+        and not permissions.extra_write_roots
+        and network_prefix
+    ):
+        session_label = _shell_network_session_option_label(network_prefix)
+    elif (
+        len(permissions.extra_read_roots) == 1
+        and permissions.network_access is None
+        and not permissions.extra_write_roots
+    ):
+        session_label = _filesystem_session_option_label(
+            access_kind="read",
+            root=permissions.extra_read_roots[0],
+        )
+    elif (
+        len(permissions.extra_write_roots) == 1
+        and permissions.network_access is None
+        and not permissions.extra_read_roots
+    ):
+        session_label = _filesystem_session_option_label(
+            access_kind="write",
+            root=permissions.extra_write_roots[0],
+        )
+
+    return build_permission_approval_options(
+        permissions=permissions,
+        once_label="Allow once",
+        session_label=session_label,
+        network_command_prefix=network_prefix,
+    )
+
+
 def plan_shell_execution(
     *,
     permission_state: PermissionState,
@@ -703,15 +892,7 @@ def plan_shell_execution(
     workspace_root: Path | None = None,
     permission_memory=None,
 ) -> SandboxExecutionPlan:
-    approval_network_access = (
-        "enabled"
-        if _shell_command_requests_network_access(
-            command=command,
-            shell_family=shell_family,
-        )
-        and permission_state.effective_capabilities.network_access != "enabled"
-        else None
-    )
+    approval_network_access = None
     approval_read_roots: tuple[str, ...] = ()
     approval_write_roots: tuple[str, ...] = ()
     if workspace_root is not None and permission_memory is not None:
@@ -745,6 +926,14 @@ def plan_shell_execution(
             and evaluation.match.decision == "prompt"
             and evaluation.action.root is not None
         )
+    elif (
+        _shell_command_requests_network_access(
+            command=command,
+            shell_family=shell_family,
+        )
+        and permission_state.effective_capabilities.network_access != "enabled"
+    ):
+        approval_network_access = "enabled"
 
     approval_permissions: AdditionalSandboxPermissions | None = None
     if (
@@ -858,6 +1047,16 @@ async def _approved_file_access_plan(
     if permission_detail:
         reason = f"{reason} ({permission_detail})"
     if access_kind == "read":
+        options = ()
+        if plan.requested_permissions is not None and approval_scope_root is not None:
+            options = build_permission_approval_options(
+                permissions=plan.requested_permissions,
+                once_label="Allow once",
+                session_label=_filesystem_session_option_label(
+                    access_kind="read",
+                    root=approval_scope_root,
+                ),
+            )
         request = PermissionGrantApprovalRequest(
             request_id=f"{action}-{uuid4().hex}",
             request_kind="permission_grant",
@@ -866,12 +1065,24 @@ async def _approved_file_access_plan(
             target=approval_scope_root,
             requested_capabilities=plan.requested_capabilities,
             requested_permissions=plan.requested_permissions,
+            display_subject=f"{action} {tool_path}",
             requested_grants=build_permission_grants(
                 permissions=plan.requested_permissions,
                 filesystem_scope="session",
             ),
+            options=options,
         )
     else:
+        options = ()
+        if plan.requested_permissions is not None and approval_scope_root is not None:
+            options = build_permission_approval_options(
+                permissions=plan.requested_permissions,
+                once_label="Allow once",
+                session_label=_filesystem_session_option_label(
+                    access_kind="write",
+                    root=approval_scope_root,
+                ),
+            )
         request = FileChangeApprovalRequest(
             request_id=f"{action}-{uuid4().hex}",
             request_kind="file_change",
@@ -880,10 +1091,12 @@ async def _approved_file_access_plan(
             change_kind=action if action in {"write", "edit"} else "write",
             requested_capabilities=plan.requested_capabilities,
             requested_permissions=plan.requested_permissions,
+            display_subject=f"{action} {tool_path}",
             requested_grants=build_permission_grants(
                 permissions=plan.requested_permissions,
                 filesystem_scope="session",
             ),
+            options=options,
         )
     decision = normalize_approval_decision(
         request=request,
@@ -923,6 +1136,8 @@ def remember_approved_grants(
     for grant in grants:
         if grant.scope != "session":
             continue
+        if grant.command_prefix:
+            permission_memory.remember_command_prefix(grant.command_prefix)
         remember_approved_permissions(
             permission_memory=permission_memory,
             permissions=grant.permissions,
@@ -931,6 +1146,7 @@ def remember_approved_grants(
 
 __all__ = [
     "approved_read_only_filesystem_policy",
+    "build_shell_approval_options",
     "SandboxExecutionPlan",
     "describe_permission_delta",
     "describe_shell_permission_delta",
