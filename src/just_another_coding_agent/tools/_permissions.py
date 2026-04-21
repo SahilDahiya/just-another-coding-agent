@@ -33,6 +33,7 @@ from just_another_coding_agent.tools._workspace import (
     resolve_workspace_path,
 )
 from just_another_coding_agent.tools.deps import WorkspaceDeps
+from just_another_coding_agent.tools.errors import ToolApprovalDenied
 
 
 class ToolExecutionContext(Protocol):
@@ -180,6 +181,21 @@ def describe_shell_permission_delta(
         joined = ", ".join(permissions.extra_write_roots)
         segments.append(f"outside-workspace writes: {joined}")
     return "; ".join(segments)
+
+
+def _approval_denied_message(
+    *,
+    request: FileChangeApprovalRequest | PermissionGrantApprovalRequest,
+) -> str:
+    if request.request_kind == "file_change":
+        return (
+            f"Approval denied: {request.reason}. "
+            "The file was not modified. Choose another approach or stop."
+        )
+    return (
+        f"Approval denied: {request.reason}. "
+        "The file was not read. Choose another approach or stop."
+    )
 
 
 def _shell_command_requests_network_access(
@@ -874,8 +890,8 @@ async def _approved_file_access_plan(
         decision=await ctx.deps.approval_requester(request),
     )
     if decision.decision != "approved":
-        raise RuntimeError(
-            f"{action.capitalize()} approval did not return an approved decision"
+        raise ToolApprovalDenied(
+            _approval_denied_message(request=request)
         )
     remember_approved_grants(
         permission_memory=ctx.deps.permission_memory,

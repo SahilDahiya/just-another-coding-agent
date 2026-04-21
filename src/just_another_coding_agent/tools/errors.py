@@ -6,7 +6,10 @@ from typing import Any
 
 from pydantic_ai.toolsets import WrapperToolset
 
-from just_another_coding_agent.contracts.tools import make_tool_error_result
+from just_another_coding_agent.contracts.tools import (
+    make_tool_denied_result,
+    make_tool_error_result,
+)
 
 
 class ToolOperationalError(Exception):
@@ -29,6 +32,10 @@ class ToolCommandError(ToolOperationalError):
     """Command execution failed in an expected, model-visible way."""
 
 
+class ToolApprovalDenied(ToolOperationalError):
+    """Approval was denied and the tool must adapt or stop."""
+
+
 def reraise_path_error(error: OSError) -> None:
     raise ToolPathError(str(error)) from error
 
@@ -48,12 +55,15 @@ class ErrorWrappingToolset(WrapperToolset[Any]):
     async def call_tool(self, name, tool_args, ctx, tool):
         try:
             return await super().call_tool(name, tool_args, ctx, tool)
+        except ToolApprovalDenied as error:
+            return make_tool_denied_result(message=str(error))
         except ToolOperationalError as error:
             return make_tool_error_result(error)
 
 
 __all__ = [
     "ErrorWrappingToolset",
+    "ToolApprovalDenied",
     "ToolCommandError",
     "ToolEncodingError",
     "ToolMatchError",

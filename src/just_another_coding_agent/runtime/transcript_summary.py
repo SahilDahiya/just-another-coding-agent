@@ -234,6 +234,8 @@ def _display_hint(activity: ToolActivity) -> str | None:
 def _event_outcome(event: ToolCallSucceededEvent | ToolCallFailedEvent) -> str:
     if isinstance(event, ToolCallFailedEvent):
         return "error"
+    if isinstance(event.result, dict) and event.result.get("outcome") == "denied":
+        return "denied"
     if isinstance(event.result, dict) and event.result.get("ok") is False:
         return "operational_miss"
     return "success"

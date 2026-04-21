@@ -20,8 +20,13 @@ The flow is:
 1. `shell.execute` calls `plan_shell_execution(...)` before the command runs.
 2. The planner inspects the command string for escalation signals.
 3. If escalation is detected, the backend emits an approval request and waits.
-4. If denied, the shell command does not run.
+4. If denied, the shell command does not run and the denied approval is
+   returned to the shell tool as a model-visible denial outcome by default.
 5. If approved, the command still executes on the host executor path.
+
+This means denial normally gives the model a chance to adapt within the same
+run. The backend should only force-stop the run for hard policy boundaries or
+denied-retry guardrails, not because denial happened at all.
 
 This means the current behavior enforces the approval boundary honestly, but it
 does not yet constrain an approved shell command to only the approved network

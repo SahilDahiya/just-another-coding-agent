@@ -14,6 +14,7 @@ from just_another_coding_agent.contracts.sandbox import (
     build_permission_state,
 )
 from just_another_coding_agent.tools.deps import WorkspaceDeps
+from just_another_coding_agent.tools.errors import ToolApprovalDenied
 from just_another_coding_agent.tools.read import read
 from just_another_coding_agent.tools.shell import execute_shell
 from just_another_coding_agent.tools.write import write
@@ -474,8 +475,11 @@ async def test_given_default_policy_when_non_workspace_read_is_denied_then_read_
     )
 
     with pytest.raises(
-        RuntimeError,
-        match="Read approval did not return an approved decision",
+        ToolApprovalDenied,
+        match=(
+            r"Approval denied: allow read outside workspace: \.\./outside\.txt"
+            r".*The file was not read\. Choose another approach or stop\."
+        ),
     ):
         await read(ctx, "../outside.txt")
 
@@ -507,8 +511,11 @@ async def test_given_default_policy_when_non_workspace_write_is_denied_then_writ
     )
 
     with pytest.raises(
-        RuntimeError,
-        match="Write approval did not return an approved decision",
+        ToolApprovalDenied,
+        match=(
+            r"Approval denied: allow write outside workspace: \.\./outside\.txt"
+            r".*The file was not modified\. Choose another approach or stop\."
+        ),
     ):
         await write(ctx, "../outside.txt", "hello")
 
@@ -544,8 +551,12 @@ async def test_given_default_policy_when_shell_network_is_denied_then_command_do
     )
 
     with pytest.raises(
-        RuntimeError,
-        match="Shell execution approval did not return an approved decision",
+        ToolApprovalDenied,
+        match=(
+            r"Approval denied: allow shell command: curl https://example\.com"
+            r" \(network enabled\)\. The command was not run\. "
+            r"Choose another approach or stop\."
+        ),
     ):
         await execute_shell(
             ctx=ctx,

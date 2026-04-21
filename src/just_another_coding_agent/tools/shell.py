@@ -28,6 +28,7 @@ from just_another_coding_agent.tools._permissions import (
 )
 from just_another_coding_agent.tools.deps import WorkspaceDeps
 from just_another_coding_agent.tools.errors import (
+    ToolApprovalDenied,
     ToolCommandError,
     ToolEncodingError,
 )
@@ -61,6 +62,13 @@ def _format_shell_failure(output: str, failure_message: str) -> str:
     if output:
         return f"{output}\n\n{failure_message}"
     return failure_message
+
+
+def _approval_denied_message(*, reason: str) -> str:
+    return (
+        f"Approval denied: {reason}. "
+        "The command was not run. Choose another approach or stop."
+    )
 
 
 def _write_full_output(output: str) -> str:
@@ -196,9 +204,7 @@ async def execute_shell(
             decision=await ctx.deps.approval_requester(request),
         )
         if decision.decision != "approved":
-            raise RuntimeError(
-                "Shell execution approval did not return an approved decision"
-            )
+            raise ToolApprovalDenied(_approval_denied_message(reason=reason))
         remember_approved_grants(
             permission_memory=ctx.deps.permission_memory,
             grants=decision.granted_grants,

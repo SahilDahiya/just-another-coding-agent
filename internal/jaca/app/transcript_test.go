@@ -340,6 +340,47 @@ func TestOperationalToolResultRendersAsNeutralOutput(t *testing.T) {
 	}
 }
 
+func TestDeniedToolResultRendersAsDeepRedIndicator(t *testing.T) {
+	transcript := NewTranscript()
+	duration := 22
+	transcript.ApplyRunEvent(rpc.RunEvent{
+		Type:       "tool_call_started",
+		ToolName:   "shell",
+		ToolCallID: "call-shell",
+		Args:       map[string]any{"command": "curl https://example.com"},
+		Activity:   &rpc.ToolActivity{Title: "shell curl https://example.com"},
+	})
+	transcript.ApplyRunEvent(rpc.RunEvent{
+		Type:       "tool_call_succeeded",
+		ToolName:   "shell",
+		ToolCallID: "call-shell",
+		Result: map[string]any{
+			"ok":          false,
+			"outcome":     "denied",
+			"denial_type": "approval_denied",
+			"message":     "Approval denied: allow shell command: curl https://example.com. The command was not run.",
+		},
+		Activity: &rpc.ToolActivity{
+			Title:      "shell curl https://example.com",
+			Summary:    strPtr("Approval denied: allow shell command: curl https://example.com. The command was not run."),
+			DurationMS: &duration,
+		},
+	})
+
+	plain := transcriptPlain(transcript)
+	if strings.Contains(plain, "error") {
+		t.Fatalf("denied tool result rendered as error: %q", plain)
+	}
+	for _, want := range []string{
+		"● shell  curl https://example.com  denied  22ms",
+		"  └ Approval denied: allow shell command: curl https://example.com. The command was not run.",
+	} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("denied tool result missing %q in %q", want, plain)
+		}
+	}
+}
+
 func TestExplorationToolRowsUseSofterPreviewStyling(t *testing.T) {
 	original := lipgloss.ColorProfile()
 	t.Cleanup(func() {

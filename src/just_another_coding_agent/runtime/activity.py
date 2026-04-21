@@ -263,6 +263,12 @@ def _build_tool_title(*, tool_name: str, args: Any, args_valid: bool | None) -> 
 
 
 def _build_fallback_success_summary(*, tool_name: str, result: Any) -> str | None:
+    if isinstance(result, dict) and result.get("outcome") == "denied":
+        message = result.get("message")
+        if isinstance(message, str) and message:
+            return message
+        return "tool denied"
+
     if isinstance(result, dict) and result.get("ok") is False:
         message = result.get("message")
         if isinstance(message, str) and message:

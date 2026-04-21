@@ -239,12 +239,19 @@ Approval carrier rules:
   result
 - approval lifecycle semantics belong to Python-owned RPC and streamed-event
   contracts, not to Go-local state machines
-- `approval.submit` resolves a live pending approval request; denial must still
-  terminate the run through the canonical backend run-failure path rather than
-  through a stdio-only shortcut
+- `approval.submit` resolves a live pending approval request; by default,
+  denial must be returned to the waiting tool through the canonical backend
+  tool path so the model can decide whether to adapt, ask for a narrower
+  action, or stop
+  - backend guardrails may still terminate the run for hard policy stops or
+    repeated denied-retry loops
 - tools request approval through backend-owned runtime deps; the runtime emits
   `approval_requested` and `approval_resolved` events and preserves normal
   terminal run semantics
+  - approval denial is not a stdio-only shortcut or a Go-local decision
+  - approval denial is a first-class tool outcome, not a tool error
+  - by default the run may continue and the model may recover within the same
+    run
 - the current scoped-grant behavior is:
   - shell network approvals request `once` grants
   - outside-workspace filesystem approvals request `session` grants
@@ -305,7 +312,7 @@ Rules:
   shaping, activity metadata, and contract tests even if an internal helper in
   another language executes part of a tool path.
 - `contracts/tools.py` should contain only shared public tool contract types
-  such as canonical names and explicit tool error result shapes.
+  such as canonical names and explicit tool failure/denial result shapes.
 - Tool definitions sent to the model must have explicit top-level descriptions and parameter descriptions.
 - Expected tool-domain failures must be explicit, model-visible results.
 - Tools do not silently recover from invalid parameters or unsafe state.
@@ -326,6 +333,14 @@ Expected tool-domain error result:
 - `ok` is always `false`
 - ordinary operational failures should use this result shape instead of terminating the run
 - uncaught exceptions and invalid state remain runtime failures
+
+Expected tool-domain denial result:
+
+- fields: `ok`, `outcome`, `denial_type`, `message`
+- `ok` is always `false`
+- `outcome` is always `denied`
+- policy denials should use this result shape instead of being reported as
+  tool errors
 
 Initial executable tool slice:
 

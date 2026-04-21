@@ -29,6 +29,7 @@ from pydantic_ai.messages import (
     TextPart,
     TextPartDelta,
     ToolCallPart,
+    ToolReturnPart,
     UserPromptPart,
 )
 from pydantic_ai.usage import UsageLimits
@@ -55,7 +56,11 @@ from just_another_coding_agent.contracts.sandbox import (
     normalize_approval_decision,
 )
 from just_another_coding_agent.contracts.thinking import ThinkingSetting
-from just_another_coding_agent.contracts.tools import CANONICAL_TOOL_NAMES
+from just_another_coding_agent.contracts.tools import (
+    CANONICAL_TOOL_NAMES,
+    ToolErrorResult,
+    make_tool_denied_result,
+)
 from just_another_coding_agent.runtime.activity import (
     PendingToolCall,
     build_failed_tool_activity,
@@ -97,6 +102,10 @@ from just_another_coding_agent.session.replacement_history import (
     sanitize_failed_run_messages,
 )
 from just_another_coding_agent.tools.deps import WorkspaceDeps
+from just_another_coding_agent.tools.errors import (
+    ToolApprovalDenied,
+    ToolOperationalError,
+)
 
 _JSON_VALUE_ADAPTER = TypeAdapter(JsonValue)
 logger = logging.getLogger(__name__)
@@ -142,12 +151,6 @@ class _RestartRunWithCorrection(Exception):
 
 class _InRunCompactRequested(Exception):
     pass
-
-
-class ApprovalDenied(RuntimeError):
-    def __init__(self, *, request: ApprovalRequest) -> None:
-        super().__init__(f"Approval denied: {request.reason}")
-        self.request = request
 
 
 MAX_IN_RUN_COMPACT_FAILURES = 3
@@ -945,17 +948,6 @@ async def _stream_run_events(
                                                             run_id=run_id,
                                                             decision=decision,
                                                         )
-                                                        if (
-                                                            decision.decision
-                                                            == "denied"
-                                                        ):
-                                                            denial = ApprovalDenied(
-                                                                request=event.request
-                                                            )
-                                                            event.response_future.set_exception(
-                                                                denial
-                                                            )
-                                                            raise denial
                                                         event.response_future.set_result(
                                                             decision
                                                         )
@@ -1229,6 +1221,80 @@ async def _stream_run_events(
                         error_type=type(error).__name__,
                         error_message=error.message,
                     )
+                    pending_tool_calls.clear()
+                    completed_tool_calls.clear()
+                    recovery_attempts = 0
+                    continue
+                if (
+                    isinstance(error, ToolOperationalError)
+                    and len(pending_tool_calls) == 1
+                ):
+                    tool_call_id, pending_tool_call = next(
+                        iter(pending_tool_calls.items())
+                    )
+                    completed_tool_calls[tool_call_id] = (
+                        pending_tool_call.tool_name
+                    )
+                    error_result = (
+                        _tool_denied_result(message=str(error))
+                        if isinstance(error, ToolApprovalDenied)
+                        else _tool_error_result(
+                            error_type=type(error).__name__,
+                            message=str(error),
+                        )
+                    )
+                    yield ToolCallSucceededEvent(
+                        run_id=run_id,
+                        tool_call_id=tool_call_id,
+                        tool_name=pending_tool_call.tool_name,
+                        result=error_result,
+                        activity=build_succeeded_tool_activity(
+                            tool_name=pending_tool_call.tool_name,
+                            args=pending_tool_call.args,
+                            args_valid=pending_tool_call.args_valid,
+                            result=error_result,
+                            duration_ms=_duration_ms_since(
+                                pending_tool_call.started_at
+                            ),
+                        ),
+                    )
+                    _finish_tool_span(
+                        active_tool_spans=active_tool_spans,
+                        tool_call_id=tool_call_id,
+                        status="succeeded",
+                        duration_ms=_duration_ms_since(
+                            pending_tool_call.started_at
+                        ),
+                    )
+                    attempt_messages = _fallback_attempt_messages(
+                        list(captured_messages)[attempt_history_count:],
+                        prompt=current_prompt,
+                    )
+                    attempt_messages = [
+                        *attempt_messages,
+                        ModelRequest(
+                            parts=[
+                                ToolReturnPart(
+                                    tool_name=pending_tool_call.tool_name,
+                                    content=error_result,
+                                    tool_call_id=tool_call_id,
+                                    outcome=(
+                                        "denied"
+                                        if isinstance(error, ToolApprovalDenied)
+                                        else "failed"
+                                    ),
+                                )
+                            ]
+                        ),
+                    ]
+                    carried_messages.extend(
+                        sanitize_failed_run_messages(attempt_messages)
+                    )
+                    current_message_history = [
+                        *current_message_history,
+                        *carried_messages[len(current_message_history) :],
+                    ]
+                    current_prompt = ""
                     pending_tool_calls.clear()
                     completed_tool_calls.clear()
                     recovery_attempts = 0
@@ -1514,11 +1580,14 @@ def _get_context_window_tokens(agent: Agent[Any, Any]) -> int | None:
 
 
 def _tool_error_result(*, error_type: str, message: str) -> dict[str, str | bool]:
-    return {
-        "ok": False,
-        "error_type": error_type,
-        "message": message,
-    }
+    return ToolErrorResult(
+        error_type=error_type,
+        message=message,
+    ).model_dump(mode="json")
+
+
+def _tool_denied_result(*, message: str) -> dict[str, str | bool]:
+    return make_tool_denied_result(message=message)
 
 
 def _tool_correction_exhausted_message(tool_name: str) -> str:

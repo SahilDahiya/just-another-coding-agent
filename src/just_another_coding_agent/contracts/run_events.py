@@ -137,7 +137,7 @@ class ActivityGroupSummary(BaseModel):
     group_label: str
     group_counts: ActivityGroupCounts = Field(default_factory=ActivityGroupCounts)
     display_hint: str | None = None
-    outcome: Literal["success", "operational_miss", "error"]
+    outcome: Literal["success", "denied", "operational_miss", "error"]
     elapsed_ms: int | None = None
 
 

@@ -31,6 +31,7 @@ from just_another_coding_agent.runtime.agent import build_canonical_agent
 from just_another_coding_agent.runtime.run import stream_run_events
 from just_another_coding_agent.tools._activity import make_tool_return
 from just_another_coding_agent.tools.deps import RunSessionScope, WorkspaceDeps
+from just_another_coding_agent.tools.errors import ToolApprovalDenied
 
 
 class _FakeCallToolsNode(CallToolsNode):
@@ -215,7 +216,11 @@ async def _needs_approval(ctx: RunContext[WorkspaceDeps]) -> str:
             ),
         )
     )
-    assert decision.decision == "approved"
+    if decision.decision != "approved":
+        raise ToolApprovalDenied(
+            "Approval denied: let the tool continue. "
+            "The file was not read. Choose another approach or stop."
+        )
     return "approved"
 
 
@@ -466,7 +471,7 @@ async def test_stream_run_events_emits_approval_events_and_succeeds(
     assert events[-1].output_text == "done"
 
 
-async def test_stream_run_events_denied_approval_fails_run(
+async def test_stream_run_events_denied_approval_returns_tool_denial_and_succeeds(
     tmp_path,
 ) -> None:
     agent = Agent(
@@ -508,14 +513,23 @@ async def test_stream_run_events_denied_approval_fails_run(
         "tool_call_started",
         "approval_requested",
         "approval_resolved",
-        "tool_call_failed",
-        "run_failed",
+        "tool_call_succeeded",
+        "assistant_text_delta",
+        "run_succeeded",
     ]
     assert isinstance(events[2], ApprovalRequestedEvent)
     assert isinstance(events[3], ApprovalResolvedEvent)
-    assert isinstance(events[-1], RunFailedEvent)
-    assert events[-1].error_type == "ApprovalDenied"
-    assert events[-1].message == "Approval denied: let the tool continue"
+    assert events[4].result == {
+        "ok": False,
+        "outcome": "denied",
+        "denial_type": "approval_denied",
+        "message": (
+            "Approval denied: let the tool continue. "
+            "The file was not read. Choose another approach or stop."
+        ),
+    }
+    assert isinstance(events[-1], RunSucceededEvent)
+    assert events[-1].output_text == "done"
 
 
 async def test_build_canonical_agent_retries_one_transient_pre_stream_failure(

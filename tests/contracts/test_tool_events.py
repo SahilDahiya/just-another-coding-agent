@@ -34,6 +34,12 @@ from just_another_coding_agent.contracts.run_events import (
     ToolCallSucceededEvent,
     ToolCallUpdatedEvent,
 )
+from just_another_coding_agent.contracts.sandbox import (
+    ApprovalDecision,
+    ApprovalPolicy,
+    WorkspaceWriteSandboxPolicy,
+    build_permission_state,
+)
 from just_another_coding_agent.runtime.agent import build_canonical_agent
 from just_another_coding_agent.runtime.run import stream_run_events
 from just_another_coding_agent.tools.deps import (
@@ -734,6 +740,33 @@ async def recovering_non_zero_bash_stream(
                 name="shell",
                 json_args=json.dumps({"command": _ok_command()}),
                 tool_call_id="call-bash-2",
+            )
+        }
+        return
+
+    yield "done"
+
+
+async def recovering_denied_approval_shell_stream(
+    messages: list[ModelMessage],
+    _agent_info: object,
+) -> AsyncIterator[str | dict[int, DeltaToolCall]]:
+    if len(messages) == 1:
+        yield {
+            0: DeltaToolCall(
+                name="shell",
+                json_args=json.dumps({"command": "curl https://example.com"}),
+                tool_call_id="call-bash-denied-1",
+            )
+        }
+        return
+
+    if len(messages) == 3:
+        yield {
+            0: DeltaToolCall(
+                name="shell",
+                json_args=json.dumps({"command": _ok_command()}),
+                tool_call_id="call-bash-denied-2",
             )
         }
         return
@@ -1819,6 +1852,74 @@ async def test_stream_run_events_recovers_from_non_zero_bash_exit_within_one_run
     assert events[first_result_index].result["message"].replace("\r\n", "\n") == (
         "boom\n\nCommand exited with code 7"
     )
+    second_result_index = next(
+        index
+        for index, event in enumerate(events)
+        if index > first_result_index and isinstance(event, ToolCallSucceededEvent)
+    )
+    assert isinstance(events[second_result_index], ToolCallSucceededEvent)
+    assert events[second_result_index].result == {
+        "exit_code": 0,
+        "output": "ok",
+    }
+    assert events[-1].output_text == "done"
+
+
+async def test_stream_run_events_recovers_from_denied_shell_approval_within_one_run(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    agent = build_canonical_agent(
+        model=FunctionModel(stream_function=recovering_denied_approval_shell_stream),
+        workspace_root=workspace_root,
+        tool_names=("shell",),
+    )
+
+    async def approval_requester(request) -> ApprovalDecision:
+        return ApprovalDecision(
+            request_id=request.request_id,
+            decision="denied",
+        )
+
+    events = [
+        event
+        async for event in stream_run_events(
+            agent=agent,
+            prompt="go",
+            deps=WorkspaceDeps(
+                workspace_root=workspace_root,
+                shell_family=_SHELL_FAMILY,
+                permission_state=build_permission_state(
+                    sandbox_policy=WorkspaceWriteSandboxPolicy(),
+                    approval_policy=ApprovalPolicy(mode="on_escalation"),
+                ),
+            ),
+            resolve_approval_request=approval_requester,
+        )
+    ]
+
+    assert events[0].type == "run_started"
+    assert events[1].type == "tool_call_started"
+    assert events[-2].type == "assistant_text_delta"
+    assert events[-1].type == "run_succeeded"
+    first_result_index = next(
+        index
+        for index, event in enumerate(events)
+        if isinstance(event, ToolCallSucceededEvent)
+    )
+    assert isinstance(events[first_result_index], ToolCallSucceededEvent)
+    assert events[first_result_index].result == {
+        "ok": False,
+        "outcome": "denied",
+        "denial_type": "approval_denied",
+        "message": (
+            "Approval denied: allow shell command: curl https://example.com "
+            "(network enabled). The command was not run. "
+            "Choose another approach or stop."
+        ),
+    }
     second_result_index = next(
         index
         for index, event in enumerate(events)

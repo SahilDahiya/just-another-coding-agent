@@ -60,11 +60,14 @@ func (g *toolGroup) finish(event rpc.RunEvent) bool {
 	if entry == nil {
 		return false
 	}
-	miss := isOperationalMiss(event.Result)
-	entry.operationalMiss = miss
-	if miss {
+	resultState := toolResultState(event.Result)
+	entry.operationalMiss = resultState == "operational_miss"
+	switch resultState {
+	case "operational_miss":
 		entry.outcome = ""
-	} else {
+	case "denied":
+		entry.outcome = "denied"
+	default:
 		entry.outcome = "ok"
 	}
 	entry.resultLines = nil
@@ -155,7 +158,7 @@ func (g *toolGroup) render(motionTick int) (string, string) {
 			rendered.WriteString(styleToolDetailLine(line) + "\n")
 		}
 		resultColor := defaultTheme.textMuted
-		if entry.operationalMiss {
+		if entry.operationalMiss || entry.outcome == "denied" {
 			resultColor = defaultTheme.errSoft
 		}
 		for idx, line := range entry.resultLines {
@@ -250,6 +253,8 @@ func renderToolActivityLine(entry *toolEntry, motionTick int) string {
 		markerColor = defaultTheme.successSoft
 	case entry.outcome == "error":
 		markerColor = defaultTheme.err
+	case entry.outcome == "denied":
+		markerColor = defaultTheme.errSoft
 	case entry.outcome == "":
 		markerColor = breathingMarkerColor(motionTick)
 	default:
@@ -276,6 +281,8 @@ func renderToolActivityLine(entry *toolEntry, motionTick int) string {
 		color := defaultTheme.textMuted
 		if entry.outcome == "error" {
 			color = defaultTheme.err
+		} else if entry.outcome == "denied" {
+			color = defaultTheme.errSoft
 		} else if entry.outcome == "running" {
 			color = defaultTheme.accentSoft
 		}
@@ -338,6 +345,11 @@ func explorationGroupState(order []string, entries map[string]*toolEntry, comple
 	for _, id := range order {
 		if entries[id].outcome == "error" {
 			return "error"
+		}
+	}
+	for _, id := range order {
+		if entries[id].outcome == "denied" {
+			return "denied"
 		}
 	}
 	for _, id := range order {
@@ -408,7 +420,7 @@ func coalesceExplorationEntries(order []string, entries map[string]*toolEntry) [
 			label = capitalizeFirst(entry.toolName)
 		}
 
-		if entry.operationalMiss || entry.outcome == "error" {
+		if entry.operationalMiss || entry.outcome == "error" || entry.outcome == "denied" {
 			message := entry.message
 			if message == "" && len(entry.resultLines) > 0 {
 				message = entry.resultLines[0]
@@ -562,6 +574,8 @@ func renderExplorationGroup(order []string, entries map[string]*toolEntry, motio
 	if state == "error" {
 		marker = "× "
 		markerColor = defaultTheme.err
+	} else if state == "denied" {
+		markerColor = defaultTheme.errSoft
 	} else if complete {
 		markerColor = defaultTheme.textMuted
 	} else {
@@ -575,6 +589,10 @@ func renderExplorationGroup(order []string, entries map[string]*toolEntry, motio
 	}
 	headerRendered := lipgloss.NewStyle().Foreground(markerColor).Render(marker) +
 		headerLabelStyle.Render(headerLabel) + "\n"
+	if state == "denied" {
+		headerRendered = lipgloss.NewStyle().Foreground(markerColor).Render(marker) +
+			lipgloss.NewStyle().Foreground(defaultTheme.errSoft).Bold(true).Render(headerLabel) + "\n"
+	}
 
 	var plain, rendered strings.Builder
 	plain.WriteString(headerPlain)
@@ -612,6 +630,13 @@ func renderExplorationGroup(order []string, entries map[string]*toolEntry, motio
 				plainLine += "  " + line.message
 				renderedLine += "  " + lipgloss.NewStyle().Foreground(defaultTheme.errSoft).Render(line.message)
 			}
+		} else if line.outcome == "denied" {
+			plainLine += "  denied"
+			renderedLine += "  " + lipgloss.NewStyle().Foreground(defaultTheme.errSoft).Render("denied")
+			if line.message != "" {
+				plainLine += "  " + line.message
+				renderedLine += "  " + lipgloss.NewStyle().Foreground(defaultTheme.errSoft).Render(line.message)
+			}
 		} else if line.outcome == "error" {
 			plainLine += "  error"
 			renderedLine += "  " + lipgloss.NewStyle().Foreground(defaultTheme.err).Render("error")
@@ -632,6 +657,8 @@ func toolOutcomeColor(outcome string) lipgloss.TerminalColor {
 	switch outcome {
 	case "ok":
 		return defaultTheme.successSoft
+	case "denied":
+		return defaultTheme.errSoft
 	case "error":
 		return defaultTheme.err
 	case "running":
@@ -868,13 +895,19 @@ func truncateLines(lines []string, limit int) ([]string, bool, int, int) {
 	return filtered, false, 0, 0
 }
 
-func isOperationalMiss(result any) bool {
+func toolResultState(result any) string {
 	m, ok := result.(map[string]any)
 	if !ok {
-		return false
+		return ""
+	}
+	if outcome, ok := m["outcome"].(string); ok && outcome == "denied" {
+		return "denied"
 	}
 	flag, ok := m["ok"].(bool)
-	return ok && !flag
+	if ok && !flag {
+		return "operational_miss"
+	}
+	return ""
 }
 
 func intFromAny(value any) *int {
