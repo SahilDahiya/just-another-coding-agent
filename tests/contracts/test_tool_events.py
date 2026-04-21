@@ -1877,7 +1877,11 @@ async def test_stream_run_events_recovers_from_denied_shell_approval_within_one_
         tool_names=("shell",),
     )
 
-    async def approval_requester(request) -> ApprovalDecision:
+    async def approval_requester(
+        request,
+        _tool_call_id=None,
+        _tool_name=None,
+    ) -> ApprovalDecision:
         return ApprovalDecision(
             request_id=request.request_id,
             decision="denied",

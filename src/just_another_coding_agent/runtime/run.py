@@ -135,6 +135,8 @@ class _QueuedToolUpdate:
 @dataclass(frozen=True)
 class _QueuedApprovalRequest:
     request: ApprovalRequest
+    tool_call_id: str | None
+    tool_name: str | None
     response_future: asyncio.Future[ApprovalDecision]
 
 
@@ -224,7 +226,9 @@ def _bind_workspace_deps_to_run(
     deps: WorkspaceDeps,
     run_id: str,
     tool_update_sink: Callable[[str, str, JsonValue | None], Awaitable[None]] | None,
-    approval_requester: Callable[[ApprovalRequest], Awaitable[ApprovalDecision]]
+    approval_requester: Callable[
+        [ApprovalRequest, str | None, str | None], Awaitable[ApprovalDecision]
+    ]
     | None,
 ) -> WorkspaceDeps:
     return replace(
@@ -700,6 +704,8 @@ async def _stream_run_events(
 
                 async def _queue_approval_request(
                     request: ApprovalRequest,
+                    tool_call_id: str | None,
+                    tool_name: str | None,
                 ) -> ApprovalDecision:
                     response_future: asyncio.Future[ApprovalDecision] = (
                         asyncio.get_running_loop().create_future()
@@ -707,6 +713,8 @@ async def _stream_run_events(
                     await queue.put(
                         _QueuedApprovalRequest(
                             request=request,
+                            tool_call_id=tool_call_id,
+                            tool_name=tool_name,
                             response_future=response_future,
                         )
                     )
@@ -905,6 +913,8 @@ async def _stream_run_events(
                                                         yield ApprovalRequestedEvent(
                                                             run_id=run_id,
                                                             request=event.request,
+                                                            tool_name=event.tool_name,
+                                                            tool_call_id=event.tool_call_id,
                                                         )
                                                         if (
                                                             resolve_approval_request

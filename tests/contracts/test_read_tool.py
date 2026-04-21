@@ -130,7 +130,7 @@ async def test_read_requests_approval_for_outside_workspace_path_in_default_mode
     outside.write_text("secret", encoding="utf-8")
     requests = []
 
-    async def approval_requester(request):
+    async def approval_requester(request, _tool_call_id=None, _tool_name=None):
         requests.append(request)
         return ApprovalDecision(
             request_id=request.request_id,
@@ -182,7 +182,7 @@ async def test_read_remembers_approved_outside_root_within_one_session(
     (outside_dir / "second.txt").write_text("second", encoding="utf-8")
     requests = []
 
-    async def approval_requester(request):
+    async def approval_requester(request, _tool_call_id=None, _tool_name=None):
         requests.append(request)
         return ApprovalDecision(
             request_id=request.request_id,

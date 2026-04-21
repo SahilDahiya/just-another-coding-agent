@@ -265,7 +265,7 @@ async def test_edit_requests_approval_for_outside_workspace_path_in_default_mode
     outside.write_text("hello\nworld\n", encoding="utf-8")
     requests = []
 
-    async def approval_requester(request):
+    async def approval_requester(request, _tool_call_id=None, _tool_name=None):
         requests.append(request)
         return ApprovalDecision(
             request_id=request.request_id,
@@ -316,7 +316,7 @@ async def test_edit_remembers_approved_outside_root_within_one_session(
     second.write_text("hello\nworld\n", encoding="utf-8")
     requests = []
 
-    async def approval_requester(request):
+    async def approval_requester(request, _tool_call_id=None, _tool_name=None):
         requests.append(request)
         return ApprovalDecision(
             request_id=request.request_id,

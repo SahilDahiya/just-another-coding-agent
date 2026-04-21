@@ -887,7 +887,11 @@ async def _approved_file_access_plan(
         )
     decision = normalize_approval_decision(
         request=request,
-        decision=await ctx.deps.approval_requester(request),
+        decision=await ctx.deps.approval_requester(
+            request,
+            getattr(ctx, "tool_call_id", None),
+            getattr(ctx, "tool_name", None),
+        ),
     )
     if decision.decision != "approved":
         raise ToolApprovalDenied(

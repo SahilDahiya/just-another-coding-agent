@@ -214,7 +214,9 @@ async def _needs_approval(ctx: RunContext[WorkspaceDeps]) -> str:
                     "scope": "session",
                 },
             ),
-        )
+        ),
+        ctx.tool_call_id,
+        ctx.tool_name,
     )
     if decision.decision != "approved":
         raise ToolApprovalDenied(
@@ -451,6 +453,8 @@ async def test_stream_run_events_emits_approval_events_and_succeeds(
     assert isinstance(approval_request, ApprovalRequestedEvent)
     assert isinstance(approval_resolution, ApprovalResolvedEvent)
     assert approval_request.request.request_kind == "permission_grant"
+    assert approval_request.tool_name == "needs_approval"
+    assert approval_request.tool_call_id == events[1].tool_call_id
     assert requests == [approval_request.request]
     assert approval_resolution.decision == ApprovalDecision(
         request_id=approval_request.request.request_id,
@@ -519,6 +523,8 @@ async def test_stream_run_events_denied_approval_returns_tool_denial_and_succeed
     ]
     assert isinstance(events[2], ApprovalRequestedEvent)
     assert isinstance(events[3], ApprovalResolvedEvent)
+    assert events[2].tool_name == "needs_approval"
+    assert events[2].tool_call_id == events[1].tool_call_id
     assert events[4].result == {
         "ok": False,
         "outcome": "denied",

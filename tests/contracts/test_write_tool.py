@@ -107,7 +107,7 @@ async def test_write_requests_approval_for_outside_workspace_path_in_default_mod
     outside = tmp_path / "outside.txt"
     requests = []
 
-    async def approval_requester(request):
+    async def approval_requester(request, _tool_call_id=None, _tool_name=None):
         requests.append(request)
         return ApprovalDecision(
             request_id=request.request_id,
@@ -149,7 +149,7 @@ async def test_write_skips_approval_for_workspace_path_in_default_mode(
     workspace_root.mkdir()
     requests = []
 
-    async def approval_requester(request):
+    async def approval_requester(request, _tool_call_id=None, _tool_name=None):
         requests.append(request)
         return ApprovalDecision(
             request_id=request.request_id,
@@ -182,7 +182,7 @@ async def test_write_remembers_approved_outside_root_within_one_session(
     outside_dir.mkdir()
     requests = []
 
-    async def approval_requester(request):
+    async def approval_requester(request, _tool_call_id=None, _tool_name=None):
         requests.append(request)
         return ApprovalDecision(
             request_id=request.request_id,

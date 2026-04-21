@@ -677,6 +677,8 @@ async def test_stream_session_run_events_persists_shell_approval_events(
     assert requests[0].requested_permissions.extra_write_roots == (
         str(outside_dir.resolve()),
     )
+    assert events[2].tool_name == "shell"
+    assert events[2].tool_call_id == events[1].tool_call_id
     assert outside_file.exists()
 
     loaded = load_session(path=session_path, workspace_root=workspace_root)

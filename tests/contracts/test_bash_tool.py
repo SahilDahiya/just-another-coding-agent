@@ -188,7 +188,7 @@ async def test_execute_shell_requests_approval_when_policy_is_always(
     monkeypatch.chdir(tmp_path)
     requests = []
 
-    async def approval_requester(request):
+    async def approval_requester(request, _tool_call_id=None, _tool_name=None):
         requests.append(request)
         return ApprovalDecision(
             request_id=request.request_id,
@@ -361,7 +361,7 @@ async def test_execute_shell_requests_approval_for_network_escalation(
             executed_requests.append(request)
             return _ExecutorHandle()
 
-    async def approval_requester(request):
+    async def approval_requester(request, _tool_call_id=None, _tool_name=None):
         requests.append(request)
         return ApprovalDecision(
             request_id=request.request_id,
@@ -428,7 +428,7 @@ async def test_execute_shell_requests_approval_for_outside_workspace_write(
         async def execute(self, request):
             return _ExecutorHandle()
 
-    async def approval_requester(request):
+    async def approval_requester(request, _tool_call_id=None, _tool_name=None):
         requests.append(request)
         return ApprovalDecision(
             request_id=request.request_id,
@@ -495,7 +495,7 @@ async def test_execute_shell_remembers_approved_outside_workspace_write_root(
         async def execute(self, request):
             return _ExecutorHandle()
 
-    async def approval_requester(request):
+    async def approval_requester(request, _tool_call_id=None, _tool_name=None):
         requests.append(request)
         return ApprovalDecision(
             request_id=request.request_id,

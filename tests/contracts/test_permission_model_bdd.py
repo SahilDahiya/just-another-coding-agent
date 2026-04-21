@@ -114,7 +114,7 @@ async def test_given_default_policy_when_non_workspace_read_then_permission_gran
     outside.write_text("secret", encoding="utf-8")
     requests = []
 
-    async def approval_requester(request):
+    async def approval_requester(request, _tool_call_id=None, _tool_name=None):
         requests.append(request)
         return ApprovalDecision(request_id=request.request_id, decision="approved")
 
@@ -150,7 +150,7 @@ async def test_given_default_policy_when_non_workspace_write_then_file_change_ap
     outside = tmp_path / "outside.txt"
     requests = []
 
-    async def approval_requester(request):
+    async def approval_requester(request, _tool_call_id=None, _tool_name=None):
         requests.append(request)
         return ApprovalDecision(request_id=request.request_id, decision="approved")
 
@@ -180,7 +180,7 @@ async def test_given_default_policy_when_shell_requests_network_then_command_exe
     monkeypatch.chdir(tmp_path)
     requests = []
 
-    async def approval_requester(request):
+    async def approval_requester(request, _tool_call_id=None, _tool_name=None):
         requests.append(request)
         return ApprovalDecision(request_id=request.request_id, decision="approved")
 
@@ -219,7 +219,7 @@ async def test_given_default_policy_when_shell_requests_non_workspace_write_then
     outside_dir.mkdir()
     requests = []
 
-    async def approval_requester(request):
+    async def approval_requester(request, _tool_call_id=None, _tool_name=None):
         requests.append(request)
         return ApprovalDecision(request_id=request.request_id, decision="approved")
 
@@ -259,7 +259,7 @@ async def test_given_default_policy_when_shell_requests_non_workspace_read_then_
     requests = []
     executor = _Executor()
 
-    async def approval_requester(request):
+    async def approval_requester(request, _tool_call_id=None, _tool_name=None):
         requests.append(request)
         return ApprovalDecision(request_id=request.request_id, decision="approved")
 
@@ -296,7 +296,7 @@ async def test_given_default_policy_when_non_workspace_read_is_session_approved_
     outside.write_text("secret", encoding="utf-8")
     requests = []
 
-    async def approval_requester(request):
+    async def approval_requester(request, _tool_call_id=None, _tool_name=None):
         requests.append(request)
         return ApprovalDecision(request_id=request.request_id, decision="approved")
 
@@ -334,7 +334,7 @@ async def test_given_default_policy_when_non_workspace_write_is_session_approved
     outside = tmp_path / "outside.txt"
     requests = []
 
-    async def approval_requester(request):
+    async def approval_requester(request, _tool_call_id=None, _tool_name=None):
         requests.append(request)
         return ApprovalDecision(request_id=request.request_id, decision="approved")
 
@@ -368,7 +368,7 @@ async def test_given_default_policy_when_shell_non_workspace_read_is_session_app
     requests = []
     executor = _Executor()
 
-    async def approval_requester(request):
+    async def approval_requester(request, _tool_call_id=None, _tool_name=None):
         requests.append(request)
         return ApprovalDecision(request_id=request.request_id, decision="approved")
 
@@ -414,7 +414,7 @@ async def test_given_default_policy_when_shell_network_is_approved_then_second_n
     requests = []
     executor = _Executor()
 
-    async def approval_requester(request):
+    async def approval_requester(request, _tool_call_id=None, _tool_name=None):
         requests.append(request)
         return ApprovalDecision(request_id=request.request_id, decision="approved")
 
@@ -458,7 +458,7 @@ async def test_given_default_policy_when_non_workspace_read_is_denied_then_read_
     worker = _ReadOnlyWorkerProbe()
     requests = []
 
-    async def approval_requester(request):
+    async def approval_requester(request, _tool_call_id=None, _tool_name=None):
         requests.append(request)
         return ApprovalDecision(request_id=request.request_id, decision="denied")
 
@@ -498,7 +498,7 @@ async def test_given_default_policy_when_non_workspace_write_is_denied_then_writ
     outside = tmp_path / "outside.txt"
     requests = []
 
-    async def approval_requester(request):
+    async def approval_requester(request, _tool_call_id=None, _tool_name=None):
         requests.append(request)
         return ApprovalDecision(request_id=request.request_id, decision="denied")
 
@@ -536,7 +536,7 @@ async def test_given_default_policy_when_shell_network_is_denied_then_command_do
     requests = []
     executor = _Executor()
 
-    async def approval_requester(request):
+    async def approval_requester(request, _tool_call_id=None, _tool_name=None):
         requests.append(request)
         return ApprovalDecision(request_id=request.request_id, decision="denied")
 
@@ -580,7 +580,7 @@ async def test_given_full_access_when_non_workspace_read_then_allowed_without_pr
     outside.write_text("secret", encoding="utf-8")
     requests = []
 
-    async def approval_requester(request):
+    async def approval_requester(request, _tool_call_id=None, _tool_name=None):
         requests.append(request)
         return ApprovalDecision(request_id=request.request_id, decision="approved")
 
@@ -613,7 +613,7 @@ async def test_given_full_access_when_non_workspace_write_then_allowed_without_p
     outside = tmp_path / "outside.txt"
     requests = []
 
-    async def approval_requester(request):
+    async def approval_requester(request, _tool_call_id=None, _tool_name=None):
         requests.append(request)
         return ApprovalDecision(request_id=request.request_id, decision="approved")
 
@@ -641,7 +641,7 @@ async def test_given_full_access_when_shell_network_then_allowed_without_prompt(
     requests = []
     executor = _Executor()
 
-    async def approval_requester(request):
+    async def approval_requester(request, _tool_call_id=None, _tool_name=None):
         requests.append(request)
         return ApprovalDecision(request_id=request.request_id, decision="approved")
 

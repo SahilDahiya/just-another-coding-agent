@@ -36,7 +36,7 @@ ToolUpdateSink: TypeAlias = Callable[
     Awaitable[None],
 ]
 ApprovalRequester: TypeAlias = Callable[
-    [ApprovalRequest],
+    [ApprovalRequest, str | None, str | None],
     Awaitable[ApprovalDecision],
 ]
 RunSessionKind: TypeAlias = Literal["root", "subagent"]
