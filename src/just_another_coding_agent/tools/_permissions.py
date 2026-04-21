@@ -19,6 +19,7 @@ from just_another_coding_agent.contracts.sandbox import (
     PermissionGrantScope,
     PermissionState,
     SandboxPermissionGrant,
+    approval_request_subject,
     derive_normalized_sandbox_policy,
     derive_requested_capabilities,
     normalize_approval_decision,
@@ -1180,7 +1181,10 @@ async def _approved_file_access_plan(
     )
     if decision.decision != "approved":
         raise ToolApprovalDenied(
-            _approval_denied_message(request=request)
+            _approval_denied_message(request=request),
+            approval_kind=request.request_kind,
+            subject=approval_request_subject(request),
+            retry_same_request_allowed=False,
         )
     remember_approved_grants(
         permission_memory=ctx.deps.permission_memory,

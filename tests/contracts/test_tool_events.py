@@ -774,6 +774,33 @@ async def recovering_denied_approval_shell_stream(
     yield "done"
 
 
+async def repeated_denied_approval_shell_stream(
+    messages: list[ModelMessage],
+    _agent_info: object,
+) -> AsyncIterator[str | dict[int, DeltaToolCall]]:
+    if len(messages) == 1:
+        yield {
+            0: DeltaToolCall(
+                name="shell",
+                json_args=json.dumps({"command": "curl https://example.com"}),
+                tool_call_id="call-bash-repeat-denied-1",
+            )
+        }
+        return
+
+    if len(messages) == 3:
+        yield {
+            0: DeltaToolCall(
+                name="shell",
+                json_args=json.dumps({"command": "curl https://example.com"}),
+                tool_call_id="call-bash-repeat-denied-2",
+            )
+        }
+        return
+
+    yield "done"
+
+
 async def steer_aware_shell_stream(
     messages: list[ModelMessage],
     _agent_info: object,
@@ -1918,11 +1945,14 @@ async def test_stream_run_events_recovers_from_denied_shell_approval_within_one_
         "ok": False,
         "outcome": "denied",
         "denial_type": "approval_denied",
+        "approval_kind": "command_execution",
+        "subject": "curl https://example.com",
         "message": (
             "Approval denied: allow shell command: curl https://example.com "
             "(network enabled). The command was not run. "
             "Choose another approach or stop."
         ),
+        "retry_same_request_allowed": False,
     }
     second_result_index = next(
         index
@@ -1934,6 +1964,90 @@ async def test_stream_run_events_recovers_from_denied_shell_approval_within_one_
         "exit_code": 0,
         "output": "ok",
     }
+    assert events[-1].output_text == "done"
+
+
+async def test_stream_run_events_does_not_reprompt_identical_denied_shell_request_within_one_run(  # noqa: E501
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    agent = build_canonical_agent(
+        model=FunctionModel(stream_function=repeated_denied_approval_shell_stream),
+        workspace_root=workspace_root,
+        tool_names=("shell",),
+    )
+    approval_calls = 0
+
+    async def approval_requester(
+        request,
+        _tool_call_id=None,
+        _tool_name=None,
+    ) -> ApprovalDecision:
+        nonlocal approval_calls
+        approval_calls += 1
+        return ApprovalDecision(
+            request_id=request.request_id,
+            decision="denied",
+        )
+
+    events = [
+        event
+        async for event in stream_run_events(
+            agent=agent,
+            prompt="go",
+            deps=WorkspaceDeps(
+                workspace_root=workspace_root,
+                shell_family=_SHELL_FAMILY,
+                permission_state=build_permission_state(
+                    sandbox_policy=WorkspaceWriteSandboxPolicy(),
+                    approval_policy=ApprovalPolicy(mode="on_escalation"),
+                ),
+            ),
+            resolve_approval_request=approval_requester,
+        )
+    ]
+
+    assert approval_calls == 1
+    assert [event.type for event in events].count("approval_requested") == 1
+    assert [event.type for event in events].count("approval_resolved") == 1
+
+    denied_results = [
+        event.result
+        for event in events
+        if isinstance(event, ToolCallSucceededEvent)
+        and event.result.get("outcome") == "denied"
+    ]
+    assert denied_results == [
+        {
+            "ok": False,
+            "outcome": "denied",
+            "denial_type": "approval_denied",
+            "approval_kind": "command_execution",
+            "subject": "curl https://example.com",
+            "message": (
+                "Approval denied: allow shell command: curl https://example.com "
+                "(network enabled). The command was not run. "
+                "Choose another approach or stop."
+            ),
+            "retry_same_request_allowed": False,
+        },
+        {
+            "ok": False,
+            "outcome": "denied",
+            "denial_type": "approval_denied",
+            "approval_kind": "command_execution",
+            "subject": "curl https://example.com",
+            "message": (
+                "Approval denied: allow shell command: curl https://example.com "
+                "(network enabled). The command was not run. "
+                "Choose another approach or stop."
+            ),
+            "retry_same_request_allowed": False,
+        },
+    ]
+    assert isinstance(events[-1], RunSucceededEvent)
     assert events[-1].output_text == "done"
 
 

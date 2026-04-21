@@ -14,6 +14,7 @@ from just_another_coding_agent.contracts.platform import ShellFamily
 from just_another_coding_agent.contracts.run_events import ShellActivityDetails
 from just_another_coding_agent.contracts.sandbox import (
     CommandExecutionApprovalRequest,
+    approval_request_subject,
     normalize_approval_decision,
 )
 from just_another_coding_agent.tools._activity import (
@@ -219,7 +220,12 @@ async def execute_shell(
             ),
         )
         if decision.decision != "approved":
-            raise ToolApprovalDenied(_approval_denied_message(reason=reason))
+            raise ToolApprovalDenied(
+                _approval_denied_message(reason=reason),
+                approval_kind=request.request_kind,
+                subject=approval_request_subject(request),
+                retry_same_request_allowed=False,
+            )
         remember_approved_grants(
             permission_memory=ctx.deps.permission_memory,
             grants=decision.granted_grants,

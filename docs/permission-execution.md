@@ -28,9 +28,29 @@ This means denial normally gives the model a chance to adapt within the same
 run. The backend should only force-stop the run for hard policy boundaries or
 denied-retry guardrails, not because denial happened at all.
 
+The current denial result returned to the model is intentionally small. It may
+carry:
+
+- `approval_kind`
+- `subject`
+- `retry_same_request_allowed`
+
+This is enough for the model to understand what was blocked and avoid guessing,
+without exposing large internal policy payloads.
+
+In particular, the current denial contract does not expose who or what caused
+the denial. User denial, hard policy denial, and repeat-guardrail denial all
+collapse to the same practical instruction for the model: the request did not
+run, retrying the same request is not useful, and the model should try a
+different approach or stop.
+
 This means the current behavior enforces the approval boundary honestly, but it
 does not yet constrain an approved shell command to only the approved network
 or filesystem scope at the OS level.
+
+The backend also guards against exact repeated denied approval requests within
+the same run. If the same denied request recurs, the backend returns another
+denial outcome directly instead of prompting the user again.
 
 The current approval request taxonomy is:
 

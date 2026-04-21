@@ -280,6 +280,12 @@ Approval carrier rules:
       `Allow reads under /tmp for this session` rather than exposing glob
       syntax
   - only `session` grants populate session permission memory
+- denied tool results should stay operationally minimal
+  - the current model-visible denial shape is intentionally limited to the
+    blocked request and whether retrying the same request is allowed
+  - the contract must not expose a denial-source taxonomy such as `user`,
+    `policy`, or `repeat_guardrail` unless we later prove that the model needs
+    that distinction to choose better follow-up actions
 - live permission state is distinct from durable turn-context history:
   - `PermissionState` is live control-plane state for RPC and approval flows
   - when no session is active, `permission.get` / `permission.set` operate on
@@ -360,11 +366,25 @@ Expected tool-domain error result:
 
 Expected tool-domain denial result:
 
-- fields: `ok`, `outcome`, `denial_type`, `message`
+- fields:
+  - `ok`
+  - `outcome`
+  - `denial_type`
+  - `message`
+  - `approval_kind`
+    - optional typed approval surface such as `command_execution`,
+      `file_change`, or `permission_grant`
+  - `subject`
+    - optional exact blocked subject such as `curl https://example.com`
+  - `retry_same_request_allowed`
+    - optional boolean guardrail hint for whether the exact same denied request
+      may be retried immediately
 - `ok` is always `false`
 - `outcome` is always `denied`
 - policy denials should use this result shape instead of being reported as
   tool errors
+- exact repeated denied approval requests within the same run should be denied
+  again without re-prompting the user
 
 Initial executable tool slice:
 

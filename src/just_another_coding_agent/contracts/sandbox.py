@@ -497,6 +497,60 @@ def build_default_permission_state() -> PermissionState:
     )
 
 
+def approval_request_subject(request: ApprovalRequest) -> str | None:
+    if request.display_subject is not None:
+        return request.display_subject
+    if isinstance(request, CommandExecutionApprovalRequest):
+        return request.command
+    if isinstance(request, FileChangeApprovalRequest):
+        return f"{request.change_kind} {request.path}"
+    if request.grant_kind == "filesystem_read" and request.target is not None:
+        return f"read {request.target}"
+    if request.grant_kind == "filesystem_write" and request.target is not None:
+        return f"write {request.target}"
+    if request.grant_kind == "network_access":
+        return "network access"
+    return request.target
+
+
+def _boundary_from_grants(grants: tuple[SandboxPermissionGrant, ...]) -> str | None:
+    for grant in grants:
+        if grant.scope != "session":
+            continue
+        if grant.command_prefix:
+            return " ".join(grant.command_prefix)
+        if len(grant.permissions.extra_read_roots) == 1:
+            return f"reads under {grant.permissions.extra_read_roots[0]}"
+        if len(grant.permissions.extra_write_roots) == 1:
+            return f"writes under {grant.permissions.extra_write_roots[0]}"
+        if grant.permissions.network_access == "enabled":
+            return "network access"
+    return None
+
+
+def approval_request_boundary(request: ApprovalRequest) -> str | None:
+    boundary = _boundary_from_grants(request.requested_grants)
+    if boundary is not None:
+        return boundary
+    for option in request.options:
+        if option.decision != "approved":
+            continue
+        boundary = _boundary_from_grants(option.granted_grants)
+        if boundary is not None:
+            return boundary
+    return None
+
+
+def approval_request_fingerprint(
+    request: ApprovalRequest,
+) -> tuple[ApprovalRequestKind, str, str]:
+    return (
+        request.request_kind,
+        approval_request_subject(request) or "",
+        approval_request_boundary(request) or "",
+    )
+
+
 __all__ = [
     "ApprovalDecision",
     "ApprovalDecisionValue",
@@ -507,6 +561,9 @@ __all__ = [
     "ApprovalRequestKind",
     "AdditionalNetworkAccess",
     "AdditionalSandboxPermissions",
+    "approval_request_boundary",
+    "approval_request_fingerprint",
+    "approval_request_subject",
     "CommandExecutionApprovalRequest",
     "DangerFullAccessSandboxPolicy",
     "EffectiveCapabilities",

@@ -4,6 +4,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
+from just_another_coding_agent.contracts.sandbox import ApprovalRequestKind
+
 CANONICAL_TOOL_NAMES = (
     "read",
     "write",
@@ -41,6 +43,9 @@ class ToolDeniedResult(BaseModel):
     outcome: Literal["denied"] = "denied"
     denial_type: str
     message: str
+    approval_kind: ApprovalRequestKind | None = None
+    subject: str | None = None
+    retry_same_request_allowed: bool | None = None
 
 
 def make_tool_error_result(error: Exception) -> dict[str, bool | str]:
@@ -54,10 +59,16 @@ def make_tool_denied_result(
     *,
     message: str,
     denial_type: str = "approval_denied",
+    approval_kind: ApprovalRequestKind | None = None,
+    subject: str | None = None,
+    retry_same_request_allowed: bool | None = None,
 ) -> dict[str, bool | str]:
     return ToolDeniedResult(
         denial_type=denial_type,
         message=message,
+        approval_kind=approval_kind,
+        subject=subject,
+        retry_same_request_allowed=retry_same_request_allowed,
     ).model_dump(mode="json")
 
 

@@ -26,6 +26,7 @@ from just_another_coding_agent.contracts.sandbox import (
     AdditionalSandboxPermissions,
     ApprovalDecision,
     PermissionGrantApprovalRequest,
+    approval_request_subject,
 )
 from just_another_coding_agent.runtime.agent import build_canonical_agent
 from just_another_coding_agent.runtime.run import stream_run_events
@@ -195,33 +196,37 @@ async def approval_tool_stream(
 
 async def _needs_approval(ctx: RunContext[WorkspaceDeps]) -> str:
     assert ctx.deps.approval_requester is not None
-    decision = await ctx.deps.approval_requester(
-        PermissionGrantApprovalRequest(
-            request_id="approval-1",
-            request_kind="permission_grant",
-            reason="let the tool continue",
-            grant_kind="filesystem_read",
-            target="/tmp",
-            requested_capabilities=ctx.deps.permission_state.effective_capabilities,
-            requested_permissions=AdditionalSandboxPermissions(
-                extra_read_roots=("/tmp",),
-            ),
-            requested_grants=(
-                {
-                    "permissions": {
-                        "extra_read_roots": ["/tmp"],
-                    },
-                    "scope": "session",
-                },
-            ),
+    request = PermissionGrantApprovalRequest(
+        request_id="approval-1",
+        request_kind="permission_grant",
+        reason="let the tool continue",
+        grant_kind="filesystem_read",
+        target="/tmp",
+        requested_capabilities=ctx.deps.permission_state.effective_capabilities,
+        requested_permissions=AdditionalSandboxPermissions(
+            extra_read_roots=("/tmp",),
         ),
+        requested_grants=(
+            {
+                "permissions": {
+                    "extra_read_roots": ["/tmp"],
+                },
+                "scope": "session",
+            },
+        ),
+    )
+    decision = await ctx.deps.approval_requester(
+        request,
         ctx.tool_call_id,
         ctx.tool_name,
     )
     if decision.decision != "approved":
         raise ToolApprovalDenied(
             "Approval denied: let the tool continue. "
-            "The file was not read. Choose another approach or stop."
+            "The file was not read. Choose another approach or stop.",
+            approval_kind=request.request_kind,
+            subject=approval_request_subject(request),
+            retry_same_request_allowed=False,
         )
     return "approved"
 
@@ -529,10 +534,13 @@ async def test_stream_run_events_denied_approval_returns_tool_denial_and_succeed
         "ok": False,
         "outcome": "denied",
         "denial_type": "approval_denied",
+        "approval_kind": "permission_grant",
+        "subject": "read /tmp",
         "message": (
             "Approval denied: let the tool continue. "
             "The file was not read. Choose another approach or stop."
         ),
+        "retry_same_request_allowed": False,
     }
     assert isinstance(events[-1], RunSucceededEvent)
     assert events[-1].output_text == "done"

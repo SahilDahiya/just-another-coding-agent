@@ -53,6 +53,7 @@ from just_another_coding_agent.contracts.run_events import (
 from just_another_coding_agent.contracts.sandbox import (
     ApprovalDecision,
     ApprovalRequest,
+    approval_request_fingerprint,
     normalize_approval_decision,
 )
 from just_another_coding_agent.contracts.thinking import ThinkingSetting
@@ -667,6 +668,7 @@ async def _stream_run_events(
     last_response_usage: LastResponseUsageSnapshot | None = None
     synthetic_prompt_counts: dict[str, int] = {}
     active_tool_spans: dict[str, Any] = {}
+    denied_request_fingerprints: set[tuple[str, str, str]] = set()
     session_id = (
         deps.session_scope.session_id if isinstance(deps, WorkspaceDeps) else None
     )
@@ -910,6 +912,26 @@ async def _stream_run_events(
                                                         event,
                                                         _QueuedApprovalRequest,
                                                     ):
+                                                        fingerprint = (
+                                                            approval_request_fingerprint(
+                                                                event.request
+                                                            )
+                                                        )
+                                                        if fingerprint in (
+                                                            denied_request_fingerprints
+                                                        ):
+                                                            event.response_future.set_result(
+                                                                ApprovalDecision(
+                                                                    request_id=event.request.request_id,
+                                                                    decision="denied",
+                                                                )
+                                                            )
+                                                            update_task = (
+                                                                asyncio.create_task(
+                                                                    queue.get()
+                                                                )
+                                                            )
+                                                            continue
                                                         yield ApprovalRequestedEvent(
                                                             run_id=run_id,
                                                             request=event.request,
@@ -958,6 +980,13 @@ async def _stream_run_events(
                                                             run_id=run_id,
                                                             decision=decision,
                                                         )
+                                                        if (
+                                                            decision.decision
+                                                            == "denied"
+                                                        ):
+                                                            denied_request_fingerprints.add(
+                                                                fingerprint
+                                                            )
                                                         event.response_future.set_result(
                                                             decision
                                                         )
@@ -1246,7 +1275,7 @@ async def _stream_run_events(
                         pending_tool_call.tool_name
                     )
                     error_result = (
-                        _tool_denied_result(message=str(error))
+                        _tool_denied_result(error=error)
                         if isinstance(error, ToolApprovalDenied)
                         else _tool_error_result(
                             error_type=type(error).__name__,
@@ -1596,8 +1625,15 @@ def _tool_error_result(*, error_type: str, message: str) -> dict[str, str | bool
     ).model_dump(mode="json")
 
 
-def _tool_denied_result(*, message: str) -> dict[str, str | bool]:
-    return make_tool_denied_result(message=message)
+def _tool_denied_result(
+    *, error: ToolApprovalDenied
+) -> dict[str, str | bool | None]:
+    return make_tool_denied_result(
+        message=str(error),
+        approval_kind=error.approval_kind,
+        subject=error.subject,
+        retry_same_request_allowed=error.retry_same_request_allowed,
+    )
 
 
 def _tool_correction_exhausted_message(tool_name: str) -> str:

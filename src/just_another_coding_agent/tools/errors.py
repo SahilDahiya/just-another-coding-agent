@@ -6,6 +6,7 @@ from typing import Any
 
 from pydantic_ai.toolsets import WrapperToolset
 
+from just_another_coding_agent.contracts.sandbox import ApprovalRequestKind
 from just_another_coding_agent.contracts.tools import (
     make_tool_denied_result,
     make_tool_error_result,
@@ -35,6 +36,19 @@ class ToolCommandError(ToolOperationalError):
 class ToolApprovalDenied(ToolOperationalError):
     """Approval was denied and the tool must adapt or stop."""
 
+    def __init__(
+        self,
+        message: str,
+        *,
+        approval_kind: ApprovalRequestKind | None = None,
+        subject: str | None = None,
+        retry_same_request_allowed: bool = False,
+    ) -> None:
+        super().__init__(message)
+        self.approval_kind = approval_kind
+        self.subject = subject
+        self.retry_same_request_allowed = retry_same_request_allowed
+
 
 def reraise_path_error(error: OSError) -> None:
     raise ToolPathError(str(error)) from error
@@ -56,7 +70,12 @@ class ErrorWrappingToolset(WrapperToolset[Any]):
         try:
             return await super().call_tool(name, tool_args, ctx, tool)
         except ToolApprovalDenied as error:
-            return make_tool_denied_result(message=str(error))
+            return make_tool_denied_result(
+                message=str(error),
+                approval_kind=error.approval_kind,
+                subject=error.subject,
+                retry_same_request_allowed=error.retry_same_request_allowed,
+            )
         except ToolOperationalError as error:
             return make_tool_error_result(error)
 
