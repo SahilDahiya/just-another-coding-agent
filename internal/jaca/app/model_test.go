@@ -972,17 +972,30 @@ func TestApprovalEventUpdatesFooterAndTranscript(t *testing.T) {
 		Type:  "approval_requested",
 		RunID: "run-1",
 		Request: &rpc.ApprovalRequest{
-			RequestID:   "approval-1",
-			RequestKind: "command_execution",
-			Reason:      "allow shell command: ls",
-			Command:     "ls",
-			Cwd:         "/workspace",
-			ShellFamily: "posix",
+			RequestID:      "approval-1",
+			RequestKind:    "command_execution",
+			Reason:         "allow shell command: ls",
+			DisplaySubject: "ls",
+			Command:        "ls",
+			Cwd:            "/workspace",
+			ShellFamily:    "posix",
 			RequestedCapabilities: rpc.EffectiveCapabilities{
 				FilesystemAccess:   "full_access",
 				NetworkAccess:      "enabled",
 				ExecutionIsolation: "unsandboxed",
 				ApprovalMode:       "always",
+			},
+			Options: []rpc.ApprovalOption{
+				{
+					OptionID: "allow-once",
+					Label:    "Allow once",
+					Decision: "approved",
+				},
+				{
+					OptionID: "deny",
+					Label:    "Deny",
+					Decision: "denied",
+				},
 			},
 		},
 	}})
@@ -999,17 +1012,10 @@ func TestApprovalEventUpdatesFooterAndTranscript(t *testing.T) {
 	}
 	rendered := stripANSI(m.View())
 	for _, want := range []string{
-		"Command approval required",
-		"allow shell command: ls",
-		"request kind: command execution",
-		"requested posture: fs=full_access, net=enabled, exec=unsandboxed",
-		"command: ls",
-		"cwd: /workspace",
-		"shell: posix",
-		"1. Approve and continue",
-		"2. Deny request",
-		"Select an action for this request.",
-		"Enter confirms the selected action. Esc denies immediately.",
+		"Approval required",
+		"ls",
+		"1. Allow once",
+		"2. Deny",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("approval request render missing %q in %q", want, rendered)
@@ -1125,17 +1131,22 @@ func TestApprovalInlineEnterApprovesPendingAction(t *testing.T) {
 	m.streaming = true
 	m.sessionID = "session-123"
 	m.pendingApproval = &rpc.ApprovalRequest{
-		RequestID:   "approval-1",
-		RequestKind: "command_execution",
-		Reason:      "allow shell command: ls",
-		Command:     "ls",
-		Cwd:         "/workspace",
-		ShellFamily: "posix",
+		RequestID:      "approval-1",
+		RequestKind:    "command_execution",
+		Reason:         "allow shell command: ls",
+		DisplaySubject: "ls",
+		Command:        "ls",
+		Cwd:            "/workspace",
+		ShellFamily:    "posix",
 		RequestedCapabilities: rpc.EffectiveCapabilities{
 			FilesystemAccess:   "full_access",
 			NetworkAccess:      "enabled",
 			ExecutionIsolation: "unsandboxed",
 			ApprovalMode:       "always",
+		},
+		Options: []rpc.ApprovalOption{
+			{OptionID: "allow-once", Label: "Allow once", Decision: "approved"},
+			{OptionID: "deny", Label: "Deny", Decision: "denied"},
 		},
 	}
 
@@ -1146,6 +1157,9 @@ func TestApprovalInlineEnterApprovesPendingAction(t *testing.T) {
 	}
 	if backend.lastApprovalDecision.Decision != "approved" {
 		t.Fatalf("lastApprovalDecision.Decision = %q", backend.lastApprovalDecision.Decision)
+	}
+	if backend.lastApprovalDecision.OptionID != "allow-once" {
+		t.Fatalf("lastApprovalDecision.OptionID = %q", backend.lastApprovalDecision.OptionID)
 	}
 	if m.pendingApproval != nil {
 		t.Fatalf("pendingApproval = %#v, want nil after approve", m.pendingApproval)
@@ -1158,17 +1172,22 @@ func TestApprovalInlineEscapeDeniesPendingAction(t *testing.T) {
 	m.streaming = true
 	m.sessionID = "session-123"
 	m.pendingApproval = &rpc.ApprovalRequest{
-		RequestID:   "approval-1",
-		RequestKind: "command_execution",
-		Reason:      "allow shell command: ls",
-		Command:     "ls",
-		Cwd:         "/workspace",
-		ShellFamily: "posix",
+		RequestID:      "approval-1",
+		RequestKind:    "command_execution",
+		Reason:         "allow shell command: ls",
+		DisplaySubject: "ls",
+		Command:        "ls",
+		Cwd:            "/workspace",
+		ShellFamily:    "posix",
 		RequestedCapabilities: rpc.EffectiveCapabilities{
 			FilesystemAccess:   "full_access",
 			NetworkAccess:      "enabled",
 			ExecutionIsolation: "unsandboxed",
 			ApprovalMode:       "always",
+		},
+		Options: []rpc.ApprovalOption{
+			{OptionID: "allow-once", Label: "Allow once", Decision: "approved"},
+			{OptionID: "deny", Label: "Deny", Decision: "denied"},
 		},
 	}
 
@@ -1179,6 +1198,9 @@ func TestApprovalInlineEscapeDeniesPendingAction(t *testing.T) {
 	}
 	if backend.lastApprovalDecision.Decision != "denied" {
 		t.Fatalf("lastApprovalDecision.Decision = %q", backend.lastApprovalDecision.Decision)
+	}
+	if backend.lastApprovalDecision.OptionID != "deny" {
+		t.Fatalf("lastApprovalDecision.OptionID = %q", backend.lastApprovalDecision.OptionID)
 	}
 	if m.pendingApproval != nil {
 		t.Fatalf("pendingApproval = %#v, want nil after deny", m.pendingApproval)

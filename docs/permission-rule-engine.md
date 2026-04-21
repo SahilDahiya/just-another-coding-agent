@@ -87,6 +87,16 @@ The likely first useful decisions are:
 - `prompt`
 - `deny`
 
+When policy decides `prompt`, the backend should still own how that prompt is
+presented. The current direction is:
+
+- keep the default prompt minimal
+- show the exact requested subject
+- expose backend-authored approval options
+- use human-readable reusable boundaries such as `Allow curl for this session`
+  or `Allow reads under /tmp for this session`
+- avoid leaking internal pattern syntax such as `**` into the default prompt
+
 ## Relationship To Current JACA Behavior
 
 This design direction does not replace the current permission model.

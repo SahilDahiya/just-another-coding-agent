@@ -288,7 +288,7 @@ func (m *model) permissionSlashSuggestions() []slashSuggestion {
 	return []slashSuggestion{
 		{
 			Value:       "default",
-			Description: "Read and edit files in the current workspace, and run commands. Approval is required to access the internet or edit other files.",
+			Description: "Read and edit files in the current workspace, and run commands. Approval is required for network access or access outside the workspace.",
 			Current:     currentPreset == "default",
 		},
 		{
@@ -576,13 +576,16 @@ func (m *model) handleApprovalCommand(decision string) (tea.Model, tea.Cmd) {
 		m.refreshViewport()
 		return m, nil
 	}
+	approvalDecision, ok := m.approvalDecisionForIntent(decision)
+	if !ok {
+		m.transcript.WriteError("no matching approval option")
+		m.refreshViewport()
+		return m, nil
+	}
 	return m, submitApprovalDecision(
 		m.options.Backend,
 		m.sessionID,
-		rpc.ApprovalDecision{
-			RequestID: m.pendingApproval.RequestID,
-			Decision:  decision,
-		},
+		approvalDecision,
 	)
 }
 

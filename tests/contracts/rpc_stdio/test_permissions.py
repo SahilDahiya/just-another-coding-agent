@@ -393,26 +393,28 @@ async def test_handle_rpc_json_line_resolves_pending_approval_submit(
             "id": "req-approval-submit",
             "response": {
                 "session_id": session_id,
-                "decision": {
-                    "request_id": "approval-1",
-                    "decision": "approved",
-                    "granted_permissions": {
-                        "network_access": "enabled",
-                        "extra_read_roots": [],
-                        "extra_write_roots": [],
+                    "decision": {
+                        "request_id": "approval-1",
+                        "decision": "approved",
+                        "option_id": None,
+                        "granted_permissions": {
+                            "network_access": "enabled",
+                            "extra_read_roots": [],
+                            "extra_write_roots": [],
                     },
                     "granted_grants": [
                         {
-                            "permissions": {
-                                "network_access": "enabled",
-                                "extra_read_roots": [],
-                                "extra_write_roots": [],
-                            },
-                            "scope": "once",
-                        }
-                    ],
+                                "permissions": {
+                                    "network_access": "enabled",
+                                    "extra_read_roots": [],
+                                    "extra_write_roots": [],
+                                },
+                                "scope": "once",
+                                "command_prefix": [],
+                            }
+                        ],
+                    },
                 },
-            },
         }
     ]
     assert captured["decision"] == ApprovalDecision(

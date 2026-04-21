@@ -2,122 +2,56 @@ package app
 
 import (
 	"fmt"
-	"strings"
 )
 
 import tea "github.com/charmbracelet/bubbletea"
 
+import "jaca/internal/jaca/rpc"
+
 func (m *model) approvalTitle() string {
-	if m.pendingApproval == nil {
-		return "Approval required"
-	}
-	switch m.pendingApproval.RequestKind {
-	case "command_execution":
-		return "Command approval required"
-	case "file_change":
-		return "File change approval required"
-	case "permission_grant":
-		return "Permission grant required"
-	default:
-		return "Approval required"
-	}
+	return "Approval required"
 }
 
 func (m *model) approvalReason() string {
 	if m.pendingApproval == nil {
 		return ""
 	}
+	if m.pendingApproval.DisplaySubject != "" {
+		return m.pendingApproval.DisplaySubject
+	}
+	switch m.pendingApproval.RequestKind {
+	case "command_execution":
+		return m.pendingApproval.Command
+	case "file_change":
+		return fmt.Sprintf("%s %s", m.pendingApproval.ChangeKind, m.pendingApproval.Path)
+	case "permission_grant":
+		if m.pendingApproval.Target != "" {
+			return fmt.Sprintf("%s %s", approvalGrantVerb(m.pendingApproval.GrantKind), m.pendingApproval.Target)
+		}
+	}
 	return m.pendingApproval.Reason
 }
 
 func (m *model) approvalOptionLines() []string {
+	if m.pendingApproval != nil && len(m.pendingApproval.Options) > 0 {
+		lines := make([]string, 0, len(m.pendingApproval.Options))
+		for index, option := range m.pendingApproval.Options {
+			lines = append(lines, fmt.Sprintf("%d. %s", index+1, option.Label))
+		}
+		return lines
+	}
 	return []string{
-		"1. Approve and continue",
-		"2. Deny request",
+		"1. Allow once",
+		"2. Deny",
 	}
 }
 
 func (m *model) approvalDetailLines() []string {
-	if m.pendingApproval == nil {
-		return nil
-	}
-	lines := []string{
-		fmt.Sprintf("request kind: %s", approvalRequestKindLabel(m.pendingApproval.RequestKind)),
-		fmt.Sprintf(
-			"requested posture: fs=%s, net=%s, exec=%s",
-			m.pendingApproval.RequestedCapabilities.FilesystemAccess,
-			m.pendingApproval.RequestedCapabilities.NetworkAccess,
-			m.pendingApproval.RequestedCapabilities.ExecutionIsolation,
-		),
-	}
-	switch m.pendingApproval.RequestKind {
-	case "command_execution":
-		lines = append(lines, fmt.Sprintf("command: %s", m.pendingApproval.Command))
-		if m.pendingApproval.Cwd != "" {
-			lines = append(lines, fmt.Sprintf("cwd: %s", m.pendingApproval.Cwd))
-		}
-		if m.pendingApproval.ShellFamily != "" {
-			lines = append(lines, fmt.Sprintf("shell: %s", m.pendingApproval.ShellFamily))
-		}
-	case "file_change":
-		if m.pendingApproval.Path != "" {
-			lines = append(lines, fmt.Sprintf("path: %s", m.pendingApproval.Path))
-		}
-		if m.pendingApproval.ChangeKind != "" {
-			lines = append(lines, fmt.Sprintf("change: %s", m.pendingApproval.ChangeKind))
-		}
-	case "permission_grant":
-		if m.pendingApproval.GrantKind != "" {
-			lines = append(lines, fmt.Sprintf("grant: %s", m.pendingApproval.GrantKind))
-		}
-		if m.pendingApproval.Target != "" {
-			lines = append(lines, fmt.Sprintf("target: %s", m.pendingApproval.Target))
-		}
-	}
-	if m.pendingApproval.RequestedPermissions == nil {
-		return lines
-	}
-	permissions := m.pendingApproval.RequestedPermissions
-	if permissions.NetworkAccess != nil {
-		lines = append(lines, fmt.Sprintf("network: %s", *permissions.NetworkAccess))
-	}
-	if len(permissions.ExtraReadRoots) > 0 {
-		lines = append(
-			lines,
-			fmt.Sprintf("read roots: %s", joinForDisplay(permissions.ExtraReadRoots)),
-		)
-	}
-	if len(permissions.ExtraWriteRoots) > 0 {
-		lines = append(
-			lines,
-			fmt.Sprintf("write roots: %s", joinForDisplay(permissions.ExtraWriteRoots)),
-		)
-	}
-	return lines
+	return nil
 }
 
 func (m *model) approvalHelpLines() []string {
-	return []string{
-		"Select an action for this request.",
-		"Enter confirms the selected action. Esc denies immediately.",
-	}
-}
-
-func joinForDisplay(values []string) string {
-	return strings.Join(values, ", ")
-}
-
-func approvalRequestKindLabel(kind string) string {
-	switch kind {
-	case "command_execution":
-		return "command execution"
-	case "file_change":
-		return "file change"
-	case "permission_grant":
-		return "permission grant"
-	default:
-		return kind
-	}
+	return nil
 }
 
 func (m *model) handleApprovalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -151,9 +85,84 @@ func (m *model) handleApprovalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *model) completeApprovalSelection(selection int) (tea.Model, tea.Cmd) {
-	decision := "approved"
-	if selection != 0 {
-		decision = "denied"
+	decision, ok := m.approvalDecisionForSelection(selection)
+	if !ok {
+		m.transcript.WriteError("invalid approval selection")
+		m.refreshViewport()
+		return m, nil
 	}
-	return m.handleApprovalCommand(decision)
+	if m.options.Backend == nil {
+		m.transcript.WriteError("backend unavailable")
+		m.refreshViewport()
+		return m, nil
+	}
+	if m.sessionID == "" {
+		m.transcript.WriteError("no active session")
+		m.refreshViewport()
+		return m, nil
+	}
+	return m, submitApprovalDecision(
+		m.options.Backend,
+		m.sessionID,
+		decision,
+	)
+}
+
+func (m *model) approvalDecisionForSelection(selection int) (rpc.ApprovalDecision, bool) {
+	if m.pendingApproval == nil {
+		return rpc.ApprovalDecision{}, false
+	}
+	if len(m.pendingApproval.Options) == 0 {
+		decision := "approved"
+		if selection != 0 {
+			decision = "denied"
+		}
+		return rpc.ApprovalDecision{
+			RequestID: m.pendingApproval.RequestID,
+			Decision:  decision,
+		}, true
+	}
+	if selection < 0 || selection >= len(m.pendingApproval.Options) {
+		return rpc.ApprovalDecision{}, false
+	}
+	option := m.pendingApproval.Options[selection]
+	return rpc.ApprovalDecision{
+		RequestID: m.pendingApproval.RequestID,
+		Decision:  option.Decision,
+		OptionID:  option.OptionID,
+	}, true
+}
+
+func (m *model) approvalDecisionForIntent(decision string) (rpc.ApprovalDecision, bool) {
+	if m.pendingApproval == nil {
+		return rpc.ApprovalDecision{}, false
+	}
+	if len(m.pendingApproval.Options) == 0 {
+		return rpc.ApprovalDecision{
+			RequestID: m.pendingApproval.RequestID,
+			Decision:  decision,
+		}, true
+	}
+	for _, option := range m.pendingApproval.Options {
+		if option.Decision != decision {
+			continue
+		}
+		return rpc.ApprovalDecision{
+			RequestID: m.pendingApproval.RequestID,
+			Decision:  option.Decision,
+			OptionID:  option.OptionID,
+		}, true
+	}
+	return rpc.ApprovalDecision{}, false
+}
+
+func approvalGrantVerb(grantKind string) string {
+	switch grantKind {
+	case "filesystem_read":
+		return "read"
+	case "filesystem_write":
+		return "write"
+	default:
+		return grantKind
+	}
 }

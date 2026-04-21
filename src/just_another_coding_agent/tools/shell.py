@@ -22,6 +22,7 @@ from just_another_coding_agent.tools._activity import (
 )
 from just_another_coding_agent.tools._permissions import (
     build_permission_grants,
+    build_shell_approval_options,
     describe_shell_permission_delta,
     plan_shell_execution,
     remember_approved_grants,
@@ -188,6 +189,7 @@ async def execute_shell(
             request_id=f"shell-{uuid4().hex}",
             request_kind="command_execution",
             reason=reason,
+            display_subject=command,
             command=command,
             cwd=str(Path(workspace_root).resolve()),
             shell_family=shell_family,
@@ -197,6 +199,15 @@ async def execute_shell(
                 permissions=plan.requested_permissions,
                 network_scope="once",
                 filesystem_scope="session",
+            ),
+            options=(
+                build_shell_approval_options(
+                    command=command,
+                    shell_family=shell_family,
+                    permissions=plan.requested_permissions,
+                )
+                if plan.requested_permissions is not None
+                else ()
             ),
         )
         decision = normalize_approval_decision(

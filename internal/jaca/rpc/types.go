@@ -107,6 +107,20 @@ type AdditionalSandboxPermissions struct {
 	ExtraWriteRoots []string `json:"extra_write_roots,omitempty"`
 }
 
+type SandboxPermissionGrant struct {
+	Permissions   AdditionalSandboxPermissions `json:"permissions"`
+	Scope         string                       `json:"scope"`
+	CommandPrefix []string                     `json:"command_prefix,omitempty"`
+}
+
+type ApprovalOption struct {
+	OptionID           string                        `json:"option_id"`
+	Label              string                        `json:"label"`
+	Decision           string                        `json:"decision"`
+	GrantedPermissions *AdditionalSandboxPermissions `json:"granted_permissions,omitempty"`
+	GrantedGrants      []SandboxPermissionGrant      `json:"granted_grants,omitempty"`
+}
+
 type PermissionState struct {
 	SandboxPolicy         SandboxPolicy         `json:"sandbox_policy"`
 	ApprovalPolicy        ApprovalPolicy        `json:"approval_policy"`
@@ -117,6 +131,7 @@ type ApprovalRequest struct {
 	RequestID             string                        `json:"request_id"`
 	RequestKind           string                        `json:"request_kind"`
 	Reason                string                        `json:"reason"`
+	DisplaySubject        string                        `json:"display_subject,omitempty"`
 	Command               string                        `json:"command,omitempty"`
 	Cwd                   string                        `json:"cwd,omitempty"`
 	ShellFamily           string                        `json:"shell_family,omitempty"`
@@ -126,11 +141,16 @@ type ApprovalRequest struct {
 	Target                string                        `json:"target,omitempty"`
 	RequestedCapabilities EffectiveCapabilities         `json:"requested_capabilities"`
 	RequestedPermissions  *AdditionalSandboxPermissions `json:"requested_permissions,omitempty"`
+	RequestedGrants       []SandboxPermissionGrant      `json:"requested_grants,omitempty"`
+	Options               []ApprovalOption              `json:"options,omitempty"`
 }
 
 type ApprovalDecision struct {
-	RequestID string `json:"request_id"`
-	Decision  string `json:"decision"`
+	RequestID          string                        `json:"request_id"`
+	Decision           string                        `json:"decision"`
+	OptionID           string                        `json:"option_id,omitempty"`
+	GrantedPermissions *AdditionalSandboxPermissions `json:"granted_permissions,omitempty"`
+	GrantedGrants      []SandboxPermissionGrant      `json:"granted_grants,omitempty"`
 }
 
 type PermissionGetPayload struct {

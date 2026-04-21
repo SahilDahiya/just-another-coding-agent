@@ -15,6 +15,7 @@ class PermissionAction:
     source: ActionSource
     path_scope: PathScope | None = None
     root: str | None = None
+    command_prefix: tuple[str, ...] = ()
     covered_by_current_permissions: bool = False
     extracted_by: str | None = None
 
