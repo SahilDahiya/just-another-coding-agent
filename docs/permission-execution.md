@@ -66,6 +66,22 @@ The current grant contract is explicit:
     - used for outside-workspace filesystem grants
 - only `session` grants are remembered in session permission memory
 
+The current filesystem policy path is now shared across shell and backend-owned
+file tools:
+
+- shell extracts `filesystem_read` and `filesystem_write` actions when it can
+  recognize a narrow trusted slice of those operations
+- `read`, `write`, and `edit` now also extract the same typed filesystem
+  actions before planning approval
+- those actions all run through the same tiny backend rule set for:
+  - workspace vs non-workspace scope
+  - read vs write intent
+  - covered vs uncovered current permissions
+- the tool surface still determines the outward approval kind:
+  - shell -> `command_execution`
+  - read -> `permission_grant`
+  - write/edit -> `file_change`
+
 The current approval prompt UX is intentionally minimal:
 
 - the prompt title stays generic: `Approval required`

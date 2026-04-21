@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 ActionKind = Literal["filesystem_read", "network_access", "filesystem_write"]
-ActionSource = Literal["shell"]
+ActionSource = Literal["shell", "read_tool", "write_tool", "edit_tool"]
 PathScope = Literal["workspace", "non_workspace"]
 DecisionKind = Literal["allow", "prompt", "deny"]
 
@@ -44,35 +44,32 @@ class PolicyEvaluationResult:
     match: RuleMatch
 
 
-SHELL_POLICY_RULES: tuple[PolicyRule, ...] = (
+PERMISSION_POLICY_RULES: tuple[PolicyRule, ...] = (
     PolicyRule(
-        rule_id="allow-shell-workspace-read",
-        description="Allow shell reads inside the workspace",
+        rule_id="allow-workspace-read",
+        description="Allow reads inside the workspace",
         action_kind="filesystem_read",
-        source="shell",
         path_scope="workspace",
         decision="allow",
     ),
     PolicyRule(
-        rule_id="allow-shell-non-workspace-read-when-covered",
+        rule_id="allow-non-workspace-read-when-covered",
         description=(
-            "Allow shell reads outside the workspace when current permissions "
+            "Allow reads outside the workspace when current permissions "
             "already cover them"
         ),
         action_kind="filesystem_read",
-        source="shell",
         path_scope="non_workspace",
         covered_by_current_permissions=True,
         decision="allow",
     ),
     PolicyRule(
-        rule_id="prompt-shell-non-workspace-read-when-uncovered",
+        rule_id="prompt-non-workspace-read-when-uncovered",
         description=(
-            "Prompt for shell reads outside the workspace when current "
-            "permissions do not cover them"
+            "Prompt for reads outside the workspace when current permissions "
+            "do not cover them"
         ),
         action_kind="filesystem_read",
-        source="shell",
         path_scope="non_workspace",
         covered_by_current_permissions=False,
         decision="prompt",
@@ -100,33 +97,30 @@ SHELL_POLICY_RULES: tuple[PolicyRule, ...] = (
         decision="prompt",
     ),
     PolicyRule(
-        rule_id="allow-shell-workspace-write",
-        description="Allow shell writes inside the workspace",
+        rule_id="allow-workspace-write",
+        description="Allow writes inside the workspace",
         action_kind="filesystem_write",
-        source="shell",
         path_scope="workspace",
         decision="allow",
     ),
     PolicyRule(
-        rule_id="allow-shell-non-workspace-write-when-covered",
+        rule_id="allow-non-workspace-write-when-covered",
         description=(
-            "Allow shell writes outside the workspace when current "
+            "Allow writes outside the workspace when current "
             "permissions already cover them"
         ),
         action_kind="filesystem_write",
-        source="shell",
         path_scope="non_workspace",
         covered_by_current_permissions=True,
         decision="allow",
     ),
     PolicyRule(
-        rule_id="prompt-shell-non-workspace-write-when-uncovered",
+        rule_id="prompt-non-workspace-write-when-uncovered",
         description=(
-            "Prompt for shell writes outside the workspace when current "
+            "Prompt for writes outside the workspace when current "
             "permissions do not cover them"
         ),
         action_kind="filesystem_write",
-        source="shell",
         path_scope="non_workspace",
         covered_by_current_permissions=False,
         decision="prompt",
@@ -153,7 +147,7 @@ def _rule_matches(*, action: PermissionAction, rule: PolicyRule) -> bool:
 def evaluate_permission_actions(
     *,
     actions: tuple[PermissionAction, ...],
-    rules: tuple[PolicyRule, ...] = SHELL_POLICY_RULES,
+    rules: tuple[PolicyRule, ...] = PERMISSION_POLICY_RULES,
 ) -> tuple[PolicyEvaluationResult, ...]:
     evaluations: list[PolicyEvaluationResult] = []
     for action in actions:
@@ -185,10 +179,11 @@ def evaluate_permission_actions(
 
 
 __all__ = [
+    "ActionSource",
     "PermissionAction",
+    "PERMISSION_POLICY_RULES",
     "PolicyRule",
     "PolicyEvaluationResult",
     "RuleMatch",
-    "SHELL_POLICY_RULES",
     "evaluate_permission_actions",
 ]

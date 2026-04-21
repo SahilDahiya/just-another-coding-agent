@@ -148,6 +148,7 @@ class SandboxExecutionPlan:
 
 
 FileAccessKind = Literal["read", "write"]
+FileToolActionSource = Literal["read_tool", "write_tool", "edit_tool"]
 
 
 def describe_permission_delta(
@@ -404,6 +405,62 @@ def extract_shell_permission_actions(
         )
     )
     return tuple(actions)
+
+
+def extract_file_permission_actions(
+    *,
+    permission_state: PermissionState,
+    tool_path: str,
+    action_source: FileToolActionSource,
+    access_kind: FileAccessKind,
+    workspace_root: Path,
+    permission_memory,
+) -> tuple[PermissionAction, ...]:
+    resolved = resolve_workspace_path(
+        workspace_root=workspace_root,
+        tool_path=tool_path,
+    )
+    outside_workspace = not path_is_within_workspace(
+        workspace_root=workspace_root,
+        resolved_path=resolved,
+    )
+    path_scope: Literal["workspace", "non_workspace"] = (
+        "non_workspace" if outside_workspace else "workspace"
+    )
+
+    if access_kind == "read":
+        action_kind: Literal["filesystem_read", "filesystem_write"] = (
+            "filesystem_read"
+        )
+        covered_by_current_permissions = (
+            permission_state.effective_capabilities.filesystem_access
+            == "full_access"
+            or not outside_workspace
+            or permission_memory.allows_read_path(resolved)
+        )
+    else:
+        action_kind = "filesystem_write"
+        covered_by_current_permissions = (
+            permission_state.effective_capabilities.filesystem_access
+            == "full_access"
+            or not outside_workspace
+            or permission_memory.allows_write_path(resolved)
+        )
+
+    return (
+        PermissionAction(
+            action_kind=action_kind,
+            source=action_source,
+            path_scope=path_scope,
+            root=(
+                _approval_scope_root(resolved)
+                if outside_workspace
+                else str(workspace_root.resolve())
+            ),
+            covered_by_current_permissions=covered_by_current_permissions,
+            extracted_by="tool_path_resolution",
+        ),
+    )
 
 def _shell_command_write_actions(
     *,
@@ -991,38 +1048,57 @@ async def _approved_file_access_plan(
     access_kind: FileAccessKind,
 ) -> SandboxExecutionPlan:
     permission_state = ctx.deps.permission_state
-    effective_permissions: AdditionalSandboxPermissions | None = None
-    approval_permissions: AdditionalSandboxPermissions | None = None
     outside_workspace = False
     approval_scope_root: str | None = None
-
+    actions: tuple[PermissionAction, ...] = ()
     if tool_path is not None:
-        resolved = resolve_workspace_path(
-            workspace_root=ctx.deps.workspace_root,
+        action_source: FileToolActionSource = (
+            "read_tool" if access_kind == "read" else f"{action}_tool"
+        )
+        actions = extract_file_permission_actions(
+            permission_state=permission_state,
             tool_path=tool_path,
-        )
-        outside_workspace = not path_is_within_workspace(
+            action_source=action_source,
+            access_kind=access_kind,
             workspace_root=ctx.deps.workspace_root,
-            resolved_path=resolved,
+            permission_memory=ctx.deps.permission_memory,
         )
-        if (
-            outside_workspace
-            and permission_state.effective_capabilities.filesystem_access
-            != "full_access"
-        ):
-            approval_scope_root = _approval_scope_root(resolved)
-            if access_kind == "read":
-                effective_permissions = AdditionalSandboxPermissions(
-                    extra_read_roots=(approval_scope_root,),
-                )
-                if not ctx.deps.permission_memory.allows_read_path(resolved):
-                    approval_permissions = effective_permissions
-            else:
-                effective_permissions = AdditionalSandboxPermissions(
-                    extra_write_roots=(approval_scope_root,),
-                )
-                if not ctx.deps.permission_memory.allows_write_path(resolved):
-                    approval_permissions = effective_permissions
+        if actions:
+            outside_workspace = actions[0].path_scope == "non_workspace"
+            approval_scope_root = actions[0].root
+
+    evaluations = evaluate_permission_actions(actions=actions)
+
+    effective_permissions: AdditionalSandboxPermissions | None = None
+    if (
+        permission_state.effective_capabilities.filesystem_access != "full_access"
+        and approval_scope_root is not None
+        and outside_workspace
+    ):
+        if access_kind == "read":
+            effective_permissions = AdditionalSandboxPermissions(
+                extra_read_roots=(approval_scope_root,),
+            )
+        else:
+            effective_permissions = AdditionalSandboxPermissions(
+                extra_write_roots=(approval_scope_root,),
+            )
+
+    prompted_roots = tuple(
+        evaluation.action.root
+        for evaluation in evaluations
+        if evaluation.match.decision == "prompt" and evaluation.action.root is not None
+    )
+    approval_permissions: AdditionalSandboxPermissions | None = None
+    if prompted_roots:
+        if access_kind == "read":
+            approval_permissions = AdditionalSandboxPermissions(
+                extra_read_roots=prompted_roots,
+            )
+        else:
+            approval_permissions = AdditionalSandboxPermissions(
+                extra_write_roots=prompted_roots,
+            )
 
     plan = derive_sandbox_execution_plan(
         permission_state=permission_state,
@@ -1037,11 +1113,7 @@ async def _approved_file_access_plan(
             "requester is configured"
         )
 
-    reason_prefix = (
-        f"allow {action} outside workspace"
-        if outside_workspace
-        else f"allow {action}"
-    )
+    reason_prefix = f"allow {action} outside workspace"
     permission_detail = describe_permission_delta(plan.requested_permissions)
     reason = f"{reason_prefix}: {truncate_activity_label(tool_path)}"
     if permission_detail:
@@ -1151,6 +1223,7 @@ __all__ = [
     "describe_permission_delta",
     "describe_shell_permission_delta",
     "derive_sandbox_execution_plan",
+    "extract_file_permission_actions",
     "extract_shell_permission_actions",
     "maybe_request_file_write_approval",
     "plan_shell_execution",

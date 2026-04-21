@@ -12,7 +12,7 @@ clearer, it is the wrong direction.
 ## Design Goal
 
 The rule engine should reduce ambiguity by separating two concerns that are
-currently mixed together in the shell path:
+currently mixed together in shell and file-tool planning:
 
 - action extraction
 - policy evaluation
@@ -72,7 +72,6 @@ The likely first useful action model is:
 - `filesystem_read`
 - `filesystem_write`
 - `network_access`
-- `command_exec`
 
 The likely first useful rule concerns are:
 
@@ -123,9 +122,20 @@ constraint:
   - `filesystem_read`
   - `network_access`
   - `filesystem_write`
-- shell policy evaluation runs through a tiny built-in rule set
+- file-tool extraction now produces the same filesystem action kinds:
+  - `filesystem_read`
+  - `filesystem_write`
+- shell and file-tool policy evaluation now run through the same tiny built-in
+  rule set for filesystem scope
 - `plan_shell_execution(...)` now uses those extracted actions and rule
   decisions to decide whether shell needs approval
+- file-tool planning now uses those extracted actions and rule decisions to
+  decide whether `read`, `write`, and `edit` need approval
+- shell and file tools now share one backend-owned filesystem policy path while
+  still mapping decisions into different approval request kinds:
+  - `command_execution`
+  - `permission_grant`
+  - `file_change`
 - shell planning now also produces explicit scoped grants:
   - network prompts become `once` grants
   - outside-workspace filesystem prompts become `session` grants
