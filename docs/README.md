@@ -27,6 +27,16 @@ read_when: start here, onboarding, or you need to find the right doc quickly
 - Terminal Bench slice analysis pipeline and dashboard: [tbench-slice-analysis.md](tbench-slice-analysis.md)
 - Terminal Bench baseline checklist: [learning/terminal-bench-checklist.md](learning/terminal-bench-checklist.md)
 - Subagent Terminal Bench eval cohort: [learning/subagent-terminal-bench-eval-set.md](learning/subagent-terminal-bench-eval-set.md)
+- Interview prep study pack: [interview-prep/README.md](interview-prep/README.md)
+- Interview prep visual maps: [interview-prep/00-visual-maps.md](interview-prep/00-visual-maps.md)
+- Interview prep design order: [interview-prep/01-design-order.md](interview-prep/01-design-order.md)
+- Interview prep control plane and policy: [interview-prep/02-control-plane-and-policy.md](interview-prep/02-control-plane-and-policy.md)
+- Interview prep execution and trust boundaries: [interview-prep/03-execution-and-trust-boundaries.md](interview-prep/03-execution-and-trust-boundaries.md)
+- Interview prep state, sessions, and recovery: [interview-prep/04-state-sessions-and-recovery.md](interview-prep/04-state-sessions-and-recovery.md)
+- Interview prep identity, API, and observability: [interview-prep/05-identity-api-and-observability.md](interview-prep/05-identity-api-and-observability.md)
+- Interview prep OAuth authentication flow: [interview-prep/07-oauth-authentication-flow.md](interview-prep/07-oauth-authentication-flow.md)
+- Interview prep security primitives in JACA: [interview-prep/08-security-primitives-in-jaca.md](interview-prep/08-security-primitives-in-jaca.md)
+- Interview prep drills: [interview-prep/06-interview-drills.md](interview-prep/06-interview-drills.md)
 - Architectural decisions: [adr/](adr/)
 
 ## Document Index
@@ -54,6 +64,16 @@ read_when: start here, onboarding, or you need to find the right doc quickly
 - [tbench-slice-analysis.md](tbench-slice-analysis.md) - single-pipeline analyzer over `jobs/` and the dashboard refresh workflow
 - [learning/terminal-bench-checklist.md](learning/terminal-bench-checklist.md) - full Terminal Bench task checklist with current pass, fail, and untried status
 - [learning/subagent-terminal-bench-eval-set.md](learning/subagent-terminal-bench-eval-set.md) - curated GPT-5.4 high-failure cohort for subagent Harbor reruns
+- [interview-prep/README.md](interview-prep/README.md) - study pack for understanding JACA closely and using it for agent-infrastructure interview prep
+- [interview-prep/00-visual-maps.md](interview-prep/00-visual-maps.md) - Miro-style visual maps of the JACA architecture, flows, trust boundaries, and backend seams
+- [interview-prep/01-design-order.md](interview-prep/01-design-order.md) - learn the system in the order a careful systems engineer would design it from scratch
+- [interview-prep/02-control-plane-and-policy.md](interview-prep/02-control-plane-and-policy.md) - deep dive on sandbox policy, approvals, effective capabilities, and grants
+- [interview-prep/03-execution-and-trust-boundaries.md](interview-prep/03-execution-and-trust-boundaries.md) - execution seam, workspace blast radius, trust gate, and future backend evolution
+- [interview-prep/04-state-sessions-and-recovery.md](interview-prep/04-state-sessions-and-recovery.md) - durable run lifecycle, resumability, compaction, and recovery mindset
+- [interview-prep/05-identity-api-and-observability.md](interview-prep/05-identity-api-and-observability.md) - auth readiness, lifecycle-oriented RPC, and structured event contracts
+- [interview-prep/07-oauth-authentication-flow.md](interview-prep/07-oauth-authentication-flow.md) - end-to-end OpenAI Codex OAuth flow: start, wait, callback, manual completion, durable storage, refresh, and runtime use
+- [interview-prep/08-security-primitives-in-jaca.md](interview-prep/08-security-primitives-in-jaca.md) - honest map of JACA's current security primitives, their strengths, and their present limits
+- [interview-prep/06-interview-drills.md](interview-prep/06-interview-drills.md) - concise explanations, pushback drills, and mock interview prompts
 - [adr/0001-use-pydanticai-as-engine.md](adr/0001-use-pydanticai-as-engine.md) - engine choice
 - [adr/0002-headless-coding-agent-is-the-product.md](adr/0002-headless-coding-agent-is-the-product.md) - product boundary
 - [adr/0003-canonical-session-and-rpc-contract.md](adr/0003-canonical-session-and-rpc-contract.md) - external contract decision
