@@ -202,6 +202,26 @@ Initial approval policy modes:
 Approval carrier rules:
 
 - approval requests and decisions are backend-owned typed contract models
+- approval requests may carry both:
+  - `requested_permissions`
+    - the aggregate permission delta being requested
+  - `requested_grants`
+    - the explicit scoped grants that make up that aggregate delta
+- approval decisions may carry both:
+  - `granted_permissions`
+    - the aggregate permission delta that was granted
+  - `granted_grants`
+    - the explicit scoped grants that make up that granted delta
+- scoped grants are typed as `SandboxPermissionGrant` and currently use
+  `once` or `session` scope
+- when approval submitters send a lean approved or denied decision, the backend
+  normalizes the final decision against the request before persistence or tool
+  continuation
+  - denied decisions must not include grants
+  - approved decisions without explicit granted fields are normalized to the
+    request's explicit grant set
+  - this keeps current submit flows small while preserving an explicit durable
+    contract for resolved approvals
 - the current approval request taxonomy is:
   - `command_execution`
     - used for shell command approvals
@@ -225,6 +245,10 @@ Approval carrier rules:
 - tools request approval through backend-owned runtime deps; the runtime emits
   `approval_requested` and `approval_resolved` events and preserves normal
   terminal run semantics
+- the current scoped-grant behavior is:
+  - shell network approvals request `once` grants
+  - outside-workspace filesystem approvals request `session` grants
+  - only `session` grants populate session permission memory
 - live permission state is distinct from durable turn-context history:
   - `PermissionState` is live control-plane state for RPC and approval flows
   - when no session is active, `permission.get` / `permission.set` operate on

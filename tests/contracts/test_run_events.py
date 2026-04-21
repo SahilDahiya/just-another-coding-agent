@@ -23,6 +23,7 @@ from just_another_coding_agent.contracts.run_events import (
     ShellActivityDetails,
 )
 from just_another_coding_agent.contracts.sandbox import (
+    AdditionalSandboxPermissions,
     ApprovalDecision,
     PermissionGrantApprovalRequest,
 )
@@ -201,6 +202,17 @@ async def _needs_approval(ctx: RunContext[WorkspaceDeps]) -> str:
             grant_kind="filesystem_read",
             target="/tmp",
             requested_capabilities=ctx.deps.permission_state.effective_capabilities,
+            requested_permissions=AdditionalSandboxPermissions(
+                extra_read_roots=("/tmp",),
+            ),
+            requested_grants=(
+                {
+                    "permissions": {
+                        "extra_read_roots": ["/tmp"],
+                    },
+                    "scope": "session",
+                },
+            ),
         )
     )
     assert decision.decision == "approved"
@@ -438,6 +450,17 @@ async def test_stream_run_events_emits_approval_events_and_succeeds(
     assert approval_resolution.decision == ApprovalDecision(
         request_id=approval_request.request.request_id,
         decision="approved",
+        granted_permissions=AdditionalSandboxPermissions(
+            extra_read_roots=("/tmp",),
+        ),
+        granted_grants=(
+            {
+                "permissions": {
+                    "extra_read_roots": ["/tmp"],
+                },
+                "scope": "session",
+            },
+        ),
     )
     assert isinstance(events[-1], RunSucceededEvent)
     assert events[-1].output_text == "done"

@@ -101,6 +101,7 @@ from just_another_coding_agent.contracts.sandbox import (
     SandboxPolicy,
     build_default_permission_state,
     build_permission_state,
+    normalize_approval_decision,
 )
 from just_another_coding_agent.contracts.tools import CANONICAL_TOOL_NAMES
 from just_another_coding_agent.provider_readiness import ProviderReadinessError
@@ -404,6 +405,7 @@ class _OpenAICodexLoginFlowState:
 @dataclass
 class _PendingApprovalState:
     request_id: str
+    request: ApprovalRequest
     response_future: asyncio.Future[ApprovalDecision]
 
 
@@ -982,12 +984,25 @@ async def _handle_approval_submit(
         ).model_dump_json()
         return
 
-    approval_state.response_future.set_result(request.payload.decision)
+    try:
+        decision = normalize_approval_decision(
+            request=approval_state.request,
+            decision=request.payload.decision,
+        )
+    except ValueError as error:
+        yield RpcErrorEnvelope(
+            id=request.id,
+            error_type="InvalidRequest",
+            message=str(error),
+        ).model_dump_json()
+        return
+
+    approval_state.response_future.set_result(decision)
     yield RpcResponseEnvelope(
         id=request.id,
         response=ApprovalSubmitResponse(
             session_id=request.payload.session_id,
-            decision=request.payload.decision,
+            decision=decision,
         ),
     ).model_dump_json()
 
@@ -1234,6 +1249,7 @@ async def _handle_run_start(
     ) -> ApprovalDecision:
         approval_state = _PendingApprovalState(
             request_id=decision_request.request_id,
+            request=decision_request,
             response_future=(
                 asyncio.get_running_loop().create_future()
             ),

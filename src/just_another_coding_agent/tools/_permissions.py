@@ -14,12 +14,19 @@ from just_another_coding_agent.contracts.sandbox import (
     FileChangeApprovalRequest,
     FileSystemSandboxPolicy,
     NormalizedSandboxPolicy,
-    PermissionState,
     PermissionGrantApprovalRequest,
+    PermissionGrantScope,
+    PermissionState,
+    SandboxPermissionGrant,
     derive_normalized_sandbox_policy,
     derive_requested_capabilities,
+    normalize_approval_decision,
 )
 from just_another_coding_agent.tools._activity import truncate_activity_label
+from just_another_coding_agent.tools._policy_engine import (
+    PermissionAction,
+    evaluate_permission_actions,
+)
 from just_another_coding_agent.tools._workspace import (
     canonicalize_path_target,
     path_is_within_workspace,
@@ -91,6 +98,18 @@ _NETWORK_PACKAGE_MANAGER_SUBCOMMANDS = {
 }
 _GIT_NETWORK_SUBCOMMANDS = frozenset({"clone", "fetch", "ls-remote", "pull", "push"})
 _SHELL_WRAPPERS = frozenset({"bash", "sh", "dash", "zsh", "env", "sudo", "timeout"})
+_SHELL_FILESYSTEM_READ_COMMANDS = frozenset(
+    {
+        "cat",
+        "grep",
+        "head",
+        "ls",
+        "rg",
+        "ripgrep",
+        "sed",
+        "tail",
+    }
+)
 _SHELL_FILESYSTEM_WRITE_COMMANDS = frozenset(
     {
         "chmod",
@@ -154,6 +173,9 @@ def describe_shell_permission_delta(
     segments: list[str] = []
     if permissions.network_access == "enabled":
         segments.append("network enabled")
+    if permissions.extra_read_roots:
+        joined = ", ".join(permissions.extra_read_roots)
+        segments.append(f"read-only roots: {joined}")
     if permissions.extra_write_roots:
         joined = ", ".join(permissions.extra_write_roots)
         segments.append(f"outside-workspace writes: {joined}")
@@ -256,52 +278,100 @@ def _token_looks_like_network_target(token: str) -> bool:
     )
 
 
-def _shell_command_requested_write_roots(
+def extract_shell_permission_actions(
     *,
+    permission_state: PermissionState,
+    command: str,
+    shell_family: ShellFamily,
+    workspace_root: Path,
+    permission_memory,
+) -> tuple[PermissionAction, ...]:
+    actions: list[PermissionAction] = []
+
+    if _shell_command_requests_network_access(
+        command=command,
+        shell_family=shell_family,
+    ):
+        actions.append(
+            PermissionAction(
+                action_kind="network_access",
+                source="shell",
+                covered_by_current_permissions=(
+                    permission_state.effective_capabilities.network_access == "enabled"
+                ),
+                extracted_by="shell_network_heuristics",
+            )
+        )
+
+    actions.extend(
+        _shell_command_read_actions(
+            permission_state=permission_state,
+            workspace_root=workspace_root,
+            permission_memory=permission_memory,
+            command=command,
+            shell_family=shell_family,
+        )
+    )
+
+    actions.extend(
+        _shell_command_write_actions(
+            permission_state=permission_state,
+            workspace_root=workspace_root,
+            permission_memory=permission_memory,
+            command=command,
+            shell_family=shell_family,
+        )
+    )
+    return tuple(actions)
+
+def _shell_command_write_actions(
+    *,
+    permission_state: PermissionState,
     workspace_root: Path,
     permission_memory,
     command: str,
     shell_family: ShellFamily,
-) -> tuple[tuple[str, ...], tuple[str, ...]]:
+) -> tuple[PermissionAction, ...]:
     if shell_family != "posix":
-        return (), ()
+        return ()
     try:
         tokens = shlex.split(command, posix=True)
     except ValueError:
-        return (), ()
+        return ()
     if not tokens:
-        return (), ()
-    return _tokens_requested_write_roots(
+        return ()
+    return _tokens_write_actions(
+        permission_state=permission_state,
         workspace_root=workspace_root,
         permission_memory=permission_memory,
         tokens=tokens,
     )
 
 
-def _tokens_requested_write_roots(
+def _tokens_write_actions(
     *,
+    permission_state: PermissionState,
     workspace_root: Path,
     permission_memory,
     tokens: list[str],
     _depth: int = 0,
-) -> tuple[tuple[str, ...], tuple[str, ...]]:
+) -> tuple[PermissionAction, ...]:
     if not tokens or _depth > 4:
-        return (), ()
+        return ()
     executable = tokens[0]
     if executable in _SHELL_WRAPPERS:
         unwrapped = _unwrap_shell_wrapper(tokens)
         if unwrapped is not None:
-            return _tokens_requested_write_roots(
+            return _tokens_write_actions(
+                permission_state=permission_state,
                 workspace_root=workspace_root,
                 permission_memory=permission_memory,
                 tokens=unwrapped,
                 _depth=_depth + 1,
             )
 
-    effective_write_roots: list[str] = []
-    approval_write_roots: list[str] = []
-    seen_effective_writes: set[str] = set()
-    seen_approval_writes: set[str] = set()
+    actions: list[PermissionAction] = []
+    seen_targets: set[tuple[str, str]] = set()
     write_command = executable in _SHELL_FILESYSTEM_WRITE_COMMANDS
     destination_write_index = _last_positional_path_index(tokens)
     if executable not in _SHELL_SOURCE_AND_DESTINATION_WRITE_COMMANDS:
@@ -342,24 +412,162 @@ def _tokens_requested_write_roots(
             workspace_root=workspace_root,
             resolved_path=resolved,
         ):
+            key = ("workspace", str(workspace_root.resolve()))
+            if key in seen_targets:
+                continue
+            seen_targets.add(key)
+            actions.append(
+                PermissionAction(
+                    action_kind="filesystem_write",
+                    source="shell",
+                    path_scope="workspace",
+                    root=str(workspace_root.resolve()),
+                    covered_by_current_permissions=permission_state.effective_capabilities.filesystem_access
+                    in {"workspace_write", "full_access"},
+                    extracted_by="shell_write_heuristics",
+                )
+            )
             continue
-        scope_root = _approval_scope_root(resolved)
-        if scope_root in seen_effective_writes:
-            continue
-        seen_effective_writes.add(scope_root)
-        effective_write_roots.append(scope_root)
-        if not permission_memory.allows_write_path(Path(scope_root)):
-            seen_approval_writes.add(scope_root)
-            approval_write_roots.append(scope_root)
 
-    return tuple(effective_write_roots), tuple(approval_write_roots)
+        scope_root = _approval_scope_root(resolved)
+        key = ("non_workspace", scope_root)
+        if key in seen_targets:
+            continue
+        seen_targets.add(key)
+        actions.append(
+            PermissionAction(
+                action_kind="filesystem_write",
+                source="shell",
+                path_scope="non_workspace",
+                root=scope_root,
+                covered_by_current_permissions=(
+                    permission_state.effective_capabilities.filesystem_access
+                    == "full_access"
+                    or permission_memory.allows_write_path(resolved)
+                ),
+                extracted_by="shell_write_heuristics",
+            )
+        )
+
+    return tuple(actions)
+
+
+def _shell_command_read_actions(
+    *,
+    permission_state: PermissionState,
+    workspace_root: Path,
+    permission_memory,
+    command: str,
+    shell_family: ShellFamily,
+) -> tuple[PermissionAction, ...]:
+    if shell_family != "posix":
+        return ()
+    try:
+        tokens = shlex.split(command, posix=True)
+    except ValueError:
+        return ()
+    if not tokens:
+        return ()
+    return _tokens_read_actions(
+        permission_state=permission_state,
+        workspace_root=workspace_root,
+        permission_memory=permission_memory,
+        tokens=tokens,
+    )
+
+
+def _tokens_read_actions(
+    *,
+    permission_state: PermissionState,
+    workspace_root: Path,
+    permission_memory,
+    tokens: list[str],
+    _depth: int = 0,
+) -> tuple[PermissionAction, ...]:
+    if not tokens or _depth > 4:
+        return ()
+    executable = tokens[0]
+    if executable in _SHELL_WRAPPERS:
+        unwrapped = _unwrap_shell_wrapper(tokens)
+        if unwrapped is not None:
+            return _tokens_read_actions(
+                permission_state=permission_state,
+                workspace_root=workspace_root,
+                permission_memory=permission_memory,
+                tokens=unwrapped,
+                _depth=_depth + 1,
+            )
+    if executable not in _SHELL_FILESYSTEM_READ_COMMANDS:
+        return ()
+
+    actions: list[PermissionAction] = []
+    seen_targets: set[tuple[str, str]] = set()
+    for index, token in enumerate(tokens[1:], start=1):
+        previous = tokens[index - 1]
+        path_token = _path_candidate_from_shell_token(token)
+        if path_token is None:
+            continue
+        if (
+            previous in _WRITE_REDIRECTION_TOKENS
+            or previous in _READ_REDIRECTION_TOKENS
+        ):
+            continue
+
+        resolved = resolve_workspace_path(
+            workspace_root=workspace_root,
+            tool_path=path_token,
+        )
+        if path_is_within_workspace(
+            workspace_root=workspace_root,
+            resolved_path=resolved,
+        ):
+            key = ("workspace", str(workspace_root.resolve()))
+            if key in seen_targets:
+                continue
+            seen_targets.add(key)
+            actions.append(
+                PermissionAction(
+                    action_kind="filesystem_read",
+                    source="shell",
+                    path_scope="workspace",
+                    root=str(workspace_root.resolve()),
+                    covered_by_current_permissions=True,
+                    extracted_by="shell_read_heuristics",
+                )
+            )
+            continue
+
+        scope_root = _approval_scope_root(resolved)
+        key = ("non_workspace", scope_root)
+        if key in seen_targets:
+            continue
+        seen_targets.add(key)
+        actions.append(
+            PermissionAction(
+                action_kind="filesystem_read",
+                source="shell",
+                path_scope="non_workspace",
+                root=scope_root,
+                covered_by_current_permissions=(
+                    permission_state.effective_capabilities.filesystem_access
+                    == "full_access"
+                    or permission_memory.allows_read_path(resolved)
+                ),
+                extracted_by="shell_read_heuristics",
+            )
+        )
+
+    return tuple(actions)
 
 
 def _last_positional_path_index(tokens: list[str]) -> int | None:
     last_index: int | None = None
     for index, token in enumerate(tokens[1:], start=1):
         previous = tokens[index - 1]
-        if previous in _WRITE_REDIRECTION_TOKENS or previous in _READ_REDIRECTION_TOKENS:
+        if (
+            previous in _WRITE_REDIRECTION_TOKENS
+            or previous in _READ_REDIRECTION_TOKENS
+        ):
             continue
         if _path_candidate_from_shell_token(token) is None:
             continue
@@ -440,6 +648,37 @@ def _approval_scope_root(resolved_path: Path) -> str:
     return str(canonical_path)
 
 
+def build_permission_grants(
+    *,
+    permissions: AdditionalSandboxPermissions | None,
+    network_scope: PermissionGrantScope = "once",
+    filesystem_scope: PermissionGrantScope = "session",
+) -> tuple[SandboxPermissionGrant, ...]:
+    if permissions is None:
+        return ()
+    grants: list[SandboxPermissionGrant] = []
+    if permissions.network_access is not None:
+        grants.append(
+            SandboxPermissionGrant(
+                permissions=AdditionalSandboxPermissions(
+                    network_access=permissions.network_access,
+                ),
+                scope=network_scope,
+            )
+        )
+    if permissions.extra_read_roots or permissions.extra_write_roots:
+        grants.append(
+            SandboxPermissionGrant(
+                permissions=AdditionalSandboxPermissions(
+                    extra_read_roots=permissions.extra_read_roots,
+                    extra_write_roots=permissions.extra_write_roots,
+                ),
+                scope=filesystem_scope,
+            )
+        )
+    return tuple(grants)
+
+
 def plan_shell_execution(
     *,
     permission_state: PermissionState,
@@ -448,36 +687,58 @@ def plan_shell_execution(
     workspace_root: Path | None = None,
     permission_memory=None,
 ) -> SandboxExecutionPlan:
-    approval_network_access = None
-    if (
-        permission_state.approval_policy.mode == "on_escalation"
-        and permission_state.effective_capabilities.network_access == "restricted"
-        and _shell_command_requests_network_access(
+    approval_network_access = (
+        "enabled"
+        if _shell_command_requests_network_access(
             command=command,
             shell_family=shell_family,
         )
-    ):
-        approval_network_access = "enabled"
-
+        and permission_state.effective_capabilities.network_access != "enabled"
+        else None
+    )
+    approval_read_roots: tuple[str, ...] = ()
     approval_write_roots: tuple[str, ...] = ()
-    if (
-        workspace_root is not None
-        and permission_memory is not None
-        and permission_state.approval_policy.mode == "on_escalation"
-        and permission_state.effective_capabilities.filesystem_access
-        != "full_access"
-    ):
-        _effective_write_roots, approval_write_roots = _shell_command_requested_write_roots(
-            workspace_root=workspace_root,
-            permission_memory=permission_memory,
+    if workspace_root is not None and permission_memory is not None:
+        actions = extract_shell_permission_actions(
+            permission_state=permission_state,
             command=command,
             shell_family=shell_family,
+            workspace_root=workspace_root,
+            permission_memory=permission_memory,
+        )
+        evaluations = evaluate_permission_actions(actions=actions)
+        if any(
+            evaluation.action.action_kind == "network_access"
+            and evaluation.match.decision == "prompt"
+            for evaluation in evaluations
+        ):
+            approval_network_access = "enabled"
+        approval_read_roots = tuple(
+            evaluation.action.root
+            for evaluation in evaluations
+            if evaluation.action.action_kind == "filesystem_read"
+            and evaluation.action.path_scope == "non_workspace"
+            and evaluation.match.decision == "prompt"
+            and evaluation.action.root is not None
+        )
+        approval_write_roots = tuple(
+            evaluation.action.root
+            for evaluation in evaluations
+            if evaluation.action.action_kind == "filesystem_write"
+            and evaluation.action.path_scope == "non_workspace"
+            and evaluation.match.decision == "prompt"
+            and evaluation.action.root is not None
         )
 
     approval_permissions: AdditionalSandboxPermissions | None = None
-    if approval_network_access is not None or approval_write_roots:
+    if (
+        approval_network_access is not None
+        or approval_read_roots
+        or approval_write_roots
+    ):
         approval_permissions = AdditionalSandboxPermissions(
             network_access=approval_network_access,
+            extra_read_roots=approval_read_roots,
             extra_write_roots=approval_write_roots,
         )
 
@@ -539,7 +800,11 @@ async def _approved_file_access_plan(
             workspace_root=ctx.deps.workspace_root,
             resolved_path=resolved,
         )
-        if outside_workspace and permission_state.effective_capabilities.filesystem_access != "full_access":
+        if (
+            outside_workspace
+            and permission_state.effective_capabilities.filesystem_access
+            != "full_access"
+        ):
             approval_scope_root = _approval_scope_root(resolved)
             if access_kind == "read":
                 effective_permissions = AdditionalSandboxPermissions(
@@ -585,6 +850,10 @@ async def _approved_file_access_plan(
             target=approval_scope_root,
             requested_capabilities=plan.requested_capabilities,
             requested_permissions=plan.requested_permissions,
+            requested_grants=build_permission_grants(
+                permissions=plan.requested_permissions,
+                filesystem_scope="session",
+            ),
         )
     else:
         request = FileChangeApprovalRequest(
@@ -595,17 +864,23 @@ async def _approved_file_access_plan(
             change_kind=action if action in {"write", "edit"} else "write",
             requested_capabilities=plan.requested_capabilities,
             requested_permissions=plan.requested_permissions,
+            requested_grants=build_permission_grants(
+                permissions=plan.requested_permissions,
+                filesystem_scope="session",
+            ),
         )
-    decision = await ctx.deps.approval_requester(request)
+    decision = normalize_approval_decision(
+        request=request,
+        decision=await ctx.deps.approval_requester(request),
+    )
     if decision.decision != "approved":
         raise RuntimeError(
             f"{action.capitalize()} approval did not return an approved decision"
         )
-    if approval_scope_root is not None and approval_permissions is not None:
-        remember_approved_permissions(
-            permission_memory=ctx.deps.permission_memory,
-            permissions=approval_permissions,
-        )
+    remember_approved_grants(
+        permission_memory=ctx.deps.permission_memory,
+        grants=decision.granted_grants,
+    )
     return plan
 
 
@@ -620,13 +895,30 @@ def remember_approved_permissions(
         permission_memory.remember_write_root(root)
 
 
+def remember_approved_grants(
+    *,
+    permission_memory,
+    grants: tuple[SandboxPermissionGrant, ...],
+) -> None:
+    for grant in grants:
+        if grant.scope != "session":
+            continue
+        remember_approved_permissions(
+            permission_memory=permission_memory,
+            permissions=grant.permissions,
+        )
+
+
 __all__ = [
     "approved_read_only_filesystem_policy",
     "SandboxExecutionPlan",
     "describe_permission_delta",
     "describe_shell_permission_delta",
     "derive_sandbox_execution_plan",
+    "extract_shell_permission_actions",
     "maybe_request_file_write_approval",
     "plan_shell_execution",
+    "build_permission_grants",
+    "remember_approved_grants",
     "remember_approved_permissions",
 ]

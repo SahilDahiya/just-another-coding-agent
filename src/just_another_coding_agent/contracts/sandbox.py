@@ -12,6 +12,7 @@ ExecutionIsolation = Literal["sandboxed", "unsandboxed"]
 ApprovalMode = Literal["never", "on_escalation", "always"]
 ApprovalDecisionValue = Literal["approved", "denied"]
 AdditionalNetworkAccess = Literal["enabled"]
+PermissionGrantScope = Literal["once", "session"]
 ApprovalRequestKind = Literal[
     "command_execution",
     "file_change",
@@ -100,6 +101,11 @@ class AdditionalSandboxPermissions(_SandboxContractModel):
         return self
 
 
+class SandboxPermissionGrant(_SandboxContractModel):
+    permissions: AdditionalSandboxPermissions
+    scope: PermissionGrantScope
+
+
 class FileSystemSandboxPolicy(_SandboxContractModel):
     access: FilesystemAccess
     extra_read_roots: tuple[str, ...] = ()
@@ -128,6 +134,28 @@ class _ApprovalRequestBase(_SandboxContractModel):
     reason: str
     requested_capabilities: EffectiveCapabilities
     requested_permissions: AdditionalSandboxPermissions | None = None
+    requested_grants: tuple[SandboxPermissionGrant, ...] = ()
+
+    @model_validator(mode="after")
+    def _validate_requested_grants(self) -> "_ApprovalRequestBase":
+        if self.requested_permissions is None and not self.requested_grants:
+            return self
+        if self.requested_permissions is None:
+            raise ValueError(
+                "requested_grants require requested_permissions to be present"
+            )
+        if not self.requested_grants:
+            raise ValueError(
+                "requested_permissions require requested_grants to be present"
+            )
+        if (
+            _flatten_permission_grants(self.requested_grants)
+            != self.requested_permissions
+        ):
+            raise ValueError(
+                "requested_permissions must match the flattened requested_grants"
+            )
+        return self
 
 
 class CommandExecutionApprovalRequest(_ApprovalRequestBase):
@@ -160,6 +188,94 @@ ApprovalRequest = Annotated[
 class ApprovalDecision(_SandboxContractModel):
     request_id: str
     decision: ApprovalDecisionValue
+    granted_permissions: AdditionalSandboxPermissions | None = None
+    granted_grants: tuple[SandboxPermissionGrant, ...] = ()
+
+    @model_validator(mode="after")
+    def _validate_granted_permissions(self) -> "ApprovalDecision":
+        if self.decision == "denied":
+            if self.granted_permissions is not None or self.granted_grants:
+                raise ValueError(
+                    "Denied approval decisions cannot include granted permissions"
+                )
+            return self
+        if self.granted_permissions is None and not self.granted_grants:
+            return self
+        if self.granted_permissions is None:
+            raise ValueError(
+                "granted_grants require granted_permissions to be present"
+            )
+        if not self.granted_grants:
+            raise ValueError(
+                "granted_permissions require granted_grants to be present"
+            )
+        if _flatten_permission_grants(self.granted_grants) != self.granted_permissions:
+            raise ValueError(
+                "granted_permissions must match the flattened granted_grants"
+            )
+        return self
+
+
+def _flatten_permission_grants(
+    grants: tuple[SandboxPermissionGrant, ...],
+) -> AdditionalSandboxPermissions | None:
+    if not grants:
+        return None
+    network_access: AdditionalNetworkAccess | None = None
+    extra_read_roots: list[str] = []
+    extra_write_roots: list[str] = []
+    for grant in grants:
+        if grant.permissions.network_access is not None:
+            network_access = grant.permissions.network_access
+        extra_read_roots.extend(grant.permissions.extra_read_roots)
+        extra_write_roots.extend(grant.permissions.extra_write_roots)
+    deduped_read_roots = tuple(dict.fromkeys(extra_read_roots))
+    deduped_write_roots = tuple(dict.fromkeys(extra_write_roots))
+    return AdditionalSandboxPermissions(
+        network_access=network_access,
+        extra_read_roots=deduped_read_roots,
+        extra_write_roots=deduped_write_roots,
+    )
+
+
+def normalize_approval_decision(
+    *,
+    request: ApprovalRequest,
+    decision: ApprovalDecision,
+) -> ApprovalDecision:
+    if decision.request_id != request.request_id:
+        raise ValueError(
+            "Approval decision request_id must match the approval request"
+        )
+    if decision.decision == "denied":
+        return decision
+    if request.requested_permissions is None:
+        if decision.granted_permissions is not None or decision.granted_grants:
+            raise ValueError(
+                "Approved decision cannot include granted permissions when "
+                "the request did not ask for permission deltas"
+            )
+        return decision
+    if not request.requested_grants:
+        raise ValueError(
+            "Approval requests with requested_permissions must declare "
+            "requested_grants"
+        )
+    if decision.granted_permissions is None and not decision.granted_grants:
+        return ApprovalDecision(
+            request_id=decision.request_id,
+            decision=decision.decision,
+            granted_permissions=request.requested_permissions,
+            granted_grants=request.requested_grants,
+        )
+    if (
+        decision.granted_permissions != request.requested_permissions
+        or decision.granted_grants != request.requested_grants
+    ):
+        raise ValueError(
+            "Approved decisions with explicit grants must match requested_grants"
+        )
+    return decision
 
 
 def derive_effective_capabilities(
@@ -291,7 +407,9 @@ __all__ = [
     "PermissionState",
     "PermissionGrantApprovalRequest",
     "PermissionGrantKind",
+    "PermissionGrantScope",
     "ReadOnlySandboxPolicy",
+    "SandboxPermissionGrant",
     "SandboxNetworkAccess",
     "SandboxPolicy",
     "WorkspaceWriteSandboxPolicy",
@@ -300,4 +418,5 @@ __all__ = [
     "derive_effective_capabilities",
     "derive_normalized_sandbox_policy",
     "derive_requested_capabilities",
+    "normalize_approval_decision",
 ]

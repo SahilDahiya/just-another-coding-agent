@@ -14,15 +14,17 @@ from just_another_coding_agent.contracts.platform import ShellFamily
 from just_another_coding_agent.contracts.run_events import ShellActivityDetails
 from just_another_coding_agent.contracts.sandbox import (
     CommandExecutionApprovalRequest,
+    normalize_approval_decision,
 )
 from just_another_coding_agent.tools._activity import (
     make_tool_return,
     truncate_activity_label,
 )
 from just_another_coding_agent.tools._permissions import (
+    build_permission_grants,
     describe_shell_permission_delta,
     plan_shell_execution,
-    remember_approved_permissions,
+    remember_approved_grants,
 )
 from just_another_coding_agent.tools.deps import WorkspaceDeps
 from just_another_coding_agent.tools.errors import (
@@ -174,27 +176,33 @@ async def execute_shell(
         reason = f"allow shell command: {truncate_activity_label(command)}"
         if permission_detail:
             reason = f"{reason} ({permission_detail})"
-        decision = await ctx.deps.approval_requester(
-            CommandExecutionApprovalRequest(
-                request_id=f"shell-{uuid4().hex}",
-                request_kind="command_execution",
-                reason=reason,
-                command=command,
-                cwd=str(Path(workspace_root).resolve()),
-                shell_family=shell_family,
-                requested_capabilities=plan.requested_capabilities,
-                requested_permissions=plan.requested_permissions,
-            )
+        request = CommandExecutionApprovalRequest(
+            request_id=f"shell-{uuid4().hex}",
+            request_kind="command_execution",
+            reason=reason,
+            command=command,
+            cwd=str(Path(workspace_root).resolve()),
+            shell_family=shell_family,
+            requested_capabilities=plan.requested_capabilities,
+            requested_permissions=plan.requested_permissions,
+            requested_grants=build_permission_grants(
+                permissions=plan.requested_permissions,
+                network_scope="once",
+                filesystem_scope="session",
+            ),
+        )
+        decision = normalize_approval_decision(
+            request=request,
+            decision=await ctx.deps.approval_requester(request),
         )
         if decision.decision != "approved":
             raise RuntimeError(
                 "Shell execution approval did not return an approved decision"
             )
-        if plan.requested_permissions is not None:
-            remember_approved_permissions(
-                permission_memory=ctx.deps.permission_memory,
-                permissions=plan.requested_permissions,
-            )
+        remember_approved_grants(
+            permission_memory=ctx.deps.permission_memory,
+            grants=decision.granted_grants,
+        )
     handle = await executor.execute(
         SandboxCommandRequest(
             workspace_root=Path(workspace_root),

@@ -9,6 +9,7 @@ from just_another_coding_agent.contracts.rpc import (
     RpcResponseEnvelope,
 )
 from just_another_coding_agent.contracts.sandbox import (
+    AdditionalSandboxPermissions,
     ApprovalDecision,
     ApprovalPolicy,
     DangerFullAccessSandboxPolicy,
@@ -126,6 +127,21 @@ def test_rpc_event_envelope_accepts_approval_events() -> None:
                         "execution_isolation": "sandboxed",
                         "approval_mode": "on_escalation",
                     },
+                    "requested_permissions": {
+                        "network_access": "enabled",
+                        "extra_read_roots": [],
+                        "extra_write_roots": [],
+                    },
+                    "requested_grants": [
+                        {
+                            "permissions": {
+                                "network_access": "enabled",
+                                "extra_read_roots": [],
+                                "extra_write_roots": [],
+                            },
+                            "scope": "once",
+                        }
+                    ],
                 },
                 "tool_name": "shell",
                 "tool_call_id": "call-1",
@@ -145,7 +161,22 @@ def test_rpc_event_envelope_accepts_approval_events() -> None:
                 "run_id": "run-1",
                 "decision": {
                     "request_id": "approval-1",
-                    "decision": "denied",
+                    "decision": "approved",
+                    "granted_permissions": {
+                        "network_access": "enabled",
+                        "extra_read_roots": [],
+                        "extra_write_roots": [],
+                    },
+                    "granted_grants": [
+                        {
+                            "permissions": {
+                                "network_access": "enabled",
+                                "extra_read_roots": [],
+                                "extra_write_roots": [],
+                            },
+                            "scope": "once",
+                        }
+                    ],
                 },
             },
         }
@@ -154,7 +185,18 @@ def test_rpc_event_envelope_accepts_approval_events() -> None:
     assert resolved_event.event.type == "approval_resolved"
     assert resolved_event.event.decision == ApprovalDecision(
         request_id="approval-1",
-        decision="denied",
+        decision="approved",
+        granted_permissions=AdditionalSandboxPermissions(
+            network_access="enabled",
+        ),
+        granted_grants=(
+            {
+                "permissions": {
+                    "network_access": "enabled",
+                },
+                "scope": "once",
+            },
+        ),
     )
     assert permission_state.effective_capabilities.approval_mode == "on_escalation"
 

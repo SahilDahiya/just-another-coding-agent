@@ -39,10 +39,63 @@ The current approval request taxonomy is:
   - currently used for approval-gated outside-workspace reads in the read-only
     worker path
 
+The current grant contract is explicit:
+
+- approval requests carry both:
+  - `requested_permissions`
+    - the aggregate permission delta
+  - `requested_grants`
+    - the scoped grants that make up that delta
+- approval decisions carry both:
+  - `granted_permissions`
+    - the aggregate granted delta
+  - `granted_grants`
+    - the scoped grants that make up that granted delta
+- lean approved or denied submit payloads are still accepted by the backend,
+  but they are normalized into explicit granted decisions before the decision
+  is persisted or returned to the waiting tool
+- current scopes are:
+  - `once`
+    - used for shell network approval
+  - `session`
+    - used for outside-workspace filesystem grants
+- only `session` grants are remembered in session permission memory
+
 ## Current Shell Escalation Heuristics
 
-The planner currently performs static command inspection for two categories of
+The planner currently performs static command inspection for three categories of
 escalation.
+
+### Outside-Workspace Reads
+
+The planner now also models a small trusted slice of shell reads and asks for
+approval before those commands read outside the workspace.
+
+Current signals include simple read-oriented commands with explicit path
+arguments such as:
+
+- `cat`
+- `ls`
+- `grep`
+- `rg`
+- `sed`
+- `head`
+- `tail`
+
+The current implementation only treats explicit path arguments as read targets.
+It does not claim complete shell understanding, and it does not attempt to
+model arbitrary shell syntax or every possible read-only command form.
+
+As with file-tool reads, non-workspace read roots approved through this shell
+path are requested as `session` grants and remembered for the rest of the
+session.
+
+Implementation reference:
+
+- `src/just_another_coding_agent/tools/_permissions.py`
+- `extract_shell_permission_actions(...)`
+- `_shell_command_read_actions(...)`
+- `_tokens_read_actions(...)`
 
 ### Network Intent
 
@@ -80,6 +133,12 @@ Implementation reference:
 - `_shell_command_requests_network_access(...)`
 - `_tokens_request_network_access(...)`
 
+Current grant behavior:
+
+- shell network approvals are requested as `once` grants
+- they do not populate session permission memory, so a later network command
+  still prompts again unless broader policy changes
+
 ### Outside-Workspace Writes
 
 The planner also detects shell commands that appear to write outside the
@@ -100,6 +159,12 @@ Current signals include:
 The planner resolves candidate paths against the workspace root, filters out
 in-workspace writes, and requests approval only for outside-workspace write
 roots that are not already allowed by session permission memory.
+
+Current grant behavior:
+
+- outside-workspace shell writes are requested as `session` grants
+- once approved, those writable roots are remembered for the rest of the
+  session
 
 Implementation reference:
 

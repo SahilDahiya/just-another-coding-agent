@@ -54,6 +54,8 @@ Optimize for:
 - explicit `allow` / `prompt` / `deny` decisions
 - clear matched-rule explanations
 - backend-owned implementation in Python
+- explicit grant scopes flowing out of policy evaluation rather than only a
+  flat requested permission delta
 
 Avoid in the first version:
 
@@ -93,6 +95,7 @@ It should build on top of:
 
 - `PermissionState`
 - `AdditionalSandboxPermissions`
+- `SandboxPermissionGrant`
 - typed approval request kinds from `TAP-397`
 - current file-tool enforcement
 - current shell heuristic extraction for likely network access and
@@ -100,6 +103,32 @@ It should build on top of:
 
 In the first implementation slice, the rule engine should sit behind current
 heuristic extraction rather than replacing it.
+
+## Current First Slice
+
+The first implementation slice is intentionally small and already reflects that
+constraint:
+
+- shell extraction produces typed actions for:
+  - `filesystem_read`
+  - `network_access`
+  - `filesystem_write`
+- shell policy evaluation runs through a tiny built-in rule set
+- `plan_shell_execution(...)` now uses those extracted actions and rule
+  decisions to decide whether shell needs approval
+- shell planning now also produces explicit scoped grants:
+  - network prompts become `once` grants
+  - outside-workspace filesystem prompts become `session` grants
+- external shell behavior is unchanged:
+  - network-like shell commands still prompt
+  - simple outside-workspace shell reads now prompt
+  - outside-workspace shell writes still prompt
+
+This is deliberate. The first slice is meant to prove the separation between
+heuristic extraction and explicit policy evaluation without widening the scope
+to full shell understanding. The current read slice is intentionally narrow:
+simple trusted read commands with explicit path arguments, not general shell
+read semantics.
 
 ## Relationship To Learning From Other Systems
 

@@ -18,14 +18,15 @@ from just_another_coding_agent.contracts.sandbox import (
     FileSystemSandboxPolicy,
     NetworkSandboxPolicy,
     NormalizedSandboxPolicy,
-    ReadOnlySandboxPolicy,
     PermissionGrantApprovalRequest,
+    ReadOnlySandboxPolicy,
     SandboxPolicy,
     WorkspaceWriteSandboxPolicy,
     build_permission_state,
+    derive_effective_capabilities,
     derive_normalized_sandbox_policy,
     derive_requested_capabilities,
-    derive_effective_capabilities,
+    normalize_approval_decision,
 )
 from just_another_coding_agent.tools._permissions import (
     SandboxExecutionPlan,
@@ -150,6 +151,17 @@ def test_approval_request_and_decision_are_strict_contract_models() -> None:
             grant_kind="filesystem_read",
             target="/tmp",
             requested_capabilities=capabilities,
+            requested_permissions=AdditionalSandboxPermissions(
+                extra_read_roots=("/tmp",),
+            ),
+            requested_grants=(
+                {
+                    "permissions": {
+                        "extra_read_roots": ["/tmp"],
+                    },
+                    "scope": "session",
+                },
+            ),
         ).model_dump(mode="json")
     ) == PermissionGrantApprovalRequest(
         request_id="approval-3",
@@ -158,6 +170,17 @@ def test_approval_request_and_decision_are_strict_contract_models() -> None:
         grant_kind="filesystem_read",
         target="/tmp",
         requested_capabilities=capabilities,
+        requested_permissions=AdditionalSandboxPermissions(
+            extra_read_roots=("/tmp",),
+        ),
+        requested_grants=(
+            {
+                "permissions": {
+                    "extra_read_roots": ["/tmp"],
+                },
+                "scope": "session",
+            },
+        ),
     )
 
     decision = ApprovalDecision(
@@ -182,6 +205,161 @@ def test_approval_request_and_decision_are_strict_contract_models() -> None:
 def test_additional_sandbox_permissions_require_a_non_empty_delta() -> None:
     with pytest.raises(ValidationError, match="must request at least one"):
         AdditionalSandboxPermissions()
+
+
+def test_approval_request_rejects_requested_permissions_without_requested_grants() -> None:  # noqa: E501
+    capabilities = EffectiveCapabilities(
+        filesystem_access="workspace_write",
+        network_access="restricted",
+        execution_isolation="unsandboxed",
+        approval_mode="on_escalation",
+    )
+
+    with pytest.raises(ValidationError, match="requested_grants"):
+        PermissionGrantApprovalRequest(
+            request_id="approval-3",
+            request_kind="permission_grant",
+            reason="Grant read access outside workspace.",
+            grant_kind="filesystem_read",
+            target="/tmp",
+            requested_capabilities=capabilities,
+            requested_permissions=AdditionalSandboxPermissions(
+                extra_read_roots=("/tmp",),
+            ),
+        )
+
+
+def test_approval_request_rejects_removed_turn_grant_scope() -> None:
+    capabilities = EffectiveCapabilities(
+        filesystem_access="workspace_write",
+        network_access="restricted",
+        execution_isolation="unsandboxed",
+        approval_mode="on_escalation",
+    )
+
+    with pytest.raises(ValidationError, match="once|session"):
+        PermissionGrantApprovalRequest(
+            request_id="approval-3",
+            request_kind="permission_grant",
+            reason="Grant read access outside workspace.",
+            grant_kind="filesystem_read",
+            target="/tmp",
+            requested_capabilities=capabilities,
+            requested_permissions=AdditionalSandboxPermissions(
+                extra_read_roots=("/tmp",),
+            ),
+            requested_grants=(
+                {
+                    "permissions": {
+                        "extra_read_roots": ["/tmp"],
+                    },
+                    "scope": "turn",
+                },
+            ),
+        )
+
+
+def test_normalize_approval_decision_defaults_to_requested_permissions_and_scope() -> None:  # noqa: E501
+    capabilities = EffectiveCapabilities(
+        filesystem_access="workspace_write",
+        network_access="restricted",
+        execution_isolation="unsandboxed",
+        approval_mode="on_escalation",
+    )
+    request = PermissionGrantApprovalRequest(
+        request_id="approval-3",
+        request_kind="permission_grant",
+        reason="Grant read access outside workspace.",
+        grant_kind="filesystem_read",
+        target="/tmp",
+        requested_capabilities=capabilities,
+        requested_permissions=AdditionalSandboxPermissions(
+            extra_read_roots=("/tmp",),
+        ),
+        requested_grants=(
+            {
+                "permissions": {
+                    "extra_read_roots": ["/tmp"],
+                },
+                "scope": "session",
+            },
+        ),
+    )
+
+    decision = normalize_approval_decision(
+        request=request,
+        decision=ApprovalDecision(
+            request_id=request.request_id,
+            decision="approved",
+        ),
+    )
+
+    assert decision == ApprovalDecision(
+        request_id=request.request_id,
+        decision="approved",
+        granted_permissions=AdditionalSandboxPermissions(
+            extra_read_roots=("/tmp",),
+        ),
+        granted_grants=(
+            {
+                "permissions": {
+                    "extra_read_roots": ["/tmp"],
+                },
+                "scope": "session",
+            },
+        ),
+    )
+
+
+def test_normalize_approval_decision_rejects_grants_that_do_not_match_request() -> None:
+    capabilities = EffectiveCapabilities(
+        filesystem_access="workspace_write",
+        network_access="restricted",
+        execution_isolation="unsandboxed",
+        approval_mode="on_escalation",
+    )
+    request = CommandExecutionApprovalRequest(
+        request_id="approval-1",
+        request_kind="command_execution",
+        reason="Enable network for a package install.",
+        command="curl https://example.com",
+        cwd="/workspace",
+        shell_family="posix",
+        requested_capabilities=capabilities.model_copy(
+            update={"network_access": "enabled"}
+        ),
+        requested_permissions=AdditionalSandboxPermissions(
+            network_access="enabled",
+        ),
+        requested_grants=(
+            {
+                "permissions": {
+                    "network_access": "enabled",
+                },
+                "scope": "once",
+            },
+        ),
+    )
+
+    with pytest.raises(ValueError, match="must match requested_grants"):
+        normalize_approval_decision(
+            request=request,
+            decision=ApprovalDecision(
+                request_id=request.request_id,
+                decision="approved",
+                granted_permissions=AdditionalSandboxPermissions(
+                    network_access="enabled",
+                ),
+                granted_grants=(
+                    {
+                        "permissions": {
+                            "network_access": "enabled",
+                        },
+                        "scope": "session",
+                    },
+                ),
+            ),
+        )
 
 
 def test_normalized_sandbox_policy_derives_network_and_filesystem_deltas() -> None:
@@ -227,7 +405,7 @@ def test_requested_capabilities_follow_normalized_policy() -> None:
     )
 
 
-def test_derive_sandbox_execution_plan_requires_approval_for_permission_deltas() -> None:
+def test_derive_sandbox_execution_plan_requires_approval_for_permission_deltas() -> None:  # noqa: E501
     permission_state = build_permission_state(
         sandbox_policy=WorkspaceWriteSandboxPolicy(),
         approval_policy=ApprovalPolicy(mode="on_escalation"),
@@ -257,7 +435,7 @@ def test_derive_sandbox_execution_plan_requires_approval_for_permission_deltas()
     )
 
 
-def test_derive_sandbox_execution_plan_skips_escalation_approval_without_delta() -> None:
+def test_derive_sandbox_execution_plan_skips_escalation_approval_without_delta() -> None:  # noqa: E501
     permission_state = build_permission_state(
         sandbox_policy=WorkspaceWriteSandboxPolicy(),
         approval_policy=ApprovalPolicy(mode="on_escalation"),
@@ -274,7 +452,7 @@ def test_derive_sandbox_execution_plan_skips_escalation_approval_without_delta()
     )
 
 
-def test_plan_shell_execution_requests_network_delta_for_explicit_network_command() -> None:
+def test_plan_shell_execution_requests_network_delta_for_explicit_network_command() -> None:  # noqa: E501
     permission_state = build_permission_state(
         sandbox_policy=WorkspaceWriteSandboxPolicy(),
         approval_policy=ApprovalPolicy(mode="on_escalation"),
@@ -293,7 +471,7 @@ def test_plan_shell_execution_requests_network_delta_for_explicit_network_comman
     assert plan.approval_required is True
 
 
-def test_plan_shell_execution_requests_network_delta_for_wrapped_network_command() -> None:
+def test_plan_shell_execution_requests_network_delta_for_wrapped_network_command() -> None:  # noqa: E501
     permission_state = build_permission_state(
         sandbox_policy=WorkspaceWriteSandboxPolicy(),
         approval_policy=ApprovalPolicy(mode="on_escalation"),
@@ -312,7 +490,7 @@ def test_plan_shell_execution_requests_network_delta_for_wrapped_network_command
     assert plan.approval_required is True
 
 
-def test_plan_shell_execution_requests_network_delta_for_package_manager_command() -> None:
+def test_plan_shell_execution_requests_network_delta_for_package_manager_command() -> None:  # noqa: E501
     permission_state = build_permission_state(
         sandbox_policy=WorkspaceWriteSandboxPolicy(),
         approval_policy=ApprovalPolicy(mode="on_escalation"),
@@ -331,7 +509,7 @@ def test_plan_shell_execution_requests_network_delta_for_package_manager_command
     assert plan.approval_required is True
 
 
-def test_plan_shell_execution_does_not_request_network_delta_for_grep_url_pattern() -> None:
+def test_plan_shell_execution_does_not_request_network_delta_for_grep_url_pattern() -> None:  # noqa: E501
     permission_state = build_permission_state(
         sandbox_policy=WorkspaceWriteSandboxPolicy(),
         approval_policy=ApprovalPolicy(mode="on_escalation"),

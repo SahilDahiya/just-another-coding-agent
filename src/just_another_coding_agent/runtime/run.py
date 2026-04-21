@@ -52,6 +52,7 @@ from just_another_coding_agent.contracts.run_events import (
 from just_another_coding_agent.contracts.sandbox import (
     ApprovalDecision,
     ApprovalRequest,
+    normalize_approval_decision,
 )
 from just_another_coding_agent.contracts.thinking import ThinkingSetting
 from just_another_coding_agent.contracts.tools import CANONICAL_TOOL_NAMES
@@ -924,6 +925,12 @@ async def _stream_run_events(
                                                             decision = await (
                                                                 resolve_approval_request(
                                                                     event.request
+                                                                )
+                                                            )
+                                                            decision = (
+                                                                normalize_approval_decision(
+                                                                    request=event.request,
+                                                                    decision=decision,
                                                                 )
                                                             )
                                                         except Exception as error:

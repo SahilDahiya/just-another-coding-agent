@@ -4,6 +4,7 @@ import json
 from pydantic_ai.models.function import FunctionModel
 
 from just_another_coding_agent.contracts.sandbox import (
+    AdditionalSandboxPermissions,
     ApprovalDecision,
     ApprovalPolicy,
     CommandExecutionApprovalRequest,
@@ -312,6 +313,17 @@ async def test_handle_rpc_json_line_resolves_pending_approval_submit(
                 execution_isolation="unsandboxed",
                 approval_mode="never",
             ),
+            requested_permissions=AdditionalSandboxPermissions(
+                network_access="enabled",
+            ),
+            requested_grants=(
+                {
+                    "permissions": {
+                        "network_access": "enabled",
+                    },
+                    "scope": "once",
+                },
+            ),
         )
         yield {
             "type": "approval_requested",
@@ -384,6 +396,21 @@ async def test_handle_rpc_json_line_resolves_pending_approval_submit(
                 "decision": {
                     "request_id": "approval-1",
                     "decision": "approved",
+                    "granted_permissions": {
+                        "network_access": "enabled",
+                        "extra_read_roots": [],
+                        "extra_write_roots": [],
+                    },
+                    "granted_grants": [
+                        {
+                            "permissions": {
+                                "network_access": "enabled",
+                                "extra_read_roots": [],
+                                "extra_write_roots": [],
+                            },
+                            "scope": "once",
+                        }
+                    ],
                 },
             },
         }
@@ -391,6 +418,17 @@ async def test_handle_rpc_json_line_resolves_pending_approval_submit(
     assert captured["decision"] == ApprovalDecision(
         request_id="approval-1",
         decision="approved",
+        granted_permissions=AdditionalSandboxPermissions(
+            network_access="enabled",
+        ),
+        granted_grants=(
+            {
+                "permissions": {
+                    "network_access": "enabled",
+                },
+                "scope": "once",
+            },
+        ),
     )
     assert [message["type"] for message in run_messages] == [
         "rpc_event",
