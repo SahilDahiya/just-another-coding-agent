@@ -36,6 +36,8 @@ read_when: start here, onboarding, or you need to find the right doc quickly
 - Interview prep identity, API, and observability: [interview-prep/05-identity-api-and-observability.md](interview-prep/05-identity-api-and-observability.md)
 - Interview prep OAuth authentication flow: [interview-prep/07-oauth-authentication-flow.md](interview-prep/07-oauth-authentication-flow.md)
 - Interview prep security primitives in JACA: [interview-prep/08-security-primitives-in-jaca.md](interview-prep/08-security-primitives-in-jaca.md)
+- Interview prep API design in JACA: [interview-prep/09-api-design-in-jaca.md](interview-prep/09-api-design-in-jaca.md)
+- Interview prep WorkspaceDeps and runtime context: [interview-prep/10-workspace-deps-and-runtime-context.md](interview-prep/10-workspace-deps-and-runtime-context.md)
 - Interview prep drills: [interview-prep/06-interview-drills.md](interview-prep/06-interview-drills.md)
 - Architectural decisions: [adr/](adr/)
 
@@ -73,6 +75,8 @@ read_when: start here, onboarding, or you need to find the right doc quickly
 - [interview-prep/05-identity-api-and-observability.md](interview-prep/05-identity-api-and-observability.md) - auth readiness, lifecycle-oriented RPC, and structured event contracts
 - [interview-prep/07-oauth-authentication-flow.md](interview-prep/07-oauth-authentication-flow.md) - end-to-end OpenAI Codex OAuth flow: start, wait, callback, manual completion, durable storage, refresh, and runtime use
 - [interview-prep/08-security-primitives-in-jaca.md](interview-prep/08-security-primitives-in-jaca.md) - honest map of JACA's current security primitives, their strengths, and their present limits
+- [interview-prep/09-api-design-in-jaca.md](interview-prep/09-api-design-in-jaca.md) - visual deep dive on JACA's typed stdio RPC, lifecycle-oriented contract, and why it is not a FastAPI-first design
+- [interview-prep/10-workspace-deps-and-runtime-context.md](interview-prep/10-workspace-deps-and-runtime-context.md) - dedicated explainer for JACA's per-run tool execution context and how it ties policy, execution, state, and runtime callbacks together
 - [interview-prep/06-interview-drills.md](interview-prep/06-interview-drills.md) - concise explanations, pushback drills, and mock interview prompts
 - [adr/0001-use-pydanticai-as-engine.md](adr/0001-use-pydanticai-as-engine.md) - engine choice
 - [adr/0002-headless-coding-agent-is-the-product.md](adr/0002-headless-coding-agent-is-the-product.md) - product boundary

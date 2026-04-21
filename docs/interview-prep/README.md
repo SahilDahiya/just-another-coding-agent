@@ -27,7 +27,9 @@ Read these in order:
 6. [05-identity-api-and-observability.md](05-identity-api-and-observability.md)
 7. [07-oauth-authentication-flow.md](07-oauth-authentication-flow.md)
 8. [08-security-primitives-in-jaca.md](08-security-primitives-in-jaca.md)
-9. [06-interview-drills.md](06-interview-drills.md)
+9. [09-api-design-in-jaca.md](09-api-design-in-jaca.md)
+10. [10-workspace-deps-and-runtime-context.md](10-workspace-deps-and-runtime-context.md)
+11. [06-interview-drills.md](06-interview-drills.md)
 
 ## Core Sentence
 
