@@ -18,8 +18,12 @@ as an OS-level post-approval sandbox.
 The flow is:
 
 1. `shell.execute` calls `plan_shell_execution(...)` before the command runs.
-2. The planner inspects the command string for escalation signals.
-3. If escalation is detected, the backend emits an approval request and waits.
+2. The planner extracts typed actions from the command via
+   `extract_shell_permission_actions(...)` and routes them through
+   `evaluate_permission_actions(...)` — the single rule engine that decides
+   `allow`, `prompt`, or `deny`.
+3. If any action evaluates to `prompt`, the backend emits an approval request
+   and waits.
 4. If denied, the shell command does not run and the denied approval is
    returned to the shell tool as a model-visible denial outcome by default.
 5. If approved, the command still executes on the host executor path.

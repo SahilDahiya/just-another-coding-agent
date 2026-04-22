@@ -100,7 +100,7 @@ presented. The current direction is:
 
 This design direction does not replace the current permission model.
 
-It should build on top of:
+It builds on top of:
 
 - `PermissionState`
 - `AdditionalSandboxPermissions`
@@ -110,8 +110,10 @@ It should build on top of:
 - current shell heuristic extraction for likely network access and
   outside-workspace writes
 
-In the first implementation slice, the rule engine should sit behind current
-heuristic extraction rather than replacing it.
+The rule engine sits downstream of heuristic extraction, not alongside it.
+Shell and file-tool planning never decide allow/prompt/deny outside
+`evaluate_permission_actions`. Extraction may still use heuristics to decide
+what actions a command wants; policy always answers through the rule engine.
 
 ## Current First Slice
 
@@ -149,6 +151,11 @@ heuristic extraction and explicit policy evaluation without widening the scope
 to full shell understanding. The current read slice is intentionally narrow:
 simple trusted read commands with explicit path arguments, not general shell
 read semantics.
+
+There is no parallel non-rule-engine path. `plan_shell_execution` requires a
+workspace root and session permission memory and always routes through
+`evaluate_permission_actions`; an earlier fallback that bypassed the rule
+engine was removed so that policy has one canonical source of truth.
 
 ## Relationship To Learning From Other Systems
 

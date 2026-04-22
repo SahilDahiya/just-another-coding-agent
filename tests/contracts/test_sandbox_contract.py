@@ -763,3 +763,70 @@ def test_plan_shell_execution_skips_remembered_outside_workspace_write_delta(
 def test_approval_scope_root_prefers_existing_directory_or_parent() -> None:
     assert _approval_scope_root(Path("/tmp")) == "/tmp"
     assert _approval_scope_root(Path("/tmp/outside.txt")) == "/tmp"
+
+
+def test_plan_shell_execution_routes_every_decision_through_the_rule_engine(
+    tmp_path, monkeypatch
+) -> None:
+    # Codification test: plan_shell_execution has exactly one decider.
+    # If any code path inside plan_shell_execution decides allow/prompt/deny
+    # without calling evaluate_permission_actions, this test will catch it.
+    from just_another_coding_agent.tools import _permissions
+
+    call_count = {"n": 0}
+    real_evaluate = _permissions.evaluate_permission_actions
+
+    def counting_evaluate(*args, **kwargs):
+        call_count["n"] += 1
+        return real_evaluate(*args, **kwargs)
+
+    monkeypatch.setattr(
+        _permissions, "evaluate_permission_actions", counting_evaluate
+    )
+
+    permission_state = build_permission_state(
+        sandbox_policy=WorkspaceWriteSandboxPolicy(),
+        approval_policy=ApprovalPolicy(mode="on_escalation"),
+    )
+    permission_memory = SessionPermissionMemory()
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    for command in (
+        "curl https://example.com",
+        "grep 'needle' file.txt",
+        "tee ../outside.txt",
+        "cat safe.txt",
+    ):
+        call_count["n"] = 0
+        _permissions.plan_shell_execution(
+            permission_state=permission_state,
+            command=command,
+            shell_family="posix",
+            workspace_root=workspace_root,
+            permission_memory=permission_memory,
+        )
+        assert call_count["n"] == 1, (
+            f"plan_shell_execution must consult the rule engine exactly once "
+            f"per call; {command!r} triggered {call_count['n']}"
+        )
+
+
+def test_plan_shell_execution_rejects_missing_workspace_or_memory() -> None:
+    # Codification test: workspace_root and permission_memory are required.
+    # The pre-rule-engine fallback that accepted None for either argument
+    # has been removed; calling without them must fail loudly rather than
+    # silently bypass the rule engine.
+    import pytest
+
+    permission_state = build_permission_state(
+        sandbox_policy=WorkspaceWriteSandboxPolicy(),
+        approval_policy=ApprovalPolicy(mode="on_escalation"),
+    )
+
+    with pytest.raises(TypeError):
+        plan_shell_execution(  # type: ignore[call-arg]
+            permission_state=permission_state,
+            command="curl https://example.com",
+            shell_family="posix",
+        )
