@@ -257,6 +257,44 @@ So the honest statement is:
 - JACA has backend-owned auth and secret state
 - JACA does not yet have generalized secret injection or enterprise workload identity
 
+### What “Generalized Secret Injection” Would Mean
+
+This phrase is easy to say loosely, so it is worth being precise.
+
+Generalized secret injection would mean the platform can:
+
+- accept a workload or run that declares secret needs
+- decide which secrets that workload is actually allowed to receive
+- deliver those secrets into that workload's execution environment in a scoped way
+- avoid persisting raw secret values into transcript or session history
+- audit secret issuance without exposing the secret itself
+
+In practical terms, this could look like:
+
+- environment-variable injection for one run only
+- mounted credential files for one sandbox only
+- short-lived service credentials issued just for one task
+- secret references in a workload spec rather than hardcoded secrets in config
+
+That is different from what JACA does today.
+
+Current JACA has:
+
+- provider secret storage
+- OAuth credential storage
+- backend-owned readiness and credential resolution
+
+But it does not yet have a general primitive like:
+
+- “inject secret X into this shell run only”
+- “give this sandboxed workload a temporary credential file”
+- “scope service credential Y to this one run and revoke it later”
+
+So the clean distinction is:
+
+- current JACA: backend-owned secret resolution and auth state
+- generalized secret injection: run-scoped delivery of secrets into execution environments
+
 ## Good Interview Language
 
 > JACA already treats auth readiness and stored credentials as backend contract state, which is the right architectural base. The next step beyond that would be true workload identity and scoped secret injection rather than only provider secret resolution and OAuth credential storage.

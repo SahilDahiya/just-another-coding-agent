@@ -118,6 +118,38 @@ It also includes session-scoped permission memory, as modeled through:
 
 This is important because approvals become part of resumable state, not just transient UI interactions.
 
+## Important Failure Taxonomy
+
+One subtle but important point in JACA is that “tool had a problem” does not automatically mean `tool_call_failed`.
+
+The intended split is:
+
+- expected tool-domain problem
+  - encoded as `tool_call_succeeded` with an explicit error result object
+  - the model can often adapt inside the same run
+
+- uncaught tool/runtime failure
+  - encoded as `tool_call_failed`
+  - the run should then terminate with `run_failed`
+
+Contract anchor:
+
+- [../contracts.md](../contracts.md:763)
+
+This distinction is important for durability and recovery because it keeps the terminal failure signal sharp.
+
+If every operational miss became `tool_call_failed`, the runtime would lose the distinction between:
+
+- normal model-visible operational misses
+- true abort-level failure
+
+JACA's design is stricter:
+
+- `tool_call_failed` is reserved for the cases where the runtime should not safely continue the current run
+- expected misses stay inside the normal tool-result channel
+
+That is the right shape for a resumable system.
+
 ## Recovery Analogy For Interview Use
 
 JACA is not a full Temporal-like durable execution engine.
