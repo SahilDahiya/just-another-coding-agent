@@ -1,461 +1,551 @@
 # API Design In JACA
 
-read_when: you want to understand JACA's API design deeply, including why it uses typed JSON-over-stdio RPC, how the contract is structured, and why that is different from a FastAPI or REST-first architecture
+read_when: you want a contract-level explanation of JACA's API shape, every current RPC command family, the streamed run semantics, and why the system chose typed stdio RPC instead of an HTTP-first API
 
-## Purpose
+## Core Point
 
-This doc explains JACA's API design as a system-design choice, not a framework accident.
-
-The core point is:
-
-- JACA absolutely has an API
-- it is just not an HTTP API
+JACA does have a serious API. It is just not an HTTP API.
 
 The API is:
 
-- typed request and response models
-- typed streamed event models
-- JSON-over-stdio transport
-- a long-lived local backend process
+- a closed, typed RPC contract
+- line-delimited JSON over stdio
+- command-oriented, not resource-oriented
+- event-streaming for live runs
+- backend-owned in meaning and state transitions
 
-Read this with:
+The main sources are:
 
+- [../adr/0003-canonical-session-and-rpc-contract.md](../adr/0003-canonical-session-and-rpc-contract.md)
 - [../mental-model.md](../mental-model.md)
 - [../contracts.md](../contracts.md)
-- [../adr/0003-canonical-session-and-rpc-contract.md](../adr/0003-canonical-session-and-rpc-contract.md)
-- [05-identity-api-and-observability.md](05-identity-api-and-observability.md)
-
-Main code anchors:
-
 - [../../src/just_another_coding_agent/contracts/rpc.py](../../src/just_another_coding_agent/contracts/rpc.py)
-- [../../src/just_another_coding_agent/contracts/run_events.py](../../src/just_another_coding_agent/contracts/run_events.py)
 - [../../src/just_another_coding_agent/rpc/stdio.py](../../src/just_another_coding_agent/rpc/stdio.py)
 
-## The Main API Choice
+## What The API Actually Looks Like
 
-JACA chose:
+One request is one JSON line:
 
-- JSON-over-stdio
-- explicit command names
-- explicit request payloads
-- explicit streamed events
-- one final response per command
-
-instead of:
-
-- REST over HTTP
-- route-per-resource design
-- polling as the default interaction pattern
-
-That choice is deliberate and rooted in the product shape.
-
-## Visual: Current API Shape
-
-```mermaid
-flowchart TD
-    A[Go TUI / CLI / other client] --> B[JSON-over-stdio RPC]
-    B --> C[Python backend process]
-    C --> D[Typed request validation]
-    D --> E[Command handler]
-    E --> F[rpc_response]
-    E --> G[rpc_event*]
-    E --> H[rpc_error]
+```json
+{"id":"req-2","command":"run.start","payload":{"session_id":"a1b2c3d4e5f67890a1b2c3d4e5f67890","prompt":"fix the bug","thinking":"high"}}
 ```
 
-The asterisk matters:
+The backend emits one or more JSON lines back. Every line is exactly one of:
 
-- a command may emit zero or more `rpc_event`s
-- then exactly one final `rpc_response`
+- `rpc_response`
+- `rpc_event`
+- `rpc_error`
 
-That is the core lifecycle pattern.
-
-## Visual: Envelope Design
-
-The protocol really has three top-level output envelopes:
+### Visual: Envelope Model
 
 ```mermaid
 flowchart LR
-    A[Client request] --> B["{ id, command, payload }"]
-    B --> C[rpc_response]
-    B --> D[rpc_event]
-    B --> E[rpc_error]
+    A["request\n{id, command, payload}"] --> B["rpc_response\nfinal success envelope"]
+    A --> C["rpc_event\nstreamed run/session event"]
+    A --> D["rpc_error\nprotocol/request failure"]
 ```
 
-This is cleaner than mixing:
+ASCII fallback:
 
-- HTTP success codes
-- SSE side channels
-- unrelated polling endpoints
-
-for a local long-lived runtime.
-
-## Visual: `run.start`
-
-This is the most important API flow in the system.
-
-```mermaid
-sequenceDiagram
-    participant C as Client
-    participant R as RPC server
-    participant S as Session runtime
-    participant T as Tool activity
-
-    C->>R: run.start(session_id, prompt, thinking?)
-    R->>S: start run
-    S-->>C: rpc_event(run_started)
-    S->>T: execute tool work as needed
-    T-->>C: rpc_event(tool_call_started / updated / succeeded / failed)
-    S-->>C: rpc_event(run_succeeded or run_failed)
-    R-->>C: rpc_response({session_id})
+```text
+request line
+  -> rpc_response
+  -> rpc_event
+  -> rpc_error
 ```
 
-That is not REST-shaped.
+## The Contract Is Intentionally Strict
 
-It is lifecycle-shaped.
+The models in [contracts/rpc.py](../../src/just_another_coding_agent/contracts/rpc.py) use a shared `_RpcModel` with:
 
-## What The API Actually Exposes
+- `extra="forbid"`
+- `frozen=True`
 
-You can see the request models in:
+That means:
 
-- [../../src/just_another_coding_agent/contracts/rpc.py](../../src/just_another_coding_agent/contracts/rpc.py)
+- unknown fields are rejected
+- payloads are explicit
+- request shape is closed over known commands
 
-Some of the most important commands are:
+`RpcRequest` is a discriminated union on `command`. In practice, the API is:
 
+- one request id
+- one command string
+- one typed payload model
+- one typed response model or typed event stream or typed protocol error
+
+This is much tighter than "send some JSON and hope both sides agree."
+
+## The Four Envelope Types
+
+### 1. Request
+
+Defined by the `RpcRequest` union in [contracts/rpc.py](../../src/just_another_coding_agent/contracts/rpc.py:217).
+
+Shared fields:
+
+- `id`: client correlation id
+- `command`: discriminator
+- `payload`: typed command-specific body
+
+### 2. `rpc_response`
+
+Defined by `RpcResponseEnvelope` in [contracts/rpc.py](../../src/just_another_coding_agent/contracts/rpc.py:345).
+
+Meaning:
+
+- final success envelope for a request
+
+Important:
+
+- a successful `run.start` still ends with exactly one `rpc_response`
+- the streamed run events come before that final response
+
+### 3. `rpc_event`
+
+Defined by `RpcEventEnvelope` in [contracts/rpc.py](../../src/just_another_coding_agent/contracts/rpc.py:376).
+
+Meaning:
+
+- streamed runtime event
+
+Payload is:
+
+- `RunEvent`
+- or `SessionLifecycleEvent`
+
+This is how JACA avoids polling.
+
+### 4. `rpc_error`
+
+Defined by `RpcErrorEnvelope` in [contracts/rpc.py](../../src/just_another_coding_agent/contracts/rpc.py:382).
+
+Meaning:
+
+- protocol-level or request-level failure
+
+Examples from [docs/contracts.md](../contracts.md):
+
+- `InvalidJSON`
+- `InvalidRequest`
+- `UnknownSession`
+- `InvalidSession`
+- `InternalError`
+
+Important distinction:
+
+- `rpc_error` means the request could not be processed as a valid RPC operation
+- `run_failed` means a valid run started and then failed as part of normal run semantics
+
+That distinction keeps protocol failure separate from domain failure.
+
+## Handler Dispatch And Concurrency
+
+`handle_rpc_json_line(...)` in [rpc/stdio.py](../../src/just_another_coding_agent/rpc/stdio.py) does three things:
+
+1. parse JSON
+2. validate against the discriminated `RpcRequest` union
+3. dispatch to the matching handler from `_RPC_HANDLERS`
+
+Current handler map includes:
+
+- `session.create`
+- `model.catalog`
 - `auth.status`
+- `auth.prepare_file`
 - `auth.set`
 - `auth.clear`
-- `workspace.trust_status`
-- `workspace.trust_accept`
-- `session.create`
-- `session.name`
-- `session.preview`
-- `session.compact`
+- `auth.login_openai_codex.start`
+- `auth.login_openai_codex.wait`
+- `auth.login_openai_codex.complete`
+- `trace.logfire_status`
 - `run.start`
 - `run.enqueue`
 - `run.interrupt`
 - `permission.get`
 - `permission.set`
 - `approval.submit`
+- `session.name`
+- `session.preview`
+- `workspace.project_docs`
+- `workspace.trust_status`
+- `workspace.trust_accept`
+- `session.compact`
 
-This tells you something important:
+`serve_rpc_stdio(...)` also serializes requests per `session_id` inside one backend process by using a per-session async lock. That is an API-relevant behavior:
 
-JACA's API is not resource-first.
+- same-session commands are not allowed to race each other locally
+- different sessions can still proceed independently
 
-It is command-first.
+## Command Families
 
-## Why This Shape Fits JACA
+The best way to understand JACA's API is by command family.
 
-## 1. The product is local-process-first
+## 1. Catalog And Auth Commands
 
-JACA is a local backend with a thin TUI on top.
+These commands answer "what providers/models are available?" and "is the backend authenticated and ready?"
 
-That is explicit in:
+| Command | Payload | Response | Streams? | Important rule |
+| --- | --- | --- | --- | --- |
+| `model.catalog` | `{}` | provider list, default model ids, model descriptions | no | shipped model catalog is backend-owned metadata |
+| `auth.status` | `{}` | provider readiness, local secret store status, OAuth provider status | no | readiness is computed by backend, not inferred by client |
+| `trace.logfire_status` | `{}` | `installed`, `credentials_configured` | no | observability readiness is explicit backend state |
+| `auth.prepare_file` | `{"provider": <provider>}` | file path + snippets for configuring file auth | no | helper for explicit local secret-file flow |
+| `auth.set` | `{"provider": <provider>, "secret": <string>, "storage": "file"}` | updated provider auth status | no | stores without echoing the secret back |
+| `auth.clear` | `{"provider": <provider>}` | updated provider auth status | no | removes explicit local secret-file entry |
+| `auth.login_openai_codex.start` | `{}` | `flow_id`, `auth_url`, `instructions` | no | creates backend-owned OAuth login flow state |
+| `auth.login_openai_codex.wait` | `{"flow_id": <string>}` | OAuth provider status | no | waits for the backend-owned callback flow |
+| `auth.login_openai_codex.complete` | `{"flow_id": <string>, "callback_or_code": <string>}` | OAuth provider status | no | manual completion/fallback path |
 
-- [../mental-model.md](../mental-model.md)
-- [../adr/0003-canonical-session-and-rpc-contract.md](../adr/0003-canonical-session-and-rpc-contract.md)
+### Example: `auth.status`
 
-For that shape, stdio gives you:
+Request:
 
-- no port management
-- no daemon lifecycle to install and supervise
-- no localhost network exposure by default
-- no HTTP-specific client machinery
-
-## 2. The system is lifecycle-oriented, not CRUD-oriented
-
-JACA's important actions are things like:
-
-- start a run
-- enqueue follow-up work
-- interrupt an active run
-- stream canonical events
-- compact a session
-
-You can force those into REST, but they are not naturally REST concepts.
-
-`run.start` is not really:
-
-- “create a run row”
-
-It is:
-
-- “start and stream a live execution lifecycle”
-
-## 3. Streaming is first-class
-
-JACA wants:
-
-- one request
-- zero or more streamed events
-- one final response
-
-That is very natural for:
-
-- stdio streams
-- WebSockets
-- gRPC streams
-
-It is less natural for plain REST without adding extra streaming layers.
-
-## 4. The contract is the product surface
-
-JACA treats strict contracts as the real boundary.
-
-That means API design here is mainly about:
-
-- typed payloads
-- typed events
-- ordering rules
-- ownership of meaning
-
-not about picking a fashionable web framework.
-
-## Why Not FastAPI?
-
-There is no single repo doc that says:
-
-- “we reject FastAPI for reason X”
-
-So this section is an architectural inference from the codebase and docs, not a quoted decision record.
-
-My read is:
-
-FastAPI would be the wrong default for the current product shape because JACA is not primarily a network service. It is a local long-lived backend process designed to be driven by a first-party TUI and similar local clients.
-
-If JACA used FastAPI today, it would introduce extra surface area:
-
-- HTTP server lifecycle
-- port allocation
-- localhost exposure
-- HTTP client plumbing in the TUI
-- SSE or WebSocket work for live event streaming
-- more operational complexity than the local product actually needs
-
-So the accurate answer is not:
-
-- “FastAPI is bad”
-
-It is:
-
-- “FastAPI solves a different deployment shape”
-
-## Visual: JACA RPC Vs Hypothetical HTTP Design
-
-```mermaid
-flowchart TD
-    subgraph Current JACA
-        A1[Client] --> A2[stdio RPC]
-        A2 --> A3[Backend process]
-        A3 --> A4[stream events + final response]
-    end
-
-    subgraph Hypothetical FastAPI shape
-        B1[Client] --> B2[HTTP server]
-        B2 --> B3[REST route or WebSocket]
-        B3 --> B4[polling or SSE or WS handling]
-        B4 --> B5[Backend runtime]
-    end
+```json
+{"id":"req-0","command":"auth.status","payload":{}}
 ```
 
-The second shape may be correct for a hosted service.
+Response:
 
-It is not obviously better for JACA as it exists now.
-
-## When FastAPI Would Make More Sense
-
-If JACA became:
-
-- a remote hosted control plane
-- browser-first
-- multi-tenant
-- cross-machine
-- service-to-service integrated
-
-then HTTP or gRPC would become much more attractive.
-
-In that world, I would still try to preserve the same core semantics:
-
-- command-oriented actions
-- streamed lifecycle events
-- backend-owned typed contract
-
-The transport might change.
-
-The meaning should not.
-
-## When JACA Would Become gRPC
-
-I would not replace stdio RPC with gRPC while JACA is primarily:
-
-- local TUI
-- local Python backend
-- same-machine child-process communication
-
-I would seriously consider gRPC once the backend becomes a true service boundary.
-
-That means conditions like:
-
-- the Python backend runs as a separate long-lived service
-- clients and backend may live on different machines or containers
-- multiple typed clients in different languages need one shared RPC schema
-- server streaming or bidirectional streaming becomes a core network requirement
-- remote orchestration or remote sandbox workers become first-class architecture
-- service-to-service auth, deadlines, metadata, and mTLS start to matter
-
-### Visual: When The Boundary Changes
-
-```mermaid
-flowchart TD
-    subgraph Current
-        A1[Go TUI] --> A2[stdio RPC]
-        A2 --> A3[local Python backend]
-    end
-
-    subgraph Future gRPC-shaped system
-        B1[Go TUI / CLI / IDE / web]
-        B2[gRPC]
-        B3[backend service]
-        B4[remote workers / sandboxes]
-        B1 --> B2
-        B2 --> B3
-        B3 --> B4
-    end
+```json
+{"type":"rpc_response","id":"req-0","response":{"providers":[{"provider":"openai","configured":false,"secret_configured":false,"requires_secret":true,"source":"none","env_key":"OPENAI_API_KEY","reason":"missing_secret"}],"local_secret_store":{"available":true,"message":null,"file_store_path":"/home/user/.jaca/auth.json"},"oauth_providers":[]}}
 ```
 
-### Why gRPC Then
+Why this matters:
 
-gRPC becomes attractive when JACA needs:
+- provider readiness is backend-authored
+- the client does not guess from environment variables
+- secret storage and OAuth status are folded into one canonical answer
 
-- typed cross-language service contracts
-- network-native streaming
-- internal platform RPC
-- stronger service-level operational semantics
+## 2. Workspace Trust And Project-Docs Commands
 
-That is a very different deployment shape from today's local stdio pairing.
+These commands own the repo trust gate and project-instruction disclosure.
 
-### What I Would Not Do
+| Command | Payload | Response | Streams? | Important rule |
+| --- | --- | --- | --- | --- |
+| `workspace.trust_status` | `{}` | `trusted`, `trust_target` | no | trust is stored per repo-root target |
+| `workspace.trust_accept` | `{}` | `trusted`, `trust_target` | no | accepting trust unblocks repo-doc loading and session bootstrap |
+| `workspace.project_docs` | `{}` | list of project docs | no | fails hard with `WorkspaceUntrusted` until trust is accepted |
 
-I would not switch to gRPC just because it is more "serious."
+Important separation:
 
-That would add:
+- workspace trust is a startup gate
+- it is not the same thing as sandbox permissions
+- trusting the repo does not itself grant reads, writes, network, or shell escalation
 
-- network-service lifecycle
-- deployment complexity
-- more moving parts
+## 3. Session Commands
 
-without solving a real current problem in the local product.
+These commands own durable session identity and presentation helpers over stored state.
 
-### Best Likely Evolution
+| Command | Payload | Response | Streams? | Important rule |
+| --- | --- | --- | --- | --- |
+| `session.create` | `{}` | `session_id`, maybe project docs | no | fails hard until workspace trust is accepted |
+| `session.name` | `{"session_id": <id>, "name": <string>}` | normalized name | no | name is backend-normalized and unique within workspace |
+| `session.preview` | `{"session_id": <id>}` | bounded preview entries + `truncated` | no | presentation helper only; does not change resume authority |
+| `session.compact` | `{"session_id": <id>}` | `compaction_id`, `compacted_through_run_id` | no | fails hard if summary generation fails |
 
-The mature move is probably:
+Two design details matter here:
 
-- keep stdio RPC for local embedded mode
-- add gRPC for remote/service mode later
-- preserve the same backend-owned command and event semantics underneath
+- session ids are opaque lowercase 32-hex strings, not paths
+- JACA has no `session.continue`; `run.start` on an existing session is the canonical continue operation
 
-## What JACA Already Gets Right About API Design
+### Example: `session.create`
 
-## 1. Typed requests
+Request:
 
-Requests are strict Pydantic models in:
+```json
+{"id":"req-1","command":"session.create","payload":{}}
+```
 
-- [../../src/just_another_coding_agent/contracts/rpc.py](../../src/just_another_coding_agent/contracts/rpc.py)
+Response:
+
+```json
+{"type":"rpc_response","id":"req-1","response":{"session_id":"a1b2c3d4e5f67890a1b2c3d4e5f67890","project_docs":[]}}
+```
+
+## 4. Run-Control Commands
+
+This is the center of the API.
+
+| Command | Payload | Response | Streams? | Important rule |
+| --- | --- | --- | --- | --- |
+| `run.start` | `{"session_id": <id>, "prompt": <string>, "thinking": <optional-thinking-setting>}` | `session_id` | yes | zero or more `rpc_event`, then exactly one final `rpc_response` |
+| `run.enqueue` | `{"session_id": <id>, "prompt": <string>, "mode": "next" \| "later"}` | `session_id`, `queued_count` | no | accepted only while an active streamed run exists in this backend process |
+| `run.interrupt` | `{"session_id": <id>, "promote_queued_steer": <bool>}` | `session_id`, `promoted_count` | no | accepted only while an active streamed run exists in this backend process |
+
+This is why JACA is not well-described as CRUD.
+
+`run.start` is not "create a row." It is:
+
+- resume/continue a session-backed conversation
+- stream canonical run events
+- possibly drain queued follow-up runs on the same stream
+- end with a final response only after those drains complete
+
+`run.enqueue` is not "update run." It is:
+
+- attach steering or follow-up text to an already-live run in memory
+
+`run.interrupt` is not "delete run." It is:
+
+- cancel the active run and optionally promote queued steering into immediate follow-up delivery
+
+### Visual: `run.start`
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Backend
+
+    Client->>Backend: run.start(session_id, prompt, thinking?)
+    Backend-->>Client: rpc_event(run_started)
+    Backend-->>Client: rpc_event(...tool/text/session events...)
+    Backend-->>Client: rpc_event(run_succeeded | run_failed)
+    Backend-->>Client: rpc_response({session_id})
+```
+
+ASCII fallback:
+
+```text
+run.start
+  -> run_started
+  -> zero or more run/session events
+  -> run_succeeded or run_failed
+  -> final rpc_response
+```
+
+### Important run semantics from the contract
+
+- `run.start` on an existing session is the canonical continue operation
+- `run.enqueue` with `mode: "later"` is the canonical follow-up queueing path
+- `run.enqueue` with `mode: "next"` is the canonical active-turn steer path
+- if pending `next` prompts survive to end of run, they downgrade into `later`
+- `run.interrupt` with `promote_queued_steer: true` promotes pending `next` prompts into immediate follow-up delivery
+- queue order is backend-owned and explicit
+- multiple prompts in a queue bucket are batch-combined in FIFO order with blank-line separation
+
+### Example: `run.start`
+
+Request:
+
+```json
+{"id":"req-2","command":"run.start","payload":{"session_id":"a1b2c3d4e5f67890a1b2c3d4e5f67890","prompt":"fix the bug","thinking":"high"}}
+```
+
+Stream:
+
+```json
+{"type":"rpc_event","id":"req-2","event":{"type":"run_started","run_id":"abc"}}
+{"type":"rpc_event","id":"req-2","event":{"type":"run_succeeded","run_id":"abc"}}
+{"type":"rpc_response","id":"req-2","response":{"session_id":"a1b2c3d4e5f67890a1b2c3d4e5f67890"}}
+```
+
+### Example: `run.enqueue`
+
+Request:
+
+```json
+{"id":"req-3","command":"run.enqueue","payload":{"session_id":"a1b2c3d4e5f67890a1b2c3d4e5f67890","prompt":"after that, run the tests","mode":"later"}}
+```
+
+Response:
+
+```json
+{"type":"rpc_response","id":"req-3","response":{"session_id":"a1b2c3d4e5f67890a1b2c3d4e5f67890","queued_count":1}}
+```
+
+## 5. Permission And Approval Commands
+
+These commands are the live control-plane surface.
+
+| Command | Payload | Response | Streams? | Important rule |
+| --- | --- | --- | --- | --- |
+| `permission.get` | `{"session_id": <id>}` or `{"session_id": null}` | `permission_state` | no | without an active session id, operates on workspace default permission state |
+| `permission.set` | `{"session_id": <optional-id>, "sandbox_policy": <optional>, "approval_policy": <optional>}` | updated `permission_state` | no | must set at least one explicit override |
+| `approval.submit` | `{"session_id": <id>, "decision": <approval-decision>}` | echoed decision + session id | no | resolves a live pending approval request |
+
+Critical distinction from [docs/contracts.md](../contracts.md):
+
+- live `PermissionState` is control-plane state used by RPC and approval flows
+- durable `effective_capabilities` written into session turn context is historical model-visible state
 
 That means:
 
-- no ad hoc payloads
-- no silent extra fields
-- no vague command shapes
+- `permission.get` / `permission.set` are about what is allowed right now
+- stored transcript/session history is about what happened and what the model previously saw
 
-## 2. Typed streamed events
+### Example: `permission.set`
 
-Run and session lifecycle events are explicit contract models in:
+Request:
 
-- [../../src/just_another_coding_agent/contracts/run_events.py](../../src/just_another_coding_agent/contracts/run_events.py)
+```json
+{"id":"req-7","command":"permission.set","payload":{"session_id":null,"sandbox_policy":"read_only"}}
+```
 
-This is much better than “the client watches stdout and guesses.”
+Response:
 
-## 3. Opaque identifiers
+```json
+{"type":"rpc_response","id":"req-7","response":{"session_id":null,"permission_state":{"sandbox_policy":"read_only","approval_policy":"on_escalation","effective_capabilities":{...}}}}
+```
 
-Session IDs are opaque hex IDs, not exposed filesystem paths.
+## What Actually Streams
 
-That is good API hygiene because clients do not couple to storage layout.
+Most commands are one-request/one-response.
 
-## 4. Clear ordering rules
+The main streamed command is:
 
-The RPC contract in [../contracts.md](../contracts.md) is strong on ordering:
+- `run.start`
 
-- what requests are valid
-- when events may appear
-- what ends a stream
-- what is an `rpc_error` versus a failed run event
+Its stream can include:
 
-That is good API design discipline.
+- run events such as `run_started`, `run_succeeded`, `run_failed`
+- tool lifecycle events
+- session lifecycle events such as compaction-related events
+- queue state events such as `session_queue_state`
 
-## 5. Backend-owned meaning
+Important client rule from [docs/contracts.md](../contracts.md):
 
-Clients are supposed to render backend meaning, not infer it locally.
+- clients must render queue preview from `session_queue_state`
+- they must not infer queue state from `run_started`, `run_failed`, or local enqueue bookkeeping
 
-That is especially important for:
+This is a very strong API-design choice:
 
-- queue state
-- approval flow
-- auth readiness
-- lifecycle events
+- queue meaning belongs to backend state
+- clients render the authoritative event instead of reconstructing it
 
-This is one of the strongest API instincts in the repo.
+## Protocol Errors Vs Domain Failures
 
-## Where The Current API Is Limited
+This distinction is one of the most important things to understand.
 
-JACA's API is strong for the current local product shape.
+### `rpc_error`
 
-Its likely limitations are:
+Use when the request itself is invalid or cannot be processed as RPC:
 
-- stdio transport is tightly local-process-oriented
-- it is not a ready-made public web service API
-- external integrator ergonomics are not the first design target
-- some commands reflect current product workflows more than a broader platform abstraction
+- bad JSON
+- bad payload
+- unknown session
+- invalid persisted session state
+- internal server failure before a valid run lifecycle is underway
 
-These are not bugs.
+### `run_failed`
 
-They are scope choices.
+Use when:
 
-## How To Study API Design In This Repo
+- `run.start` was a valid request
+- the run started
+- the run then failed as part of run semantics
 
-Read these in order:
+That is why the contract says:
 
-1. [../adr/0003-canonical-session-and-rpc-contract.md](../adr/0003-canonical-session-and-rpc-contract.md)
-2. [../mental-model.md](../mental-model.md)
-3. [../contracts.md](../contracts.md)
-4. [../../src/just_another_coding_agent/contracts/rpc.py](../../src/just_another_coding_agent/contracts/rpc.py)
-5. [../../src/just_another_coding_agent/rpc/stdio.py](../../src/just_another_coding_agent/rpc/stdio.py)
+- a valid request that ends in run failure still emits `rpc_event` ending in `run_failed`
+- it does not switch to `rpc_error`
 
-Then answer:
+This is excellent API hygiene. It keeps transport correctness and domain correctness separate.
 
-1. What is the transport?
-2. What are the top-level envelopes?
-3. What is the request shape?
-4. What events stream during long-running operations?
-5. What is a protocol error versus a runtime failure?
-6. What semantics are backend-owned rather than client-inferred?
+## Stateful Preconditions Matter
 
-## Interview Explanation
+The API is not stateless in the REST sense. Several commands depend on live in-memory backend state:
 
-Good answer:
+- `run.enqueue` is accepted only while that session has an active streamed run in this backend process
+- `run.interrupt` is accepted only while that session has an active streamed run in this backend process
+- `approval.submit` resolves a live pending approval
+- `session.create` is blocked by workspace trust state
+- `workspace.project_docs` is blocked by workspace trust state
+- `permission.get` / `permission.set` can target workspace-default state when no session is supplied
 
-> JACA uses a typed command-oriented RPC API over JSON-over-stdio because the product is a local long-lived backend with streaming lifecycle semantics, not a hosted CRUD service. The important design choice is not “no FastAPI”; it is that the contract is explicit, streamed, backend-owned, and transport-stable for the product shape it currently serves.
+That is another reason this contract is naturally RPC-shaped rather than route-shaped.
 
-## What To Remember
+## Why This Is RPC And Not REST
 
-The deep lesson is:
+You can wrap these commands in HTTP if you want, but their true semantics are still RPC semantics.
 
-API design is not mainly about whether you chose REST, FastAPI, or gRPC.
+A few examples:
 
-It is about:
+- `run.interrupt` with `promote_queued_steer: true` is an action with specific live-run behavior, not a natural resource update
+- `approval.submit` resolves a pending approval state machine, not a generic row mutation
+- `auth.login_openai_codex.start` / `wait` / `complete` is an explicit flow, not a stable resource CRUD model
+- `run.enqueue` mutates an in-memory active-run queue whose meaning is defined by backend lifecycle rules
 
-- what the boundary is
-- what semantics cross it
-- whether state transitions are explicit
-- whether clients can stay simple and correct
+REST can expose these operations, but it would mostly be HTTP wrapping around an RPC model.
 
-JACA is actually pretty strong on those questions.
+## Why Stdio Instead Of FastAPI Or Another HTTP Server
+
+This section is an architectural inference from the repo, not a quoted design note.
+
+For the current product shape, stdio fits better because JACA is:
+
+- a local Python backend
+- driven by a local Go TUI or CLI wrapper
+- long-lived enough to stream events
+- not yet a remote multi-tenant service
+
+Stdio avoids:
+
+- server lifecycle management
+- local port allocation
+- localhost auth/exposure questions
+- SSE or WebSocket just to get streaming
+- extra deployment machinery for a companion process
+
+FastAPI would make more sense if JACA became:
+
+- a hosted control plane
+- a browser-facing product
+- a multi-machine service
+- an integration platform for many external clients
+
+Right now the architecture is much closer to:
+
+```text
+client process -> child backend process -> streamed RPC over stdio
+```
+
+than to:
+
+```text
+many remote clients -> network service -> HTTP routes
+```
+
+## Under What Conditions gRPC Would Make Sense
+
+gRPC becomes attractive when the boundary becomes a real service boundary instead of local companion-process IPC.
+
+That usually means:
+
+- backend runs as a separate service
+- clients live on different machines or containers
+- cross-language typed clients matter more
+- bidirectional or server streaming must survive network hops cleanly
+- service auth, deadlines, metadata, retries, and observability become important platform concerns
+
+The mature architecture would likely be:
+
+- keep stdio RPC for local embedded mode
+- add gRPC for remote/service mode
+- preserve the same command and event semantics underneath
+
+## The Main API Design Lessons In JACA
+
+JACA gets several things right:
+
+- closed command set through a discriminated union
+- strict request validation with no unknown fields
+- opaque session identifiers instead of storage-shaped identifiers
+- backend-owned semantics for trust, auth readiness, queue state, approval, and permission posture
+- explicit separation between `rpc_error` and `run_failed`
+- one canonical live-run command family: `run.start`, `run.enqueue`, `run.interrupt`
+- streamed events instead of polling-based client reconstruction
+
+The most important lesson is:
+
+**API design here is not "which web framework did we pick?"**
+
+It is:
+
+- who owns meaning
+- which state transitions are explicit
+- what can be streamed
+- what must not be inferred by clients
+- which failures are protocol failures versus valid domain outcomes
+
+That is why this API is more serious than "JSON over stdin/stdout" sounds at first glance.
