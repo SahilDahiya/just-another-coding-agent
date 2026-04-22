@@ -35,7 +35,6 @@ from just_another_coding_agent.tools.errors import (
     ToolEncodingError,
 )
 from just_another_coding_agent.tools.sandbox_executor import (
-    HostSandboxExecutor,
     SandboxCommandRequest,
 )
 from just_another_coding_agent.tools.truncation import (
@@ -159,20 +158,19 @@ async def execute_shell(
     shell_family: ShellFamily,
     timeout: int | None = None,
 ) -> dict[str, int | str]:
-    executor = (
-        ctx.deps.sandbox_executor if ctx is not None else HostSandboxExecutor()
-    )
-    permission_state = (
-        ctx.deps.permission_state
+    deps = (
+        ctx.deps
         if ctx is not None
-        else WorkspaceDeps.from_workspace_root(workspace_root).permission_state
+        else WorkspaceDeps.from_workspace_root(workspace_root)
     )
+    executor = deps.sandbox_executor
+    permission_state = deps.permission_state
     plan = plan_shell_execution(
         permission_state=permission_state,
         command=command,
         shell_family=shell_family,
         workspace_root=Path(workspace_root),
-        permission_memory=(ctx.deps.permission_memory if ctx is not None else None),
+        permission_memory=deps.permission_memory,
     )
     if plan.approval_required:
         if ctx is None or ctx.deps.approval_requester is None:

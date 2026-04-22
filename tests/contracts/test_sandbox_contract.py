@@ -29,8 +29,8 @@ from just_another_coding_agent.contracts.sandbox import (
     derive_requested_capabilities,
     normalize_approval_decision,
 )
+from just_another_coding_agent.contracts.sandbox_plan import SandboxExecutionPlan
 from just_another_coding_agent.tools._permissions import (
-    SandboxExecutionPlan,
     _approval_scope_root,
     derive_sandbox_execution_plan,
     plan_shell_execution,
@@ -606,16 +606,23 @@ def test_derive_sandbox_execution_plan_skips_escalation_approval_without_delta()
     )
 
 
-def test_plan_shell_execution_requests_network_delta_for_explicit_network_command() -> None:  # noqa: E501
+def test_plan_shell_execution_requests_network_delta_for_explicit_network_command(
+    tmp_path,
+) -> None:
     permission_state = build_permission_state(
         sandbox_policy=WorkspaceWriteSandboxPolicy(),
         approval_policy=ApprovalPolicy(mode="on_escalation"),
     )
+    permission_memory = SessionPermissionMemory()
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
 
     plan = plan_shell_execution(
         permission_state=permission_state,
         command="curl https://example.com",
         shell_family="posix",
+        workspace_root=workspace_root,
+        permission_memory=permission_memory,
     )
 
     assert plan.requested_permissions == AdditionalSandboxPermissions(
@@ -625,16 +632,23 @@ def test_plan_shell_execution_requests_network_delta_for_explicit_network_comman
     assert plan.approval_required is True
 
 
-def test_plan_shell_execution_requests_network_delta_for_wrapped_network_command() -> None:  # noqa: E501
+def test_plan_shell_execution_requests_network_delta_for_wrapped_network_command(
+    tmp_path,
+) -> None:
     permission_state = build_permission_state(
         sandbox_policy=WorkspaceWriteSandboxPolicy(),
         approval_policy=ApprovalPolicy(mode="on_escalation"),
     )
+    permission_memory = SessionPermissionMemory()
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
 
     plan = plan_shell_execution(
         permission_state=permission_state,
         command='bash -lc "curl https://example.com"',
         shell_family="posix",
+        workspace_root=workspace_root,
+        permission_memory=permission_memory,
     )
 
     assert plan.requested_permissions == AdditionalSandboxPermissions(
@@ -644,16 +658,23 @@ def test_plan_shell_execution_requests_network_delta_for_wrapped_network_command
     assert plan.approval_required is True
 
 
-def test_plan_shell_execution_requests_network_delta_for_package_manager_command() -> None:  # noqa: E501
+def test_plan_shell_execution_requests_network_delta_for_package_manager_command(
+    tmp_path,
+) -> None:
     permission_state = build_permission_state(
         sandbox_policy=WorkspaceWriteSandboxPolicy(),
         approval_policy=ApprovalPolicy(mode="on_escalation"),
     )
+    permission_memory = SessionPermissionMemory()
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
 
     plan = plan_shell_execution(
         permission_state=permission_state,
         command="python -m pip install requests",
         shell_family="posix",
+        workspace_root=workspace_root,
+        permission_memory=permission_memory,
     )
 
     assert plan.requested_permissions == AdditionalSandboxPermissions(
@@ -663,16 +684,23 @@ def test_plan_shell_execution_requests_network_delta_for_package_manager_command
     assert plan.approval_required is True
 
 
-def test_plan_shell_execution_does_not_request_network_delta_for_grep_url_pattern() -> None:  # noqa: E501
+def test_plan_shell_execution_does_not_request_network_delta_for_grep_url_pattern(
+    tmp_path,
+) -> None:
     permission_state = build_permission_state(
         sandbox_policy=WorkspaceWriteSandboxPolicy(),
         approval_policy=ApprovalPolicy(mode="on_escalation"),
     )
+    permission_memory = SessionPermissionMemory()
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
 
     plan = plan_shell_execution(
         permission_state=permission_state,
         command="grep 'https://example.com' file.txt",
         shell_family="posix",
+        workspace_root=workspace_root,
+        permission_memory=permission_memory,
     )
 
     assert plan.requested_permissions is None

@@ -2,19 +2,17 @@ from __future__ import annotations
 
 import re
 import shlex
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Protocol
 from uuid import uuid4
 
 from just_another_coding_agent.contracts.platform import ShellFamily
 from just_another_coding_agent.contracts.sandbox import (
+    AdditionalNetworkAccess,
     AdditionalSandboxPermissions,
     ApprovalOption,
-    EffectiveCapabilities,
     FileChangeApprovalRequest,
     FileSystemSandboxPolicy,
-    NormalizedSandboxPolicy,
     PermissionGrantApprovalRequest,
     PermissionGrantScope,
     PermissionState,
@@ -24,6 +22,7 @@ from just_another_coding_agent.contracts.sandbox import (
     derive_requested_capabilities,
     normalize_approval_decision,
 )
+from just_another_coding_agent.contracts.sandbox_plan import SandboxExecutionPlan
 from just_another_coding_agent.tools._activity import truncate_activity_label
 from just_another_coding_agent.tools._policy_engine import (
     PermissionAction,
@@ -140,20 +139,14 @@ _ENV_ASSIGNMENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=.*$")
 _DD_PATH_KEYS = frozenset({"if", "of"})
 
 
-@dataclass(frozen=True)
-class SandboxExecutionPlan:
-    requested_permissions: AdditionalSandboxPermissions | None
-    requested_capabilities: EffectiveCapabilities
-    normalized_policy: NormalizedSandboxPolicy
-    approval_required: bool
-
-
 FileAccessKind = Literal["read", "write"]
 FileToolActionSource = Literal["read_tool", "write_tool", "edit_tool"]
 
 
 def describe_permission_delta(
     permissions: AdditionalSandboxPermissions | None,
+    *,
+    write_label: str = "writable roots",
 ) -> str:
     if permissions is None:
         return ""
@@ -165,25 +158,16 @@ def describe_permission_delta(
         segments.append(f"read-only roots: {joined}")
     if permissions.extra_write_roots:
         joined = ", ".join(permissions.extra_write_roots)
-        segments.append(f"writable roots: {joined}")
+        segments.append(f"{write_label}: {joined}")
     return "; ".join(segments)
 
 
 def describe_shell_permission_delta(
     permissions: AdditionalSandboxPermissions | None,
 ) -> str:
-    if permissions is None:
-        return ""
-    segments: list[str] = []
-    if permissions.network_access == "enabled":
-        segments.append("network enabled")
-    if permissions.extra_read_roots:
-        joined = ", ".join(permissions.extra_read_roots)
-        segments.append(f"read-only roots: {joined}")
-    if permissions.extra_write_roots:
-        joined = ", ".join(permissions.extra_write_roots)
-        segments.append(f"outside-workspace writes: {joined}")
-    return "; ".join(segments)
+    return describe_permission_delta(
+        permissions, write_label="outside-workspace writes"
+    )
 
 
 def _approval_denied_message(
@@ -947,51 +931,40 @@ def plan_shell_execution(
     permission_state: PermissionState,
     command: str,
     shell_family: ShellFamily,
-    workspace_root: Path | None = None,
-    permission_memory=None,
+    workspace_root: Path,
+    permission_memory,
 ) -> SandboxExecutionPlan:
-    approval_network_access = None
-    approval_read_roots: tuple[str, ...] = ()
-    approval_write_roots: tuple[str, ...] = ()
-    if workspace_root is not None and permission_memory is not None:
-        actions = extract_shell_permission_actions(
-            permission_state=permission_state,
-            command=command,
-            shell_family=shell_family,
-            workspace_root=workspace_root,
-            permission_memory=permission_memory,
-        )
-        evaluations = evaluate_permission_actions(actions=actions)
-        if any(
-            evaluation.action.action_kind == "network_access"
-            and evaluation.match.decision == "prompt"
-            for evaluation in evaluations
-        ):
-            approval_network_access = "enabled"
-        approval_read_roots = tuple(
-            evaluation.action.root
-            for evaluation in evaluations
-            if evaluation.action.action_kind == "filesystem_read"
-            and evaluation.action.path_scope == "non_workspace"
-            and evaluation.match.decision == "prompt"
-            and evaluation.action.root is not None
-        )
-        approval_write_roots = tuple(
-            evaluation.action.root
-            for evaluation in evaluations
-            if evaluation.action.action_kind == "filesystem_write"
-            and evaluation.action.path_scope == "non_workspace"
-            and evaluation.match.decision == "prompt"
-            and evaluation.action.root is not None
-        )
-    elif (
-        _shell_command_requests_network_access(
-            command=command,
-            shell_family=shell_family,
-        )
-        and permission_state.effective_capabilities.network_access != "enabled"
+    actions = extract_shell_permission_actions(
+        permission_state=permission_state,
+        command=command,
+        shell_family=shell_family,
+        workspace_root=workspace_root,
+        permission_memory=permission_memory,
+    )
+    evaluations = evaluate_permission_actions(actions=actions)
+    approval_network_access: AdditionalNetworkAccess | None = None
+    if any(
+        evaluation.action.action_kind == "network_access"
+        and evaluation.match.decision == "prompt"
+        for evaluation in evaluations
     ):
         approval_network_access = "enabled"
+    approval_read_roots = tuple(
+        evaluation.action.root
+        for evaluation in evaluations
+        if evaluation.action.action_kind == "filesystem_read"
+        and evaluation.action.path_scope == "non_workspace"
+        and evaluation.match.decision == "prompt"
+        and evaluation.action.root is not None
+    )
+    approval_write_roots = tuple(
+        evaluation.action.root
+        for evaluation in evaluations
+        if evaluation.action.action_kind == "filesystem_write"
+        and evaluation.action.path_scope == "non_workspace"
+        and evaluation.match.decision == "prompt"
+        and evaluation.action.root is not None
+    )
 
     approval_permissions: AdditionalSandboxPermissions | None = None
     if (
