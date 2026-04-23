@@ -8,7 +8,6 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 
 	"jaca/internal/jaca/rpc"
@@ -51,7 +50,6 @@ func (m *model) startOpenAICodexLoginFlow(pendingModel string, pendingPrompt str
 		PendingModel:  pendingModel,
 		PendingPrompt: pendingPrompt,
 	}
-	m.textInput.EchoMode = textinput.EchoNormal
 	m.textInput.SetValue("")
 	m.textInput.CursorEnd()
 	m.clearSlashMenu()
@@ -62,7 +60,6 @@ func (m *model) startOpenAICodexLoginFlow(pendingModel string, pendingPrompt str
 
 func (m *model) endLoginFlow() {
 	m.login = loginState{}
-	m.textInput.EchoMode = textinput.EchoNormal
 	m.textInput.SetValue("")
 	m.promptFooterNotice = ""
 	m.syncSlashMenu()

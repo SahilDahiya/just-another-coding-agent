@@ -7,8 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/cursor"
-	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -149,6 +147,7 @@ type promptState struct {
 	promptFooterNotice string
 	slashMenu          slashMenuState
 	queuedPreview      queuedPreviewState
+	pastes             pasteStore
 }
 
 type queuedPreviewState struct {
@@ -211,19 +210,13 @@ type model struct {
 	backendState
 	overlayState
 	exitAction *ExternalAction
-	textInput  textinput.Model
+	textInput  promptEditor
 	viewport   viewport.Model
 	transcript *Transcript
 }
 
 func New(options Options) tea.Model {
-	input := textinput.New()
-	input.Prompt = ""
-	input.Placeholder = ""
-	input.Focus()
-	input.CharLimit = 0
-	input.Width = 80
-	input.Cursor.SetMode(cursor.CursorStatic)
+	input := newPromptEditor()
 
 	transcript := NewTranscript()
 	transcript.WriteStartupBanner(options.AppVersion, options.Model, options.WorkspaceRoot, options.Thinking)
@@ -252,6 +245,7 @@ func New(options Options) tea.Model {
 		},
 		promptState: promptState{
 			historyIndex: -1,
+			pastes:       newPasteStore(),
 		},
 		runState: runState{
 			phase: PhaseIdle,
@@ -316,7 +310,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		m.textInput.Width = max(0, msg.Width-4)
+		m.textInput.SetWidth(max(0, msg.Width-4))
 		m.viewport.Width = msg.Width
 		m.transcript.Width = msg.Width
 		m.refreshViewport()
@@ -877,6 +871,29 @@ func (m *model) waitingOAuthLoginFooter() string {
 	return "login in progress; wait for completion or press Esc to cancel"
 }
 
+// handleLargePaste registers a paste big enough to clutter the composer and
+// inserts a compact label in its place. The real text is expanded back in
+// on submit via consumePromptDraft so the backend still sees the full paste.
+func (m *model) handleLargePaste(runes []rune) (tea.Model, tea.Cmd) {
+	label := m.pastes.Register(string(runes))
+	m.textInput.InsertString(label)
+	m.clearInterruptGuidance()
+	if m.auth.Active || m.login.Active || m.streaming {
+		m.clearSlashMenu()
+	} else {
+		m.syncSlashMenu()
+	}
+	m.refreshViewport()
+	return m, nil
+}
+
+// consumePromptDraft returns the composer's text with paste placeholders
+// expanded back to their stored content. Call this at every point where the
+// prompt text crosses into transcripts, history, or the backend.
+func (m *model) consumePromptDraft() string {
+	return strings.TrimSpace(m.pastes.Expand(m.textInput.Value()))
+}
+
 func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.trust.Active {
 		return m.handleTrustKey(msg)
@@ -890,6 +907,9 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.pendingApproval != nil {
 		return m.handleApprovalKey(msg)
 	}
+	if msg.Paste && len(msg.Runes) >= pasteThreshold && !m.auth.Active && !m.login.Active {
+		return m.handleLargePaste(msg.Runes)
+	}
 	if m.login.Active && msg.String() != "esc" && msg.String() != "enter" {
 		switch msg.String() {
 		case "up", "down":
@@ -901,6 +921,25 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleInterrupt()
 	case "esc":
 		return m.handleEscape()
+	case "alt+enter", "ctrl+j":
+		// Newline-insertion shortcuts. bubbletea 1.3.4 does not distinguish
+		// shift+enter from enter, so users who want Shift+Enter either need
+		// a terminal that sends an alt-enter-equivalent sequence or use the
+		// `\`+Enter fallback wired into handleEnter below.
+		if m.auth.Active || m.login.Active {
+			// Secrets and OAuth codes are single-line; treat as submit via
+			// the normal enter path.
+			return m.handleEnter()
+		}
+		m.textInput.InsertNewline()
+		m.clearInterruptGuidance()
+		if m.streaming {
+			m.clearSlashMenu()
+		} else {
+			m.syncSlashMenu()
+		}
+		m.refreshViewport()
+		return m, nil
 	case "up":
 		if m.auth.Active {
 			return m, nil
@@ -908,6 +947,15 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.slashMenuVisible() {
 			m.moveSlashSelection(-1)
 			return m, nil
+		}
+		// If the cursor can still move up within a multi-line or wrapped
+		// draft, let the textarea handle it instead of replacing the draft
+		// with prompt history.
+		if !m.textInput.AtFirstVisualRow() {
+			var cmd tea.Cmd
+			m.textInput, cmd = m.textInput.Update(msg)
+			m.refreshViewport()
+			return m, cmd
 		}
 		m.historyPrevious()
 		m.refreshViewport()
@@ -919,6 +967,12 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.slashMenuVisible() {
 			m.moveSlashSelection(1)
 			return m, nil
+		}
+		if !m.textInput.AtLastVisualRow() {
+			var cmd tea.Cmd
+			m.textInput, cmd = m.textInput.Update(msg)
+			m.refreshViewport()
+			return m, cmd
 		}
 		m.historyNext()
 		m.refreshViewport()
@@ -938,6 +992,12 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+u":
 		if !m.streaming {
 			m.textInput.SetValue("")
+			// Preserve the paste store during auth/OAuth detours — its
+			// labels belong to the detoured draft stashed in PendingPrompt,
+			// not to the secret/code the user is typing right now.
+			if !m.auth.Active && !m.waitingOAuthLoginBlocksInput() {
+				m.pastes.Reset()
+			}
 			if !m.auth.Active {
 				m.resetHistoryNavigation()
 			}
@@ -980,6 +1040,14 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.clearInterruptGuidance()
 	m.textInput, cmd = m.textInput.Update(msg)
+	// Skip pruning while the composer is repurposed for auth or OAuth entry —
+	// the absence of a paste label there just means the user is typing a
+	// secret or browser code, not that they deleted the detoured draft.
+	// waitingOAuthLoginBlocksInput covers the full OAuth waiting window
+	// including the brief states where login.Active flips.
+	if !m.auth.Active && !m.waitingOAuthLoginBlocksInput() {
+		m.pastes.PruneMissing(m.textInput.Value())
+	}
 	if m.auth.Active || m.login.Active || m.streaming {
 		m.clearSlashMenu()
 	} else {
@@ -1066,7 +1134,7 @@ func (m *model) handleEnter() (tea.Model, tea.Cmd) {
 	if m.login.Active {
 		return m.handleLoginEnter()
 	}
-	prompt := strings.TrimSpace(m.textInput.Value())
+	prompt := m.consumePromptDraft()
 	if prompt == "" || m.streaming {
 		return m, nil
 	}
@@ -1098,6 +1166,13 @@ func (m *model) handleEnter() (tea.Model, tea.Cmd) {
 		return m.submitSlashCommand(prompt, false)
 	}
 	provider := m.currentProvider()
+	// Auth / OAuth detours stash the current draft in PendingPrompt so it can
+	// be restored after the detour finishes. We want to keep the *labelled*
+	// draft (e.g. "[pasted 7624 chars #1]") rather than the expanded body so
+	// the placeholder UX survives a detoured submit. The pasteStore is not
+	// reset until the actual backend submission succeeds, so consumePromptDraft
+	// will re-expand the labels when the user presses Enter again.
+	pendingDraft := m.textInput.Value()
 	if isOpenAICodexOAuthModel(m.options.Model) {
 		loggedIn, err := m.openAICodexLoggedInFresh()
 		if err != nil {
@@ -1106,7 +1181,7 @@ func (m *model) handleEnter() (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if !loggedIn {
-			return m.startOpenAICodexLoginFlow(m.options.Model, prompt)
+			return m.startOpenAICodexLoginFlow(m.options.Model, pendingDraft)
 		}
 	} else {
 		hasCreds, err := m.providerHasCredentialsFresh(provider)
@@ -1116,7 +1191,7 @@ func (m *model) handleEnter() (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if !hasCreds {
-			if err := m.startCredentialSetup(provider, "", "", "", prompt); err != nil {
+			if err := m.startCredentialSetup(provider, "", "", "", pendingDraft); err != nil {
 				m.transcript.WriteError(err.Error())
 			}
 			m.refreshViewport()
@@ -1125,6 +1200,7 @@ func (m *model) handleEnter() (tea.Model, tea.Cmd) {
 	}
 	m.recordPromptHistory(prompt)
 	m.textInput.SetValue("")
+	m.pastes.Reset()
 	m.clearSlashMenu()
 	m.clearInterruptGuidance()
 	m.transcript.WriteUserTurn(prompt)
@@ -1149,7 +1225,7 @@ func (m *model) handleQueueFollowUp() (tea.Model, tea.Cmd) {
 	if !m.streaming {
 		return m, nil
 	}
-	prompt := strings.TrimSpace(m.textInput.Value())
+	prompt := m.consumePromptDraft()
 	if prompt == "" {
 		return m, nil
 	}
@@ -1159,13 +1235,14 @@ func (m *model) handleQueueFollowUp() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.textInput.SetValue("")
+	m.pastes.Reset()
 	m.clearSlashMenu()
 	m.refreshViewport()
 	return m, enqueueRun(m.options.Backend, m.sessionID, prompt, "later")
 }
 
 func (m *model) handleQueueSteer() (tea.Model, tea.Cmd) {
-	prompt := strings.TrimSpace(m.textInput.Value())
+	prompt := m.consumePromptDraft()
 	if prompt == "" {
 		return m, nil
 	}
@@ -1175,6 +1252,7 @@ func (m *model) handleQueueSteer() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.textInput.SetValue("")
+	m.pastes.Reset()
 	m.clearSlashMenu()
 	m.refreshViewport()
 	return m, enqueueRun(m.options.Backend, m.sessionID, prompt, "next")

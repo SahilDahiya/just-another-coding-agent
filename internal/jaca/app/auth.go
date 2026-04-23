@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 
 	"jaca/internal/jaca/rpc"
@@ -24,8 +23,6 @@ type authState struct {
 
 func (m *model) endAuthFlow() {
 	m.auth = authState{}
-	m.textInput.EchoMode = textinput.EchoNormal
-	m.textInput.EchoCharacter = '*'
 	m.textInput.SetValue("")
 	m.promptFooterNotice = ""
 	m.syncSlashMenu()
@@ -38,7 +35,7 @@ func (m *model) promptDisplayValue() string {
 	if m.textInput.Value() == "" {
 		return ""
 	}
-	return strings.Repeat(string(m.textInput.EchoCharacter), len([]rune(m.textInput.Value())))
+	return strings.Repeat("*", len([]rune(m.textInput.Value())))
 }
 
 func (m *model) promptView() string {

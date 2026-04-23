@@ -167,7 +167,16 @@ The core architectural risk is semantic drift between the Go shell and the Pytho
   ChatGPT subscription, OpenAI API key, and Anthropic API key. Removed
   providers should not survive in slash help, onboarding copy, or picker
   suggestions.
-- The prompt zone should behave like a compact two-line shell composer: one input line, one low-salience footer line for state and recall hints.
+- The prompt zone should behave like a compact shell composer: a single
+  input line for short drafts that grows vertically — up to a small cap —
+  when the draft has explicit newlines or soft-wraps a long line, plus one
+  low-salience footer line for state and recall hints. Alt+Enter and
+  Ctrl+J insert a newline at the cursor. Bare Enter still submits. Up/Down navigate prompt history only
+  when the cursor is at the top/bottom visual row of the current draft;
+  otherwise they move the cursor within the composer. Pastes larger than
+  the placeholder threshold are replaced in the composer by a compact
+  `[pasted N chars]` token that expands back on submit so the input stays
+  scannable.
 - The prompt footer may carry low-salience operational guidance such as a
   copy hint, but that guidance should stay subdued and yield to width
   constraints instead of crowding the main state readout.
