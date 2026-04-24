@@ -347,3 +347,45 @@ async def test_edit_remembers_approved_outside_root_within_one_session(
     assert requests[0].requested_permissions.extra_write_roots == (
         str(outside_dir.resolve()),
     )
+
+
+async def test_edit_requests_policy_only_approval_for_workspace_path_in_always_mode(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    note = workspace_root / "note.txt"
+    note.write_text("hello\nworld\n", encoding="utf-8")
+    requests = []
+
+    async def approval_requester(request, _tool_call_id=None, _tool_name=None):
+        requests.append(request)
+        return ApprovalDecision(
+            request_id=request.request_id,
+            decision="approved",
+        )
+
+    ctx = SimpleNamespace(
+        deps=WorkspaceDeps(
+            workspace_root=workspace_root,
+            approval_requester=approval_requester,
+            permission_state=build_permission_state(
+                sandbox_policy=WorkspaceWriteSandboxPolicy(),
+                approval_policy=ApprovalPolicy(mode="always"),
+            ),
+        )
+    )
+
+    from just_another_coding_agent.tools.edit import edit
+
+    result = await edit(ctx, "note.txt", "world", "agent")
+
+    assert result.return_value == f"Edited {note.resolve()}"
+    assert note.read_text(encoding="utf-8") == "hello\nagent\n"
+    assert len(requests) == 1
+    assert requests[0].request_kind == "file_change"
+    assert requests[0].path == "note.txt"
+    assert requests[0].change_kind == "edit"
+    assert requests[0].reason == "allow edit: note.txt (approval policy: always)"
+    assert requests[0].requested_permissions is None
+    assert requests[0].requested_grants == ()

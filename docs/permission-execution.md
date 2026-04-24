@@ -105,6 +105,11 @@ file tools:
   - shell -> `command_execution`
   - read -> `permission_grant`
   - write/edit -> `file_change`
+- after planning, those tool-specific approval requests all go through one
+  shared backend approval-resolution path that:
+  - normalizes the returned approval decision
+  - raises the same denial outcome contract on deny
+  - remembers approved `session` grants in permission memory
 
 The current approval prompt UX is intentionally minimal:
 
@@ -113,6 +118,9 @@ The current approval prompt UX is intentionally minimal:
   - `curl https://example.com`
   - `read ../outside.txt`
   - `write ../outside.txt`
+- approval reasons stay truthful about why the prompt happened:
+  - outside-workspace prompts say `allow read outside workspace: ...`
+  - policy-only prompts say `allow read: ... (approval policy: always)`
 - the prompt options are backend-authored too
   - exact approval is rendered as `Allow once`
   - reusable session approval is only shown when the backend can safely derive

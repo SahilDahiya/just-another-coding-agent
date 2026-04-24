@@ -218,3 +218,48 @@ async def test_read_remembers_approved_outside_root_within_one_session(
     assert requests[0].requested_permissions.extra_read_roots == (
         str(outside_dir.resolve()),
     )
+
+
+async def test_read_requests_policy_only_approval_for_workspace_path_in_always_mode(
+    tmp_path,
+) -> None:
+    base_ctx = worker_ctx(tmp_path)
+    note = base_ctx.deps.workspace_root / "note.txt"
+    note.write_text("hello", encoding="utf-8")
+    requests = []
+
+    async def approval_requester(request, _tool_call_id=None, _tool_name=None):
+        requests.append(request)
+        return ApprovalDecision(
+            request_id=request.request_id,
+            decision="approved",
+        )
+
+    ctx = SimpleNamespace(
+        deps=WorkspaceDeps(
+            workspace_root=base_ctx.deps.workspace_root,
+            shell_family=detect_default_shell_family(),
+            approval_requester=approval_requester,
+            permission_state=build_permission_state(
+                sandbox_policy=WorkspaceWriteSandboxPolicy(),
+                approval_policy=ApprovalPolicy(mode="always"),
+            ),
+            read_only_worker=base_ctx.deps.read_only_worker,
+        ),
+        tool_call_id="call-1",
+        tool_name="read",
+    )
+
+    try:
+        result = await read(ctx, "note.txt")
+    finally:
+        await ctx.deps.read_only_worker.close()
+
+    assert result.return_value == "hello"
+    assert len(requests) == 1
+    assert requests[0].request_kind == "permission_grant"
+    assert requests[0].grant_kind == "filesystem_read"
+    assert requests[0].target == str(note.parent.resolve())
+    assert requests[0].reason == "allow read: note.txt (approval policy: always)"
+    assert requests[0].requested_permissions is None
+    assert requests[0].requested_grants == ()

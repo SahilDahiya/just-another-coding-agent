@@ -76,6 +76,13 @@ def _full_access_permission_state():
     )
 
 
+def _always_approval_permission_state():
+    return build_permission_state(
+        sandbox_policy=WorkspaceWriteSandboxPolicy(),
+        approval_policy=ApprovalPolicy(mode="always"),
+    )
+
+
 async def test_given_default_policy_when_workspace_read_then_allowed(tmp_path) -> None:
     ctx = worker_ctx(tmp_path)
     path = ctx.deps.workspace_root / "note.txt"
@@ -104,6 +111,78 @@ async def test_given_default_policy_when_workspace_write_then_allowed(
     await write(ctx, "note.txt", "hello")
 
     assert (workspace_root / "note.txt").read_text(encoding="utf-8") == "hello"
+
+
+async def test_given_always_policy_when_workspace_read_then_permission_grant_approval_is_requested(
+    tmp_path,
+) -> None:
+    base_ctx = worker_ctx(tmp_path)
+    note = base_ctx.deps.workspace_root / "note.txt"
+    note.write_text("hello", encoding="utf-8")
+    requests = []
+
+    async def approval_requester(request, _tool_call_id=None, _tool_name=None):
+        requests.append(request)
+        return ApprovalDecision(
+            request_id=request.request_id,
+            decision="approved",
+        )
+
+    ctx = SimpleNamespace(
+        deps=WorkspaceDeps(
+            workspace_root=base_ctx.deps.workspace_root,
+            shell_family=detect_default_shell_family(),
+            approval_requester=approval_requester,
+            permission_state=_always_approval_permission_state(),
+            read_only_worker=base_ctx.deps.read_only_worker,
+        ),
+        tool_call_id="call-read",
+        tool_name="read",
+    )
+
+    try:
+        result = await read(ctx, "note.txt")
+    finally:
+        await ctx.deps.read_only_worker.close()
+
+    assert result.return_value == "hello"
+    assert len(requests) == 1
+    assert requests[0].request_kind == "permission_grant"
+    assert requests[0].requested_permissions is None
+    assert requests[0].requested_grants == ()
+    assert requests[0].reason == "allow read: note.txt (approval policy: always)"
+
+
+async def test_given_always_policy_when_workspace_write_then_file_change_approval_is_requested(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    requests = []
+
+    async def approval_requester(request, _tool_call_id=None, _tool_name=None):
+        requests.append(request)
+        return ApprovalDecision(
+            request_id=request.request_id,
+            decision="approved",
+        )
+
+    ctx = SimpleNamespace(
+        deps=WorkspaceDeps(
+            workspace_root=workspace_root,
+            approval_requester=approval_requester,
+            permission_state=_always_approval_permission_state(),
+        )
+    )
+
+    await write(ctx, "note.txt", "hello")
+
+    assert (workspace_root / "note.txt").read_text(encoding="utf-8") == "hello"
+    assert len(requests) == 1
+    assert requests[0].request_kind == "file_change"
+    assert requests[0].requested_permissions is None
+    assert requests[0].requested_grants == ()
+    assert requests[0].reason == "allow write: note.txt (approval policy: always)"
 
 
 async def test_given_default_policy_when_non_workspace_read_then_permission_grant_approval_is_requested(

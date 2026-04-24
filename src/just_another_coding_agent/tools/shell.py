@@ -12,25 +12,20 @@ from pydantic_ai import RunContext, Tool
 
 from just_another_coding_agent.contracts.platform import ShellFamily
 from just_another_coding_agent.contracts.run_events import ShellActivityDetails
-from just_another_coding_agent.contracts.sandbox import (
-    CommandExecutionApprovalRequest,
-    approval_request_subject,
-    normalize_approval_decision,
-)
+from just_another_coding_agent.contracts.sandbox import CommandExecutionApprovalRequest
 from just_another_coding_agent.tools._activity import (
     make_tool_return,
     truncate_activity_label,
 )
+from just_another_coding_agent.tools._approval_flow import resolve_tool_approval
 from just_another_coding_agent.tools._permissions import (
     build_permission_grants,
     build_shell_approval_options,
     describe_shell_permission_delta,
     plan_shell_execution,
-    remember_approved_grants,
 )
 from just_another_coding_agent.tools.deps import WorkspaceDeps
 from just_another_coding_agent.tools.errors import (
-    ToolApprovalDenied,
     ToolCommandError,
     ToolEncodingError,
 )
@@ -173,11 +168,6 @@ async def execute_shell(
         permission_memory=deps.permission_memory,
     )
     if plan.approval_required:
-        if ctx is None or ctx.deps.approval_requester is None:
-            raise RuntimeError(
-                "Shell execution requires approval, but no approval "
-                "requester is configured"
-            )
         permission_detail = describe_shell_permission_delta(
             plan.requested_permissions
         )
@@ -209,24 +199,14 @@ async def execute_shell(
                 else ()
             ),
         )
-        decision = normalize_approval_decision(
+        await resolve_tool_approval(
+            ctx=ctx,
             request=request,
-            decision=await ctx.deps.approval_requester(
-                request,
-                getattr(ctx, "tool_call_id", None),
-                getattr(ctx, "tool_name", None),
+            denied_message=_approval_denied_message(reason=reason),
+            missing_requester_message=(
+                "Shell execution requires approval, but no approval "
+                "requester is configured"
             ),
-        )
-        if decision.decision != "approved":
-            raise ToolApprovalDenied(
-                _approval_denied_message(reason=reason),
-                approval_kind=request.request_kind,
-                subject=approval_request_subject(request),
-                retry_same_request_allowed=False,
-            )
-        remember_approved_grants(
-            permission_memory=ctx.deps.permission_memory,
-            grants=decision.granted_grants,
         )
     handle = await executor.execute(
         SandboxCommandRequest(

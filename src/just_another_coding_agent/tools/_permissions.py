@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import shlex
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Protocol
 from uuid import uuid4
@@ -17,13 +18,12 @@ from just_another_coding_agent.contracts.sandbox import (
     PermissionGrantScope,
     PermissionState,
     SandboxPermissionGrant,
-    approval_request_subject,
     derive_normalized_sandbox_policy,
     derive_requested_capabilities,
-    normalize_approval_decision,
 )
 from just_another_coding_agent.contracts.sandbox_plan import SandboxExecutionPlan
 from just_another_coding_agent.tools._activity import truncate_activity_label
+from just_another_coding_agent.tools._approval_flow import resolve_tool_approval
 from just_another_coding_agent.tools._policy_engine import (
     PermissionAction,
     evaluate_permission_actions,
@@ -34,11 +34,20 @@ from just_another_coding_agent.tools._workspace import (
     resolve_workspace_path,
 )
 from just_another_coding_agent.tools.deps import WorkspaceDeps
-from just_another_coding_agent.tools.errors import ToolApprovalDenied
 
 
 class ToolExecutionContext(Protocol):
     deps: WorkspaceDeps
+
+
+@dataclass(frozen=True)
+class FileAccessPlan:
+    sandbox_plan: SandboxExecutionPlan
+    tool_path: str | None
+    action: str
+    access_kind: FileAccessKind
+    approval_scope_root: str | None
+    approval_policy_mode: str
 
 
 _NETWORK_COMMANDS = frozenset(
@@ -183,6 +192,38 @@ def _approval_denied_message(
         f"Approval denied: {request.reason}. "
         "The file was not read. Choose another approach or stop."
     )
+
+
+def _file_action_label(*, action: str, tool_path: str | None) -> str:
+    if tool_path is None:
+        return action
+    return truncate_activity_label(tool_path)
+
+
+def _file_action_subject(*, action: str, tool_path: str | None) -> str:
+    if tool_path is None:
+        return action
+    return f"{action} {tool_path}"
+
+
+def _file_access_approval_reason(file_access_plan: FileAccessPlan) -> str:
+    target_label = _file_action_label(
+        action=file_access_plan.action,
+        tool_path=file_access_plan.tool_path,
+    )
+    if file_access_plan.sandbox_plan.requested_permissions is None:
+        return (
+            f"allow {file_access_plan.action}: {target_label} "
+            f"(approval policy: {file_access_plan.approval_policy_mode})"
+        )
+
+    reason = f"allow {file_access_plan.action} outside workspace: {target_label}"
+    permission_detail = describe_permission_delta(
+        file_access_plan.sandbox_plan.requested_permissions
+    )
+    if permission_detail:
+        reason = f"{reason} ({permission_detail})"
+    return reason
 
 
 def _shell_command_requests_network_access(
@@ -985,43 +1026,15 @@ def plan_shell_execution(
     )
 
 
-async def approved_read_only_filesystem_policy(
+def plan_file_access(
     *,
-    ctx: ToolExecutionContext,
-    tool_path: str | None,
-    action: str,
-) -> FileSystemSandboxPolicy:
-    plan = await _approved_file_access_plan(
-        ctx=ctx,
-        tool_path=tool_path,
-        action=action,
-        access_kind="read",
-    )
-    return plan.normalized_policy.filesystem
-
-
-async def maybe_request_file_write_approval(
-    *,
-    ctx: ToolExecutionContext,
-    tool_path: str,
-    action: str,
-) -> None:
-    await _approved_file_access_plan(
-        ctx=ctx,
-        tool_path=tool_path,
-        action=action,
-        access_kind="write",
-    )
-
-
-async def _approved_file_access_plan(
-    *,
-    ctx: ToolExecutionContext,
+    permission_state: PermissionState,
     tool_path: str | None,
     action: str,
     access_kind: FileAccessKind,
-) -> SandboxExecutionPlan:
-    permission_state = ctx.deps.permission_state
+    workspace_root: Path,
+    permission_memory,
+) -> FileAccessPlan:
     outside_workspace = False
     approval_scope_root: str | None = None
     actions: tuple[PermissionAction, ...] = ()
@@ -1034,8 +1047,8 @@ async def _approved_file_access_plan(
             tool_path=tool_path,
             action_source=action_source,
             access_kind=access_kind,
-            workspace_root=ctx.deps.workspace_root,
-            permission_memory=ctx.deps.permission_memory,
+            workspace_root=workspace_root,
+            permission_memory=permission_memory,
         )
         if actions:
             outside_workspace = actions[0].path_scope == "non_workspace"
@@ -1074,128 +1087,145 @@ async def _approved_file_access_plan(
                 extra_write_roots=prompted_roots,
             )
 
-    plan = derive_sandbox_execution_plan(
-        permission_state=permission_state,
-        effective_permissions=effective_permissions,
-        approval_permissions=approval_permissions,
+    return FileAccessPlan(
+        sandbox_plan=derive_sandbox_execution_plan(
+            permission_state=permission_state,
+            effective_permissions=effective_permissions,
+            approval_permissions=approval_permissions,
+        ),
+        tool_path=tool_path,
+        action=action,
+        access_kind=access_kind,
+        approval_scope_root=approval_scope_root,
+        approval_policy_mode=permission_state.approval_policy.mode,
     )
-    if not plan.approval_required:
-        return plan
-    if ctx.deps.approval_requester is None:
-        raise RuntimeError(
-            f"{action.capitalize()} requires approval, but no approval "
-            "requester is configured"
+
+
+def _build_file_access_approval_request(
+    file_access_plan: FileAccessPlan,
+) -> FileChangeApprovalRequest | PermissionGrantApprovalRequest:
+    sandbox_plan = file_access_plan.sandbox_plan
+    options: tuple[ApprovalOption, ...] = ()
+    if (
+        sandbox_plan.requested_permissions is not None
+        and file_access_plan.approval_scope_root is not None
+    ):
+        options = build_permission_approval_options(
+            permissions=sandbox_plan.requested_permissions,
+            once_label="Allow once",
+            session_label=_filesystem_session_option_label(
+                access_kind=file_access_plan.access_kind,
+                root=file_access_plan.approval_scope_root,
+            ),
         )
 
-    reason_prefix = f"allow {action} outside workspace"
-    permission_detail = describe_permission_delta(plan.requested_permissions)
-    reason = f"{reason_prefix}: {truncate_activity_label(tool_path)}"
-    if permission_detail:
-        reason = f"{reason} ({permission_detail})"
-    if access_kind == "read":
-        options = ()
-        if plan.requested_permissions is not None and approval_scope_root is not None:
-            options = build_permission_approval_options(
-                permissions=plan.requested_permissions,
-                once_label="Allow once",
-                session_label=_filesystem_session_option_label(
-                    access_kind="read",
-                    root=approval_scope_root,
-                ),
-            )
-        request = PermissionGrantApprovalRequest(
-            request_id=f"{action}-{uuid4().hex}",
+    reason = _file_access_approval_reason(file_access_plan)
+    display_subject = _file_action_subject(
+        action=file_access_plan.action,
+        tool_path=file_access_plan.tool_path,
+    )
+    if file_access_plan.access_kind == "read":
+        return PermissionGrantApprovalRequest(
+            request_id=f"{file_access_plan.action}-{uuid4().hex}",
             request_kind="permission_grant",
             reason=reason,
             grant_kind="filesystem_read",
-            target=approval_scope_root,
-            requested_capabilities=plan.requested_capabilities,
-            requested_permissions=plan.requested_permissions,
-            display_subject=f"{action} {tool_path}",
+            target=file_access_plan.approval_scope_root,
+            requested_capabilities=sandbox_plan.requested_capabilities,
+            requested_permissions=sandbox_plan.requested_permissions,
+            display_subject=display_subject,
             requested_grants=build_permission_grants(
-                permissions=plan.requested_permissions,
+                permissions=sandbox_plan.requested_permissions,
                 filesystem_scope="session",
             ),
             options=options,
         )
-    else:
-        options = ()
-        if plan.requested_permissions is not None and approval_scope_root is not None:
-            options = build_permission_approval_options(
-                permissions=plan.requested_permissions,
-                once_label="Allow once",
-                session_label=_filesystem_session_option_label(
-                    access_kind="write",
-                    root=approval_scope_root,
-                ),
-            )
-        request = FileChangeApprovalRequest(
-            request_id=f"{action}-{uuid4().hex}",
-            request_kind="file_change",
-            reason=reason,
-            path=tool_path or "",
-            change_kind=action if action in {"write", "edit"} else "write",
-            requested_capabilities=plan.requested_capabilities,
-            requested_permissions=plan.requested_permissions,
-            display_subject=f"{action} {tool_path}",
-            requested_grants=build_permission_grants(
-                permissions=plan.requested_permissions,
-                filesystem_scope="session",
-            ),
-            options=options,
-        )
-    decision = normalize_approval_decision(
+
+    return FileChangeApprovalRequest(
+        request_id=f"{file_access_plan.action}-{uuid4().hex}",
+        request_kind="file_change",
+        reason=reason,
+        path=file_access_plan.tool_path or "",
+        change_kind=(
+            file_access_plan.action
+            if file_access_plan.action in {"write", "edit"}
+            else "write"
+        ),
+        requested_capabilities=sandbox_plan.requested_capabilities,
+        requested_permissions=sandbox_plan.requested_permissions,
+        display_subject=display_subject,
+        requested_grants=build_permission_grants(
+            permissions=sandbox_plan.requested_permissions,
+            filesystem_scope="session",
+        ),
+        options=options,
+    )
+
+
+async def approved_read_only_filesystem_policy(
+    *,
+    ctx: ToolExecutionContext,
+    tool_path: str | None,
+    action: str,
+) -> FileSystemSandboxPolicy:
+    file_access_plan = await _approved_file_access_plan(
+        ctx=ctx,
+        tool_path=tool_path,
+        action=action,
+        access_kind="read",
+    )
+    return file_access_plan.sandbox_plan.normalized_policy.filesystem
+
+
+async def maybe_request_file_write_approval(
+    *,
+    ctx: ToolExecutionContext,
+    tool_path: str,
+    action: str,
+) -> None:
+    await _approved_file_access_plan(
+        ctx=ctx,
+        tool_path=tool_path,
+        action=action,
+        access_kind="write",
+    )
+
+
+async def _approved_file_access_plan(
+    *,
+    ctx: ToolExecutionContext,
+    tool_path: str | None,
+    action: str,
+    access_kind: FileAccessKind,
+) -> FileAccessPlan:
+    file_access_plan = plan_file_access(
+        permission_state=ctx.deps.permission_state,
+        tool_path=tool_path,
+        action=action,
+        access_kind=access_kind,
+        workspace_root=ctx.deps.workspace_root,
+        permission_memory=ctx.deps.permission_memory,
+    )
+    if not file_access_plan.sandbox_plan.approval_required:
+        return file_access_plan
+
+    request = _build_file_access_approval_request(file_access_plan)
+    await resolve_tool_approval(
+        ctx=ctx,
         request=request,
-        decision=await ctx.deps.approval_requester(
-            request,
-            getattr(ctx, "tool_call_id", None),
-            getattr(ctx, "tool_name", None),
+        denied_message=_approval_denied_message(request=request),
+        missing_requester_message=(
+            f"{action.capitalize()} requires approval, but no approval requester "
+            "is configured"
         ),
     )
-    if decision.decision != "approved":
-        raise ToolApprovalDenied(
-            _approval_denied_message(request=request),
-            approval_kind=request.request_kind,
-            subject=approval_request_subject(request),
-            retry_same_request_allowed=False,
-        )
-    remember_approved_grants(
-        permission_memory=ctx.deps.permission_memory,
-        grants=decision.granted_grants,
-    )
-    return plan
-
-
-def remember_approved_permissions(
-    *,
-    permission_memory,
-    permissions: AdditionalSandboxPermissions,
-) -> None:
-    for root in permissions.extra_read_roots:
-        permission_memory.remember_read_root(root)
-    for root in permissions.extra_write_roots:
-        permission_memory.remember_write_root(root)
-
-
-def remember_approved_grants(
-    *,
-    permission_memory,
-    grants: tuple[SandboxPermissionGrant, ...],
-) -> None:
-    for grant in grants:
-        if grant.scope != "session":
-            continue
-        if grant.command_prefix:
-            permission_memory.remember_command_prefix(grant.command_prefix)
-        remember_approved_permissions(
-            permission_memory=permission_memory,
-            permissions=grant.permissions,
-        )
+    return file_access_plan
 
 
 __all__ = [
     "approved_read_only_filesystem_policy",
     "build_shell_approval_options",
+    "FileAccessPlan",
     "SandboxExecutionPlan",
     "describe_permission_delta",
     "describe_shell_permission_delta",
@@ -1203,8 +1233,7 @@ __all__ = [
     "extract_file_permission_actions",
     "extract_shell_permission_actions",
     "maybe_request_file_write_approval",
+    "plan_file_access",
     "plan_shell_execution",
     "build_permission_grants",
-    "remember_approved_grants",
-    "remember_approved_permissions",
 ]
