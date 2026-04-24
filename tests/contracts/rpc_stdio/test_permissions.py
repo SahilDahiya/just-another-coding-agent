@@ -241,6 +241,55 @@ async def test_handle_rpc_json_line_sets_workspace_default_permission_state(
     ]
 
 
+async def test_handle_rpc_json_line_sets_request_kind_approval_override(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+
+    messages = await rpc_messages(
+        request_payload={
+            "id": "req-permission-set",
+            "command": "permission.set",
+            "payload": {
+                "approval_policy": {
+                    "mode": "on_escalation",
+                    "by_kind": {"file_change": "always"},
+                },
+            },
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    expected_state = PermissionState(
+        sandbox_policy=WorkspaceWriteSandboxPolicy(),
+        approval_policy=ApprovalPolicy(
+            mode="on_escalation",
+            by_kind={"file_change": "always"},
+        ),
+        effective_capabilities=EffectiveCapabilities(
+            filesystem_access="workspace_write",
+            network_access="restricted",
+            execution_isolation="unsandboxed",
+            approval_mode="on_escalation",
+            approval_by_kind={"file_change": "always"},
+        ),
+    )
+    assert messages == [
+        {
+            "type": "rpc_response",
+            "id": "req-permission-set",
+            "response": {
+                "session_id": None,
+                "permission_state": expected_state.model_dump(mode="json"),
+            },
+        }
+    ]
+
+
 async def test_handle_rpc_json_line_rejects_unknown_approval_request(
     tmp_path,
 ) -> None:

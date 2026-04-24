@@ -481,6 +481,7 @@ def _build_live_permission_state(
             network_access=network_access,
             execution_isolation="unsandboxed",
             approval_mode=resolved_approval_policy.mode,
+            approval_by_kind=resolved_approval_policy.by_kind,
         ),
     )
 

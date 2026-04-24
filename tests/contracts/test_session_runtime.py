@@ -1399,6 +1399,64 @@ def test_build_runtime_context_injection_plan_uses_diff_for_capability_change(
     ]
 
 
+def test_build_runtime_context_injection_plan_uses_diff_for_approval_override_change(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    model = FunctionModel(stream_function=text_only_stream)
+    entry = build_session_turn_context_entry(
+        run_id="run-1",
+        model=model,
+        workspace_root=workspace_root,
+        current_date=date.today(),
+        effective_capabilities=EffectiveCapabilities(
+            filesystem_access="workspace_write",
+            network_access="restricted",
+            execution_isolation="sandboxed",
+            approval_mode="on_escalation",
+        ),
+    )
+    new_capabilities = EffectiveCapabilities(
+        filesystem_access="workspace_write",
+        network_access="restricted",
+        execution_isolation="sandboxed",
+        approval_mode="on_escalation",
+        approval_by_kind={"file_change": "always"},
+    )
+    decision = evaluate_turn_context_baseline(
+        entry=entry,
+        model=model,
+        workspace_root=workspace_root,
+        current_date=date.today(),
+        effective_capabilities=new_capabilities,
+        has_persisted_history=True,
+    )
+
+    plan = build_runtime_context_injection_plan(
+        baseline_decision=decision,
+        model=model,
+        workspace_root=workspace_root,
+        current_date=date.today(),
+        effective_capabilities=new_capabilities,
+    )
+
+    assert [message.parts[0].content for message in plan.before_history_messages] == [
+        build_runtime_context_message(entry.runtime_context_text).parts[0].content
+    ]
+    assert [message.parts[0].content for message in plan.after_history_messages] == [
+        build_runtime_context_update_message(
+            build_runtime_context_update_text(
+                entry=entry,
+                model=model,
+                workspace_root=workspace_root,
+                current_date=date.today(),
+                effective_capabilities=new_capabilities,
+            )
+        ).parts[0].content
+    ]
+
+
 def test_build_runtime_context_injection_plan_uses_diff_for_timezone_change(
     tmp_path,
 ) -> None:

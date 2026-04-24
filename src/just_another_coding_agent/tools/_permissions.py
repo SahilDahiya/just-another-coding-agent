@@ -12,14 +12,17 @@ from just_another_coding_agent.contracts.sandbox import (
     AdditionalNetworkAccess,
     AdditionalSandboxPermissions,
     ApprovalOption,
+    ApprovalRequestKind,
     FileChangeApprovalRequest,
     FileSystemSandboxPolicy,
     PermissionGrantApprovalRequest,
     PermissionGrantScope,
     PermissionState,
     SandboxPermissionGrant,
+    approval_mode_for_request_kind,
     derive_normalized_sandbox_policy,
     derive_requested_capabilities,
+    describe_approval_policy_for_request_kind,
 )
 from just_another_coding_agent.contracts.sandbox_plan import SandboxExecutionPlan
 from just_another_coding_agent.tools._activity import truncate_activity_label
@@ -46,8 +49,9 @@ class FileAccessPlan:
     tool_path: str | None
     action: str
     access_kind: FileAccessKind
+    request_kind: ApprovalRequestKind
     approval_scope_root: str | None
-    approval_policy_mode: str
+    approval_policy_label: str
 
 
 _NETWORK_COMMANDS = frozenset(
@@ -214,7 +218,7 @@ def _file_access_approval_reason(file_access_plan: FileAccessPlan) -> str:
     if file_access_plan.sandbox_plan.requested_permissions is None:
         return (
             f"allow {file_access_plan.action}: {target_label} "
-            f"(approval policy: {file_access_plan.approval_policy_mode})"
+            f"(approval policy: {file_access_plan.approval_policy_label})"
         )
 
     reason = f"allow {file_access_plan.action} outside workspace: {target_label}"
@@ -774,11 +778,16 @@ def _path_candidate_from_shell_token(token: str) -> str | None:
 def derive_sandbox_execution_plan(
     *,
     permission_state: PermissionState,
+    request_kind: ApprovalRequestKind,
     effective_permissions: AdditionalSandboxPermissions | None = None,
     approval_permissions: AdditionalSandboxPermissions | None = None,
 ) -> SandboxExecutionPlan:
-    approval_required = permission_state.approval_policy.mode == "always" or (
-        permission_state.approval_policy.mode == "on_escalation"
+    approval_mode = approval_mode_for_request_kind(
+        approval_policy=permission_state.approval_policy,
+        request_kind=request_kind,
+    )
+    approval_required = approval_mode == "always" or (
+        approval_mode == "on_escalation"
         and approval_permissions is not None
     )
     normalized_permissions = (
@@ -1021,6 +1030,7 @@ def plan_shell_execution(
 
     return derive_sandbox_execution_plan(
         permission_state=permission_state,
+        request_kind="command_execution",
         effective_permissions=None,
         approval_permissions=approval_permissions,
     )
@@ -1035,6 +1045,9 @@ def plan_file_access(
     workspace_root: Path,
     permission_memory,
 ) -> FileAccessPlan:
+    request_kind: ApprovalRequestKind = (
+        "permission_grant" if access_kind == "read" else "file_change"
+    )
     outside_workspace = False
     approval_scope_root: str | None = None
     actions: tuple[PermissionAction, ...] = ()
@@ -1090,14 +1103,19 @@ def plan_file_access(
     return FileAccessPlan(
         sandbox_plan=derive_sandbox_execution_plan(
             permission_state=permission_state,
+            request_kind=request_kind,
             effective_permissions=effective_permissions,
             approval_permissions=approval_permissions,
         ),
         tool_path=tool_path,
         action=action,
         access_kind=access_kind,
+        request_kind=request_kind,
         approval_scope_root=approval_scope_root,
-        approval_policy_mode=permission_state.approval_policy.mode,
+        approval_policy_label=describe_approval_policy_for_request_kind(
+            approval_policy=permission_state.approval_policy,
+            request_kind=request_kind,
+        ),
     )
 
 

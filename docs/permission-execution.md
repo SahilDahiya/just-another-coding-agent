@@ -68,6 +68,20 @@ The current approval request taxonomy is:
   - currently used for approval-gated outside-workspace reads in the read-only
     worker path
 
+Approval policy is now resolved per approval request kind:
+
+- `ApprovalPolicy.mode` remains the default backend policy
+- `ApprovalPolicy.by_kind` may override that default for:
+  - `command_execution`
+  - `file_change`
+  - `permission_grant`
+- planners resolve approval requirements against the outward request kind, not
+  against tool-local ad hoc flags
+- this means the backend can express cases such as:
+  - `on_escalation` by default
+  - `file_change=always`
+  - `permission_grant=never`
+
 The current grant contract is explicit:
 
 - approval requests carry both:

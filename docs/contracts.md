@@ -199,6 +199,21 @@ Initial approval policy modes:
   - the backend requires approval before high-risk execution even when the
     requested capabilities are otherwise allowed
 
+Approval policy shape:
+
+- `ApprovalPolicy.mode` is the canonical default approval mode
+- `ApprovalPolicy.by_kind` is an optional backend-owned override map keyed by
+  approval request kind:
+  - `command_execution`
+  - `file_change`
+  - `permission_grant`
+- when a request-kind override is present, that override replaces the default
+  mode only for that approval class
+- empty explicit `by_kind` payloads are invalid and must fail fast
+- `EffectiveCapabilities` still carries the default `approval_mode`, and now
+  also carries `approval_by_kind` so the model-visible runtime posture remains
+  honest when request-kind overrides are active
+
 Approval carrier rules:
 
 - approval requests and decisions are backend-owned typed contract models

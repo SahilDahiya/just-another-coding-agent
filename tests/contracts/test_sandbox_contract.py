@@ -79,6 +79,27 @@ def test_approval_policy_accepts_only_named_modes() -> None:
         ApprovalPolicy(mode="sometimes")  # type: ignore[arg-type]
 
 
+def test_approval_policy_accepts_request_kind_overrides() -> None:
+    policy = ApprovalPolicy(
+        mode="on_escalation",
+        by_kind={
+            "file_change": "always",
+            "permission_grant": "never",
+        },
+    )
+
+    assert policy.mode == "on_escalation"
+    assert policy.by_kind == {
+        "file_change": "always",
+        "permission_grant": "never",
+    }
+
+
+def test_approval_policy_rejects_empty_explicit_request_kind_overrides() -> None:
+    with pytest.raises(ValidationError, match="by_kind must not be empty"):
+        ApprovalPolicy(mode="on_escalation", by_kind={})
+
+
 def test_derive_effective_capabilities_normalizes_policy_shapes() -> None:
     sandbox = WorkspaceWriteSandboxPolicy(network_access="enabled")
     approval = ApprovalPolicy(mode="always")
@@ -91,6 +112,7 @@ def test_derive_effective_capabilities_normalizes_policy_shapes() -> None:
         network_access="enabled",
         execution_isolation="sandboxed",
         approval_mode="always",
+        approval_by_kind={},
     )
 
     assert derive_effective_capabilities(
@@ -101,6 +123,25 @@ def test_derive_effective_capabilities_normalizes_policy_shapes() -> None:
         network_access="enabled",
         execution_isolation="unsandboxed",
         approval_mode="never",
+        approval_by_kind={},
+    )
+
+
+def test_derive_effective_capabilities_carries_request_kind_overrides() -> None:
+    capabilities = derive_effective_capabilities(
+        sandbox_policy=WorkspaceWriteSandboxPolicy(),
+        approval_policy=ApprovalPolicy(
+            mode="on_escalation",
+            by_kind={"file_change": "always"},
+        ),
+    )
+
+    assert capabilities == EffectiveCapabilities(
+        filesystem_access="workspace_write",
+        network_access="restricted",
+        execution_isolation="sandboxed",
+        approval_mode="on_escalation",
+        approval_by_kind={"file_change": "always"},
     )
 
 
@@ -568,6 +609,7 @@ def test_derive_sandbox_execution_plan_requires_approval_for_permission_deltas()
 
     plan = derive_sandbox_execution_plan(
         permission_state=permission_state,
+        request_kind="command_execution",
         effective_permissions=requested_permissions,
         approval_permissions=requested_permissions,
     )
@@ -579,6 +621,7 @@ def test_derive_sandbox_execution_plan_requires_approval_for_permission_deltas()
             network_access="enabled",
             execution_isolation="sandboxed",
             approval_mode="on_escalation",
+            approval_by_kind={},
         ),
         normalized_policy=NormalizedSandboxPolicy(
             filesystem=FileSystemSandboxPolicy(access="workspace_write"),
@@ -595,7 +638,10 @@ def test_derive_sandbox_execution_plan_skips_escalation_approval_without_delta()
         approval_policy=ApprovalPolicy(mode="on_escalation"),
     )
 
-    plan = derive_sandbox_execution_plan(permission_state=permission_state)
+    plan = derive_sandbox_execution_plan(
+        permission_state=permission_state,
+        request_kind="command_execution",
+    )
 
     assert plan.approval_required is False
     assert plan.requested_permissions is None
@@ -604,6 +650,28 @@ def test_derive_sandbox_execution_plan_skips_escalation_approval_without_delta()
         network=NetworkSandboxPolicy(access="restricted"),
         execution_isolation="sandboxed",
     )
+
+
+def test_derive_sandbox_execution_plan_honors_request_kind_override() -> None:
+    permission_state = build_permission_state(
+        sandbox_policy=WorkspaceWriteSandboxPolicy(),
+        approval_policy=ApprovalPolicy(
+            mode="on_escalation",
+            by_kind={"file_change": "always"},
+        ),
+    )
+
+    file_change_plan = derive_sandbox_execution_plan(
+        permission_state=permission_state,
+        request_kind="file_change",
+    )
+    command_plan = derive_sandbox_execution_plan(
+        permission_state=permission_state,
+        request_kind="command_execution",
+    )
+
+    assert file_change_plan.approval_required is True
+    assert command_plan.approval_required is False
 
 
 def test_plan_shell_execution_requests_network_delta_for_explicit_network_command(

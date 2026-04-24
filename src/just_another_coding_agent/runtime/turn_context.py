@@ -19,6 +19,7 @@ from just_another_coding_agent.contracts.platform import (
 from just_another_coding_agent.contracts.sandbox import (
     EffectiveCapabilities,
     build_default_permission_state,
+    describe_approval_policy,
 )
 from just_another_coding_agent.contracts.session import SessionTurnContextEntry
 from just_another_coding_agent.contracts.thinking import ThinkingSetting
@@ -433,10 +434,15 @@ def build_runtime_context_update_text(
             if (
                 entry.effective_capabilities.approval_mode
                 != resolved_effective_capabilities.approval_mode
+                or entry.effective_capabilities.approval_by_kind
+                != resolved_effective_capabilities.approval_by_kind
             ):
                 update_lines.append(
                     "Current approval policy changed to "
-                    f"{resolved_effective_capabilities.approval_mode}"
+                    f"{describe_approval_policy(
+                        mode=resolved_effective_capabilities.approval_mode,
+                        by_kind=resolved_effective_capabilities.approval_by_kind,
+                    )}"
                 )
     if (
         not update_lines

@@ -285,6 +285,38 @@ def test_build_runtime_context_text_includes_effective_capabilities_when_given(
     )
 
 
+def test_build_runtime_context_text_formats_request_kind_approval_overrides(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    runtime_context_text = build_runtime_context_text(
+        workspace_root=workspace_root,
+        current_date=date(2026, 3, 26),
+        shell_family="powershell",
+        effective_capabilities=EffectiveCapabilities(
+            filesystem_access="workspace_write",
+            network_access="restricted",
+            execution_isolation="sandboxed",
+            approval_mode="on_escalation",
+            approval_by_kind={"file_change": "always"},
+        ),
+    )
+
+    assert runtime_context_text == "\n".join(
+        [
+            "Current date: 2026-03-26",
+            f"Current workspace root: {workspace_root.resolve()}",
+            "Current shell family: powershell",
+            "Current filesystem access: workspace_write",
+            "Current network access: restricted",
+            "Current execution isolation: sandboxed",
+            "Current approval policy: on_escalation (file_change=always)",
+        ]
+    )
+
+
 def test_build_canonical_model_settings_include_thinking_when_set() -> None:
     assert build_canonical_model_settings(thinking="high") == {"thinking": "high"}
     assert build_canonical_model_settings(thinking=True) == {"thinking": True}

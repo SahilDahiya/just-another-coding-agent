@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_serializer, model_validator
 
 from just_another_coding_agent.contracts.platform import ShellFamily
 
@@ -11,15 +11,21 @@ FilesystemAccess = Literal["read_only", "workspace_write", "full_access"]
 ExecutionIsolation = Literal["sandboxed", "unsandboxed"]
 ApprovalMode = Literal["never", "on_escalation", "always"]
 ApprovalDecisionValue = Literal["approved", "denied"]
-AdditionalNetworkAccess = Literal["enabled"]
-PermissionGrantScope = Literal["once", "session"]
 ApprovalRequestKind = Literal[
     "command_execution",
     "file_change",
     "permission_grant",
 ]
+AdditionalNetworkAccess = Literal["enabled"]
+PermissionGrantScope = Literal["once", "session"]
 FileChangeKind = Literal["write", "edit"]
 PermissionGrantKind = Literal["filesystem_read", "filesystem_write", "network_access"]
+ApprovalPolicyByKind = dict[ApprovalRequestKind, ApprovalMode]
+_APPROVAL_REQUEST_KIND_ORDER: tuple[ApprovalRequestKind, ...] = (
+    "command_execution",
+    "file_change",
+    "permission_grant",
+)
 
 
 class _SandboxContractModel(BaseModel):
@@ -73,6 +79,20 @@ SandboxPolicy = Annotated[
 
 class ApprovalPolicy(_SandboxContractModel):
     mode: ApprovalMode
+    by_kind: ApprovalPolicyByKind = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _validate_by_kind(self) -> "ApprovalPolicy":
+        if "by_kind" in self.model_fields_set and not self.by_kind:
+            raise ValueError("approval policy by_kind must not be empty")
+        return self
+
+    @model_serializer(mode="wrap")
+    def _serialize(self, handler):
+        data = handler(self)
+        if not self.by_kind:
+            data.pop("by_kind", None)
+        return data
 
 
 class EffectiveCapabilities(_SandboxContractModel):
@@ -80,6 +100,14 @@ class EffectiveCapabilities(_SandboxContractModel):
     network_access: SandboxNetworkAccess
     execution_isolation: ExecutionIsolation
     approval_mode: ApprovalMode
+    approval_by_kind: ApprovalPolicyByKind = Field(default_factory=dict)
+
+    @model_serializer(mode="wrap")
+    def _serialize(self, handler):
+        data = handler(self)
+        if not self.approval_by_kind:
+            data.pop("approval_by_kind", None)
+        return data
 
 
 class AdditionalSandboxPermissions(_SandboxContractModel):
@@ -137,6 +165,40 @@ class PermissionState(_SandboxContractModel):
     sandbox_policy: SandboxPolicy
     approval_policy: ApprovalPolicy
     effective_capabilities: EffectiveCapabilities
+
+
+def approval_mode_for_request_kind(
+    *,
+    approval_policy: ApprovalPolicy,
+    request_kind: ApprovalRequestKind,
+) -> ApprovalMode:
+    return approval_policy.by_kind.get(request_kind, approval_policy.mode)
+
+
+def describe_approval_policy(
+    *,
+    mode: ApprovalMode,
+    by_kind: ApprovalPolicyByKind,
+) -> str:
+    if not by_kind:
+        return mode
+    overrides = ", ".join(
+        f"{request_kind}={by_kind[request_kind]}"
+        for request_kind in _APPROVAL_REQUEST_KIND_ORDER
+        if request_kind in by_kind
+    )
+    return f"{mode} ({overrides})"
+
+
+def describe_approval_policy_for_request_kind(
+    *,
+    approval_policy: ApprovalPolicy,
+    request_kind: ApprovalRequestKind,
+) -> str:
+    override = approval_policy.by_kind.get(request_kind)
+    if override is None:
+        return approval_policy.mode
+    return f"{request_kind}={override}"
 
 
 class _ApprovalRequestBase(_SandboxContractModel):
@@ -414,6 +476,7 @@ def derive_effective_capabilities(
         network_access=sandbox_policy.network_access,
         execution_isolation=execution_isolation,
         approval_mode=approval_policy.mode,
+        approval_by_kind=approval_policy.by_kind,
     )
 
 
@@ -461,6 +524,7 @@ def derive_requested_capabilities(
         network_access=normalized_policy.network.access,
         execution_isolation=normalized_policy.execution_isolation,
         approval_mode=permission_state.approval_policy.mode,
+        approval_by_kind=permission_state.approval_policy.by_kind,
     )
 
 
@@ -493,6 +557,7 @@ def build_default_permission_state() -> PermissionState:
             network_access="restricted",
             execution_isolation="unsandboxed",
             approval_mode="on_escalation",
+            approval_by_kind={},
         ),
     )
 
@@ -561,6 +626,9 @@ __all__ = [
     "ApprovalRequestKind",
     "AdditionalNetworkAccess",
     "AdditionalSandboxPermissions",
+    "approval_mode_for_request_kind",
+    "describe_approval_policy",
+    "describe_approval_policy_for_request_kind",
     "approval_request_boundary",
     "approval_request_fingerprint",
     "approval_request_subject",

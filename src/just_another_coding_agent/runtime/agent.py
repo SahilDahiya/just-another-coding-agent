@@ -11,7 +11,10 @@ from just_another_coding_agent.contracts.platform import (
     ShellFamily,
     detect_default_shell_family,
 )
-from just_another_coding_agent.contracts.sandbox import EffectiveCapabilities
+from just_another_coding_agent.contracts.sandbox import (
+    EffectiveCapabilities,
+    describe_approval_policy,
+)
 from just_another_coding_agent.contracts.thinking import ThinkingSetting
 from just_another_coding_agent.contracts.tools import CANONICAL_TOOL_NAMES
 from just_another_coding_agent.runtime.models import resolve_canonical_model
@@ -117,7 +120,11 @@ def build_runtime_context_text(
                 f"Current network access: {effective_capabilities.network_access}",
                 "Current execution isolation: "
                 f"{effective_capabilities.execution_isolation}",
-                f"Current approval policy: {effective_capabilities.approval_mode}",
+                "Current approval policy: "
+                f"{describe_approval_policy(
+                    mode=effective_capabilities.approval_mode,
+                    by_kind=effective_capabilities.approval_by_kind,
+                )}",
             ]
         )
 

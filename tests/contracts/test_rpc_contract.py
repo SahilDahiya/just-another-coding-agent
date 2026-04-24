@@ -67,6 +67,27 @@ def test_rpc_request_accepts_permission_get_and_set_commands() -> None:
     )
     assert permission_set_without_session.payload.session_id is None
 
+    permission_set_with_request_kind_override = adapter.validate_python(
+        {
+            "id": "req-set-override",
+            "command": "permission.set",
+            "payload": {
+                "approval_policy": {
+                    "mode": "on_escalation",
+                    "by_kind": {
+                        "file_change": "always",
+                    },
+                },
+            },
+        }
+    )
+    assert permission_set_with_request_kind_override.payload.approval_policy == (
+        ApprovalPolicy(
+            mode="on_escalation",
+            by_kind={"file_change": "always"},
+        )
+    )
+
 
 def test_rpc_request_rejects_empty_permission_set_payload() -> None:
     adapter = TypeAdapter(RpcRequest)
