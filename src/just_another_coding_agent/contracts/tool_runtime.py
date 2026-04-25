@@ -6,7 +6,6 @@ from typing import Generic, Literal, Protocol, TypeAlias, TypeVar, runtime_check
 from just_another_coding_agent.contracts.sandbox import ApprovalRequest
 from just_another_coding_agent.contracts.sandbox_plan import SandboxExecutionPlan
 
-ReqT = TypeVar("ReqT")
 CtxT = TypeVar("CtxT")
 OutT = TypeVar("OutT")
 
@@ -48,8 +47,8 @@ class Sandboxable(Protocol):
 
 
 @runtime_checkable
-class ToolRuntime(Approvable, Sandboxable, Protocol, Generic[ReqT, CtxT, OutT]):
-    async def run(self, req: ReqT, ctx: CtxT) -> OutT: ...
+class ToolRuntime(Approvable, Sandboxable, Protocol, Generic[CtxT, OutT]):
+    async def run(self, ctx: CtxT) -> OutT: ...
 
 
 __all__ = [

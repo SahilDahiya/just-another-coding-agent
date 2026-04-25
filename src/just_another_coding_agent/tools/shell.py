@@ -82,10 +82,8 @@ class ShellToolRuntime:
 
     async def run(
         self,
-        req: None,
         ctx: ShellExecutionContext | None,
     ) -> dict[str, int | str]:
-        del req
         handle = await self.executor.execute(
             SandboxCommandRequest(
                 workspace_root=self.workspace_root,
@@ -454,7 +452,7 @@ async def execute_shell(
         ctx=ctx,
         requirement=runtime.approval_requirement(),
     )
-    return await runtime.run(None, ctx)
+    return await runtime.run(ctx)
 
 
 async def shell(

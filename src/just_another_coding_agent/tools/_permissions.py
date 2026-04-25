@@ -77,10 +77,9 @@ class FileAccessRuntime:
 
     async def run(
         self,
-        req: None,
         ctx: ToolExecutionContext | None,
     ) -> FileAccessPlan:
-        del req, ctx
+        del ctx
         return self.file_access_plan
 
 
@@ -1330,7 +1329,7 @@ async def _approved_file_access_plan(
         ctx=ctx,
         requirement=runtime.approval_requirement(),
     )
-    return await runtime.run(None, ctx)
+    return await runtime.run(ctx)
 
 
 __all__ = [

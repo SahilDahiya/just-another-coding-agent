@@ -102,9 +102,9 @@ def test_tool_runtime_protocols_are_runtime_checkable() -> None:
         def approval_requirement(self) -> runtime_contracts.ExecApprovalRequirement:
             return runtime_contracts.SkipApproval()
 
-        async def run(self, req: str, ctx: object) -> str:
+        async def run(self, ctx: str) -> str:
             del ctx
-            return req.upper()
+            return "OK"
 
     runtime = _Runtime()
 
@@ -147,7 +147,7 @@ async def test_file_access_runtime_is_concrete_tool_runtime(
     assert isinstance(requirement, runtime_contracts.NeedsApproval)
     assert requirement.request.request_kind == expected_request_kind
 
-    plan = await runtime.run(None, None)
+    plan = await runtime.run(None)
 
     assert plan == runtime.file_access_plan
     assert plan.sandbox_plan == runtime.sandbox_plan
@@ -175,6 +175,6 @@ async def test_shell_tool_runtime_is_concrete_tool_runtime(
     assert isinstance(runtime, runtime_contracts.ToolRuntime)
     assert isinstance(runtime.approval_requirement(), runtime_contracts.SkipApproval)
 
-    result = await runtime.run(None, None)
+    result = await runtime.run(None)
 
     assert result == {"exit_code": 0, "output": "hello"}
