@@ -10,6 +10,12 @@ from just_another_coding_agent.contracts.sandbox import (
     approval_request_subject,
     normalize_approval_decision,
 )
+from just_another_coding_agent.contracts.tool_runtime import (
+    ExecApprovalRequirement,
+    ForbiddenApproval,
+    NeedsApproval,
+    SkipApproval,
+)
 from just_another_coding_agent.tools.deps import WorkspaceDeps
 from just_another_coding_agent.tools.errors import ToolApprovalDenied
 
@@ -92,9 +98,36 @@ def deny_tool_by_policy(
     )
 
 
+async def fulfill_approval_requirement(
+    *,
+    ctx: ApprovalFlowContext | None,
+    requirement: ExecApprovalRequirement,
+) -> None:
+    if isinstance(requirement, SkipApproval):
+        return
+    if isinstance(requirement, ForbiddenApproval):
+        deny_tool_by_policy(
+            request=requirement.request,
+            denied_message=requirement.denied_message,
+        )
+    if isinstance(requirement, NeedsApproval):
+        await resolve_tool_approval(
+            ctx=ctx,
+            request=requirement.request,
+            denied_message=requirement.denied_message,
+            missing_requester_message=requirement.missing_requester_message,
+        )
+        return
+    raise TypeError(
+        "Unknown approval requirement variant: "
+        f"{type(requirement).__name__}"
+    )
+
+
 __all__ = [
     "ApprovalFlowContext",
     "deny_tool_by_policy",
+    "fulfill_approval_requirement",
     "remember_approved_grants",
     "remember_approved_permissions",
     "resolve_tool_approval",

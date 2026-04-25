@@ -13,14 +13,17 @@ from pydantic_ai import RunContext, Tool
 from just_another_coding_agent.contracts.platform import ShellFamily
 from just_another_coding_agent.contracts.run_events import ShellActivityDetails
 from just_another_coding_agent.contracts.sandbox import CommandExecutionApprovalRequest
+from just_another_coding_agent.contracts.tool_runtime import (
+    ExecApprovalRequirement,
+    ForbiddenApproval,
+    NeedsApproval,
+    SkipApproval,
+)
 from just_another_coding_agent.tools._activity import (
     make_tool_return,
     truncate_activity_label,
 )
-from just_another_coding_agent.tools._approval_flow import (
-    deny_tool_by_policy,
-    resolve_tool_approval,
-)
+from just_another_coding_agent.tools._approval_flow import fulfill_approval_requirement
 from just_another_coding_agent.tools._permissions import (
     build_permission_grants,
     build_shell_approval_options,
@@ -74,6 +77,60 @@ def _policy_denied_message(*, reason: str) -> str:
     return (
         f"Approval blocked by current policy: {reason}. "
         "The command was not run. Choose another approach or stop."
+    )
+
+
+def _build_shell_approval_requirement(
+    *,
+    plan,
+    command: str,
+    workspace_root: Path | str,
+    shell_family: ShellFamily,
+) -> ExecApprovalRequirement:
+    if plan.approval_disposition == "allowed":
+        return SkipApproval()
+
+    permission_detail = describe_shell_permission_delta(plan.requested_permissions)
+    reason = f"allow shell command: {truncate_activity_label(command)}"
+    if permission_detail:
+        reason = f"{reason} ({permission_detail})"
+    request = CommandExecutionApprovalRequest(
+        request_id=f"shell-{uuid4().hex}",
+        request_kind="command_execution",
+        reason=reason,
+        display_subject=command,
+        command=command,
+        cwd=str(Path(workspace_root).resolve()),
+        shell_family=shell_family,
+        requested_capabilities=plan.requested_capabilities,
+        requested_permissions=plan.requested_permissions,
+        requested_grants=build_permission_grants(
+            permissions=plan.requested_permissions,
+            network_scope="once",
+            filesystem_scope="session",
+        ),
+        options=(
+            build_shell_approval_options(
+                command=command,
+                shell_family=shell_family,
+                permissions=plan.requested_permissions,
+            )
+            if plan.requested_permissions is not None
+            else ()
+        ),
+    )
+    if plan.approval_disposition == "denied_by_policy":
+        return ForbiddenApproval(
+            request=request,
+            denied_message=_policy_denied_message(reason=reason),
+        )
+    return NeedsApproval(
+        request=request,
+        denied_message=_approval_denied_message(reason=reason),
+        missing_requester_message=(
+            "Shell execution requires approval, but no approval requester "
+            "is configured"
+        ),
     )
 
 
@@ -179,52 +236,15 @@ async def execute_shell(
         workspace_root=Path(workspace_root),
         permission_memory=deps.permission_memory,
     )
-    if plan.approval_disposition != "allowed":
-        permission_detail = describe_shell_permission_delta(
-            plan.requested_permissions
-        )
-        reason = f"allow shell command: {truncate_activity_label(command)}"
-        if permission_detail:
-            reason = f"{reason} ({permission_detail})"
-        request = CommandExecutionApprovalRequest(
-            request_id=f"shell-{uuid4().hex}",
-            request_kind="command_execution",
-            reason=reason,
-            display_subject=command,
+    await fulfill_approval_requirement(
+        ctx=ctx,
+        requirement=_build_shell_approval_requirement(
+            plan=plan,
             command=command,
-            cwd=str(Path(workspace_root).resolve()),
+            workspace_root=workspace_root,
             shell_family=shell_family,
-            requested_capabilities=plan.requested_capabilities,
-            requested_permissions=plan.requested_permissions,
-            requested_grants=build_permission_grants(
-                permissions=plan.requested_permissions,
-                network_scope="once",
-                filesystem_scope="session",
-            ),
-            options=(
-                build_shell_approval_options(
-                    command=command,
-                    shell_family=shell_family,
-                    permissions=plan.requested_permissions,
-                )
-                if plan.requested_permissions is not None
-                else ()
-            ),
-        )
-        if plan.approval_disposition == "denied_by_policy":
-            deny_tool_by_policy(
-                request=request,
-                denied_message=_policy_denied_message(reason=reason),
-            )
-        await resolve_tool_approval(
-            ctx=ctx,
-            request=request,
-            denied_message=_approval_denied_message(reason=reason),
-            missing_requester_message=(
-                "Shell execution requires approval, but no approval "
-                "requester is configured"
-            ),
-        )
+        ),
+    )
     handle = await executor.execute(
         SandboxCommandRequest(
             workspace_root=Path(workspace_root),

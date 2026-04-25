@@ -134,6 +134,11 @@ file tools:
   - normalizes the returned approval decision
   - raises the same denial outcome contract on deny
   - remembers approved `session` grants in permission memory
+- internally, that planning/execution seam now crosses a typed
+  `ExecApprovalRequirement` value:
+  - `skip`
+  - `needs_approval`
+  - `forbidden`
 - when the resolved approval mode is `never` for that request kind and a
   permission delta would be required, the backend returns a denied tool result
   with `denial_type=policy_denied` instead of silently widening access
