@@ -202,9 +202,8 @@ session.
 
 Implementation reference:
 
-- `src/just_another_coding_agent/tools/_permissions.py`
+- `src/just_another_coding_agent/tools/_shell_permissions.py`
 - `extract_shell_permission_actions(...)`
-- `_shell_command_read_actions(...)`
 - `_tokens_read_actions(...)`
 
 ### Network Intent

@@ -19,9 +19,5 @@ class SandboxExecutionPlan:
     normalized_policy: NormalizedSandboxPolicy
     approval_disposition: ApprovalDisposition
 
-    @property
-    def approval_required(self) -> bool:
-        return self.approval_disposition == "prompt"
-
 
 __all__ = ["ApprovalDisposition", "SandboxExecutionPlan"]

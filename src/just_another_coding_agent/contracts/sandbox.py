@@ -420,37 +420,63 @@ def _resolve_selected_approval_option(
     if not request.options:
         return None
     if decision.option_id is not None:
-        for option in request.options:
-            if option.option_id != decision.option_id:
-                continue
-            if option.decision != decision.decision:
-                raise ValueError(
-                    "Approval decision option_id must match the decision value"
-                )
-            return option
-        raise ValueError(
-            "Approval decision option_id must reference a request approval option"
+        return _approval_option_by_id(
+            request=request,
+            decision=decision,
         )
     if decision.decision == "denied":
-        denied_options = tuple(
-            option for option in request.options if option.decision == "denied"
-        )
-        if len(denied_options) == 1:
-            return denied_options[0]
-        return None
+        return _single_denied_approval_option(request)
     if decision.granted_permissions is not None or decision.granted_grants:
-        for option in request.options:
-            if option.decision != "approved":
-                continue
-            if (
-                option.granted_permissions == decision.granted_permissions
-                and option.granted_grants == decision.granted_grants
-            ):
-                return option
-        raise ValueError(
-            "Approved decisions with explicit grants must match an approval option"
+        return _approved_option_for_grants(
+            request=request,
+            decision=decision,
         )
     return None
+
+
+def _approval_option_by_id(
+    *,
+    request: ApprovalRequest,
+    decision: ApprovalDecision,
+) -> ApprovalOption:
+    for option in request.options:
+        if option.option_id != decision.option_id:
+            continue
+        if option.decision != decision.decision:
+            raise ValueError(
+                "Approval decision option_id must match the decision value"
+            )
+        return option
+    raise ValueError(
+        "Approval decision option_id must reference a request approval option"
+    )
+
+
+def _single_denied_approval_option(request: ApprovalRequest) -> ApprovalOption | None:
+    denied_options = tuple(
+        option for option in request.options if option.decision == "denied"
+    )
+    if len(denied_options) == 1:
+        return denied_options[0]
+    return None
+
+
+def _approved_option_for_grants(
+    *,
+    request: ApprovalRequest,
+    decision: ApprovalDecision,
+) -> ApprovalOption:
+    for option in request.options:
+        if option.decision != "approved":
+            continue
+        if (
+            option.granted_permissions == decision.granted_permissions
+            and option.granted_grants == decision.granted_grants
+        ):
+            return option
+    raise ValueError(
+        "Approved decisions with explicit grants must match an approval option"
+    )
 
 
 def derive_effective_capabilities(

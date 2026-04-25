@@ -746,7 +746,7 @@ def test_plan_shell_execution_requests_network_delta_for_explicit_network_comman
         network_access="enabled"
     )
     assert plan.normalized_policy.network.access == "restricted"
-    assert plan.approval_required is True
+    assert plan.approval_disposition == "prompt"
 
 
 def test_plan_shell_execution_requests_network_delta_for_wrapped_network_command(
@@ -772,7 +772,7 @@ def test_plan_shell_execution_requests_network_delta_for_wrapped_network_command
         network_access="enabled"
     )
     assert plan.normalized_policy.network.access == "restricted"
-    assert plan.approval_required is True
+    assert plan.approval_disposition == "prompt"
 
 
 def test_plan_shell_execution_requests_network_delta_for_package_manager_command(
@@ -798,7 +798,7 @@ def test_plan_shell_execution_requests_network_delta_for_package_manager_command
         network_access="enabled"
     )
     assert plan.normalized_policy.network.access == "restricted"
-    assert plan.approval_required is True
+    assert plan.approval_disposition == "prompt"
 
 
 def test_plan_shell_execution_does_not_request_network_delta_for_grep_url_pattern(
@@ -822,7 +822,7 @@ def test_plan_shell_execution_does_not_request_network_delta_for_grep_url_patter
 
     assert plan.requested_permissions is None
     assert plan.normalized_policy.network.access == "restricted"
-    assert plan.approval_required is False
+    assert plan.approval_disposition == "allowed"
 
 
 def test_plan_shell_execution_requests_outside_workspace_write_delta(
@@ -847,7 +847,7 @@ def test_plan_shell_execution_requests_outside_workspace_write_delta(
     assert plan.requested_permissions == AdditionalSandboxPermissions(
         extra_write_roots=(str(tmp_path.resolve()),),
     )
-    assert plan.approval_required is True
+    assert plan.approval_disposition == "prompt"
     assert plan.normalized_policy.filesystem.extra_write_roots == ()
 
 
@@ -874,7 +874,7 @@ def test_plan_shell_execution_skips_remembered_outside_workspace_write_delta(
     )
 
     assert plan.requested_permissions is None
-    assert plan.approval_required is False
+    assert plan.approval_disposition == "allowed"
 
 
 def test_approval_scope_root_prefers_existing_directory_or_parent() -> None:
