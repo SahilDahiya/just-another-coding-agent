@@ -1,5 +1,6 @@
-import pytest
 from types import SimpleNamespace
+
+import pytest
 
 from just_another_coding_agent.contracts.sandbox import (
     ApprovalDecision,
