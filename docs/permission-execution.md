@@ -75,6 +75,9 @@ Approval policy is now resolved per approval request kind:
   - `command_execution`
   - `file_change`
   - `permission_grant`
+- request kind is the full canonical policy surface for now
+  - the backend does not currently model separate approval policy for specific
+    tool names, tool families, MCP tools, or user-input/elicitation flows
 - planners resolve approval requirements against the outward request kind, not
   against tool-local ad hoc flags
 - this means the backend can express cases such as:

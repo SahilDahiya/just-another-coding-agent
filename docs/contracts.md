@@ -207,6 +207,10 @@ Approval policy shape:
   - `command_execution`
   - `file_change`
   - `permission_grant`
+- request kind is the only canonical approval-policy granularity right now
+  - do not add tool-name, tool-class, skill-family, MCP-specific, or
+    user-input/elicitation policy dimensions to the contract without a new
+    explicit contract decision
 - when a request-kind override is present, that override replaces the default
   mode only for that approval class
 - `never` means "do not prompt, and do not implicitly allow the requested
