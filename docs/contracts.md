@@ -209,6 +209,11 @@ Approval policy shape:
   - `permission_grant`
 - when a request-kind override is present, that override replaces the default
   mode only for that approval class
+- `never` means "do not prompt, and do not implicitly allow the requested
+  delta"
+  - if the resolved request-kind mode is `never` and the request would need a
+    permission delta, the backend returns an explicit policy denial instead of
+    widening capabilities silently
 - empty explicit `by_kind` payloads are invalid and must fail fast
 - `EffectiveCapabilities` still carries the default `approval_mode`, and now
   also carries `approval_by_kind` so the model-visible runtime posture remains
@@ -396,6 +401,11 @@ Expected tool-domain denial result:
       may be retried immediately
 - `ok` is always `false`
 - `outcome` is always `denied`
+- `denial_type` distinguishes backend denial causes such as:
+  - `approval_denied`
+    - a human reviewer denied an approval request
+  - `policy_denied`
+    - the current approval policy forbids prompting for the requested delta
 - policy denials should use this result shape instead of being reported as
   tool errors
 - exact repeated denied approval requests within the same run should be denied

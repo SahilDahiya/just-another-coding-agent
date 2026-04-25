@@ -40,11 +40,13 @@ class ToolApprovalDenied(ToolOperationalError):
         self,
         message: str,
         *,
+        denial_type: str = "approval_denied",
         approval_kind: ApprovalRequestKind | None = None,
         subject: str | None = None,
         retry_same_request_allowed: bool = False,
     ) -> None:
         super().__init__(message)
+        self.denial_type = denial_type
         self.approval_kind = approval_kind
         self.subject = subject
         self.retry_same_request_allowed = retry_same_request_allowed
@@ -72,6 +74,7 @@ class ErrorWrappingToolset(WrapperToolset[Any]):
         except ToolApprovalDenied as error:
             return make_tool_denied_result(
                 message=str(error),
+                denial_type=error.denial_type,
                 approval_kind=error.approval_kind,
                 subject=error.subject,
                 retry_same_request_allowed=error.retry_same_request_allowed,

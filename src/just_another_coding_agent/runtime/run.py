@@ -1630,6 +1630,7 @@ def _tool_denied_result(
 ) -> dict[str, str | bool | None]:
     return make_tool_denied_result(
         message=str(error),
+        denial_type=error.denial_type,
         approval_kind=error.approval_kind,
         subject=error.subject,
         retry_same_request_allowed=error.retry_same_request_allowed,

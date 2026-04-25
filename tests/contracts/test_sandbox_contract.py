@@ -625,10 +625,10 @@ def test_derive_sandbox_execution_plan_requires_approval_for_permission_deltas()
         ),
         normalized_policy=NormalizedSandboxPolicy(
             filesystem=FileSystemSandboxPolicy(access="workspace_write"),
-            network=NetworkSandboxPolicy(access="enabled"),
+            network=NetworkSandboxPolicy(access="restricted"),
             execution_isolation="sandboxed",
         ),
-        approval_required=True,
+        approval_disposition="prompt",
     )
 
 
@@ -643,7 +643,7 @@ def test_derive_sandbox_execution_plan_skips_escalation_approval_without_delta()
         request_kind="command_execution",
     )
 
-    assert plan.approval_required is False
+    assert plan.approval_disposition == "allowed"
     assert plan.requested_permissions is None
     assert plan.normalized_policy == NormalizedSandboxPolicy(
         filesystem=FileSystemSandboxPolicy(access="workspace_write"),
@@ -670,8 +670,57 @@ def test_derive_sandbox_execution_plan_honors_request_kind_override() -> None:
         request_kind="command_execution",
     )
 
-    assert file_change_plan.approval_required is True
-    assert command_plan.approval_required is False
+    assert file_change_plan.approval_disposition == "prompt"
+    assert command_plan.approval_disposition == "allowed"
+
+
+def test_derive_sandbox_execution_plan_denies_never_mode_for_permission_deltas(
+) -> None:
+    permission_state = build_permission_state(
+        sandbox_policy=WorkspaceWriteSandboxPolicy(),
+        approval_policy=ApprovalPolicy(mode="never"),
+    )
+    requested_permissions = AdditionalSandboxPermissions(network_access="enabled")
+
+    plan = derive_sandbox_execution_plan(
+        permission_state=permission_state,
+        request_kind="command_execution",
+        effective_permissions=requested_permissions,
+        approval_permissions=requested_permissions,
+    )
+
+    assert plan.approval_disposition == "denied_by_policy"
+    assert plan.requested_permissions == requested_permissions
+    assert plan.normalized_policy.network.access == "restricted"
+
+
+def test_derive_sandbox_execution_plan_denies_request_kind_never_override() -> None:
+    permission_state = build_permission_state(
+        sandbox_policy=WorkspaceWriteSandboxPolicy(),
+        approval_policy=ApprovalPolicy(
+            mode="on_escalation",
+            by_kind={"file_change": "never"},
+        ),
+    )
+    requested_permissions = AdditionalSandboxPermissions(
+        extra_write_roots=("/tmp",),
+    )
+
+    file_change_plan = derive_sandbox_execution_plan(
+        permission_state=permission_state,
+        request_kind="file_change",
+        effective_permissions=requested_permissions,
+        approval_permissions=requested_permissions,
+    )
+    permission_grant_plan = derive_sandbox_execution_plan(
+        permission_state=permission_state,
+        request_kind="permission_grant",
+        effective_permissions=requested_permissions,
+        approval_permissions=requested_permissions,
+    )
+
+    assert file_change_plan.approval_disposition == "denied_by_policy"
+    assert permission_grant_plan.approval_disposition == "prompt"
 
 
 def test_plan_shell_execution_requests_network_delta_for_explicit_network_command(

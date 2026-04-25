@@ -78,8 +78,23 @@ async def resolve_tool_approval(
     return decision
 
 
+def deny_tool_by_policy(
+    *,
+    request: ApprovalRequest,
+    denied_message: str,
+) -> None:
+    raise ToolApprovalDenied(
+        denied_message,
+        denial_type="policy_denied",
+        approval_kind=request.request_kind,
+        subject=approval_request_subject(request),
+        retry_same_request_allowed=False,
+    )
+
+
 __all__ = [
     "ApprovalFlowContext",
+    "deny_tool_by_policy",
     "remember_approved_grants",
     "remember_approved_permissions",
     "resolve_tool_approval",

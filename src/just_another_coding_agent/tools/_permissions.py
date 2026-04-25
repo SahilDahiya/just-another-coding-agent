@@ -26,7 +26,10 @@ from just_another_coding_agent.contracts.sandbox import (
 )
 from just_another_coding_agent.contracts.sandbox_plan import SandboxExecutionPlan
 from just_another_coding_agent.tools._activity import truncate_activity_label
-from just_another_coding_agent.tools._approval_flow import resolve_tool_approval
+from just_another_coding_agent.tools._approval_flow import (
+    deny_tool_by_policy,
+    resolve_tool_approval,
+)
 from just_another_coding_agent.tools._policy_engine import (
     PermissionAction,
     evaluate_permission_actions,
@@ -46,6 +49,7 @@ class ToolExecutionContext(Protocol):
 @dataclass(frozen=True)
 class FileAccessPlan:
     sandbox_plan: SandboxExecutionPlan
+    effective_permissions: AdditionalSandboxPermissions | None
     tool_path: str | None
     action: str
     access_kind: FileAccessKind
@@ -194,6 +198,21 @@ def _approval_denied_message(
         )
     return (
         f"Approval denied: {request.reason}. "
+        "The file was not read. Choose another approach or stop."
+    )
+
+
+def _policy_denied_message(
+    *,
+    request: FileChangeApprovalRequest | PermissionGrantApprovalRequest,
+) -> str:
+    if request.request_kind == "file_change":
+        return (
+            f"Approval blocked by current policy: {request.reason}. "
+            "The file was not modified. Choose another approach or stop."
+        )
+    return (
+        f"Approval blocked by current policy: {request.reason}. "
         "The file was not read. Choose another approach or stop."
     )
 
@@ -786,12 +805,18 @@ def derive_sandbox_execution_plan(
         approval_policy=permission_state.approval_policy,
         request_kind=request_kind,
     )
-    approval_required = approval_mode == "always" or (
-        approval_mode == "on_escalation"
-        and approval_permissions is not None
-    )
+    if approval_mode == "always":
+        approval_disposition = "prompt"
+    elif approval_permissions is None:
+        approval_disposition = "allowed"
+    elif approval_mode == "on_escalation":
+        approval_disposition = "prompt"
+    else:
+        approval_disposition = "denied_by_policy"
     normalized_permissions = (
-        effective_permissions if effective_permissions is not None else None
+        effective_permissions
+        if approval_disposition == "allowed" and effective_permissions is not None
+        else None
     )
     return SandboxExecutionPlan(
         requested_permissions=approval_permissions,
@@ -799,7 +824,8 @@ def derive_sandbox_execution_plan(
             permission_state=permission_state,
             additional_permissions=(
                 effective_permissions
-                if effective_permissions is not None
+                if approval_disposition == "allowed"
+                and effective_permissions is not None
                 else approval_permissions
             ),
         ),
@@ -807,7 +833,7 @@ def derive_sandbox_execution_plan(
             permission_state=permission_state,
             additional_permissions=normalized_permissions,
         ),
-        approval_required=approval_required,
+        approval_disposition=approval_disposition,
     )
 
 
@@ -1107,6 +1133,7 @@ def plan_file_access(
             effective_permissions=effective_permissions,
             approval_permissions=approval_permissions,
         ),
+        effective_permissions=effective_permissions,
         tool_path=tool_path,
         action=action,
         access_kind=access_kind,
@@ -1192,7 +1219,10 @@ async def approved_read_only_filesystem_policy(
         action=action,
         access_kind="read",
     )
-    return file_access_plan.sandbox_plan.normalized_policy.filesystem
+    return derive_normalized_sandbox_policy(
+        permission_state=ctx.deps.permission_state,
+        additional_permissions=file_access_plan.effective_permissions,
+    ).filesystem
 
 
 async def maybe_request_file_write_approval(
@@ -1224,10 +1254,15 @@ async def _approved_file_access_plan(
         workspace_root=ctx.deps.workspace_root,
         permission_memory=ctx.deps.permission_memory,
     )
-    if not file_access_plan.sandbox_plan.approval_required:
+    if file_access_plan.sandbox_plan.approval_disposition == "allowed":
         return file_access_plan
 
     request = _build_file_access_approval_request(file_access_plan)
+    if file_access_plan.sandbox_plan.approval_disposition == "denied_by_policy":
+        deny_tool_by_policy(
+            request=request,
+            denied_message=_policy_denied_message(request=request),
+        )
     await resolve_tool_approval(
         ctx=ctx,
         request=request,

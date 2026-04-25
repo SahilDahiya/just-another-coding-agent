@@ -17,7 +17,10 @@ from just_another_coding_agent.tools._activity import (
     make_tool_return,
     truncate_activity_label,
 )
-from just_another_coding_agent.tools._approval_flow import resolve_tool_approval
+from just_another_coding_agent.tools._approval_flow import (
+    deny_tool_by_policy,
+    resolve_tool_approval,
+)
 from just_another_coding_agent.tools._permissions import (
     build_permission_grants,
     build_shell_approval_options,
@@ -63,6 +66,13 @@ def _format_shell_failure(output: str, failure_message: str) -> str:
 def _approval_denied_message(*, reason: str) -> str:
     return (
         f"Approval denied: {reason}. "
+        "The command was not run. Choose another approach or stop."
+    )
+
+
+def _policy_denied_message(*, reason: str) -> str:
+    return (
+        f"Approval blocked by current policy: {reason}. "
         "The command was not run. Choose another approach or stop."
     )
 
@@ -145,6 +155,8 @@ async def _publish_shell_update(
         ctx.tool_name,
         {"output": _truncate_shell_output(output, partial=True)},
     )
+
+
 async def execute_shell(
     *,
     ctx: ShellExecutionContext | None = None,
@@ -167,7 +179,7 @@ async def execute_shell(
         workspace_root=Path(workspace_root),
         permission_memory=deps.permission_memory,
     )
-    if plan.approval_required:
+    if plan.approval_disposition != "allowed":
         permission_detail = describe_shell_permission_delta(
             plan.requested_permissions
         )
@@ -199,6 +211,11 @@ async def execute_shell(
                 else ()
             ),
         )
+        if plan.approval_disposition == "denied_by_policy":
+            deny_tool_by_policy(
+                request=request,
+                denied_message=_policy_denied_message(reason=reason),
+            )
         await resolve_tool_approval(
             ctx=ctx,
             request=request,

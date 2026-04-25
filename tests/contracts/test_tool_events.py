@@ -801,6 +801,23 @@ async def repeated_denied_approval_shell_stream(
     yield "done"
 
 
+async def never_policy_shell_stream(
+    messages: list[ModelMessage],
+    _agent_info: object,
+) -> AsyncIterator[str | dict[int, DeltaToolCall]]:
+    if len(messages) == 1:
+        yield {
+            0: DeltaToolCall(
+                name="shell",
+                json_args=json.dumps({"command": "curl https://example.com"}),
+                tool_call_id="call-bash-never-policy",
+            )
+        }
+        return
+
+    yield "done"
+
+
 async def steer_aware_shell_stream(
     messages: list[ModelMessage],
     _agent_info: object,
@@ -2046,6 +2063,62 @@ async def test_stream_run_events_does_not_reprompt_identical_denied_shell_reques
             ),
             "retry_same_request_allowed": False,
         },
+    ]
+    assert isinstance(events[-1], RunSucceededEvent)
+    assert events[-1].output_text == "done"
+
+
+async def test_stream_run_events_returns_policy_denied_for_never_shell_escalation(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    agent = build_canonical_agent(
+        model=FunctionModel(stream_function=never_policy_shell_stream),
+        workspace_root=workspace_root,
+        tool_names=("shell",),
+    )
+
+    events = [
+        event
+        async for event in stream_run_events(
+            agent=agent,
+            prompt="go",
+            deps=WorkspaceDeps(
+                workspace_root=workspace_root,
+                shell_family=_SHELL_FAMILY,
+                permission_state=build_permission_state(
+                    sandbox_policy=WorkspaceWriteSandboxPolicy(),
+                    approval_policy=ApprovalPolicy(mode="never"),
+                ),
+            ),
+        )
+    ]
+
+    assert [event.type for event in events].count("approval_requested") == 0
+    assert [event.type for event in events].count("approval_resolved") == 0
+
+    denied_results = [
+        event.result
+        for event in events
+        if isinstance(event, ToolCallSucceededEvent)
+        and event.result.get("outcome") == "denied"
+    ]
+    assert denied_results == [
+        {
+            "ok": False,
+            "outcome": "denied",
+            "denial_type": "policy_denied",
+            "approval_kind": "command_execution",
+            "subject": "curl https://example.com",
+            "message": (
+                "Approval blocked by current policy: allow shell command: "
+                "curl https://example.com (network enabled). "
+                "The command was not run. Choose another approach or stop."
+            ),
+            "retry_same_request_allowed": False,
+        }
     ]
     assert isinstance(events[-1], RunSucceededEvent)
     assert events[-1].output_text == "done"

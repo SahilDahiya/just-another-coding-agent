@@ -83,12 +83,29 @@ def _always_approval_permission_state():
     )
 
 
+def _never_approval_permission_state():
+    return build_permission_state(
+        sandbox_policy=WorkspaceWriteSandboxPolicy(),
+        approval_policy=ApprovalPolicy(mode="never"),
+    )
+
+
 def _file_change_always_permission_state():
     return build_permission_state(
         sandbox_policy=WorkspaceWriteSandboxPolicy(),
         approval_policy=ApprovalPolicy(
             mode="on_escalation",
             by_kind={"file_change": "always"},
+        ),
+    )
+
+
+def _file_change_never_permission_state():
+    return build_permission_state(
+        sandbox_policy=WorkspaceWriteSandboxPolicy(),
+        approval_policy=ApprovalPolicy(
+            mode="on_escalation",
+            by_kind={"file_change": "never"},
         ),
     )
 
@@ -732,6 +749,44 @@ async def test_given_default_policy_when_non_workspace_read_is_denied_then_read_
     assert worker.calls == 0
 
 
+async def test_given_never_policy_when_non_workspace_read_then_policy_denied_without_executing(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    worker = _ReadOnlyWorkerProbe()
+    requests = []
+
+    async def approval_requester(request, _tool_call_id=None, _tool_name=None):
+        requests.append(request)
+        return ApprovalDecision(request_id=request.request_id, decision="approved")
+
+    ctx = SimpleNamespace(
+        deps=WorkspaceDeps(
+            workspace_root=workspace_root,
+            shell_family=detect_default_shell_family(),
+            approval_requester=approval_requester,
+            permission_state=_never_approval_permission_state(),
+            read_only_worker=worker,
+        ),
+        tool_call_id="call-read-never",
+        tool_name="read",
+    )
+
+    with pytest.raises(
+        ToolApprovalDenied,
+        match=(
+            r"Approval blocked by current policy: allow read outside workspace: "
+            r"\.\./outside\.txt.*The file was not read\. "
+            r"Choose another approach or stop\."
+        ),
+    ):
+        await read(ctx, "../outside.txt")
+
+    assert requests == []
+    assert worker.calls == 0
+
+
 async def test_given_default_policy_when_non_workspace_write_is_denied_then_write_fails_without_mutating(
     tmp_path,
 ) -> None:
@@ -765,6 +820,40 @@ async def test_given_default_policy_when_non_workspace_write_is_denied_then_writ
     assert requests[0].request_kind == "file_change"
     assert len(requests[0].requested_grants) == 1
     assert requests[0].requested_grants[0].scope == "session"
+    assert not outside.exists()
+
+
+async def test_given_never_policy_when_non_workspace_write_then_policy_denied_without_mutating(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    outside = tmp_path / "outside.txt"
+    requests = []
+
+    async def approval_requester(request, _tool_call_id=None, _tool_name=None):
+        requests.append(request)
+        return ApprovalDecision(request_id=request.request_id, decision="approved")
+
+    ctx = SimpleNamespace(
+        deps=WorkspaceDeps(
+            workspace_root=workspace_root,
+            approval_requester=approval_requester,
+            permission_state=_never_approval_permission_state(),
+        )
+    )
+
+    with pytest.raises(
+        ToolApprovalDenied,
+        match=(
+            r"Approval blocked by current policy: allow write outside workspace: "
+            r"\.\./outside\.txt.*The file was not modified\. "
+            r"Choose another approach or stop\."
+        ),
+    ):
+        await write(ctx, "../outside.txt", "hello")
+
+    assert requests == []
     assert not outside.exists()
 
 
@@ -812,6 +901,83 @@ async def test_given_default_policy_when_shell_network_is_denied_then_command_do
     assert len(requests[0].requested_grants) == 1
     assert requests[0].requested_grants[0].scope == "once"
     assert executor.calls == 0
+
+
+async def test_given_never_policy_when_shell_network_is_blocked_then_command_does_not_run(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    monkeypatch.chdir(tmp_path)
+    requests = []
+    executor = _Executor()
+
+    async def approval_requester(request, _tool_call_id=None, _tool_name=None):
+        requests.append(request)
+        return ApprovalDecision(request_id=request.request_id, decision="approved")
+
+    ctx = _FakeShellContext(
+        deps=WorkspaceDeps(
+            workspace_root=workspace_root,
+            shell_family=detect_default_shell_family(),
+            sandbox_executor=executor,
+            approval_requester=approval_requester,
+            permission_state=_never_approval_permission_state(),
+        )
+    )
+
+    with pytest.raises(
+        ToolApprovalDenied,
+        match=(
+            r"Approval blocked by current policy: allow shell command: "
+            r"curl https://example\.com \(network enabled\)\. "
+            r"The command was not run\. Choose another approach or stop\."
+        ),
+    ):
+        await execute_shell(
+            ctx=ctx,
+            workspace_root=workspace_root,
+            command="curl https://example.com",
+            shell_family=detect_default_shell_family(),
+        )
+
+    assert requests == []
+    assert executor.calls == 0
+
+
+async def test_given_file_change_never_override_when_non_workspace_write_then_policy_denied_without_mutating(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    outside = tmp_path / "outside.txt"
+    requests = []
+
+    async def approval_requester(request, _tool_call_id=None, _tool_name=None):
+        requests.append(request)
+        return ApprovalDecision(request_id=request.request_id, decision="approved")
+
+    ctx = SimpleNamespace(
+        deps=WorkspaceDeps(
+            workspace_root=workspace_root,
+            approval_requester=approval_requester,
+            permission_state=_file_change_never_permission_state(),
+        )
+    )
+
+    with pytest.raises(
+        ToolApprovalDenied,
+        match=(
+            r"Approval blocked by current policy: allow write outside workspace: "
+            r"\.\./outside\.txt.*The file was not modified\. "
+            r"Choose another approach or stop\."
+        ),
+    ):
+        await write(ctx, "../outside.txt", "hello")
+
+    assert requests == []
+    assert not outside.exists()
 
 
 async def test_given_full_access_when_non_workspace_read_then_allowed_without_prompt(

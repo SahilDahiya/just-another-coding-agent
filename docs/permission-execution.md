@@ -81,6 +81,13 @@ Approval policy is now resolved per approval request kind:
   - `on_escalation` by default
   - `file_change=always`
   - `permission_grant=never`
+- planner resolution now has three explicit outcomes:
+  - `allowed`
+    - the tool continues under current or already-effective permissions
+  - `prompt`
+    - the backend emits an approval request before continuing
+  - `denied_by_policy`
+    - the backend does not prompt and returns a model-visible policy denial
 
 The current grant contract is explicit:
 
@@ -124,6 +131,9 @@ file tools:
   - normalizes the returned approval decision
   - raises the same denial outcome contract on deny
   - remembers approved `session` grants in permission memory
+- when the resolved approval mode is `never` for that request kind and a
+  permission delta would be required, the backend returns a denied tool result
+  with `denial_type=policy_denied` instead of silently widening access
 
 The current approval prompt UX is intentionally minimal:
 
