@@ -63,6 +63,27 @@ class FileAccessPlan:
     approval_policy_label: str
 
 
+@dataclass(frozen=True)
+class FileAccessRuntime:
+    file_access_plan: FileAccessPlan
+    requirement: ExecApprovalRequirement
+
+    @property
+    def sandbox_plan(self) -> SandboxExecutionPlan:
+        return self.file_access_plan.sandbox_plan
+
+    def approval_requirement(self) -> ExecApprovalRequirement:
+        return self.requirement
+
+    async def run(
+        self,
+        req: None,
+        ctx: ToolExecutionContext | None,
+    ) -> FileAccessPlan:
+        del req, ctx
+        return self.file_access_plan
+
+
 _NETWORK_COMMANDS = frozenset(
     {
         "curl",
@@ -1235,6 +1256,29 @@ def _build_file_access_approval_requirement(
     )
 
 
+def build_file_access_runtime(
+    *,
+    permission_state: PermissionState,
+    tool_path: str | None,
+    action: str,
+    access_kind: FileAccessKind,
+    workspace_root: Path,
+    permission_memory,
+) -> FileAccessRuntime:
+    file_access_plan = plan_file_access(
+        permission_state=permission_state,
+        tool_path=tool_path,
+        action=action,
+        access_kind=access_kind,
+        workspace_root=workspace_root,
+        permission_memory=permission_memory,
+    )
+    return FileAccessRuntime(
+        file_access_plan=file_access_plan,
+        requirement=_build_file_access_approval_requirement(file_access_plan),
+    )
+
+
 async def approved_read_only_filesystem_policy(
     *,
     ctx: ToolExecutionContext,
@@ -1274,7 +1318,7 @@ async def _approved_file_access_plan(
     action: str,
     access_kind: FileAccessKind,
 ) -> FileAccessPlan:
-    file_access_plan = plan_file_access(
+    runtime = build_file_access_runtime(
         permission_state=ctx.deps.permission_state,
         tool_path=tool_path,
         action=action,
@@ -1284,15 +1328,17 @@ async def _approved_file_access_plan(
     )
     await fulfill_approval_requirement(
         ctx=ctx,
-        requirement=_build_file_access_approval_requirement(file_access_plan),
+        requirement=runtime.approval_requirement(),
     )
-    return file_access_plan
+    return await runtime.run(None, ctx)
 
 
 __all__ = [
     "approved_read_only_filesystem_policy",
     "build_shell_approval_options",
+    "build_file_access_runtime",
     "FileAccessPlan",
+    "FileAccessRuntime",
     "SandboxExecutionPlan",
     "describe_permission_delta",
     "describe_shell_permission_delta",

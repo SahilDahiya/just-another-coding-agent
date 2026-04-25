@@ -139,6 +139,9 @@ file tools:
   - `skip`
   - `needs_approval`
   - `forbidden`
+- shell and file planning now materialize concrete internal `ToolRuntime`
+  objects that carry both the `sandbox_plan` and the prebuilt approval
+  requirement before execution continues
 - when the resolved approval mode is `never` for that request kind and a
   permission delta would be required, the backend returns a denied tool result
   with `denial_type=policy_denied` instead of silently widening access

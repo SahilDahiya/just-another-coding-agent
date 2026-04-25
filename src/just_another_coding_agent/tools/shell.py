@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Protocol
 from uuid import uuid4
@@ -12,7 +13,11 @@ from pydantic_ai import RunContext, Tool
 
 from just_another_coding_agent.contracts.platform import ShellFamily
 from just_another_coding_agent.contracts.run_events import ShellActivityDetails
-from just_another_coding_agent.contracts.sandbox import CommandExecutionApprovalRequest
+from just_another_coding_agent.contracts.sandbox import (
+    CommandExecutionApprovalRequest,
+    PermissionState,
+)
+from just_another_coding_agent.contracts.sandbox_plan import SandboxExecutionPlan
 from just_another_coding_agent.contracts.tool_runtime import (
     ExecApprovalRequirement,
     ForbiddenApproval,
@@ -37,6 +42,7 @@ from just_another_coding_agent.tools.errors import (
 )
 from just_another_coding_agent.tools.sandbox_executor import (
     SandboxCommandRequest,
+    SandboxExecutor,
 )
 from just_another_coding_agent.tools.truncation import (
     append_tool_note,
@@ -58,6 +64,183 @@ class ShellExecutionContext(Protocol):
     deps: WorkspaceDeps
     tool_call_id: str | None
     tool_name: str | None
+
+
+@dataclass(frozen=True)
+class ShellToolRuntime:
+    workspace_root: Path
+    command: str
+    shell_family: ShellFamily
+    timeout: int | None
+    permission_state: PermissionState
+    executor: SandboxExecutor
+    sandbox_plan: SandboxExecutionPlan
+    requirement: ExecApprovalRequirement
+
+    def approval_requirement(self) -> ExecApprovalRequirement:
+        return self.requirement
+
+    async def run(
+        self,
+        req: None,
+        ctx: ShellExecutionContext | None,
+    ) -> dict[str, int | str]:
+        del req
+        handle = await self.executor.execute(
+            SandboxCommandRequest(
+                workspace_root=self.workspace_root,
+                command=self.command,
+                shell_family=self.shell_family,
+                permission_state=self.permission_state,
+            )
+        )
+
+        output_chunks: list[str] = []
+        new_output_event = asyncio.Event()
+
+        async def _read_output() -> None:
+            try:
+                while True:
+                    chunk = await handle.read(4096)
+                    if not chunk:
+                        return
+                    try:
+                        text = chunk.decode("utf-8")
+                    except UnicodeError as error:
+                        raise ToolEncodingError(
+                            "Command output is not valid UTF-8 text"
+                        ) from error
+                    output_chunks.append(text)
+                    new_output_event.set()
+            finally:
+                new_output_event.set()
+
+        async def _publish_loop() -> None:
+            # Decoupled from the reader: a slow tool_update_sink must never
+            # block stdout draining or delay process completion. Successive
+            # publications are also coalesced (min interval) so a fast,
+            # high-volume child does not flood the RPC pipe and the JSONL
+            # writer with O(N^2) growing payloads.
+            loop = asyncio.get_running_loop()
+            last_publish = 0.0
+            while True:
+                await new_output_event.wait()
+                new_output_event.clear()
+                if reader_task.done():
+                    return
+                now = loop.time()
+                wait_for = (
+                    SHELL_PUBLISH_MIN_INTERVAL_SECONDS
+                    - (now - last_publish)
+                )
+                if wait_for > 0:
+                    try:
+                        await asyncio.sleep(wait_for)
+                    except asyncio.CancelledError:
+                        return
+                    if reader_task.done():
+                        return
+                await _publish_shell_update(
+                    ctx=ctx,
+                    output="".join(output_chunks),
+                )
+                last_publish = loop.time()
+
+        reader_task = asyncio.create_task(_read_output())
+        publisher_task = asyncio.create_task(_publish_loop())
+        wait_task = asyncio.create_task(handle.wait())
+
+        async def _await_process_and_drain() -> None:
+            # Wait for either the process to exit or the reader to fail.
+            done, _pending = await asyncio.wait(
+                {wait_task, reader_task},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            # If the reader failed (e.g., decode error) before the process
+            # exited, surface that exception now.
+            if reader_task in done and reader_task.exception() is not None:
+                raise reader_task.exception()  # type: ignore[misc]
+            # Process has exited. Give the reader a brief grace period to
+            # drain any remaining buffered bytes, then stop waiting on it
+            # regardless of whether EOF actually arrived. This prevents
+            # hangs from any "pipe never EOFs" condition (e.g., a child
+            # that leaked stdout to a long-lived helper).
+            if not reader_task.done():
+                try:
+                    await asyncio.wait_for(
+                        asyncio.shield(reader_task),
+                        timeout=SHELL_READER_DRAIN_GRACE_SECONDS,
+                    )
+                except TimeoutError:
+                    reader_task.cancel()
+                    with contextlib.suppress(
+                        asyncio.CancelledError, ToolEncodingError
+                    ):
+                        await reader_task
+            if reader_task.done() and not reader_task.cancelled():
+                exc = reader_task.exception()
+                if exc is not None:
+                    raise exc
+
+        try:
+            if self.timeout is None:
+                await _await_process_and_drain()
+            else:
+                try:
+                    await asyncio.wait_for(
+                        _await_process_and_drain(), timeout=self.timeout
+                    )
+                except TimeoutError as error:
+                    await handle.terminate()
+                    if not reader_task.done():
+                        reader_task.cancel()
+                    with contextlib.suppress(
+                        asyncio.CancelledError, ToolEncodingError
+                    ):
+                        await reader_task
+                    output = _truncate_shell_output(
+                        "".join(output_chunks), partial=False
+                    )
+                    raise ToolCommandError(
+                        _format_shell_failure(
+                            output,
+                            f"Command timed out after {self.timeout} seconds",
+                        )
+                    ) from error
+        except ToolEncodingError:
+            await handle.terminate()
+            raise
+        finally:
+            if handle.exit_code is None:
+                await handle.terminate()
+            if not wait_task.done():
+                with contextlib.suppress(asyncio.CancelledError):
+                    await wait_task
+            if not publisher_task.done():
+                publisher_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await publisher_task
+
+        output = _truncate_shell_output("".join(output_chunks), partial=False)
+
+        exit_code = handle.exit_code
+        if exit_code is None:
+            raise RuntimeError(
+                "sandbox executor must report an exit code after wait"
+            )
+
+        if exit_code != 0:
+            raise ToolCommandError(
+                _format_shell_failure(
+                    output,
+                    f"Command exited with code {exit_code}",
+                )
+            )
+
+        return {
+            "exit_code": exit_code,
+            "output": output,
+        }
 
 
 def _format_shell_failure(output: str, failure_message: str) -> str:
@@ -130,6 +313,39 @@ def _build_shell_approval_requirement(
         missing_requester_message=(
             "Shell execution requires approval, but no approval requester "
             "is configured"
+        ),
+    )
+
+
+def build_shell_tool_runtime(
+    *,
+    deps: WorkspaceDeps,
+    workspace_root: Path | str,
+    command: str,
+    shell_family: ShellFamily,
+    timeout: int | None = None,
+) -> ShellToolRuntime:
+    workspace_root_path = Path(workspace_root)
+    sandbox_plan = plan_shell_execution(
+        permission_state=deps.permission_state,
+        command=command,
+        shell_family=shell_family,
+        workspace_root=workspace_root_path,
+        permission_memory=deps.permission_memory,
+    )
+    return ShellToolRuntime(
+        workspace_root=workspace_root_path,
+        command=command,
+        shell_family=shell_family,
+        timeout=timeout,
+        permission_state=deps.permission_state,
+        executor=deps.sandbox_executor,
+        sandbox_plan=sandbox_plan,
+        requirement=_build_shell_approval_requirement(
+            plan=sandbox_plan,
+            command=command,
+            workspace_root=workspace_root_path,
+            shell_family=shell_family,
         ),
     )
 
@@ -227,172 +443,18 @@ async def execute_shell(
         if ctx is not None
         else WorkspaceDeps.from_workspace_root(workspace_root)
     )
-    executor = deps.sandbox_executor
-    permission_state = deps.permission_state
-    plan = plan_shell_execution(
-        permission_state=permission_state,
+    runtime = build_shell_tool_runtime(
+        deps=deps,
+        workspace_root=workspace_root,
         command=command,
         shell_family=shell_family,
-        workspace_root=Path(workspace_root),
-        permission_memory=deps.permission_memory,
+        timeout=timeout,
     )
     await fulfill_approval_requirement(
         ctx=ctx,
-        requirement=_build_shell_approval_requirement(
-            plan=plan,
-            command=command,
-            workspace_root=workspace_root,
-            shell_family=shell_family,
-        ),
+        requirement=runtime.approval_requirement(),
     )
-    handle = await executor.execute(
-        SandboxCommandRequest(
-            workspace_root=Path(workspace_root),
-            command=command,
-            shell_family=shell_family,
-            permission_state=permission_state,
-        )
-    )
-
-    output_chunks: list[str] = []
-    new_output_event = asyncio.Event()
-
-    async def _read_output() -> None:
-        try:
-            while True:
-                chunk = await handle.read(4096)
-                if not chunk:
-                    return
-                try:
-                    text = chunk.decode("utf-8")
-                except UnicodeError as error:
-                    raise ToolEncodingError(
-                        "Command output is not valid UTF-8 text"
-                    ) from error
-                output_chunks.append(text)
-                new_output_event.set()
-        finally:
-            new_output_event.set()
-
-    async def _publish_loop() -> None:
-        # Decoupled from the reader: a slow tool_update_sink must never
-        # block stdout draining or delay process completion. Successive
-        # publications are also coalesced (min interval) so a fast,
-        # high-volume child does not flood the RPC pipe and the JSONL
-        # writer with O(N²) growing payloads.
-        loop = asyncio.get_running_loop()
-        last_publish = 0.0
-        while True:
-            await new_output_event.wait()
-            new_output_event.clear()
-            if reader_task.done():
-                return
-            now = loop.time()
-            wait_for = SHELL_PUBLISH_MIN_INTERVAL_SECONDS - (now - last_publish)
-            if wait_for > 0:
-                try:
-                    await asyncio.sleep(wait_for)
-                except asyncio.CancelledError:
-                    return
-                if reader_task.done():
-                    return
-            await _publish_shell_update(
-                ctx=ctx,
-                output="".join(output_chunks),
-            )
-            last_publish = loop.time()
-
-    reader_task = asyncio.create_task(_read_output())
-    publisher_task = asyncio.create_task(_publish_loop())
-    wait_task = asyncio.create_task(handle.wait())
-
-    async def _await_process_and_drain() -> None:
-        # Wait for either the process to exit or the reader to fail.
-        done, _pending = await asyncio.wait(
-            {wait_task, reader_task},
-            return_when=asyncio.FIRST_COMPLETED,
-        )
-        # If the reader failed (e.g., decode error) before the process
-        # exited, surface that exception now.
-        if reader_task in done and reader_task.exception() is not None:
-            raise reader_task.exception()  # type: ignore[misc]
-        # Process has exited. Give the reader a brief grace period to
-        # drain any remaining buffered bytes, then stop waiting on it
-        # regardless of whether EOF actually arrived. This prevents
-        # hangs from any "pipe never EOFs" condition (e.g., a child
-        # that leaked stdout to a long-lived helper).
-        if not reader_task.done():
-            try:
-                await asyncio.wait_for(
-                    asyncio.shield(reader_task),
-                    timeout=SHELL_READER_DRAIN_GRACE_SECONDS,
-                )
-            except TimeoutError:
-                reader_task.cancel()
-                with contextlib.suppress(
-                    asyncio.CancelledError, ToolEncodingError
-                ):
-                    await reader_task
-        if reader_task.done() and not reader_task.cancelled():
-            exc = reader_task.exception()
-            if exc is not None:
-                raise exc
-
-    try:
-        if timeout is None:
-            await _await_process_and_drain()
-        else:
-            try:
-                await asyncio.wait_for(
-                    _await_process_and_drain(), timeout=timeout
-                )
-            except TimeoutError as error:
-                await handle.terminate()
-                if not reader_task.done():
-                    reader_task.cancel()
-                with contextlib.suppress(
-                    asyncio.CancelledError, ToolEncodingError
-                ):
-                    await reader_task
-                output = _truncate_shell_output("".join(output_chunks), partial=False)
-                raise ToolCommandError(
-                    _format_shell_failure(
-                        output,
-                        f"Command timed out after {timeout} seconds",
-                    )
-                ) from error
-    except ToolEncodingError:
-        await handle.terminate()
-        raise
-    finally:
-        if handle.exit_code is None:
-            await handle.terminate()
-        if not wait_task.done():
-            with contextlib.suppress(asyncio.CancelledError):
-                await wait_task
-        if not publisher_task.done():
-            publisher_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await publisher_task
-
-    output = _truncate_shell_output("".join(output_chunks), partial=False)
-
-    exit_code = handle.exit_code
-    if exit_code is None:
-        raise RuntimeError("sandbox executor must report an exit code after wait")
-
-    if exit_code != 0:
-        raise ToolCommandError(
-            _format_shell_failure(
-                output,
-                f"Command exited with code {exit_code}",
-            )
-        )
-
-    return {
-        "exit_code": exit_code,
-        "output": output,
-    }
+    return await runtime.run(None, ctx)
 
 
 async def shell(
@@ -447,6 +509,8 @@ SHELL_TOOL = Tool(
 
 __all__ = [
     "SHELL_TOOL",
+    "build_shell_tool_runtime",
     "execute_shell",
     "shell",
+    "ShellToolRuntime",
 ]
