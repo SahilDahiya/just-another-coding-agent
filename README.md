@@ -2,23 +2,64 @@
 
 read_when: you need the repo overview, scope, or setup commands
 
-Contract-first coding agent with a Python backend, durable sessions, typed
-JSON-over-stdio RPC, and a first-party Go terminal UI.
+Contract-first terminal coding agent with a Python backend, durable local
+sessions, typed JSON-over-stdio RPC, and a first-party Go TUI.
 
-JACA is a serious personal systems project, not a thin demo wrapper. The backend
-owns tool semantics, run events, session meaning, and recovery policy. The Go
-TUI is a shell over that backend rather than a second runtime.
+JACA is built as a product-shaped coding agent rather than a shell around a
+model SDK. The Python backend owns tool semantics, permissions, session state,
+run events, and recovery policy. The Go TUI is a renderer over that backend,
+not a second runtime with its own behavior.
 
-It is intentionally narrow: coding-agent backend first, thin client surface,
-strict contracts, no fallbacks, and no compatibility glue. PydanticAI provides
-the agent engine; local code exists to define and enforce the product contract.
+The repo is intentionally narrow: backend-first, thin client surface, explicit
+contracts, durable sessions, and no fallback-heavy behavior. PydanticAI is the
+agent engine; JACA supplies the runtime, session model, tool contract, and TUI
+boundary around it.
 
-## Why this repo is interesting
+## Demo
 
-- Durable local sessions with explicit compaction and resume semantics.
+GitHub does not render the hosted `asciinema` recordings inline. The best
+viewing surface is the public JACA page:
+
+- [Interactive demo page](https://sahildahiya.me/jaca/)
+- [Evaluation dashboard](https://sahildahiya.me/jaca/evaluation/)
+
+Hosted terminal recordings from the site repo:
+
+| Flow | Watch | Asset |
+| --- | --- | --- |
+| Hero walkthrough | [JACA demo page](https://sahildahiya.me/jaca/) | [`hero.cast`](https://sahildahiya.me/jaca/hero.cast) |
+| Install flow | [JACA demo page](https://sahildahiya.me/jaca/) | [`install.cast`](https://sahildahiya.me/jaca/install.cast) |
+| First-run login | [JACA demo page](https://sahildahiya.me/jaca/) | [`login.cast`](https://sahildahiya.me/jaca/login.cast) |
+| Mid-run steering | [JACA demo page](https://sahildahiya.me/jaca/) | [`steering.cast`](https://sahildahiya.me/jaca/steering.cast) |
+| Full terminal session | [JACA demo page](https://sahildahiya.me/jaca/) | [`master.cast`](https://sahildahiya.me/jaca/master.cast) |
+
+## Why JACA Is Worth Reading
+
+- Durable local sessions with explicit compaction, resume, and fork semantics.
 - Backend-owned typed events and typed RPC rather than UI-inferred behavior.
-- A clear Python/Go boundary: Python owns meaning, Go owns presentation.
+- A hard Python/Go boundary: Python owns meaning, Go owns presentation.
+- Mid-run steering support instead of a strict one-prompt-one-turn loop.
 - Tight failure semantics: invalid state fails hard instead of falling back.
+- A public evaluation story rather than benchmark claims with no artifacts.
+
+## What It Actually Does
+
+- Runs as a headless coding-agent backend over JSON-over-stdio.
+- Ships a first-party terminal UI on top of that same backend contract.
+- Persists workspace-scoped sessions locally and resumes them by id or name.
+- Supports session branching with first-class `fork` lineage.
+- Uses explicit tool concurrency classes: read-only tools may run in parallel;
+  state-mutating tools run one at a time.
+- Supports ChatGPT subscription login, OpenAI API keys, and Anthropic API keys.
+
+## Evidence
+
+- `47.4%` validated Terminal-Bench 2 submission score on a public GLM-5 run.
+- `1,300x` read-only tool speedup after replacing subprocess-per-call with a
+  long-lived Go worker for `read`, `grep`, `find`, and `ls`.
+- Public benchmark and evaluation artifacts:
+  - [Terminal-Bench 2 submission discussion](https://huggingface.co/datasets/harborframework/terminal-bench-2-leaderboard/discussions/128)
+  - [Evaluation dashboard](https://sahildahiya.me/jaca/evaluation/)
 
 ## Quickstart
 
@@ -42,20 +83,13 @@ uv sync --extra dev --extra test --extra eval
 uv run jaca
 ```
 
-If you only want the architecture and contract docs first, start with:
+If you want the docs before the code, start with:
 
 - [docs/README.md](docs/README.md)
 - [docs/goal.md](docs/goal.md)
 - [docs/architecture.md](docs/architecture.md)
 - [docs/contracts.md](docs/contracts.md)
-
-## Community
-
-- [LICENSE](LICENSE)
-- [CONTRIBUTING.md](CONTRIBUTING.md)
-- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
-- [SECURITY.md](SECURITY.md)
-- [SUPPORT.md](SUPPORT.md)
+- [docs/mental-model.md](docs/mental-model.md)
 
 ## Product Surface
 
@@ -68,6 +102,14 @@ The repo also ships a narrow evaluation adapter surface under `evaluations/`.
 That code exists to support Harbor, Terminal Bench, and related benchmark
 workflows around the canonical backend. It is intentionally secondary to the
 product surface, but it is still shipped on purpose.
+
+## Community
+
+- [LICENSE](LICENSE)
+- [CONTRIBUTING.md](CONTRIBUTING.md)
+- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
+- [SECURITY.md](SECURITY.md)
+- [SUPPORT.md](SUPPORT.md)
 
 ## Scope
 
@@ -114,6 +156,8 @@ uvx --from just-another-coding-agent jaca
 - `uvx` is the ephemeral no-install path
 - published wheels already bundle `jaca-go` and `jaca-read-only-worker`, so
   normal installs do not require a local Go toolchain
+- macOS and Linux are the best-supported local lanes today; on Windows, prefer
+  WSL2 rather than native Windows
 - installed builds update explicitly with:
 
 ```bash

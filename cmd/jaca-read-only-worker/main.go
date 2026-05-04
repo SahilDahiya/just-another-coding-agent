@@ -14,8 +14,6 @@ import (
 	"strings"
 	"sync"
 	"unicode/utf8"
-
-	"golang.org/x/sys/unix"
 )
 
 const (
@@ -341,31 +339,6 @@ func absolutizeWorkspacePath(workspaceRoot string, toolPath string) (string, err
 		return absolutizePath(toolPath)
 	}
 	return absolutizePath(filepath.Join(root, toolPath))
-}
-
-func readFileNoFollow(path string) ([]byte, error) {
-	parent := filepath.Dir(path)
-	name := filepath.Base(path)
-
-	dirFD, err := unix.Open(parent, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
-	if err != nil {
-		return nil, err
-	}
-	defer unix.Close(dirFD)
-
-	fileFD, err := unix.Openat(
-		dirFD,
-		name,
-		unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_CLOEXEC,
-		0,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	file := os.NewFile(uintptr(fileFD), path)
-	defer file.Close()
-	return io.ReadAll(file)
 }
 
 func splitLinesKeepEnds(text string) []string {

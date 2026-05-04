@@ -1459,10 +1459,7 @@ func acceptWorkspaceTrust(backend Backend) tea.Cmd {
 		defer cancel()
 		response, err := backend.AcceptWorkspaceTrust(ctx)
 		return workspaceTrustLoadedMsg{
-			Status: rpc.WorkspaceTrustStatusResponse{
-				Trusted:     response.Trusted,
-				TrustTarget: response.TrustTarget,
-			},
+			Status:  rpc.WorkspaceTrustStatusResponse(response),
 			Err:     err,
 			Updated: true,
 		}

@@ -904,10 +904,6 @@ func breathingMarkerColorForTheme(motionTick int, th theme) lipgloss.TerminalCol
 	return lipgloss.Color(fmt.Sprintf("#%02x%02x%02x", r, g, b))
 }
 
-func renderWordWave(frame string, motionTick int) string {
-	return renderWordWaveForTheme(frame, motionTick, defaultTheme)
-}
-
 func renderWordWaveForTheme(frame string, motionTick int, th theme) string {
 	marker := lipgloss.NewStyle().Foreground(breathingMarkerColorForTheme(motionTick, th)).Render("●")
 

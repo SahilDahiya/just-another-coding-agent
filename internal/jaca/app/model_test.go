@@ -1076,13 +1076,12 @@ func TestApprovalSubmitResumesAsyncListening(t *testing.T) {
 		},
 	}}
 
-	updated, cmd := m.Update(approvalSubmittedMsg{
+	_, cmd := m.Update(approvalSubmittedMsg{
 		Decision: rpc.ApprovalDecision{
 			RequestID: "approval-1",
 			Decision:  "approved",
 		},
 	})
-	m = updated.(*model)
 	if cmd == nil {
 		t.Fatal("approvalSubmittedMsg should resume async listening while the run is still streaming")
 	}
