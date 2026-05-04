@@ -23,15 +23,15 @@ viewing surface is the public JACA page:
 - [Interactive demo page](https://sahildahiya.me/jaca/)
 - [Evaluation dashboard](https://sahildahiya.me/jaca/evaluation/)
 
-Hosted terminal recordings from the site repo:
+Key demo flows on the public page:
 
-| Flow | Watch | Asset |
-| --- | --- | --- |
-| Hero walkthrough | [JACA demo page](https://sahildahiya.me/jaca/) | [`hero.cast`](https://sahildahiya.me/jaca/hero.cast) |
-| Install flow | [JACA demo page](https://sahildahiya.me/jaca/) | [`install.cast`](https://sahildahiya.me/jaca/install.cast) |
-| First-run login | [JACA demo page](https://sahildahiya.me/jaca/) | [`login.cast`](https://sahildahiya.me/jaca/login.cast) |
-| Mid-run steering | [JACA demo page](https://sahildahiya.me/jaca/) | [`steering.cast`](https://sahildahiya.me/jaca/steering.cast) |
-| Full terminal session | [JACA demo page](https://sahildahiya.me/jaca/) | [`master.cast`](https://sahildahiya.me/jaca/master.cast) |
+| Flow | Watch |
+| --- | --- |
+| Hero walkthrough | [JACA demo page](https://sahildahiya.me/jaca/) |
+| Install flow | [JACA demo page](https://sahildahiya.me/jaca/) |
+| First-run login | [JACA demo page](https://sahildahiya.me/jaca/) |
+| Mid-run steering | [JACA demo page](https://sahildahiya.me/jaca/) |
+| Full terminal session | [JACA demo page](https://sahildahiya.me/jaca/) |
 
 ## Why JACA Is Worth Reading
 
