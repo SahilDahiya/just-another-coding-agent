@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import io
 import json
 import re
@@ -1364,6 +1365,18 @@ def test_main_headless_redirects_startup_stdout_to_stderr(
         '{"type": "rpc_response", "id": "1", "response": {"providers": []}}\n'
     )
     assert "No Logfire project credentials found." in stderr_stream.getvalue()
+
+
+def test_main_version_prints_package_version(capsys) -> None:
+    with pytest.raises(SystemExit) as excinfo:
+        main(["--version"])
+
+    assert excinfo.value.code == 0
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    with contextlib.suppress(AssertionError):
+        assert captured.out.startswith("jaca ")
+    assert captured.out.strip()
 
 
 def test_main_headless_redirects_serve_phase_stdout_to_stderr(

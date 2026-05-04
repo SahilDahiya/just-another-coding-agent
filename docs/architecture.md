@@ -265,6 +265,8 @@ The important boundary is:
 - `evaluations/`
   - non-product evaluation harness code such as Harbor and Terminal Bench glue
   - depends on `just_another_coding_agent`; product packages must not depend on evaluation code
+  - narrow shipped adapter slices may still exist here when they wrap the same
+    canonical backend contract rather than inventing a second runtime
 
 ## Boundaries
 

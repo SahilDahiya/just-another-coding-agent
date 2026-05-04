@@ -90,6 +90,7 @@ def main(
         prog="jaca",
         description="Interactive coding agent with optional headless RPC mode.",
     )
+    _add_version_arg(parser)
     _add_common_interactive_args(parser, default_model=default_model)
     parser.add_argument(
         "--headless",
@@ -131,6 +132,7 @@ def _run_resume_mode(
         prog="jaca resume",
         description="Resume an existing session by name or opaque session id.",
     )
+    _add_version_arg(parser)
     parser.add_argument(
         "session_ref",
         nargs="*",
@@ -179,6 +181,7 @@ def _run_fork_mode(
         prog="jaca fork",
         description="Fork an existing session into a new session in this workspace.",
     )
+    _add_version_arg(parser)
     parser.add_argument(
         "session_ref",
         nargs="*",
@@ -504,6 +507,14 @@ def _add_common_interactive_args(
         "--thinking",
         choices=["true", "false", "minimal", "low", "medium", "high", "xhigh"],
         default=None,
+    )
+
+
+def _add_version_arg(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {package_version()}",
     )
 
 

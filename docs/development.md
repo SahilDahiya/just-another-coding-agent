@@ -8,7 +8,7 @@ see [../README.md](../README.md).
 JACA supports exactly two install lanes:
 
 - published install: `uv tool install just-another-coding-agent`
-- repo checkout: `uv sync --extra dev --extra test`
+- repo checkout: `uv sync --extra dev --extra test --extra eval`
 
 `pip`, `pipx`, and other ad hoc Python install layouts are not supported as
 first-class JACA distribution paths. Do not add update prompts, repair
@@ -29,8 +29,8 @@ commands, or docs that treat them as supported lanes.
 
 ## Commands
 
-- Install repo dependencies: `uv sync --extra dev --extra test`
-- Install the Go TUI binary explicitly: `JACA_BUILD_TUI=1 uv sync --reinstall-package just-another-coding-agent --extra dev --extra test`
+- Install repo dependencies: `uv sync --extra dev --extra test --extra eval`
+- Install the Go TUI binary explicitly: `JACA_BUILD_TUI=1 uv sync --reinstall-package just-another-coding-agent --extra dev --extra test --extra eval`
 - Lint: `uv run ruff check .`
 - Python dead-code check: `uv run vulture src evaluations --min-confidence 80`
 - Go static analysis: `go run honnef.co/go/tools/cmd/staticcheck@v0.6.0 ./...`
@@ -44,6 +44,10 @@ commands, or docs that treat them as supported lanes.
 - Run the Go TUI client directly: `go run ./cmd/jaca --backend-command-json='["uv","run","python","-m","just_another_coding_agent"]'`
 - Probe backend-owned model ids against live provider APIs without touching the normal test stack: `uv run python evaluations/scripts/probe_model_support.py`
 
+The `eval` extra is part of the normal contributor setup because the repo keeps
+some shipped evaluation adapters and their tests in-tree. Those evaluation
+dependencies are not part of the primary end-user product surface.
+
 ## Go TUI
 
 The first-party TUI is now implemented in Go as a thin client over the
@@ -53,8 +57,8 @@ canonical Python headless backend.
 - The persistent read-only worker entrypoint is `cmd/jaca-read-only-worker`
 - The Go client packages live under `internal/jaca/`
 - The default Python install path now includes the internal `jaca-read-only-worker` helper because the canonical `read`, `ls`, `find`, and `grep` tools depend on it
-- `uv sync --extra dev --extra test` builds and installs the platform-native `jaca-read-only-worker` binary for the current environment
-- `JACA_BUILD_TUI=1 uv sync --reinstall-package just-another-coding-agent --extra dev --extra test` builds and installs the platform-native `jaca-go` binary for the current environment
+- `uv sync --extra dev --extra test --extra eval` builds and installs the platform-native `jaca-read-only-worker` binary for the current environment
+- `JACA_BUILD_TUI=1 uv sync --reinstall-package just-another-coding-agent --extra dev --extra test --extra eval` builds and installs the platform-native `jaca-go` binary for the current environment
 - In a live repo checkout, `uv run jaca` prefers the installed `jaca-go` binary when present and falls back to `go run ./cmd/jaca` when the bundled binary is missing but `go` is available
 - Set `JACA_GO_RUN=1` to opt into `go run ./cmd/jaca` when you explicitly want the TUI to track the current Go source tree
 - Outside a repo checkout, `uv run jaca` launches the installed `jaca-go` binary
@@ -76,6 +80,9 @@ canonical Python headless backend.
 - Release wheels are built with `JACA_BUILD_TUI=1`, so packaged installs include both:
   - `jaca-go`
   - `jaca-read-only-worker`
+- Release wheels also intentionally ship the narrow `evaluations.bench.exec_prompt`
+  adapter because Harbor / Terminal Bench workflows depend on it, but that
+  adapter is not the primary end-user entrypoint.
 - CI now verifies that built wheel artifacts contain those bundled binaries and are not `none-any` pure-Python wheels
 - CI also installs each built wheel into an isolated `uv tool` home and smoke-tests that the installed update and repair commands resolve correctly
 - Release CI now verifies the full publish manifest before upload:
@@ -170,7 +177,7 @@ Windows is a supported packaged target, not a best-effort afterthought.
 
 The minimum Windows health bar for this repo is:
 
-- `uv sync --extra dev --extra test` succeeds
+- `uv sync --extra dev --extra test --extra eval` succeeds
 - shipped provider imports resolve from that environment
 - `uv run python -m pytest tests/contracts tests/e2e tests/evaluations` succeeds
 - `go test ./cmd/jaca ./cmd/jaca-read-only-worker ./internal/jaca/...` succeeds

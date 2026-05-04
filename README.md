@@ -38,7 +38,7 @@ uvx --from just-another-coding-agent jaca
 Repo checkout:
 
 ```bash
-uv sync --extra dev --extra test
+uv sync --extra dev --extra test --extra eval
 uv run jaca
 ```
 
@@ -56,6 +56,18 @@ If you only want the architecture and contract docs first, start with:
 - [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
 - [SECURITY.md](SECURITY.md)
 - [SUPPORT.md](SUPPORT.md)
+
+## Product Surface
+
+The primary public entrypoints are:
+
+- `jaca` for the terminal UI
+- `just-another-coding-agent` for the headless backend
+
+The repo also ships a narrow evaluation adapter surface under `evaluations/`.
+That code exists to support Harbor, Terminal Bench, and related benchmark
+workflows around the canonical backend. It is intentionally secondary to the
+product surface, but it is still shipped on purpose.
 
 ## Scope
 
@@ -120,7 +132,7 @@ exact `uv tool` upgrade command when the current install supports it.
 ## Repo Setup
 
 ```bash
-uv sync --extra dev --extra test
+uv sync --extra dev --extra test --extra eval
 uv run ruff check .
 uv run vulture src evaluations --min-confidence 80
 go run honnef.co/go/tools/cmd/staticcheck@v0.6.0 ./...
@@ -133,15 +145,16 @@ Or run the combined lint pass with:
 make lint
 ```
 
-That default `uv sync --extra dev --extra test` path is for the Python backend,
-Terminal Bench flows, and headless evaluation work. It builds the persistent
-`jaca-read-only-worker`, but it does not build the packaged `jaca-go` binary.
+That default `uv sync --extra dev --extra test --extra eval` path is for the
+Python backend, shipped evaluation adapters, Terminal Bench flows, and headless
+evaluation work. It builds the persistent `jaca-read-only-worker`, but it does
+not build the packaged `jaca-go` binary.
 
 If you want to exercise the packaged TUI binary from a repo checkout, rebuild
 the package explicitly with Go enabled:
 
 ```bash
-JACA_BUILD_TUI=1 uv sync --reinstall-package just-another-coding-agent --extra dev --extra test
+JACA_BUILD_TUI=1 uv sync --reinstall-package just-another-coding-agent --extra dev --extra test --extra eval
 ```
 
 ## Run
@@ -178,7 +191,7 @@ If `uv run jaca` says the Go TUI binary is missing and `go` is not available in
 the repo checkout, rebuild the environment with:
 
 ```bash
-JACA_BUILD_TUI=1 uv sync --reinstall-package just-another-coding-agent --extra dev --extra test
+JACA_BUILD_TUI=1 uv sync --reinstall-package just-another-coding-agent --extra dev --extra test --extra eval
 ```
 
 ## First Run

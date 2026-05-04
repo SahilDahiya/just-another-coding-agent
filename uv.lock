@@ -909,7 +909,6 @@ dependencies = [
     { name = "logfire" },
     { name = "packaging" },
     { name = "pydantic-ai-slim", extra = ["anthropic", "google", "mcp", "openai", "openrouter", "retries"] },
-    { name = "pydantic-evals" },
     { name = "tiktoken" },
 ]
 
@@ -917,6 +916,9 @@ dependencies = [
 dev = [
     { name = "ruff" },
     { name = "vulture" },
+]
+eval = [
+    { name = "pydantic-evals" },
 ]
 eval-swebench = [
     { name = "datasets" },
@@ -933,14 +935,14 @@ requires-dist = [
     { name = "logfire", specifier = ">=4.31.0" },
     { name = "packaging", specifier = ">=24.0" },
     { name = "pydantic-ai-slim", extras = ["anthropic", "google", "mcp", "openai", "openrouter", "retries"], specifier = ">=1.71.0,<2.0" },
-    { name = "pydantic-evals", specifier = ">=1.73.0,<2.0" },
+    { name = "pydantic-evals", marker = "extra == 'eval'", specifier = ">=1.73.0,<2.0" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3.0" },
     { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.24.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.11.0" },
     { name = "tiktoken", specifier = ">=0.12.0" },
     { name = "vulture", marker = "extra == 'dev'", specifier = ">=2.16" },
 ]
-provides-extras = ["dev", "test", "trace", "eval-swebench"]
+provides-extras = ["dev", "test", "eval", "trace", "eval-swebench"]
 
 [[package]]
 name = "keyring"

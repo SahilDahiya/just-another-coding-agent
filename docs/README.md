@@ -10,6 +10,7 @@ read_when: start here, onboarding, or you need to find the right doc quickly
 - Code of conduct: [../CODE_OF_CONDUCT.md](../CODE_OF_CONDUCT.md)
 - Security policy: [../SECURITY.md](../SECURITY.md)
 - Support guide: [../SUPPORT.md](../SUPPORT.md)
+- Open-source launch checklist: [open-source-launch-checklist.md](open-source-launch-checklist.md)
 - Mental model and core concepts: [mental-model.md](mental-model.md)
 - Product scope and non-goals: [goal.md](goal.md)
 - TUI product constraints and north star: [tui.md](tui.md)
@@ -54,6 +55,7 @@ read_when: start here, onboarding, or you need to find the right doc quickly
 - [../CODE_OF_CONDUCT.md](../CODE_OF_CONDUCT.md) - participation expectations
 - [../SECURITY.md](../SECURITY.md) - vulnerability reporting expectations
 - [../SUPPORT.md](../SUPPORT.md) - help and bug-reporting entry points
+- [open-source-launch-checklist.md](open-source-launch-checklist.md) - reusable pre-publication and publishability checklist
 - [mental-model.md](mental-model.md) - mental model, core concepts, and how the pieces fit together
 - [goal.md](goal.md) - product target, scope, and non-goals
 - [tui.md](tui.md) - TUI product bar, hard constraints, and anti-bloat rules

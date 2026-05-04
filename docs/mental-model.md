@@ -302,7 +302,15 @@ The root `evaluations/` package contains non-product harness bindings that wrap 
 
 ### exec-prompt
 
-A one-shot CLI (`just-another-coding-agent-exec-prompt`) that spawns the stdio server as a subprocess, sends `session.create` + `run.start`, collects the terminal output, and exits. It also supports forwarding an optional `thinking` setting. This is the bridge between benchmark harnesses that expect "run one prompt, get one answer" and the session-based RPC server.
+A one-shot CLI (`just-another-coding-agent-exec-prompt`) that spawns the stdio
+server as a subprocess, sends `session.create` + `run.start`, collects the
+terminal output, and exits. It also supports forwarding an optional `thinking`
+setting. This is the bridge between benchmark harnesses that expect "run one
+prompt, get one answer" and the session-based RPC server.
+
+This wrapper is intentionally shipped, but it is not a second primary product
+surface. The main user-facing entrypoints remain `jaca` and
+`just-another-coding-agent`.
 
 ### Harbor
 

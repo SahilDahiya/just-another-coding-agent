@@ -3,7 +3,7 @@
 STATICCHECK_VERSION := v0.6.0
 
 setup:
-	uv sync --extra dev --extra test
+	uv sync --extra dev --extra test --extra eval
 
 lint:
 	$(MAKE) lint-python

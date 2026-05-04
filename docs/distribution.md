@@ -24,7 +24,7 @@ repo-only contributor commands.
 
 This is the contributor path.
 
-- `uv sync --extra dev --extra test` is the default setup
+- `uv sync --extra dev --extra test --extra eval` is the default setup
 - that setup builds the read-only worker because backend tools depend on it
 - it does not build the packaged `jaca-go` binary by default
 - `uv run jaca` is still the canonical launcher in a repo checkout
@@ -60,6 +60,12 @@ Current supported packaged targets are:
 
 - Treat the Python package as the distribution root. Go executables are bundled implementation artifacts, not separate products.
 - Keep runtime semantics in Python. Bundled Go binaries are execution helpers and UI clients.
+- Keep the public product surface explicit:
+  - `jaca` and `just-another-coding-agent` are the primary end-user entrypoints
+  - the shipped `evaluations.bench.exec_prompt` wrapper is an intentional
+    benchmark adapter, not a second primary product surface
+  - evaluation-only dependencies should stay out of the core runtime install
+    unless the product runtime itself needs them
 - Avoid startup-time installers, auto-builds, or hidden environment mutation.
 - Prefer explicit in-app update choices over blocking shell prompts:
   - use cached release info when it is still fresh; when the cache is missing or stale, do one bounded live release check for the current launch and then refresh the cache
