@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -21,9 +22,19 @@ def _canonical_workspace_root(workspace_root: Path | str) -> Path:
     return Path(workspace_root).expanduser().resolve()
 
 
+def _global_temp_root() -> Path:
+    return Path(tempfile.gettempdir()).expanduser().resolve()
+
+
 def resolve_workspace_trust_target(workspace_root: Path | str) -> Path:
     current = _canonical_workspace_root(workspace_root)
+    temp_root = _global_temp_root()
     for candidate in (current, *current.parents):
+        # Ignore a global temp directory marker such as `/tmp/.git`. That is
+        # not a meaningful repo trust boundary for an arbitrary nested
+        # workspace created under the temp root.
+        if candidate != current and candidate == temp_root:
+            break
         if (candidate / ".git").exists():
             return candidate
     return current

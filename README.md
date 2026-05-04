@@ -2,11 +2,60 @@
 
 read_when: you need the repo overview, scope, or setup commands
 
-Terminal coding agent with a PydanticAI backend and a first-party Go TUI.
+Contract-first coding agent with a Python backend, durable sessions, typed
+JSON-over-stdio RPC, and a first-party Go terminal UI.
 
-This repo preserves the product shape of pi's coding agent while rebuilding it as a clean Python implementation around PydanticAI. It does not inherit pi-mono's monorepo layout, extension ecosystem, or migration burden.
+JACA is a serious personal systems project, not a thin demo wrapper. The backend
+owns tool semantics, run events, session meaning, and recovery policy. The Go
+TUI is a shell over that backend rather than a second runtime.
 
-It is intentionally narrow: coding-agent backend first, a thin first-party terminal UI, strict contracts, no fallbacks, and no compatibility glue. PydanticAI should provide as much of the agent machinery as possible; local code exists to define and enforce the coding-agent product contract.
+It is intentionally narrow: coding-agent backend first, thin client surface,
+strict contracts, no fallbacks, and no compatibility glue. PydanticAI provides
+the agent engine; local code exists to define and enforce the product contract.
+
+## Why this repo is interesting
+
+- Durable local sessions with explicit compaction and resume semantics.
+- Backend-owned typed events and typed RPC rather than UI-inferred behavior.
+- A clear Python/Go boundary: Python owns meaning, Go owns presentation.
+- Tight failure semantics: invalid state fails hard instead of falling back.
+
+## Quickstart
+
+For the fastest public install path:
+
+```bash
+uv tool install just-another-coding-agent
+jaca
+```
+
+Ephemeral run:
+
+```bash
+uvx --from just-another-coding-agent jaca
+```
+
+Repo checkout:
+
+```bash
+uv sync --extra dev --extra test
+uv run jaca
+```
+
+If you only want the architecture and contract docs first, start with:
+
+- [docs/README.md](docs/README.md)
+- [docs/goal.md](docs/goal.md)
+- [docs/architecture.md](docs/architecture.md)
+- [docs/contracts.md](docs/contracts.md)
+
+## Community
+
+- [LICENSE](LICENSE)
+- [CONTRIBUTING.md](CONTRIBUTING.md)
+- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
+- [SECURITY.md](SECURITY.md)
+- [SUPPORT.md](SUPPORT.md)
 
 ## Scope
 

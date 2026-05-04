@@ -24,13 +24,13 @@ from just_another_coding_agent.contracts.run_events import (
 )
 from just_another_coding_agent.rpc import serve_rpc_stdio
 from just_another_coding_agent.rpc.session_store import session_path_for_id
-from just_another_coding_agent.runtime.workspace_trust import accept_workspace_trust
 from just_another_coding_agent.runtime.turn_context import (
     build_runtime_context_message,
     build_runtime_context_update_message,
     build_runtime_context_update_text,
     build_session_turn_context_entry,
 )
+from just_another_coding_agent.runtime.workspace_trust import accept_workspace_trust
 from just_another_coding_agent.session import load_session
 
 
@@ -1309,7 +1309,9 @@ def test_main_parses_args_and_runs_stdio_server(tmp_path, monkeypatch) -> None:
     }
 
 
-def test_main_headless_redirects_startup_stdout_to_stderr(tmp_path, monkeypatch) -> None:
+def test_main_headless_redirects_startup_stdout_to_stderr(
+    tmp_path, monkeypatch
+) -> None:
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
     sessions_root = tmp_path / "sessions"

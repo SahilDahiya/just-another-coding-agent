@@ -447,7 +447,9 @@ def _validate_workspace_trust_accept_response(payload: dict[str, object]) -> str
     if payload.get("type") != "rpc_response":
         raise ExecPromptError("workspace.trust_accept must return rpc_response")
     if payload.get("id") != _WORKSPACE_TRUST_ACCEPT_REQUEST_ID:
-        raise ExecPromptError("workspace.trust_accept returned unexpected rpc_response id")
+        raise ExecPromptError(
+            "workspace.trust_accept returned unexpected rpc_response id"
+        )
 
     response = payload.get("response")
     if not isinstance(response, dict):
@@ -516,7 +518,9 @@ def _validate_permission_set_response(
         )
     response_session_id = response.get("session_id")
     if response_session_id != session_id:
-        raise ExecPromptError("permission.set response must echo the current session_id")
+        raise ExecPromptError(
+            "permission.set response must echo the current session_id"
+        )
 
 
 def _wait_for_process(process: Any) -> None:

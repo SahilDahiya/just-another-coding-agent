@@ -461,6 +461,10 @@ func newTestModelWithAvailableUpdate(latestVersion string, command ...string) *m
 	m.visibleZones = 3
 	m.asyncCh = make(chan tea.Msg)
 	m.modelCatalog = testModelCatalog()
+	m.workspaceTrust = &rpc.WorkspaceTrustStatusResponse{
+		Trusted:     true,
+		TrustTarget: "/workspace",
+	}
 	m.startupOnboardingSet = false
 	m.onboarding = onboardingState{}
 	return m
