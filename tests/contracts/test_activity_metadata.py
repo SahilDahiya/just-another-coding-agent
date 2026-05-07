@@ -17,18 +17,6 @@ from just_another_coding_agent.runtime.activity import (
 from just_another_coding_agent.tools._activity import shorten_path
 
 _SAMPLE_ARGS_BY_TOOL: dict[str, dict[str, object]] = {
-    "ask_onboarding_question": {
-        "question": "Which file defines the slash command table?",
-        "options": [
-            "internal/jaca/app/model.go",
-            "internal/jaca/app/slash.go",
-            "internal/jaca/app/render.go",
-            "internal/jaca/rpc/client.go",
-        ],
-        "correct_index": 1,
-        "evidence": ["internal/jaca/app/slash.go"],
-        "explanation": "internal/jaca/app/slash.go defines the table.",
-    },
     "read": {"path": "note.txt", "offset": 1, "limit": 10},
     "write": {"path": "note.txt", "content": "hello"},
     "edit": {"path": "note.txt", "old_text": "hello", "new_text": "world"},
@@ -51,9 +39,6 @@ _SAMPLE_ARGS_BY_TOOL: dict[str, dict[str, object]] = {
 }
 
 _EXPECTED_STARTED_TITLE_BY_TOOL = {
-    "ask_onboarding_question": (
-        "ask_onboarding_question Which file defines the slash command table?"
-    ),
     "read": "read note.txt",
     "write": "write note.txt",
     "edit": "edit note.txt",
@@ -65,7 +50,6 @@ _EXPECTED_STARTED_TITLE_BY_TOOL = {
 }
 
 _EXPECTED_DISPLAY_LABEL_BY_TOOL = {
-    "ask_onboarding_question": "Onboard",
     "read": "Read",
     "write": "Write",
     "edit": "Edit",
@@ -130,6 +114,53 @@ def test_succeeded_activity_prefers_tool_owned_metadata() -> None:
             "limit": 5,
         },
         group_kind="exploration",
+    )
+
+
+def test_started_activity_includes_onboarding_mcq_metadata() -> None:
+    activity = build_started_tool_activity(
+        tool_name="ask_mcq_question",
+        args={
+            "question": "Which file defines the slash command table?",
+            "options": [
+                "internal/jaca/app/model.go",
+                "internal/jaca/app/slash.go",
+                "internal/jaca/app/render.go",
+                "internal/jaca/rpc/client.go",
+            ],
+            "correct_index": 1,
+            "explanation": "internal/jaca/app/slash.go defines the table.",
+        },
+        args_valid=True,
+    )
+
+    assert activity == ToolActivity(
+        title="ask_mcq_question Which file defines the slash command table?",
+        display_label="Onboard",
+        group_kind=None,
+    )
+
+
+def test_started_activity_includes_teaching_packet_metadata() -> None:
+    activity = build_started_tool_activity(
+        tool_name="publish_teaching_packet",
+        args={
+            "title": "Tool registration entrypoint",
+            "snippets": [
+                {
+                    "path": "internal/jaca/app/slash.go",
+                    "start_line": 1,
+                    "end_line": 4,
+                }
+            ],
+        },
+        args_valid=True,
+    )
+
+    assert activity == ToolActivity(
+        title="publish_teaching_packet Tool registration entrypoint",
+        display_label="Teach",
+        group_kind=None,
     )
 
 

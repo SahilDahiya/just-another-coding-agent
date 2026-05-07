@@ -763,6 +763,8 @@ func buildToolDetailLines(activity *rpc.ToolActivity) []string {
 		return buildEditDetailLines(activity)
 	case "subagent":
 		return buildSubagentDetailLines(activity)
+	case "teaching_packet":
+		return buildTeachingPacketDetailLines(activity)
 	default:
 		return nil
 	}
@@ -814,6 +816,41 @@ func buildSubagentDetailLines(activity *rpc.ToolActivity) []string {
 			prefix = "  └ "
 		}
 		lines = append(lines, prefix+truncateDisplayLine(line, maxToolResultLineChars))
+	}
+	return lines
+}
+
+func buildTeachingPacketDetailLines(activity *rpc.ToolActivity) []string {
+	rawSnippets, ok := activity.Details["snippets"].([]any)
+	if !ok || len(rawSnippets) == 0 {
+		return nil
+	}
+	lines := make([]string, 0, len(rawSnippets)*4)
+	for _, rawSnippet := range rawSnippets {
+		snippet, ok := rawSnippet.(map[string]any)
+		if !ok {
+			continue
+		}
+		path, _ := snippet["path"].(string)
+		startLine := intFromAny(snippet["start_line"])
+		endLine := intFromAny(snippet["end_line"])
+		text, _ := snippet["text"].(string)
+		if path == "" || startLine == nil || endLine == nil || text == "" {
+			continue
+		}
+		lines = append(
+			lines,
+			fmt.Sprintf("  Snippet(%s:%d-%d)", path, *startLine, *endLine),
+		)
+		for _, rawLine := range strings.Split(text, "\n") {
+			lines = append(
+				lines,
+				"  │ "+truncateDisplayLine(rawLine, maxToolResultLineChars),
+			)
+		}
+	}
+	if len(lines) == 0 {
+		return nil
 	}
 	return lines
 }

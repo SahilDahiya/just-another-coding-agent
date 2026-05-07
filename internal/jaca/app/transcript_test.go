@@ -277,6 +277,68 @@ func TestSubagentRowsRenderBoundedPreviewBlock(t *testing.T) {
 	}
 }
 
+func TestTeachingPacketRowsRenderSnippetBlocks(t *testing.T) {
+	transcript := NewTranscript()
+	duration := 42
+	transcript.ApplyRunEvent(rpc.RunEvent{
+		Type:       "tool_call_started",
+		ToolName:   "publish_teaching_packet",
+		ToolCallID: "call-packet",
+		Args: map[string]any{
+			"title": "Slash command dispatch",
+			"snippets": []any{
+				map[string]any{
+					"path":       "internal/jaca/app/slash.go",
+					"start_line": 1,
+					"end_line":   2,
+				},
+			},
+		},
+		Activity: &rpc.ToolActivity{
+			Title:        "publish_teaching_packet Slash command dispatch",
+			DisplayLabel: strPtr("Teach"),
+		},
+	})
+	transcript.ApplyRunEvent(rpc.RunEvent{
+		Type:       "tool_call_succeeded",
+		ToolName:   "publish_teaching_packet",
+		ToolCallID: "call-packet",
+		Result: map[string]any{
+			"title":         "Slash command dispatch",
+			"snippet_count": 1,
+		},
+		Activity: &rpc.ToolActivity{
+			Title:        "Slash command dispatch",
+			DisplayLabel: strPtr("Teach"),
+			Summary:      strPtr("showing 1 snippet"),
+			DurationMS:   &duration,
+			Details: map[string]any{
+				"kind": "teaching_packet",
+				"snippets": []any{
+					map[string]any{
+						"path":       "internal/jaca/app/slash.go",
+						"start_line": 1,
+						"end_line":   2,
+						"text":       "package app\nvar slashCommands = []string{\"/onboard\"}",
+					},
+				},
+			},
+		},
+	})
+
+	plain := transcriptPlain(transcript)
+	for _, want := range []string{
+		"publish_teaching_packet  Slash command dispatch  ok  42ms",
+		"  Snippet(internal/jaca/app/slash.go:1-2)",
+		"  │ package app",
+		"  │ var slashCommands = []string{\"/onboard\"}",
+	} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("teaching packet render missing %q in %q", want, plain)
+		}
+	}
+}
+
 func TestRunFailureRendersStructuredErrorRow(t *testing.T) {
 	transcript := NewTranscript()
 	transcript.ApplyRunEvent(rpc.RunEvent{

@@ -8,6 +8,11 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic_ai.messages import ModelMessage
 
+from just_another_coding_agent.contracts.run_mode import (
+    DEFAULT_RUN_MODE,
+    ONBOARDING_RUN_MODE,
+    RunMode,
+)
 from just_another_coding_agent.contracts.tools import CANONICAL_TOOL_NAMES
 from just_another_coding_agent.runtime.project_docs import (
     PROJECT_DOC_TOTAL_BYTE_BUDGET,
@@ -115,6 +120,33 @@ _FILESYSTEM_TRUTH_SECTION = PromptSection(
         "shell runs in the workspace root and no tool is a filesystem sandbox.",
     ),
 )
+_ONBOARDING_MODE_SECTION = PromptSection(
+    name="onboarding_mode",
+    lines=(
+        "This run is in onboarding mode.",
+        (
+            "Teach the user this codebase intentionally using docs, code, and "
+            "recent changes when useful."
+        ),
+        (
+            "Use ask_mcq_question only when a quiz will help the user learn; "
+            "teaching in normal assistant text remains the default."
+        ),
+        (
+            "Use publish_teaching_packet when a compact, code-grounded packet "
+            "would help the user understand an implementation detail."
+        ),
+        (
+            "If you use ask_mcq_question, first call publish_teaching_packet "
+            "in the same run and pass the returned packet_id values into the "
+            "question tool."
+        ),
+        (
+            "You control pacing and ordering. You may explain before, after, "
+            "or around any onboarding tool usage."
+        ),
+    ),
+)
 _TOOL_GUIDANCE_BY_NAME = {
     "read": (
         "Prefer read to examine files instead of shelling out just to view files.",
@@ -135,20 +167,34 @@ _TOOL_GUIDANCE_BY_NAME = {
     "grep": ("Use grep for content search across files.",),
     "ls": ("Use ls for bounded directory listings.",),
     "find": ("Use find for file discovery by glob pattern.",),
-    "ask_onboarding_question": (
+    "ask_mcq_question": (
         (
-            "Use ask_onboarding_question only when you are ready to quiz the "
-            "user with one concrete onboarding MCQ grounded in repo evidence."
+            "Use ask_mcq_question only when you are ready to quiz the user with "
+            "one concrete multiple-choice question."
         ),
         (
-            "You may use ask_onboarding_question multiple times across the "
-            "same session when the user asks for another question, but use it "
-            "at most once per quiz turn."
+            "Before ask_mcq_question, publish at least one teaching packet in "
+            "this same run and pass the returned packet_ids to the question."
+        ),
+        (
+            "You may use ask_mcq_question multiple times across the same "
+            "session when the user asks for another question, but use it at "
+            "most once per quiz turn."
         ),
         (
             "Do not reveal the correct answer in assistant text before "
             "calling the tool; let the tool present the question and wait "
             "for the user's selection."
+        ),
+    ),
+    "publish_teaching_packet": (
+        (
+            "Use publish_teaching_packet when a curated set of code excerpts "
+            "would help teach a concept in the codebase."
+        ),
+        (
+            "Provide a short title and 1 to 5 snippet references using path, "
+            "start_line, and end_line. The backend reads canonical file text."
         ),
     ),
     "subagent": (
@@ -253,8 +299,16 @@ def build_verification_policy_lines(
 def _build_sections_with_layout(
     *,
     tool_names: Sequence[str] = CANONICAL_TOOL_NAMES,
+    run_mode: RunMode = DEFAULT_RUN_MODE,
     extra_sections: Sequence[PromptSection] = (),
 ) -> tuple[PromptSection, ...]:
+    mode_sections: tuple[PromptSection, ...]
+    if run_mode == DEFAULT_RUN_MODE:
+        mode_sections = ()
+    elif run_mode == ONBOARDING_RUN_MODE:
+        mode_sections = (_ONBOARDING_MODE_SECTION,)
+    else:
+        raise ValueError(f"Unknown run mode: {run_mode}")
     return (
         _IDENTITY_SECTION,
         PromptSection(
@@ -266,6 +320,7 @@ def _build_sections_with_layout(
             name="verification_policy",
             lines=build_verification_policy_lines(tool_names),
         ),
+        *mode_sections,
         *tuple(extra_sections),
         _FAILURE_SEMANTICS_SECTION,
         _RESPONSE_STYLE_SECTION,
@@ -279,13 +334,19 @@ BASE_PRODUCT_PROMPT_SECTIONS: tuple[PromptSection, ...] = _build_sections_with_l
 def build_base_product_prompt(
     *,
     tool_names: Sequence[str] = CANONICAL_TOOL_NAMES,
+    run_mode: RunMode = DEFAULT_RUN_MODE,
     extra_sections: Sequence[PromptSection] = (),
 ) -> str:
     sections = (
         BASE_PRODUCT_PROMPT_SECTIONS
-        if tuple(tool_names) == CANONICAL_TOOL_NAMES and not extra_sections
+        if (
+            tuple(tool_names) == CANONICAL_TOOL_NAMES
+            and run_mode == DEFAULT_RUN_MODE
+            and not extra_sections
+        )
         else _build_sections_with_layout(
             tool_names=tool_names,
+            run_mode=run_mode,
             extra_sections=extra_sections,
         )
     )
@@ -311,6 +372,7 @@ def build_prompt_context_layers(
     thinking: "ThinkingSetting | None" = None,
     effective_capabilities: EffectiveCapabilities | None = None,
     tool_names: Sequence[str] = CANONICAL_TOOL_NAMES,
+    run_mode: RunMode = DEFAULT_RUN_MODE,
     project_doc_total_byte_budget: int = PROJECT_DOC_TOTAL_BYTE_BUDGET,
 ) -> PromptContextLayers:
     from just_another_coding_agent.runtime.turn_context import (
@@ -332,7 +394,10 @@ def build_prompt_context_layers(
         effective_capabilities=effective_capabilities,
     )
     return PromptContextLayers(
-        base_instructions=build_base_product_prompt(tool_names=tool_names),
+        base_instructions=build_base_product_prompt(
+            tool_names=tool_names,
+            run_mode=run_mode,
+        ),
         project_messages=project_messages,
         runtime_before_history_messages=runtime_plan.before_history_messages,
         runtime_after_history_messages=runtime_plan.after_history_messages,

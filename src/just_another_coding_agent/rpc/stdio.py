@@ -81,6 +81,8 @@ from just_another_coding_agent.contracts.rpc import (
     SessionCompactResponse,
     SessionCreateRequest,
     SessionCreateResponse,
+    SessionModeSetRequest,
+    SessionModeSetResponse,
     SessionNameRequest,
     SessionNameResponse,
     SessionPreviewRequest,
@@ -113,7 +115,6 @@ from just_another_coding_agent.contracts.sandbox import (
     build_permission_state,
     normalize_approval_decision,
 )
-from just_another_coding_agent.contracts.tools import CANONICAL_TOOL_NAMES
 from just_another_coding_agent.onboarding import (
     OnboardingAttemptNotFoundError,
     OnboardingGenerationError,
@@ -145,8 +146,11 @@ from just_another_coding_agent.session import (
     SessionNameValidationError,
     append_session_name_to_session,
     build_session_preview,
+    read_session_metadata,
+    update_session_mode,
 )
 from just_another_coding_agent.tools.deps import SessionPermissionMemory
+from just_another_coding_agent.tools.registry import resolve_tool_names_for_run_mode
 
 _RPC_REQUEST_ADAPTER = TypeAdapter(RpcRequest)
 _LOGIN_FLOW_TTL_SECONDS = 15 * 60
@@ -932,8 +936,7 @@ async def _handle_onboarding_start(
     generated_question = None
     if session_id is None:
         try:
-            generated_question = await asyncio.to_thread(
-                onboarding_domain.generate_onboarding_mcq,
+            generated_question = onboarding_domain.generate_onboarding_mcq(
                 workspace_root=ctx.workspace_root,
                 model=ctx.model,
             )
@@ -961,8 +964,7 @@ async def _handle_onboarding_start(
             return
 
     try:
-        result = await asyncio.to_thread(
-            start_onboarding_mcq,
+        result = start_onboarding_mcq(
             sessions_root=ctx.sessions_root,
             workspace_root=ctx.workspace_root,
             session_id=session_id,
@@ -1044,8 +1046,7 @@ async def _handle_onboarding_submit(
         ).model_dump_json()
         return
 
-    result = await asyncio.to_thread(
-        submit_onboarding_mcq,
+    result = submit_onboarding_mcq(
         sessions_root=ctx.sessions_root,
         workspace_root=ctx.workspace_root,
         session_id=request.payload.session_id,
@@ -1058,7 +1059,10 @@ async def _handle_onboarding_submit(
     )
     question_state = pending.get(request.payload.attempt_id)
     if question_state is not None and not question_state.response_future.done():
-        question_state.response_future.set_result(result)
+        asyncio.get_running_loop().call_soon(
+            question_state.response_future.set_result,
+            result,
+        )
     yield RpcResponseEnvelope(
         id=request.id,
         response=OnboardingSubmitResponse(
@@ -1298,6 +1302,44 @@ async def _handle_session_preview(
     ).model_dump_json()
 
 
+async def _handle_session_mode_set(
+    request: SessionModeSetRequest,
+    ctx: _RpcContext,
+) -> AsyncIterator[str]:
+    session_path = session_path_for_id(
+        sessions_root=ctx.sessions_root,
+        workspace_root=ctx.workspace_root,
+        session_id=request.payload.session_id,
+    )
+    if not session_path.exists():
+        yield RpcErrorEnvelope(
+            id=request.id,
+            error_type="UnknownSession",
+            message=f"Unknown session_id: {request.payload.session_id}",
+        ).model_dump_json()
+        return
+    try:
+        metadata = update_session_mode(
+            path=session_path,
+            current_mode=request.payload.mode,
+        )
+    except SessionFormatError as error:
+        yield RpcErrorEnvelope(
+            id=request.id,
+            error_type="InvalidSession",
+            message=str(error),
+        ).model_dump_json()
+        return
+
+    yield RpcResponseEnvelope(
+        id=request.id,
+        response=SessionModeSetResponse(
+            session_id=request.payload.session_id,
+            mode=metadata.current_mode,
+        ),
+    ).model_dump_json()
+
+
 async def _handle_workspace_project_docs(
     request: WorkspaceProjectDocsRequest,
     ctx: _RpcContext,
@@ -1415,6 +1457,36 @@ async def _handle_run_start(
             message=f"Unknown session_id: {request.payload.session_id}",
         ).model_dump_json()
         return
+    try:
+        session_metadata = read_session_metadata(
+            path=session_path.with_suffix(".meta.json")
+        )
+    except SessionFormatError as error:
+        yield RpcErrorEnvelope(
+            id=request.id,
+            error_type="InvalidSession",
+            message=str(error),
+        ).model_dump_json()
+        return
+    effective_run_mode = (
+        request.payload.mode
+        if request.payload.mode is not None
+        else session_metadata.current_mode
+    )
+    if session_metadata.current_mode != effective_run_mode:
+        try:
+            update_session_mode(
+                path=session_path,
+                current_mode=effective_run_mode,
+            )
+        except SessionFormatError as error:
+            yield RpcErrorEnvelope(
+                id=request.id,
+                error_type="InvalidSession",
+                message=str(error),
+            ).model_dump_json()
+            return
+    tool_names = resolve_tool_names_for_run_mode(effective_run_mode)
 
     current_task = asyncio.current_task()
     if current_task is None:
@@ -1502,8 +1574,7 @@ async def _handle_run_start(
         try:
             return await question_state.response_future
         except asyncio.CancelledError:
-            await asyncio.to_thread(
-                abandon_pending_onboarding_attempt,
+            abandon_pending_onboarding_attempt(
                 sessions_root=ctx.sessions_root,
                 workspace_root=ctx.workspace_root,
                 session_id=request.payload.session_id,
@@ -1536,7 +1607,8 @@ async def _handle_run_start(
                     workspace_root=ctx.workspace_root,
                     session_path=session_path,
                     prompt=prompt,
-                    tool_names=CANONICAL_TOOL_NAMES,
+                    tool_names=tool_names,
+                    run_mode=effective_run_mode,
                     thinking=request.payload.thinking,
                     permission_state=_get_or_create_permission_context(
                         request.payload.session_id
@@ -1628,6 +1700,7 @@ _RPC_HANDLERS: dict[type[Any], RpcHandler] = {
     ApprovalSubmitRequest: _handle_approval_submit,
     SessionNameRequest: _handle_session_name,
     SessionPreviewRequest: _handle_session_preview,
+    SessionModeSetRequest: _handle_session_mode_set,
     WorkspaceProjectDocsRequest: _handle_workspace_project_docs,
     WorkspaceTrustStatusRequest: _handle_workspace_trust_status,
     WorkspaceTrustAcceptRequest: _handle_workspace_trust_accept,

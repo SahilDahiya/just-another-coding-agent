@@ -513,10 +513,10 @@ async def test_onboarding_start_rejects_tool_authored_pending_attempt(
         run_id="run-onboard-tool",
         question=PublishedMcqQuestion(
             question_type="mcq",
+            packet_ids=("packet-1",),
             prompt="Which doc states Python owns semantics?",
             options=("goal.md", "README.md", "architecture.md", "contracts.md"),
             correct_index=0,
-            evidence=("docs/goal.md",),
             explanation="docs/goal.md states it directly.",
         ),
     )
@@ -553,7 +553,7 @@ async def test_run_interrupt_abandons_pending_live_onboarding_attempt(
     workspace_root.mkdir()
     (workspace_root / "internal" / "jaca" / "app").mkdir(parents=True)
     (workspace_root / "internal" / "jaca" / "app" / "slash.go").write_text(
-        "var slashCommands = []string{\"/onboard\"}\n",
+        "package app\nvar slashCommands = []string{\"/onboard\"}\n",
         encoding="utf-8",
     )
     (workspace_root / "main.py").write_text(
@@ -572,6 +572,7 @@ async def test_run_interrupt_abandons_pending_live_onboarding_attempt(
         "payload": {
             "session_id": session_id,
             "prompt": "ask one onboarding question",
+            "mode": "onboarding",
         },
     }
     run_messages: list[dict[str, object]] = []
@@ -685,9 +686,22 @@ def _last_user_prompt(messages: list[ModelMessage]) -> str | None:
 def _has_onboarding_tool_return(messages: list[ModelMessage]) -> bool:
     return any(
         isinstance(part, ToolReturnPart)
-        and part.tool_name == "ask_onboarding_question"
+        and part.tool_name == "ask_mcq_question"
         for part in _all_parts(messages)
     )
+
+
+def _first_teaching_packet_id(messages: list[ModelMessage]) -> str | None:
+    for part in _all_parts(messages):
+        if (
+            isinstance(part, ToolReturnPart)
+            and part.tool_name == "publish_teaching_packet"
+            and isinstance(part.content, dict)
+        ):
+            packet_id = part.content.get("packet_id")
+            if isinstance(packet_id, str) and packet_id.strip():
+                return packet_id
+    return None
 
 
 async def _onboarding_tool_stream(
@@ -695,13 +709,35 @@ async def _onboarding_tool_stream(
     _agent_info: object,
 ):
     latest_prompt = _last_user_prompt(messages)
+    packet_id = _first_teaching_packet_id(messages)
     saw_tool_return = _has_onboarding_tool_return(messages)
+    if latest_prompt == "ask one onboarding question" and packet_id is None:
+        yield {
+            0: DeltaToolCall(
+                name="publish_teaching_packet",
+                json_args=json.dumps(
+                    {
+                        "title": "Slash command registry",
+                        "snippets": [
+                            {
+                                "path": "internal/jaca/app/slash.go",
+                                "start_line": 1,
+                                "end_line": 2,
+                            }
+                        ],
+                    }
+                ),
+                tool_call_id="tool-packet-1",
+            )
+        }
+        return
     if latest_prompt == "ask one onboarding question" and not saw_tool_return:
         yield {
             0: DeltaToolCall(
-                name="ask_onboarding_question",
+                name="ask_mcq_question",
                 json_args=json.dumps(
                     {
+                        "packet_ids": [packet_id],
                         "question": "Which file defines the slash command table?",
                         "options": [
                             "internal/jaca/app/model.go",
@@ -710,7 +746,6 @@ async def _onboarding_tool_stream(
                             "internal/jaca/rpc/client.go",
                         ],
                         "correct_index": 1,
-                        "evidence": ["internal/jaca/app/slash.go"],
                         "explanation": (
                             "The slash command registry is declared in "
                             "internal/jaca/app/slash.go."
@@ -727,6 +762,123 @@ async def _onboarding_tool_stream(
     raise AssertionError(f"unexpected prompt/tool state: {latest_prompt!r}")
 
 
+async def _onboarding_tool_without_packet_stream(
+    messages: list[ModelMessage],
+    _agent_info: object,
+):
+    latest_prompt = _last_user_prompt(messages)
+    saw_tool_return = _has_onboarding_tool_return(messages)
+    if (
+        latest_prompt == "ask one onboarding question without packet"
+        and not saw_tool_return
+    ):
+        yield {
+            0: DeltaToolCall(
+                name="ask_mcq_question",
+                json_args=json.dumps(
+                    {
+                        "packet_ids": ["packet-missing"],
+                        "question": "Which file defines the slash command table?",
+                        "options": [
+                            "internal/jaca/app/model.go",
+                            "internal/jaca/app/slash.go",
+                            "internal/jaca/app/render.go",
+                            "internal/jaca/rpc/client.go",
+                        ],
+                        "correct_index": 1,
+                        "explanation": (
+                            "The slash command registry is declared in "
+                            "internal/jaca/app/slash.go."
+                        ),
+                    }
+                ),
+                tool_call_id="tool-onboarding-1",
+            )
+        }
+        return
+    if saw_tool_return:
+        yield "done"
+        return
+    raise AssertionError(f"unexpected prompt/tool state: {latest_prompt!r}")
+
+
+async def _teaching_packet_stream(
+    messages: list[ModelMessage],
+    _agent_info: object,
+):
+    latest_prompt = _last_user_prompt(messages)
+    saw_packet_return = any(
+        isinstance(part, ToolReturnPart)
+        and part.tool_name == "publish_teaching_packet"
+        for part in _all_parts(messages)
+    )
+    if latest_prompt == "teach me dispatch" and not saw_packet_return:
+        yield {
+            0: DeltaToolCall(
+                name="publish_teaching_packet",
+                json_args=json.dumps(
+                    {
+                        "title": "Slash command dispatch",
+                        "snippets": [
+                            {
+                                "path": "internal/jaca/app/slash.go",
+                                "start_line": 1,
+                                "end_line": 2,
+                            },
+                            {
+                                "path": "internal/jaca/app/model.go",
+                                "start_line": 1,
+                                "end_line": 2,
+                            },
+                        ],
+                    }
+                ),
+                tool_call_id="tool-packet-1",
+            )
+        }
+        return
+    if saw_packet_return:
+        yield "done"
+        return
+    raise AssertionError(f"unexpected prompt/tool state: {latest_prompt!r}")
+
+
+async def _doc_teaching_packet_stream(
+    messages: list[ModelMessage],
+    _agent_info: object,
+):
+    latest_prompt = _last_user_prompt(messages)
+    saw_packet_return = any(
+        isinstance(part, ToolReturnPart)
+        and part.tool_name == "publish_teaching_packet"
+        for part in _all_parts(messages)
+    )
+    if latest_prompt == "teach me with docs" and not saw_packet_return:
+        yield {
+            0: DeltaToolCall(
+                name="publish_teaching_packet",
+                json_args=json.dumps(
+                    {
+                        "title": "Docs only packet",
+                        "snippets": [
+                            {
+                                "path": "docs/goal.md",
+                                "start_line": 1,
+                                "end_line": 2,
+                            }
+                        ],
+                    }
+                ),
+                tool_call_id="tool-packet-docs-1",
+            )
+        }
+        return
+    if saw_packet_return:
+        yield "done"
+        return
+    raise AssertionError(f"unexpected prompt/tool state: {latest_prompt!r}")
+
+
 async def test_run_start_supports_live_onboarding_question_tool_without_dspy(
     tmp_path,
 ) -> None:
@@ -734,7 +886,7 @@ async def test_run_start_supports_live_onboarding_question_tool_without_dspy(
     workspace_root.mkdir()
     (workspace_root / "internal" / "jaca" / "app").mkdir(parents=True)
     (workspace_root / "internal" / "jaca" / "app" / "slash.go").write_text(
-        "var slashCommands = []string{\"/onboard\"}\n",
+        "package app\nvar slashCommands = []string{\"/onboard\"}\n",
         encoding="utf-8",
     )
     sessions_root = tmp_path / "sessions"
@@ -749,6 +901,7 @@ async def test_run_start_supports_live_onboarding_question_tool_without_dspy(
         "payload": {
             "session_id": session_id,
             "prompt": "ask one onboarding question",
+            "mode": "onboarding",
         },
     }
     run_messages: list[dict[str, object]] = []
@@ -788,7 +941,6 @@ async def test_run_start_supports_live_onboarding_question_tool_without_dspy(
         "internal/jaca/app/render.go",
         "internal/jaca/rpc/client.go",
     ]
-    assert question_event["evidence"] == ["internal/jaca/app/slash.go"]
 
     submit_messages = await rpc_messages(
         request_payload={
@@ -836,6 +988,22 @@ async def test_run_start_supports_live_onboarding_question_tool_without_dspy(
     assert "tool_call_succeeded" in event_types
     assert event_types[-1] == "run_succeeded"
 
+    session = load_session(
+        path=session_path_for_id(
+            sessions_root=sessions_root,
+            workspace_root=workspace_root,
+            session_id=session_id,
+        ),
+        workspace_root=workspace_root,
+    )
+    packet_return = next(
+        part
+        for message in session.message_history
+        for part in message.parts
+        if isinstance(part, ToolReturnPart)
+        and part.tool_name == "publish_teaching_packet"
+    )
+
     db_path = onboarding_db_path(
         sessions_root=sessions_root,
         workspace_root=workspace_root,
@@ -843,7 +1011,12 @@ async def test_run_start_supports_live_onboarding_question_tool_without_dspy(
     with sqlite3.connect(db_path) as conn:
         row = conn.execute(
             """
-            SELECT status, prompt, answer_payload_json, result_payload_json
+            SELECT
+                status,
+                prompt,
+                question_payload_json,
+                answer_payload_json,
+                result_payload_json
             FROM onboarding_attempts
             WHERE id = ?
             """,
@@ -852,8 +1025,136 @@ async def test_run_start_supports_live_onboarding_question_tool_without_dspy(
     assert row is not None
     assert row[0] == "completed"
     assert row[1] == "Which file defines the slash command table?"
-    assert json.loads(row[2]) == {"selected_index": 1}
-    assert json.loads(row[3]) == {"correct_index": 1, "is_correct": True}
+    assert json.loads(row[2]) == {
+        "packet_ids": [packet_return.content["packet_id"]],
+        "options": [
+            "internal/jaca/app/model.go",
+            "internal/jaca/app/slash.go",
+            "internal/jaca/app/render.go",
+            "internal/jaca/rpc/client.go",
+        ],
+        "correct_index": 1,
+    }
+    assert json.loads(row[3]) == {"selected_index": 1}
+    assert json.loads(row[4]) == {"correct_index": 1, "is_correct": True}
+    assert any(
+        isinstance(part, ToolReturnPart)
+        and part.tool_name == "ask_mcq_question"
+        for message in session.message_history
+        for part in message.parts
+    )
+
+
+async def test_run_start_rejects_mcq_without_linked_teaching_packet(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    (workspace_root / "internal" / "jaca" / "app").mkdir(parents=True)
+    (workspace_root / "internal" / "jaca" / "app" / "slash.go").write_text(
+        "var slashCommands = []string{\"/onboard\"}\n",
+        encoding="utf-8",
+    )
+    sessions_root = tmp_path / "sessions"
+    session_id = await create_session_id(
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    run_messages = await rpc_messages(
+        request_payload={
+            "id": "req-run",
+            "command": "run.start",
+            "payload": {
+                "session_id": session_id,
+                "prompt": "ask one onboarding question without packet",
+                "mode": "onboarding",
+            },
+        },
+        model=FunctionModel(stream_function=_onboarding_tool_without_packet_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    mcq_result = next(
+        message["event"]["result"]
+        for message in run_messages
+        if message["type"] == "rpc_event"
+        and message["event"]["type"] == "tool_call_succeeded"
+        and message["event"]["tool_name"] == "ask_mcq_question"
+    )
+    assert mcq_result == {
+        "ok": False,
+        "error_type": "ToolOperationalError",
+        "message": (
+            "ask_mcq_question requires packet_ids that refer to teaching "
+            "packets published earlier in this same run"
+        ),
+    }
+
+
+async def test_run_start_supports_teaching_packet_tool_in_onboarding_mode(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    (workspace_root / "internal" / "jaca" / "app").mkdir(parents=True)
+    (workspace_root / "internal" / "jaca" / "app" / "slash.go").write_text(
+        "package app\nvar slashCommands = []string{\"/onboard\"}\n",
+        encoding="utf-8",
+    )
+    (workspace_root / "internal" / "jaca" / "app" / "model.go").write_text(
+        "package app\nfunc submitPrompt() {}\n",
+        encoding="utf-8",
+    )
+    sessions_root = tmp_path / "sessions"
+    session_id = await create_session_id(
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    run_messages = await rpc_messages(
+        request_payload={
+            "id": "req-run-packet",
+            "command": "run.start",
+            "payload": {
+                "session_id": session_id,
+                "prompt": "teach me dispatch",
+                "mode": "onboarding",
+            },
+        },
+        model=FunctionModel(stream_function=_teaching_packet_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    succeeded_event = next(
+        message["event"]
+        for message in run_messages
+        if message["type"] == "rpc_event"
+        and message["event"]["type"] == "tool_call_succeeded"
+        and message["event"]["tool_name"] == "publish_teaching_packet"
+    )
+    assert succeeded_event["activity"]["title"] == "Slash command dispatch"
+    assert succeeded_event["activity"]["display_label"] == "Teach"
+    assert succeeded_event["activity"]["summary"] == "showing 2 snippets"
+    assert succeeded_event["activity"]["details"] == {
+        "kind": "teaching_packet",
+        "snippets": [
+            {
+                "path": "internal/jaca/app/slash.go",
+                "start_line": 1,
+                "end_line": 2,
+                "text": 'package app\nvar slashCommands = []string{"/onboard"}',
+            },
+            {
+                "path": "internal/jaca/app/model.go",
+                "start_line": 1,
+                "end_line": 2,
+                "text": "package app\nfunc submitPrompt() {}",
+            },
+        ],
+    }
 
     session = load_session(
         path=session_path_for_id(
@@ -863,12 +1164,82 @@ async def test_run_start_supports_live_onboarding_question_tool_without_dspy(
         ),
         workspace_root=workspace_root,
     )
-    assert any(
-        isinstance(part, ToolReturnPart)
-        and part.tool_name == "ask_onboarding_question"
+    packet_return = next(
+        part
         for message in session.message_history
         for part in message.parts
+        if isinstance(part, ToolReturnPart)
+        and part.tool_name == "publish_teaching_packet"
     )
+    assert isinstance(packet_return.content["packet_id"], str)
+    assert packet_return.content["packet_id"] != ""
+    assert packet_return.content == {
+        "packet_id": packet_return.content["packet_id"],
+        "title": "Slash command dispatch",
+        "snippet_count": 2,
+        "snippets": [
+            {
+                "path": "internal/jaca/app/slash.go",
+                "start_line": 1,
+                "end_line": 2,
+                "text": 'package app\nvar slashCommands = []string{"/onboard"}',
+            },
+            {
+                "path": "internal/jaca/app/model.go",
+                "start_line": 1,
+                "end_line": 2,
+                "text": "package app\nfunc submitPrompt() {}",
+            },
+        ],
+    }
+
+
+async def test_run_start_rejects_teaching_packet_with_docs_snippet(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    (workspace_root / "docs").mkdir()
+    (workspace_root / "docs" / "goal.md").write_text(
+        "# Goal\n\nDocs are not code snippets.\n",
+        encoding="utf-8",
+    )
+    sessions_root = tmp_path / "sessions"
+    session_id = await create_session_id(
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    run_messages = await rpc_messages(
+        request_payload={
+            "id": "req-run-doc-packet",
+            "command": "run.start",
+            "payload": {
+                "session_id": session_id,
+                "prompt": "teach me with docs",
+                "mode": "onboarding",
+            },
+        },
+        model=FunctionModel(stream_function=_doc_teaching_packet_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    packet_result = next(
+        message["event"]["result"]
+        for message in run_messages
+        if message["type"] == "rpc_event"
+        and message["event"]["type"] == "tool_call_succeeded"
+        and message["event"]["tool_name"] == "publish_teaching_packet"
+    )
+    assert packet_result == {
+        "ok": False,
+        "error_type": "ToolOperationalError",
+        "message": (
+            "publish_teaching_packet accepts code files only; "
+            "documentation paths are not allowed"
+        ),
+    }
 
 
 def test_onboarding_submit_is_not_session_serialized() -> None:

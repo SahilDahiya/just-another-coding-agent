@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -89,10 +91,10 @@ class GeneratedMcqQuestion:
 @dataclass(frozen=True)
 class PublishedMcqQuestion:
     question_type: Literal["mcq"]
+    packet_ids: tuple[str, ...]
     prompt: str
     options: tuple[str, str, str, str]
     correct_index: int
-    evidence: tuple[str, ...]
     explanation: str
     generator_version: str = TOOL_GENERATOR_VERSION
 
@@ -134,10 +136,7 @@ def publish_onboarding_mcq(
     run_id: str,
     question: PublishedMcqQuestion,
 ) -> OnboardingQuestionRequest:
-    _validate_published_question(
-        workspace_root=workspace_root,
-        question=question,
-    )
+    _validate_published_question(question)
     db_path = onboarding_db_path(
         sessions_root=sessions_root,
         workspace_root=workspace_root,
@@ -193,7 +192,6 @@ def publish_onboarding_mcq(
         question_type=question.question_type,
         prompt=question.prompt,
         options=list(question.options),
-        evidence=list(question.evidence),
     )
 
 
@@ -537,11 +535,19 @@ def _offset_to_line_number(line_starts: list[int], offset: int) -> int:
     return line_number
 
 
-def _connect(path: Path) -> sqlite3.Connection:
+@contextmanager
+def _connect(path: Path) -> Iterator[sqlite3.Connection]:
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
-    return conn
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def _ensure_schema(conn: sqlite3.Connection) -> None:
@@ -766,21 +772,21 @@ def _parse_question_payload(raw: str) -> dict[str, Any]:
         )
     options = payload.get("options")
     correct_index = payload.get("correct_index")
+    packet_ids = payload.get("packet_ids", [])
     if not isinstance(options, list):
         raise OnboardingValidationError("Persisted onboarding options must be a list")
     if not isinstance(correct_index, int):
         raise OnboardingValidationError(
             "Persisted onboarding correct_index must be an integer"
         )
-    evidence = payload.get("evidence", [])
-    if not isinstance(evidence, list):
+    if not isinstance(packet_ids, list):
         raise OnboardingValidationError(
-            "Persisted onboarding evidence must be a list"
+            "Persisted onboarding packet_ids must be a list"
         )
     return {
+        "packet_ids": packet_ids,
         "options": options,
         "correct_index": correct_index,
-        "evidence": evidence,
     }
 
 
@@ -788,15 +794,14 @@ def _question_payload(question: GeneratedMcqQuestion) -> dict[str, Any]:
     return {
         "options": list(question.options),
         "correct_index": question.correct_index,
-        "evidence": [],
     }
 
 
 def _published_question_payload(question: PublishedMcqQuestion) -> dict[str, Any]:
     return {
+        "packet_ids": list(question.packet_ids),
         "options": list(question.options),
         "correct_index": question.correct_index,
-        "evidence": list(question.evidence),
     }
 
 
@@ -826,14 +831,25 @@ def _validate_generated_question(question: GeneratedMcqQuestion) -> None:
         )
 
 
-def _validate_published_question(
-    *,
-    workspace_root: Path | str,
-    question: PublishedMcqQuestion,
-) -> None:
+def _validate_published_question(question: PublishedMcqQuestion) -> None:
     if question.question_type != QUESTION_TYPE_MCQ:
         raise OnboardingValidationError(
             f"Unsupported onboarding question type: {question.question_type}"
+        )
+    if not question.packet_ids:
+        raise OnboardingValidationError(
+            "Published onboarding MCQ must link at least one teaching packet"
+        )
+    normalized_packet_ids: list[str] = []
+    for packet_id in question.packet_ids:
+        if packet_id.strip() == "":
+            raise OnboardingValidationError(
+                "Published onboarding packet id must not be blank"
+            )
+        normalized_packet_ids.append(packet_id)
+    if len(set(normalized_packet_ids)) != len(normalized_packet_ids):
+        raise OnboardingValidationError(
+            "Published onboarding packet ids must be unique"
         )
     if question.prompt.strip() == "":
         raise OnboardingValidationError("Onboarding prompt must not be blank")
@@ -845,34 +861,6 @@ def _validate_published_question(
         raise OnboardingValidationError(
             "Onboarding generator version must not be blank"
         )
-    if len(question.evidence) == 0:
-        raise OnboardingValidationError(
-            "Onboarding evidence must include at least one file path"
-        )
-    normalized_workspace_root = Path(workspace_root).resolve()
-    normalized_evidence: set[str] = set()
-    for evidence_path in question.evidence:
-        stripped_path = evidence_path.strip()
-        if stripped_path == "":
-            raise OnboardingValidationError(
-                "Onboarding evidence path must not be blank"
-            )
-        evidence_target = (normalized_workspace_root / stripped_path).resolve()
-        if not evidence_target.is_relative_to(normalized_workspace_root):
-            raise OnboardingValidationError(
-                f"Onboarding evidence path escapes workspace: {evidence_path}"
-            )
-        if not evidence_target.exists():
-            raise OnboardingValidationError(
-                f"Onboarding evidence path does not exist: {evidence_path}"
-            )
-        normalized_label = evidence_target.relative_to(normalized_workspace_root)
-        key = normalized_label.as_posix().lower()
-        if key in normalized_evidence:
-            raise OnboardingValidationError(
-                "Onboarding evidence paths must be unique"
-            )
-        normalized_evidence.add(key)
 
 
 def _validate_options(options: tuple[str, ...]) -> None:
@@ -904,6 +892,7 @@ __all__ = [
     "GENERATOR_VERSION",
     "GeneratedMcqQuestion",
     "OnboardingAttemptNotFoundError",
+    "PublishedMcqQuestion",
     "OnboardingError",
     "OnboardingStartResult",
     "OnboardingSubmitResult",

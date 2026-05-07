@@ -11,6 +11,7 @@ from just_another_coding_agent.contracts.sandbox import (
     ApprovalDecision,
     ApprovalRequest,
 )
+from just_another_coding_agent.contracts.teaching import TeachingSnippet
 
 type JsonValue = (
     None | bool | int | float | str | list[JsonValue] | dict[str, JsonValue]
@@ -95,6 +96,11 @@ class SubagentActivityDetails(_ToolActivityDetailsBase):
     preview_terminal: bool = False
 
 
+class TeachingPacketActivityDetails(_ToolActivityDetailsBase):
+    kind: Literal["teaching_packet"] = "teaching_packet"
+    snippets: list[TeachingSnippet] = Field(min_length=1, max_length=5)
+
+
 ToolActivityDetails = Annotated[
     ShellActivityDetails
     | ReadActivityDetails
@@ -103,7 +109,8 @@ ToolActivityDetails = Annotated[
     | GrepActivityDetails
     | LsActivityDetails
     | FindActivityDetails
-    | SubagentActivityDetails,
+    | SubagentActivityDetails
+    | TeachingPacketActivityDetails,
     Field(discriminator="kind"),
 ]
 
@@ -185,7 +192,6 @@ class OnboardingQuestionRequestedEvent(_RunEventBase):
     question_type: Literal["mcq"] = "mcq"
     prompt: str
     options: list[str]
-    evidence: list[str] = Field(default_factory=list)
 
     @classmethod
     def from_request(
@@ -200,7 +206,6 @@ class OnboardingQuestionRequestedEvent(_RunEventBase):
             question_type=request.question_type,
             prompt=request.prompt,
             options=list(request.options),
-            evidence=list(request.evidence),
         )
 
 

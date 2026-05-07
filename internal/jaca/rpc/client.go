@@ -173,6 +173,16 @@ func (m *Manager) SessionPreview(ctx context.Context, sessionID string) (Session
 	return client.SessionPreview(ctx, sessionID)
 }
 
+func (m *Manager) SetSessionMode(ctx context.Context, sessionID string, mode string) (SessionModeSetResponse, error) {
+	m.mu.Lock()
+	client, err := m.ensureStartedLocked()
+	m.mu.Unlock()
+	if err != nil {
+		return SessionModeSetResponse{}, err
+	}
+	return client.SetSessionMode(ctx, sessionID, mode)
+}
+
 func (m *Manager) WorkspaceProjectDocs(ctx context.Context) (WorkspaceProjectDocsResponse, error) {
 	m.mu.Lock()
 	client, err := m.ensureStartedLocked()
@@ -332,6 +342,7 @@ func (m *Manager) StreamRun(
 	sessionID string,
 	prompt string,
 	thinking string,
+	mode string,
 	sink func(RunEvent) error,
 ) error {
 	m.mu.Lock()
@@ -340,7 +351,7 @@ func (m *Manager) StreamRun(
 	if err != nil {
 		return err
 	}
-	return client.StreamRun(ctx, sessionID, prompt, thinking, sink)
+	return client.StreamRun(ctx, sessionID, prompt, thinking, mode, sink)
 }
 
 func (m *Manager) EnqueueRun(
@@ -779,6 +790,44 @@ func (c *Client) SessionPreview(ctx context.Context, sessionID string) (SessionP
 		return SessionPreviewResponse{}, fmt.Errorf("%s: %s", envelope.ErrorType, envelope.Message)
 	default:
 		return SessionPreviewResponse{}, fmt.Errorf("unexpected envelope for session.preview: %T", line)
+	}
+}
+
+func (c *Client) SetSessionMode(ctx context.Context, sessionID string, mode string) (SessionModeSetResponse, error) {
+	requestID := c.nextRequestID()
+	waiter, cleanup, err := c.registerWaiter(requestID)
+	if err != nil {
+		return SessionModeSetResponse{}, err
+	}
+	defer cleanup()
+	c.writeMu.Lock()
+	if err := c.writeRequest(Request{
+		ID:      requestID,
+		Command: "session.mode_set",
+		Payload: SessionModeSetPayload{
+			SessionID: sessionID,
+			Mode:      mode,
+		},
+	}); err != nil {
+		c.writeMu.Unlock()
+		return SessionModeSetResponse{}, err
+	}
+	c.writeMu.Unlock()
+	line, err := c.awaitEnvelope(ctx, waiter)
+	if err != nil {
+		return SessionModeSetResponse{}, err
+	}
+	switch envelope := line.(type) {
+	case ResponseEnvelope:
+		var response SessionModeSetResponse
+		if err := json.Unmarshal(envelope.Response, &response); err != nil {
+			return SessionModeSetResponse{}, err
+		}
+		return response, nil
+	case ErrorEnvelope:
+		return SessionModeSetResponse{}, fmt.Errorf("%s: %s", envelope.ErrorType, envelope.Message)
+	default:
+		return SessionModeSetResponse{}, fmt.Errorf("unexpected envelope for session.mode_set: %T", line)
 	}
 }
 
@@ -1318,6 +1367,7 @@ func (c *Client) StreamRun(
 	sessionID string,
 	prompt string,
 	thinking string,
+	mode string,
 	sink func(RunEvent) error,
 ) error {
 	requestID := c.nextRequestID()
@@ -1329,6 +1379,9 @@ func (c *Client) StreamRun(
 	payload := RunStartPayload{
 		SessionID: sessionID,
 		Prompt:    prompt,
+	}
+	if mode != "" {
+		payload.Mode = mode
 	}
 	if thinking != "" {
 		switch thinking {

@@ -5,6 +5,8 @@ def test_contracts_tools_only_exports_public_contract_types() -> None:
     assert set(tool_contracts.__all__) == {
         "CANONICAL_TOOL_NAMES",
         "CanonicalToolName",
+        "ONBOARDING_TOOL_NAMES",
+        "OnboardingToolName",
         "ToolDeniedResult",
         "ToolErrorResult",
         "make_tool_denied_result",

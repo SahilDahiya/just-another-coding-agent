@@ -10,8 +10,9 @@ what it gets wrong architecturally, and the clean future direction.
 ## Current State
 
 The current onboarding MVP no longer depends on DSPy on the critical path.
-`/onboard` now starts a normal agent run, and the agent can call the
-backend-owned `ask_onboarding_question` tool directly.
+`/onboard` now sets the active session into backend-owned onboarding mode, and
+that mode persists across later turns until `/exit-mode`. It can expose
+onboarding-only tools such as `ask_mcq_question`.
 
 DSPy is still retained for future question-generation work. When that path is
 used, DSPy LM construction flows through the runtime-owned bridge in

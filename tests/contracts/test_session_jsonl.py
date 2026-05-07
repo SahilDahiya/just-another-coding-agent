@@ -583,6 +583,7 @@ def test_initialize_session_creates_metadata_sidecar(tmp_path) -> None:
     metadata = read_session_metadata(path=path.with_suffix(".meta.json"))
     assert metadata.session_id == path.stem
     assert metadata.name is None
+    assert metadata.current_mode == "coding"
     assert metadata.forked_from_session_id is None
     assert metadata.consecutive_auto_compaction_failures == 0
 

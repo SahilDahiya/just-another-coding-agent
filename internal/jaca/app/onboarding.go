@@ -105,30 +105,14 @@ func (m *model) onboardingBodyLines() []string {
 	if m.onboarding.Kind != "mcq" {
 		return nil
 	}
-	lines := make([]string, 0, 8)
-	lines = append(lines, m.onboarding.Prompt)
-	if len(m.onboarding.Evidence) > 0 {
-		lines = append(lines, "", "Evidence:")
-		for _, evidencePath := range m.onboarding.Evidence {
-			lines = append(lines, "  - "+evidencePath)
-		}
-	}
-	return lines
+	return []string{m.onboarding.Prompt}
 }
 
 func (m *model) onboardingTranscriptLines() []string {
 	if m.onboarding.Kind != "mcq" {
 		return nil
 	}
-	lines := []string{m.onboarding.Prompt}
-	if len(m.onboarding.Evidence) == 0 {
-		return lines
-	}
-	lines = append(lines, "", "Evidence:")
-	for _, evidencePath := range m.onboarding.Evidence {
-		lines = append(lines, "  - "+evidencePath)
-	}
-	return lines
+	return []string{m.onboarding.Prompt}
 }
 
 func isOnboardingSubmitKey(msg tea.KeyMsg) bool {
@@ -359,17 +343,21 @@ func (m *model) executeOnboardSlash(args string) (tea.Model, tea.Cmd) {
 		m.refreshViewport()
 		return m, nil
 	}
-	prompt := "Explore this repository as needed, then call " +
-		"ask_onboarding_question exactly once to present one multiple-choice " +
-		"onboarding question. Use exactly four concise options, include " +
-		"evidence file paths, and do not reveal the correct answer in " +
-		"assistant text before calling the tool. If you already used " +
-		"ask_onboarding_question earlier in this session, you may use it " +
-		"again now because /onboard expects a fresh question for this run."
-	if trimmedArgs := strings.TrimSpace(args); trimmedArgs != "" {
-		prompt += " User direction for this onboarding question: " + trimmedArgs + "."
+	prompt := strings.TrimSpace(args)
+	if prompt == "" {
+		prompt = "Onboard me to this repository."
 	}
-	return m.submitNonSlashPrompt(prompt, prompt)
+	return m.submitPromptWithMode(prompt, prompt, "onboarding")
+}
+
+func (m *model) executeExitModeSlash(_ string) (tea.Model, tea.Cmd) {
+	if strings.TrimSpace(m.sessionID) == "" {
+		m.transcript.WriteError("No active session to exit mode for.")
+		m.refreshViewport()
+		return m, nil
+	}
+	m.refreshViewport()
+	return m, setSessionMode(m.options.Backend, m.sessionID, "coding")
 }
 
 func (m *model) completeAuthenticatedOnboardingProviderSelection(provider string) (tea.Model, tea.Cmd) {

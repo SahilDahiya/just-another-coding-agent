@@ -25,6 +25,10 @@ from just_another_coding_agent.contracts.run_events import (
     ToolCallStartedEvent,
     ToolCallSucceededEvent,
 )
+from just_another_coding_agent.contracts.run_mode import (
+    DEFAULT_RUN_MODE,
+    RunMode,
+)
 from just_another_coding_agent.contracts.sandbox import (
     ApprovalDecision,
     ApprovalRequest,
@@ -187,6 +191,7 @@ async def stream_session_run_events(
     session_path: Path,
     prompt: str,
     tool_names: Sequence[str] = CANONICAL_TOOL_NAMES,
+    run_mode: RunMode = DEFAULT_RUN_MODE,
     thinking: ThinkingSetting | None = None,
     permission_state: PermissionState | None = None,
     permission_memory: SessionPermissionMemory | None = None,
@@ -369,6 +374,7 @@ async def stream_session_run_events(
         current_date=current_date,
         shell_family=shell_family,
         tool_names=tool_names,
+        run_mode=run_mode,
     )
     run_appender = None
     run_turn_context = None

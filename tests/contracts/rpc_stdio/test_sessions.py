@@ -1,10 +1,12 @@
 from pydantic_ai.models.function import FunctionModel
 
+import just_another_coding_agent.rpc.stdio as rpc_stdio
 from just_another_coding_agent.rpc.session_store import (
     create_session,
     session_path_for_id,
 )
 from just_another_coding_agent.session import load_session
+from just_another_coding_agent.session.jsonl import read_session_metadata
 from tests.contracts.rpc_stdio_test_support import (
     create_session_id,
     looping_edit_stream,
@@ -255,6 +257,329 @@ async def test_handle_rpc_json_line_returns_provider_not_ready_for_run_start(
             "message": "anthropic is not ready: missing_secret",
         }
     ]
+
+
+async def test_handle_rpc_json_line_uses_default_run_mode_toolset(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    session_id = await create_session_id(
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+    captured: dict[str, object] = {}
+
+    async def fake_stream_session_run_events(**kwargs):
+        captured["tool_names"] = kwargs["tool_names"]
+        captured["run_mode"] = kwargs["run_mode"]
+        yield {"type": "run_started", "run_id": "run-1"}
+        yield {"type": "run_succeeded", "run_id": "run-1", "output_text": "done"}
+
+    monkeypatch.setattr(
+        rpc_stdio,
+        "stream_session_run_events",
+        fake_stream_session_run_events,
+    )
+
+    messages = await rpc_messages(
+        request_payload={
+            "id": "req-run-default",
+            "command": "run.start",
+            "payload": {
+                "session_id": session_id,
+                "prompt": "hello",
+            },
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    assert captured == {
+        "tool_names": (
+            "read",
+            "write",
+            "edit",
+            "shell",
+            "grep",
+            "ls",
+            "find",
+            "subagent",
+        ),
+        "run_mode": "coding",
+    }
+    assert messages[-1] == {
+        "type": "rpc_response",
+        "id": "req-run-default",
+        "response": {"session_id": session_id},
+    }
+    session_path = session_path_for_id(
+        sessions_root=sessions_root,
+        workspace_root=workspace_root,
+        session_id=session_id,
+    )
+    metadata = read_session_metadata(path=session_path.with_suffix(".meta.json"))
+    assert metadata.current_mode == "coding"
+
+
+async def test_handle_rpc_json_line_uses_onboarding_run_mode_toolset(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    session_id = await create_session_id(
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+    captured: dict[str, object] = {}
+
+    async def fake_stream_session_run_events(**kwargs):
+        captured["tool_names"] = kwargs["tool_names"]
+        captured["run_mode"] = kwargs["run_mode"]
+        yield {"type": "run_started", "run_id": "run-1"}
+        yield {"type": "run_succeeded", "run_id": "run-1", "output_text": "done"}
+
+    monkeypatch.setattr(
+        rpc_stdio,
+        "stream_session_run_events",
+        fake_stream_session_run_events,
+    )
+
+    messages = await rpc_messages(
+        request_payload={
+            "id": "req-run-onboarding",
+            "command": "run.start",
+            "payload": {
+                "session_id": session_id,
+                "prompt": "hello",
+                "mode": "onboarding",
+            },
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    assert captured == {
+        "tool_names": (
+            "read",
+            "write",
+            "edit",
+            "shell",
+            "grep",
+            "ls",
+            "find",
+            "subagent",
+            "ask_mcq_question",
+            "publish_teaching_packet",
+        ),
+        "run_mode": "onboarding",
+    }
+    assert messages[-1] == {
+        "type": "rpc_response",
+        "id": "req-run-onboarding",
+        "response": {"session_id": session_id},
+    }
+
+
+async def test_handle_rpc_json_line_inherits_persisted_onboarding_mode(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    session_id = await create_session_id(
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+    captured: list[dict[str, object]] = []
+
+    async def fake_stream_session_run_events(**kwargs):
+        captured.append(
+            {
+                "tool_names": kwargs["tool_names"],
+                "run_mode": kwargs["run_mode"],
+            }
+        )
+        yield {"type": "run_started", "run_id": f"run-{len(captured)}"}
+        yield {
+            "type": "run_succeeded",
+            "run_id": f"run-{len(captured)}",
+            "output_text": "done",
+        }
+
+    monkeypatch.setattr(
+        rpc_stdio,
+        "stream_session_run_events",
+        fake_stream_session_run_events,
+    )
+
+    await rpc_messages(
+        request_payload={
+            "id": "req-run-onboarding",
+            "command": "run.start",
+            "payload": {
+                "session_id": session_id,
+                "prompt": "hello",
+                "mode": "onboarding",
+            },
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    await rpc_messages(
+        request_payload={
+            "id": "req-run-followup",
+            "command": "run.start",
+            "payload": {
+                "session_id": session_id,
+                "prompt": "one more",
+            },
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    assert captured == [
+        {
+            "tool_names": (
+                "read",
+                "write",
+                "edit",
+                "shell",
+                "grep",
+                "ls",
+                "find",
+                "subagent",
+                "ask_mcq_question",
+                "publish_teaching_packet",
+            ),
+            "run_mode": "onboarding",
+        },
+        {
+            "tool_names": (
+                "read",
+                "write",
+                "edit",
+                "shell",
+                "grep",
+                "ls",
+                "find",
+                "subagent",
+                "ask_mcq_question",
+                "publish_teaching_packet",
+            ),
+            "run_mode": "onboarding",
+        },
+    ]
+    session_path = session_path_for_id(
+        sessions_root=sessions_root,
+        workspace_root=workspace_root,
+        session_id=session_id,
+    )
+    metadata = read_session_metadata(path=session_path.with_suffix(".meta.json"))
+    assert metadata.current_mode == "onboarding"
+
+
+async def test_handle_rpc_json_line_session_mode_set_restores_coding_inheritance(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    session_id = await create_session_id(
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+    captured: list[str] = []
+
+    async def fake_stream_session_run_events(**kwargs):
+        captured.append(kwargs["run_mode"])
+        yield {"type": "run_started", "run_id": f"run-{len(captured)}"}
+        yield {
+            "type": "run_succeeded",
+            "run_id": f"run-{len(captured)}",
+            "output_text": "done",
+        }
+
+    monkeypatch.setattr(
+        rpc_stdio,
+        "stream_session_run_events",
+        fake_stream_session_run_events,
+    )
+
+    await rpc_messages(
+        request_payload={
+            "id": "req-run-onboarding",
+            "command": "run.start",
+            "payload": {
+                "session_id": session_id,
+                "prompt": "hello",
+                "mode": "onboarding",
+            },
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    mode_messages = await rpc_messages(
+        request_payload={
+            "id": "req-mode",
+            "command": "session.mode_set",
+            "payload": {
+                "session_id": session_id,
+                "mode": "coding",
+            },
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    assert mode_messages == [
+        {
+            "type": "rpc_response",
+            "id": "req-mode",
+            "response": {
+                "session_id": session_id,
+                "mode": "coding",
+            },
+        }
+    ]
+
+    await rpc_messages(
+        request_payload={
+            "id": "req-run-followup",
+            "command": "run.start",
+            "payload": {
+                "session_id": session_id,
+                "prompt": "back to coding",
+            },
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    assert captured == ["onboarding", "coding"]
+    session_path = session_path_for_id(
+        sessions_root=sessions_root,
+        workspace_root=workspace_root,
+        session_id=session_id,
+    )
+    metadata = read_session_metadata(path=session_path.with_suffix(".meta.json"))
+    assert metadata.current_mode == "coding"
 
 
 async def test_handle_rpc_json_line_compacts_session_and_returns_metadata(

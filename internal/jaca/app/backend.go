@@ -19,6 +19,7 @@ type Backend interface {
 	AcceptWorkspaceTrust(ctx context.Context) (rpc.WorkspaceTrustAcceptResponse, error)
 	SetSessionName(ctx context.Context, sessionID string, name string) (rpc.SessionNameResponse, error)
 	SessionPreview(ctx context.Context, sessionID string) (rpc.SessionPreviewResponse, error)
+	SetSessionMode(ctx context.Context, sessionID string, mode string) (rpc.SessionModeSetResponse, error)
 	CompactSession(ctx context.Context, sessionID string) (rpc.SessionCompactResponse, error)
 	ModelCatalog(ctx context.Context) (rpc.ModelCatalogResponse, error)
 	AuthStatus(ctx context.Context) (rpc.AuthStatusResponse, error)
@@ -47,6 +48,7 @@ type Backend interface {
 		sessionID string,
 		prompt string,
 		thinking string,
+		mode string,
 		sink func(rpc.RunEvent) error,
 	) error
 }

@@ -52,7 +52,9 @@ type stubBackend struct {
 	lastPermissionSet    rpc.PermissionSetPayload
 	lastApprovalDecision rpc.ApprovalDecision
 	lastOnboardingSubmit rpc.OnboardingSubmitPayload
+	lastSessionModeSet   rpc.SessionModeSetPayload
 	lastStreamRunPrompt  string
+	lastStreamRunMode    string
 	lastStreamRunSession string
 	streamRunEvents      []rpc.RunEvent
 	onboardingSubmit     rpc.OnboardingSubmitResponse
@@ -175,6 +177,16 @@ func (b *stubBackend) SetSessionName(_ context.Context, sessionID string, name s
 	return rpc.SessionNameResponse{
 		SessionID: sessionID,
 		Name:      normalizeTestSessionName(name),
+	}, nil
+}
+func (b *stubBackend) SetSessionMode(_ context.Context, sessionID string, mode string) (rpc.SessionModeSetResponse, error) {
+	b.lastSessionModeSet = rpc.SessionModeSetPayload{
+		SessionID: sessionID,
+		Mode:      mode,
+	}
+	return rpc.SessionModeSetResponse{
+		SessionID: sessionID,
+		Mode:      mode,
 	}, nil
 }
 func (b *stubBackend) SessionPreview(_ context.Context, _ string) (rpc.SessionPreviewResponse, error) {
@@ -380,10 +392,12 @@ func (b *stubBackend) StreamRun(
 	sessionID string,
 	prompt string,
 	_ string,
+	mode string,
 	sink func(rpc.RunEvent) error,
 ) error {
 	b.lastStreamRunSession = sessionID
 	b.lastStreamRunPrompt = prompt
+	b.lastStreamRunMode = mode
 	for _, event := range b.streamRunEvents {
 		if err := sink(event); err != nil {
 			return err
@@ -1665,7 +1679,6 @@ func TestOnboardSlashStartsMcqOverlayAndSubmitsSelection(t *testing.T) {
 			QuestionType: "mcq",
 			Prompt:       "Which slash command switches the active model?",
 			Options:      []string{"/help", "/model", "/permission", "/quit"},
-			Evidence:     []string{"internal/jaca/app/slash.go"},
 		},
 	}
 	m := newTestModel()
@@ -1687,14 +1700,11 @@ func TestOnboardSlashStartsMcqOverlayAndSubmitsSelection(t *testing.T) {
 	if got := backend.lastStreamRunSession; got != "session" {
 		t.Fatalf("StreamRun session id = %q, want session", got)
 	}
-	if got := backend.lastStreamRunPrompt; !strings.Contains(got, "ask_onboarding_question") {
-		t.Fatalf("StreamRun prompt = %q, want onboarding tool instruction", got)
+	if got := backend.lastStreamRunMode; got != "onboarding" {
+		t.Fatalf("StreamRun mode = %q, want onboarding", got)
 	}
-	if got := backend.lastStreamRunPrompt; !strings.Contains(
-		got,
-		"If you already used ask_onboarding_question earlier in this session, you may use it again now",
-	) {
-		t.Fatalf("StreamRun prompt = %q, want explicit reuse instruction", got)
+	if got := backend.lastStreamRunPrompt; got != "Onboard me to this repository." {
+		t.Fatalf("StreamRun prompt = %q, want default onboarding prompt", got)
 	}
 	if got := m.sessionID; got != "session" {
 		t.Fatalf("sessionID = %q, want session", got)
@@ -1705,8 +1715,6 @@ func TestOnboardSlashStartsMcqOverlayAndSubmitsSelection(t *testing.T) {
 	rendered := stripANSI(m.View())
 	for _, want := range []string{
 		"Which slash command switches the active model?",
-		"Evidence",
-		"internal/jaca/app/slash.go",
 		"1. /help",
 		"2. /model",
 	} {
@@ -1764,7 +1772,6 @@ func TestOnboardSlashIncludesUserDirectionInBackendPrompt(t *testing.T) {
 			QuestionType: "mcq",
 			Prompt:       "Which layer owns permission policy?",
 			Options:      []string{"Go", "Python", "Shell", "Worker"},
-			Evidence:     []string{"docs/contracts.md"},
 		},
 	}
 	m := newTestModel()
@@ -1783,11 +1790,36 @@ func TestOnboardSlashIncludesUserDirectionInBackendPrompt(t *testing.T) {
 	}
 	m = runTestCmd(m, cmd)
 
-	if got := backend.lastStreamRunPrompt; !strings.Contains(
-		got,
-		"User direction for this onboarding question: ask me about permission policy",
-	) {
-		t.Fatalf("StreamRun prompt = %q, want embedded user direction", got)
+	if got := backend.lastStreamRunMode; got != "onboarding" {
+		t.Fatalf("StreamRun mode = %q, want onboarding", got)
+	}
+	if got := backend.lastStreamRunPrompt; got != "ask me about permission policy" {
+		t.Fatalf("StreamRun prompt = %q, want raw slash args", got)
+	}
+}
+
+func TestExitModeSlashRestoresCodingModeForSession(t *testing.T) {
+	backend := newStubBackend()
+	m := newTestModel()
+	m.options.Backend = backend
+	m.sessionID = "session"
+
+	updated, cmd := m.submitSlashCommand("/exit-mode", false)
+	m = updated.(*model)
+	if cmd == nil {
+		t.Fatal("/exit-mode should call backend")
+	}
+	m = runTestCmd(m, cmd)
+
+	if got := backend.lastSessionModeSet.SessionID; got != "session" {
+		t.Fatalf("SetSessionMode session id = %q, want session", got)
+	}
+	if got := backend.lastSessionModeSet.Mode; got != "coding" {
+		t.Fatalf("SetSessionMode mode = %q, want coding", got)
+	}
+	rendered := stripANSI(m.View())
+	if !strings.Contains(rendered, "Exited current mode; session is back in coding mode.") {
+		t.Fatalf("exit-mode transcript missing confirmation: %q", rendered)
 	}
 }
 
@@ -1889,7 +1921,6 @@ func TestOnboardingQuestionEventPausesAndSubmitResumesAsyncListening(t *testing.
 			"internal/jaca/app/render.go",
 			"internal/jaca/rpc/client.go",
 		},
-		Evidence: []string{"internal/jaca/app/slash.go"},
 	}})
 	m = updated.(*model)
 	if cmd != nil {

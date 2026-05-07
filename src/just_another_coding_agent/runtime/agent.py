@@ -11,6 +11,10 @@ from just_another_coding_agent.contracts.platform import (
     ShellFamily,
     detect_default_shell_family,
 )
+from just_another_coding_agent.contracts.run_mode import (
+    DEFAULT_RUN_MODE,
+    RunMode,
+)
 from just_another_coding_agent.contracts.sandbox import (
     EffectiveCapabilities,
     describe_approval_policy,
@@ -24,7 +28,10 @@ from just_another_coding_agent.runtime.tool_args import (
 )
 from just_another_coding_agent.tools._workspace import normalize_workspace_root
 from just_another_coding_agent.tools.deps import WorkspaceDeps
-from just_another_coding_agent.tools.registry import build_canonical_toolset
+from just_another_coding_agent.tools.registry import (
+    build_canonical_toolset,
+    resolve_tool_names_for_run_mode,
+)
 
 CANONICAL_AGENT_OUTPUT_RETRIES = 1_000_000
 CANONICAL_AGENT_TOOL_CORRECTION_RETRIES = 2
@@ -35,11 +42,20 @@ CANONICAL_AGENT_INSTRUCTIONS = build_base_product_prompt()
 
 def build_static_agent_instructions(
     *,
-    tool_names: Sequence[str] = CANONICAL_TOOL_NAMES,
+    tool_names: Sequence[str] | None = None,
+    run_mode: RunMode = DEFAULT_RUN_MODE,
 ) -> str:
-    if tuple(tool_names) == CANONICAL_TOOL_NAMES:
+    resolved_tool_names = (
+        tuple(tool_names)
+        if tool_names is not None
+        else resolve_tool_names_for_run_mode(run_mode)
+    )
+    if resolved_tool_names == CANONICAL_TOOL_NAMES and run_mode == DEFAULT_RUN_MODE:
         return CANONICAL_AGENT_INSTRUCTIONS
-    return build_base_product_prompt(tool_names=tool_names)
+    return build_base_product_prompt(
+        tool_names=resolved_tool_names,
+        run_mode=run_mode,
+    )
 
 
 def _shell_family_prompt_label(shell_family: ShellFamily) -> str:
@@ -136,11 +152,15 @@ def build_canonical_instructions(
     workspace_root: Path | str,
     current_date: date | None = None,
     shell_family: ShellFamily | None = None,
-    tool_names: Sequence[str] = CANONICAL_TOOL_NAMES,
+    tool_names: Sequence[str] | None = None,
+    run_mode: RunMode = DEFAULT_RUN_MODE,
 ) -> str:
     return "\n".join(
         [
-            build_static_agent_instructions(tool_names=tool_names),
+            build_static_agent_instructions(
+                tool_names=tool_names,
+                run_mode=run_mode,
+            ),
             build_runtime_context_text(
                 workspace_root=workspace_root,
                 current_date=current_date,
@@ -156,11 +176,17 @@ def build_canonical_agent(
     workspace_root: Path | str,
     current_date: date | None = None,
     shell_family: ShellFamily | None = None,
-    tool_names: Sequence[str] = CANONICAL_TOOL_NAMES,
+    tool_names: Sequence[str] | None = None,
+    run_mode: RunMode = DEFAULT_RUN_MODE,
     instructions: str | None = None,
 ) -> Agent[WorkspaceDeps, str]:
     normalize_workspace_root(workspace_root)
     resolved_model = resolve_canonical_model(model)
+    resolved_tool_names = (
+        tuple(tool_names)
+        if tool_names is not None
+        else resolve_tool_names_for_run_mode(run_mode)
+    )
 
     # The canonical agent returns plain assistant text, not structured output.
     # Codex/pi-style interaction keeps the run alive until the model chooses to
@@ -178,12 +204,15 @@ def build_canonical_agent(
         retries=0,
         output_retries=CANONICAL_AGENT_OUTPUT_RETRIES,
         instructions=(
-            build_static_agent_instructions(tool_names=tool_names)
+            build_static_agent_instructions(
+                tool_names=resolved_tool_names,
+                run_mode=run_mode,
+            )
             if instructions is None
             else instructions
         ),
         deps_type=WorkspaceDeps,
-        toolsets=[build_canonical_toolset(tool_names)],
+        toolsets=[build_canonical_toolset(resolved_tool_names)],
         capabilities=[CanonicalValidatedToolArgsCapability()],
     )
     if agent.output_type is not str:

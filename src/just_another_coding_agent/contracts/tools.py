@@ -15,8 +15,13 @@ CANONICAL_TOOL_NAMES = (
     "ls",
     "find",
     "subagent",
-    "ask_onboarding_question",
 )
+ONBOARDING_TOOL_NAMES = (
+    "ask_mcq_question",
+    "publish_teaching_packet",
+)
+KNOWN_TOOL_NAMES = (*CANONICAL_TOOL_NAMES, *ONBOARDING_TOOL_NAMES)
+
 CanonicalToolName = Literal[
     "read",
     "write",
@@ -26,7 +31,22 @@ CanonicalToolName = Literal[
     "ls",
     "find",
     "subagent",
-    "ask_onboarding_question",
+]
+OnboardingToolName = Literal[
+    "ask_mcq_question",
+    "publish_teaching_packet",
+]
+KnownToolName = Literal[
+    "read",
+    "write",
+    "edit",
+    "shell",
+    "grep",
+    "ls",
+    "find",
+    "subagent",
+    "ask_mcq_question",
+    "publish_teaching_packet",
 ]
 
 
@@ -77,6 +97,8 @@ def make_tool_denied_result(
 __all__ = [
     "CANONICAL_TOOL_NAMES",
     "CanonicalToolName",
+    "ONBOARDING_TOOL_NAMES",
+    "OnboardingToolName",
     "ToolDeniedResult",
     "ToolErrorResult",
     "make_tool_denied_result",

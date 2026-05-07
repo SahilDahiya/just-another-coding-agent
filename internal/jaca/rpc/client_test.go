@@ -302,7 +302,7 @@ for line in sys.stdin:
 	runStarted := make(chan struct{}, 1)
 	runDone := make(chan error, 1)
 	go func() {
-		runDone <- client.StreamRun(ctx, "sess-1", "ship it", "", func(event RunEvent) error {
+		runDone <- client.StreamRun(ctx, "sess-1", "ship it", "", "", func(event RunEvent) error {
 			if event.Type == "run_started" {
 				runStarted <- struct{}{}
 			}
@@ -338,6 +338,63 @@ for line in sys.stdin:
 	}
 
 	if err := <-runDone; err != nil {
+		t.Fatalf("StreamRun() returned error: %v", err)
+	}
+}
+
+func TestClientStreamRunIncludesOnboardingModeWhenRequested(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell-based helper is unix-only")
+	}
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+
+	tmpDir := t.TempDir()
+	readyPath := tmpDir + "/ready.txt"
+	client := startPythonHelperClient(
+		t,
+		tmpDir+"/mode.txt",
+		readyPath,
+		`import json, os, pathlib, sys
+ready = pathlib.Path(os.environ['JACA_RPC_HELPER_READY'])
+ready.write_text('ready')
+for line in sys.stdin:
+    request = json.loads(line)
+    if request["command"] != "run.start":
+        continue
+    payload = request["payload"]
+    assert payload["mode"] == "onboarding", payload
+    sys.stdout.write(json.dumps({
+        "type": "rpc_event",
+        "id": request["id"],
+        "event": {"type": "run_started", "run_id": "run-1"},
+    }) + "\n")
+    sys.stdout.write(json.dumps({
+        "type": "rpc_event",
+        "id": request["id"],
+        "event": {"type": "run_succeeded", "run_id": "run-1", "output_text": "done"},
+    }) + "\n")
+    sys.stdout.write(json.dumps({
+        "type": "rpc_response",
+        "id": request["id"],
+        "response": {"session_id": payload["session_id"]},
+    }) + "\n")
+    sys.stdout.flush()
+    break`,
+	)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	if err := client.StreamRun(
+		ctx,
+		"sess-1",
+		"onboard me",
+		"",
+		"onboarding",
+		func(event RunEvent) error { return nil },
+	); err != nil {
 		t.Fatalf("StreamRun() returned error: %v", err)
 	}
 }
@@ -507,7 +564,7 @@ for line in sys.stdin:
 	runStarted := make(chan struct{}, 1)
 	runDone := make(chan error, 1)
 	go func() {
-		runDone <- client.StreamRun(ctx, "sess-1", "ship it", "", func(event RunEvent) error {
+		runDone <- client.StreamRun(ctx, "sess-1", "ship it", "", "", func(event RunEvent) error {
 			if event.Type == "run_started" {
 				runStarted <- struct{}{}
 			}
@@ -590,7 +647,7 @@ for line in sys.stdin:
 	runDone := make(chan error, 1)
 	go func() {
 		seen := 0
-		runDone <- client.StreamRun(runCtx, "sess-1", "ship it", "", func(event RunEvent) error {
+		runDone <- client.StreamRun(runCtx, "sess-1", "ship it", "", "", func(event RunEvent) error {
 			if event.Type == "assistant_text_delta" {
 				seen++
 				if seen == 1 {

@@ -13,6 +13,7 @@ from .jsonl import (
     normalize_session_name,
     read_session_metadata,
     update_session_auto_compaction_failures,
+    update_session_mode,
 )
 from .preview import build_session_preview
 
@@ -29,5 +30,6 @@ __all__ = [
     "normalize_session_name",
     "read_session_metadata",
     "update_session_auto_compaction_failures",
+    "update_session_mode",
     "build_session_preview",
 ]

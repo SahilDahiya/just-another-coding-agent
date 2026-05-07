@@ -42,17 +42,20 @@ Use PydanticAI primitives wherever they already solve the problem. Local code sh
 - Agent runtime for coding workflows
 - Thin first-party TUI with exactly three zones: status bar, transcript, and prompt
 - Canonical backend tools: `read`, `write`, `edit`, `shell`, `grep`, `ls`,
-  `find`, `subagent`, `ask_onboarding_question`
+  `find`, `subagent`
+- Onboarding-mode-only tools such as `ask_mcq_question` and
+  `publish_teaching_packet`
 - Streaming run events
 - Session persistence
 - JSON-over-stdio RPC
 - Strict failure semantics with no fallbacks
 
-`ask_onboarding_question` is intentionally part of the canonical backend
-toolset rather than a hidden `/onboard`-only helper. `/onboard` starts a normal
-backend-owned run over the same tool surface, so the model must be able to
-reach that tool directly when the user asks for another onboarding question in
-the same session.
+`/onboard` is the explicit signal to put the active session into onboarding
+mode. That mode then persists across later plain user turns until the user
+exits it with `/exit-mode`. The backend, not the Go TUI, owns what onboarding
+mode means: onboarding prompt overlay, onboarding tool visibility, and any
+future onboarding-specific primitives. The current default is to keep the same
+model unless a later product decision proves otherwise.
 
 ## Out of Scope
 

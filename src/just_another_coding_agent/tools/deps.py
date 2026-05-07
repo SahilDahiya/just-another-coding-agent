@@ -24,6 +24,7 @@ from just_another_coding_agent.contracts.sandbox import (
     build_default_permission_state,
 )
 from just_another_coding_agent.contracts.session import SessionName
+from just_another_coding_agent.contracts.teaching import TeachingSnippet
 from just_another_coding_agent.contracts.thinking import ThinkingSetting
 from just_another_coding_agent.tools._workspace import (
     canonicalize_path_target,
@@ -193,6 +194,50 @@ class RunRuntimeFrame:
 
 
 @dataclass(frozen=True)
+class TeachingPacketRecord:
+    packet_id: str
+    run_id: str
+    title: str
+    snippets: tuple[TeachingSnippet, ...]
+
+
+@dataclass
+class TeachingPacketRegistry:
+    packets_by_id: dict[str, TeachingPacketRecord] = field(default_factory=dict)
+
+    def remember(
+        self,
+        *,
+        packet_id: str,
+        run_id: str,
+        title: str,
+        snippets: tuple[TeachingSnippet, ...],
+    ) -> TeachingPacketRecord:
+        record = TeachingPacketRecord(
+            packet_id=packet_id,
+            run_id=run_id,
+            title=title,
+            snippets=snippets,
+        )
+        self.packets_by_id[packet_id] = record
+        return record
+
+    def resolve_for_run(
+        self,
+        *,
+        packet_ids: tuple[str, ...],
+        run_id: str,
+    ) -> tuple[TeachingPacketRecord, ...]:
+        resolved: list[TeachingPacketRecord] = []
+        for packet_id in packet_ids:
+            record = self.packets_by_id.get(packet_id)
+            if record is None or record.run_id != run_id:
+                raise KeyError(packet_id)
+            resolved.append(record)
+        return tuple(resolved)
+
+
+@dataclass(frozen=True)
 class WorkspaceDeps:
     workspace_root: Path
     sessions_root: Path | None = None
@@ -200,6 +245,11 @@ class WorkspaceDeps:
     session_scope: RunSessionScope = field(default_factory=RunSessionScope)
     run_frame: RunRuntimeFrame | None = field(
         default=None,
+        compare=False,
+        repr=False,
+    )
+    teaching_packet_registry: TeachingPacketRegistry = field(
+        default_factory=TeachingPacketRegistry,
         compare=False,
         repr=False,
     )
@@ -242,6 +292,8 @@ __all__ = [
     "ApprovalRequester",
     "OnboardingQuestionRequester",
     "SessionPermissionMemory",
+    "TeachingPacketRecord",
+    "TeachingPacketRegistry",
     "ToolUpdateSink",
     "WorkspaceDeps",
 ]

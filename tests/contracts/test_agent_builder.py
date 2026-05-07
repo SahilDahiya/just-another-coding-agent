@@ -78,7 +78,7 @@ def test_build_canonical_instructions_include_dynamic_context(tmp_path) -> None:
     )
     assert (
         "Use only these tools: read, write, edit, shell, grep, ls, find, "
-        "subagent, ask_onboarding_question."
+        "subagent."
         in instructions
     )
     assert "Use grep for content search across files." in instructions
@@ -112,12 +112,7 @@ def test_build_canonical_instructions_include_dynamic_context(tmp_path) -> None:
         "local command is already obvious."
         in instructions
     )
-    assert (
-        "You may use ask_onboarding_question multiple times across the same "
-        "session when the user asks for another question, but use it at most "
-        "once per quiz turn."
-        in instructions
-    )
+    assert "ask_mcq_question" not in instructions
     assert (
         "When you spawn a child, make the task detailed enough to "
         "succeed: state the exact goal, relevant files or artifacts, "
@@ -144,6 +139,42 @@ def test_build_canonical_instructions_include_dynamic_context(tmp_path) -> None:
     )
     assert "Current date: 2026-03-26" in instructions
     assert f"Current workspace root: {workspace_root.resolve()}" in instructions
+
+
+def test_build_onboarding_instructions_include_onboarding_tools_and_overlay(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    instructions = build_canonical_instructions(
+        workspace_root=workspace_root,
+        current_date=date(2026, 3, 26),
+        shell_family="powershell",
+        run_mode="onboarding",
+    )
+
+    assert (
+        "Use only these tools: read, write, edit, shell, grep, ls, find, "
+        "subagent, ask_mcq_question, publish_teaching_packet."
+        in instructions
+    )
+    assert "This run is in onboarding mode." in instructions
+    assert (
+        "Teach the user this codebase intentionally using docs, code, and "
+        "recent changes when useful."
+        in instructions
+    )
+    assert (
+        "Use ask_mcq_question only when a quiz will help the user learn; "
+        "teaching in normal assistant text remains the default."
+        in instructions
+    )
+    assert (
+        "Use publish_teaching_packet when a compact, code-grounded packet "
+        "would help the user understand an implementation detail."
+        in instructions
+    )
 
 
 def test_build_canonical_instructions_include_truthfulness_and_verification_rules(

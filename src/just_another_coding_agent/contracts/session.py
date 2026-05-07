@@ -8,6 +8,7 @@ from pydantic_ai.messages import ModelMessage
 
 from .platform import ShellFamily
 from .run_events import RunEvent
+from .run_mode import DEFAULT_RUN_MODE, RunMode
 from .sandbox import EffectiveCapabilities, SandboxPermissionGrant
 from .thinking import ThinkingSetting
 
@@ -150,6 +151,7 @@ class LoadedSession(_SessionEntryBase):
 class SessionMetadata(_SessionEntryBase):
     session_id: str
     name: SessionName | None = None
+    current_mode: RunMode = DEFAULT_RUN_MODE
     created_at: datetime
     updated_at: datetime
     forked_from_session_id: str | None = None

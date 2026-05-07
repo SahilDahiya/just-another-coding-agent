@@ -15,6 +15,7 @@ from .auth import OAuthProviderStatus
 from .auth import ProviderAuthStatus as AuthProviderStatus
 from .model_catalog import ProviderName
 from .run_events import RunEvent, SessionLifecycleEvent
+from .run_mode import RunMode
 from .sandbox import ApprovalDecision, ApprovalPolicy, PermissionState, SandboxPolicy
 from .session import SessionName
 from .session import SessionPreview as SessionPreviewResponse
@@ -66,6 +67,17 @@ class SessionPreviewRequest(_RpcModel):
     id: str
     command: Literal["session.preview"]
     payload: SessionPreviewPayload
+
+
+class SessionModeSetPayload(_RpcModel):
+    session_id: SessionId
+    mode: RunMode
+
+
+class SessionModeSetRequest(_RpcModel):
+    id: str
+    command: Literal["session.mode_set"]
+    payload: SessionModeSetPayload
 
 
 class ModelCatalogPayload(_RpcModel):
@@ -164,6 +176,7 @@ class AuthLoginOpenAICodexWaitRequest(_RpcModel):
 class RunStartPayload(_RpcModel):
     session_id: SessionId
     prompt: str
+    mode: RunMode | None = None
     thinking: ThinkingSetting | None = None
 
 
@@ -298,6 +311,7 @@ RpcRequest = Annotated[
     | SessionCompactRequest
     | SessionNameRequest
     | SessionPreviewRequest
+    | SessionModeSetRequest
     | ModelCatalogRequest
     | AuthStatusRequest
     | TraceLogfireStatusRequest
@@ -335,6 +349,11 @@ class SessionCompactResponse(_RpcModel):
 class SessionNameResponse(_RpcModel):
     session_id: SessionId
     name: SessionName
+
+
+class SessionModeSetResponse(_RpcModel):
+    session_id: SessionId
+    mode: RunMode
 
 
 class ModelCatalogModel(_RpcModel):
@@ -480,6 +499,7 @@ class RpcResponseEnvelope(_RpcModel):
         | SessionCompactResponse
         | SessionNameResponse
         | SessionPreviewResponse
+        | SessionModeSetResponse
         | ModelCatalogResponse
         | AuthStatusResponse
         | TraceLogfireStatusResponse
@@ -581,6 +601,9 @@ __all__ = [
     "SessionCompactPayload",
     "SessionCompactRequest",
     "SessionCompactResponse",
+    "SessionModeSetPayload",
+    "SessionModeSetRequest",
+    "SessionModeSetResponse",
     "SessionPreviewPayload",
     "SessionPreviewRequest",
     "SessionPreviewResponse",

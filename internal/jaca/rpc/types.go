@@ -23,6 +23,11 @@ type SessionPreviewPayload struct {
 	SessionID string `json:"session_id"`
 }
 
+type SessionModeSetPayload struct {
+	SessionID string `json:"session_id"`
+	Mode      string `json:"mode"`
+}
+
 type WorkspaceProjectDocsPayload struct{}
 
 type WorkspaceTrustStatusPayload struct{}
@@ -67,6 +72,7 @@ type SessionCompactPayload struct {
 type RunStartPayload struct {
 	SessionID string      `json:"session_id"`
 	Prompt    string      `json:"prompt"`
+	Mode      string      `json:"mode,omitempty"`
 	Thinking  interface{} `json:"thinking,omitempty"`
 }
 
@@ -230,6 +236,11 @@ type SessionPreviewResponse struct {
 	Truncated bool                  `json:"truncated"`
 }
 
+type SessionModeSetResponse struct {
+	SessionID string `json:"session_id"`
+	Mode      string `json:"mode"`
+}
+
 type WorkspaceProjectDoc struct {
 	Path      string `json:"path"`
 	Filename  string `json:"filename"`
@@ -351,6 +362,13 @@ type OnboardingSubmitResponse struct {
 	Explanation   string `json:"explanation"`
 }
 
+type OnboardingSnippet struct {
+	Path      string `json:"path"`
+	StartLine int    `json:"start_line"`
+	EndLine   int    `json:"end_line"`
+	Text      string `json:"text"`
+}
+
 type SessionCompactSummary struct {
 	CurrentObjective *string  `json:"current_objective"`
 	EstablishedFacts []string `json:"established_facts"`
@@ -385,7 +403,6 @@ type RunEvent struct {
 	QuestionType            string                `json:"question_type,omitempty"`
 	Prompt                  string                `json:"prompt,omitempty"`
 	Options                 []string              `json:"options,omitempty"`
-	Evidence                []string              `json:"evidence,omitempty"`
 	CompactionID            string                `json:"compaction_id,omitempty"`
 	CompactionCount         *int                  `json:"compaction_count,omitempty"`
 	SummarizedThrough       string                `json:"summarized_through_run_id,omitempty"`

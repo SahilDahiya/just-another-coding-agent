@@ -113,6 +113,11 @@ type sessionPreviewLoadedMsg struct {
 	Err     error
 }
 
+type sessionModeSetMsg struct {
+	Response rpc.SessionModeSetResponse
+	Err      error
+}
+
 type onboardingSubmittedMsg struct {
 	Response rpc.OnboardingSubmitResponse
 	Err      error
@@ -121,15 +126,14 @@ type onboardingSubmittedMsg struct {
 type authStatusRetryMsg struct{}
 
 type onboardingState struct {
-	Active           bool
-	Kind             string
-	Selected         int
-	AttemptID        string
-	QuestionType     string
-	Evidence         []string
-	Prompt           string
-	Options          []string
-	Explanation      string
+	Active       bool
+	Kind         string
+	Selected     int
+	AttemptID    string
+	QuestionType string
+	Prompt       string
+	Options      []string
+	Explanation  string
 }
 
 type trustState struct {
@@ -491,7 +495,6 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				QuestionType: msg.Event.QuestionType,
 				Prompt:       msg.Event.Prompt,
 				Options:      append([]string{}, msg.Event.Options...),
-				Evidence:     append([]string{}, msg.Event.Evidence...),
 			}
 			m.transcript.WriteNote("onboard", m.onboardingTranscriptLines())
 		case "approval_resolved":
@@ -712,6 +715,20 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.transcript.ApplySessionPreview(msg.Preview)
+		m.refreshViewport()
+		return m, nil
+	case sessionModeSetMsg:
+		if msg.Err != nil {
+			m.transcript.WriteError(msg.Err.Error())
+			m.refreshViewport()
+			return m, nil
+		}
+		m.transcript.WriteLine(
+			fmt.Sprintf(
+				"Exited current mode; session is back in %s mode.",
+				msg.Response.Mode,
+			),
+		)
 		m.refreshViewport()
 		return m, nil
 	case onboardingSubmittedMsg:
@@ -1265,6 +1282,14 @@ func (m *model) submitNonSlashPrompt(
 	prompt string,
 	pendingDraft string,
 ) (tea.Model, tea.Cmd) {
+	return m.submitPromptWithMode(prompt, pendingDraft, "")
+}
+
+func (m *model) submitPromptWithMode(
+	prompt string,
+	pendingDraft string,
+	mode string,
+) (tea.Model, tea.Cmd) {
 	provider := m.currentProvider()
 	// Auth / OAuth detours stash the current draft in PendingPrompt so it can
 	// be restored after the detour finishes. We want to keep the *labelled*
@@ -1316,7 +1341,7 @@ func (m *model) submitNonSlashPrompt(
 	thinking := m.options.Thinking
 	runCtx, cancel := context.WithCancel(context.Background())
 	m.activeRunCancel = cancel
-	go m.runPrompt(runCtx, prompt, sessionID, thinking, backend, m.asyncCh)
+	go m.runPrompt(runCtx, prompt, sessionID, thinking, mode, backend, m.asyncCh)
 	return m, listenAsync(m.asyncCh)
 }
 
@@ -1362,6 +1387,7 @@ func (m *model) runPrompt(
 	prompt string,
 	sessionID string,
 	thinking string,
+	mode string,
 	backend Backend,
 	ch chan tea.Msg,
 ) {
@@ -1374,7 +1400,7 @@ func (m *model) runPrompt(
 		}
 		sessionID = created.SessionID
 	}
-	err := backend.StreamRun(ctx, sessionID, prompt, thinking, func(event rpc.RunEvent) error {
+	err := backend.StreamRun(ctx, sessionID, prompt, thinking, mode, func(event rpc.RunEvent) error {
 		ch <- runEventMsg{Event: event}
 		return nil
 	})
@@ -1608,6 +1634,15 @@ func fetchSessionPreview(backend Backend, sessionID string) tea.Cmd {
 		defer cancel()
 		preview, err := backend.SessionPreview(ctx, sessionID)
 		return sessionPreviewLoadedMsg{Preview: preview, Err: err}
+	}
+}
+
+func setSessionMode(backend Backend, sessionID string, mode string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), queueControlTimeout)
+		defer cancel()
+		response, err := backend.SetSessionMode(ctx, sessionID, mode)
+		return sessionModeSetMsg{Response: response, Err: err}
 	}
 }
 

@@ -349,14 +349,24 @@ Canonical tool set for the first maintained version:
 - `ls`
 - `find`
 - `subagent`
-- `ask_onboarding_question`
+
+Onboarding-mode extension tools:
+
+- `ask_mcq_question`
+- `publish_teaching_packet`
 
 Rules:
 
 - Tool names are stable once published.
-- The current canonical tools remain directly model-visible. Do not hide them
-  behind a tool-search or deferred-loading indirection without a separate
-  evidence-backed contract change.
+- The current canonical tools remain directly model-visible on default runs.
+  Do not hide them behind a tool-search or deferred-loading indirection
+  without a separate evidence-backed contract change.
+- Mode-specific tools must have an explicit backend-owned visibility policy.
+  They are not globally model-visible unless the backend enables that mode for
+  the run.
+- Session mode is durable backend state. When `run.start` omits `mode`, the
+  backend must inherit the persisted session mode rather than asking the shell
+  to infer it.
 - Tool inputs must be explicit and validated.
 - Canonical public tool schema and validation live on the PydanticAI tool
   function signatures plus parameter constraints, not on duplicate public
@@ -418,9 +428,18 @@ Expected tool-domain denial result:
 
 Initial executable tool slice:
 
-- canonical registry names: `read`, `write`, `edit`, `shell`, `grep`, `ls`, `find`, `subagent`, `ask_onboarding_question`
+- canonical registry names: `read`, `write`, `edit`, `shell`, `grep`, `ls`, `find`, `subagent`
+- onboarding-mode extension registry names: `ask_mcq_question`, `publish_teaching_packet`
 - unknown tool names fail explicitly
-- initial concrete tool implementations: `read`, `write`, `edit`, `shell`, `grep`, `ls`, `find`, `subagent`, `ask_onboarding_question`
+- initial concrete tool implementations: `read`, `write`, `edit`, `shell`, `grep`, `ls`, `find`, `subagent`, `ask_mcq_question`, `publish_teaching_packet`
+- `publish_teaching_packet` accepts only code-file snippet refs; documentation
+  paths such as `docs/*`, `README*`, `AGENTS.md`, `CLAUDE.md`, or markdown-like
+  files must fail explicitly
+- `publish_teaching_packet` returns a durable `packet_id`
+- `ask_mcq_question` must link to one or more `packet_id` values that were
+  published earlier in the same active run
+- the backend must fail `ask_mcq_question` explicitly when any linked
+  `packet_id` is missing, duplicated, blank, or from a different run
 
 `read` input contract:
 
@@ -784,7 +803,7 @@ Rules for the initial activity slice:
 Canonical tool concurrency policy:
 
 - `read`, `grep`, `find`, and `ls` are parallel-eligible
-- `write`, `edit`, `shell`, `subagent`, and `ask_onboarding_question` are sequential only
+- `write`, `edit`, `shell`, `subagent`, and `ask_mcq_question` are sequential only
 - the runtime must set tool execution mode explicitly instead of relying on framework defaults
 - provider-side `parallel_tool_calls` is enabled by default for canonical model/provider paths; carve-outs should be explicit when a specific model path is known not to support it correctly
 
@@ -985,6 +1004,7 @@ Initial executable RPC slice:
     - `onboarding.start` with payload `{"session_id": <optional-opaque-lowercase-hex-string>}`
     - `onboarding.submit` with payload `{"session_id": <opaque-lowercase-hex-string>, "attempt_id": <opaque-lowercase-hex-string>, "selected_index": 0 | 1 | 2 | 3}`
     - `run.start` with payload `{"session_id": <opaque-lowercase-hex-string>, "prompt": <string>, "thinking": <optional-thinking-setting>}`
+    - `run.start` with payload `{"session_id": <opaque-lowercase-hex-string>, "prompt": <string>, "mode": "default" | "onboarding", "thinking": <optional-bool-or-level>}`
     - `run.enqueue` with payload `{"session_id": <opaque-lowercase-hex-string>, "prompt": <string>, "mode": "next" | "later"}`
     - `run.interrupt` with payload `{"session_id": <opaque-lowercase-hex-string>, "promote_queued_steer": <bool>}`
 - `rpc_response`
@@ -1008,7 +1028,7 @@ Initial executable RPC slice:
   - fields: `type`, `id`, `event`
   - `event` must be one canonical streamed run event payload or session lifecycle event payload
   - current onboarding-specific run event:
-    - `{"type": "onboarding_question_requested", "run_id": <run_id>, "attempt_id": <opaque-lowercase-hex-string>, "question_type": "mcq", "prompt": <string>, "options": [<string>, <string>, <string>, <string>], "evidence": [<path>, ...]}`
+    - `{"type": "onboarding_question_requested", "run_id": <run_id>, "attempt_id": <opaque-lowercase-hex-string>, "question_type": "mcq", "prompt": <string>, "options": [<string>, <string>, <string>, <string>]}`
 - `rpc_error`
   - fields: `type`, `id`, `error_type`, `message`
 
@@ -1047,13 +1067,13 @@ Ordering rules for the RPC slice:
   `onboarding.start` attempt must reopen that same attempt instead of
   generating a second pending question
 - `onboarding.start` must fail with `InvalidRequest` if the session already has
-  a pending live `ask_onboarding_question` attempt, because that tool-owned
-  question does not carry the snippet fields required by the `onboarding.start`
-  response contract
+  a pending live `ask_mcq_question` attempt, because that tool-owned
+  question is owned by the normal run surface rather than the legacy
+  `onboarding.start` snippet-backed response contract
 - A valid `onboarding.submit` request yields exactly one `rpc_response` and
   resolves correctness from the persisted pending attempt rather than from a
   second model-generation step
-- `onboarding.submit` also resolves any live `ask_onboarding_question` tool
+- `onboarding.submit` also resolves any live `ask_mcq_question` tool
   request blocked inside an active run for the same session and attempt id
 - `workspace.project_docs` must fail hard with `WorkspaceUntrusted` until trust
   is accepted for the current trust target
@@ -1068,7 +1088,19 @@ Ordering rules for the RPC slice:
   deriving it from command strings.
 - A valid `session.compact` request must reference an existing `session_id` and yields exactly one `rpc_response` describing the newly appended compaction entry
 - If model-driven compaction summary generation fails, `session.compact` fails hard; it does not append a placeholder summary
-- A valid `run.start` request must reference an existing `session_id`, yields zero or more `rpc_event` lines whose embedded events satisfy the streamed run contract, and ends with exactly one final `rpc_response` after the active run and any drained follow-up runs complete
+- A valid `run.start` request must reference an existing `session_id`, may
+  optionally select a backend-owned run `mode`, yields zero or more
+  `rpc_event` lines whose embedded events satisfy the streamed run contract,
+  and ends with exactly one final `rpc_response` after the active run and any
+  drained follow-up runs complete
+- `run.start` with `mode: "coding"` exposes only the canonical coding tool
+  set
+- `run.start` with `mode: "onboarding"` exposes the canonical coding tools
+  plus onboarding-only tools such as `ask_mcq_question`, and applies the
+  onboarding prompt overlay in Python
+- `/onboard` is the user-facing signal that sets the session mode to
+  `onboarding` before starting the run; `/exit-mode` returns the session mode
+  to `coding`
 - A valid `run.enqueue` request must reference an existing `session_id`, must carry a non-blank prompt, is accepted only while that session currently has an active streamed run in this backend process, and yields exactly one `rpc_response` with the resulting queued-count
 - A valid `run.interrupt` request must reference an existing `session_id`, is accepted only while that session currently has an active streamed run in this backend process, cancels that active run, and yields exactly one `rpc_response` with the resulting promoted-count
 - Session lifecycle `rpc_event` payloads such as `session_compaction_started` and `session_compaction_completed` may appear before `run_started`

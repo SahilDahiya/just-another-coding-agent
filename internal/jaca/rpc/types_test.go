@@ -328,8 +328,7 @@ func TestDecodeEnvelopePreservesOnboardingQuestionEventFields(t *testing.T) {
 				"internal/jaca/app/slash.go",
 				"internal/jaca/app/render.go",
 				"internal/jaca/rpc/client.go"
-			],
-			"evidence":["internal/jaca/app/slash.go"]
+			]
 		}
 	}`)
 
@@ -353,9 +352,6 @@ func TestDecodeEnvelopePreservesOnboardingQuestionEventFields(t *testing.T) {
 	}
 	if len(envelope.Event.Options) != 4 || envelope.Event.Options[1] != "internal/jaca/app/slash.go" {
 		t.Fatalf("Options = %#v, want slash.go as second option", envelope.Event.Options)
-	}
-	if len(envelope.Event.Evidence) != 1 || envelope.Event.Evidence[0] != "internal/jaca/app/slash.go" {
-		t.Fatalf("Evidence = %#v, want slash.go", envelope.Event.Evidence)
 	}
 }
 

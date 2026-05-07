@@ -427,6 +427,10 @@ def update_session_auto_compaction_failures(
     )
 
 
+def update_session_mode(*, path: Path, current_mode: str) -> SessionMetadata:
+    return _update_session_metadata(path=path, current_mode=current_mode)
+
+
 def fork_session(
     *,
     source_path: Path,
@@ -478,10 +482,14 @@ def fork_session(
         _flush_file_handle(file_handle)
 
     timestamp = _utc_now()
+    source_metadata = read_session_metadata(
+        path=_metadata_path_for_session_path(source_path)
+    )
     _write_session_metadata(
         path=_metadata_path_for_session_path(target_path),
         metadata=SessionMetadata(
             session_id=target_path.stem,
+            current_mode=source_metadata.current_mode,
             created_at=timestamp,
             updated_at=timestamp,
             forked_from_session_id=forked_from_session_id,
@@ -1096,6 +1104,7 @@ def _update_session_metadata(
     *,
     path: Path,
     name: SessionName | None | object = _UNSET,
+    current_mode: str | object = _UNSET,
     updated_at: datetime | object = _UNSET,
     consecutive_auto_compaction_failures: int | object = _UNSET,
 ) -> SessionMetadata:
@@ -1106,6 +1115,7 @@ def _update_session_metadata(
             key: value
             for key, value in {
                 "name": name,
+                "current_mode": current_mode,
                 "updated_at": updated_at,
                 "consecutive_auto_compaction_failures": (
                     consecutive_auto_compaction_failures

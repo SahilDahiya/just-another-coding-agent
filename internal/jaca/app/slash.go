@@ -49,7 +49,7 @@ var slashCommands = []slashCommandSpec{
 	{Value: "/login", Description: "Connect ChatGPT or API-key access", AcceptsArgs: true, ArgSuggestions: (*model).loginSlashSuggestions, Execute: (*model).executeLoginSlash},
 	{Value: "/model", Description: "Switch active model", AcceptsArgs: true, ArgSuggestions: (*model).modelSlashSuggestions, Execute: (*model).executeModelSlash},
 	{Value: "/permission", Description: "Show or switch permission preset", AcceptsArgs: true, ArgSuggestions: (*model).permissionSlashSuggestions, Execute: (*model).executePermissionSlash},
-	{Value: "/onboard", Description: "Ask one codebase onboarding question", AcceptsArgs: true, Execute: (*model).executeOnboardSlash},
+	{Value: "/onboard", Description: "Enter onboarding mode for this session", AcceptsArgs: true, Execute: (*model).executeOnboardSlash},
 	{Value: "/approve", Description: "Approve the pending action", AllowedWhileStreaming: true, Execute: (*model).executeApproveSlash},
 	{Value: "/deny", Description: "Deny the pending action", AllowedWhileStreaming: true, Execute: (*model).executeDenySlash},
 	{Value: "/version", Description: "Show installed and available version info", Execute: (*model).executeVersionSlash},
@@ -60,6 +60,7 @@ var slashCommands = []slashCommandSpec{
 	{Value: "/name", Description: "Name active session", AcceptsArgs: true, Execute: (*model).executeNameSlash},
 	{Value: "/compact", Description: "Compact current session", Execute: (*model).executeCompactSlash},
 	{Value: "/new", Description: "Clear active session", Execute: (*model).executeNewSlash},
+	{Value: "/exit-mode", Description: "Exit the current session mode", Execute: (*model).executeExitModeSlash},
 	{Value: "/help", Description: "Show available commands", Execute: (*model).executeHelpSlash},
 	{Value: "/quit", Description: "Quit JACA", Execute: (*model).executeQuitSlash},
 }

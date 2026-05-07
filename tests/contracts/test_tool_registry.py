@@ -10,7 +10,7 @@ from just_another_coding_agent.tools.find import FIND_TOOL
 from just_another_coding_agent.tools.grep import GREP_TOOL
 from just_another_coding_agent.tools.ls import LS_TOOL
 from just_another_coding_agent.tools.onboarding_question import (
-    ASK_ONBOARDING_QUESTION_TOOL,
+    ASK_MCQ_QUESTION_TOOL,
 )
 from just_another_coding_agent.tools.read import READ_TOOL
 from just_another_coding_agent.tools.registry import (
@@ -19,9 +19,13 @@ from just_another_coding_agent.tools.registry import (
     UnknownToolError,
     build_canonical_toolset,
     list_canonical_tool_names,
+    list_onboarding_tool_names,
 )
 from just_another_coding_agent.tools.shell import SHELL_TOOL
 from just_another_coding_agent.tools.subagent import SUBAGENT_TOOL
+from just_another_coding_agent.tools.teaching_packet import (
+    PUBLISH_TEACHING_PACKET_TOOL,
+)
 from just_another_coding_agent.tools.write import WRITE_TOOL
 
 CANONICAL_CORE_TOOL_SCHEMA_MAX_CHARS = 8_500
@@ -49,7 +53,13 @@ def test_registry_exposes_canonical_tool_names() -> None:
         "ls",
         "find",
         "subagent",
-        "ask_onboarding_question",
+    )
+
+
+def test_registry_exposes_onboarding_only_tool_names() -> None:
+    assert list_onboarding_tool_names() == (
+        "ask_mcq_question",
+        "publish_teaching_packet",
     )
 
 
@@ -74,7 +84,8 @@ def test_registry_exposes_explicit_parallel_tool_policy() -> None:
     assert EDIT_TOOL.sequential is True
     assert SHELL_TOOL.sequential is True
     assert SUBAGENT_TOOL.sequential is True
-    assert ASK_ONBOARDING_QUESTION_TOOL.sequential is True
+    assert ASK_MCQ_QUESTION_TOOL.sequential is True
+    assert PUBLISH_TEACHING_PACKET_TOOL.sequential is True
 
 
 def test_build_canonical_toolset_registers_implemented_tools_with_pydanticai(
@@ -94,7 +105,6 @@ def test_build_canonical_toolset_registers_implemented_tools_with_pydanticai(
                     "ls",
                     "find",
                     "subagent",
-                    "ask_onboarding_question",
                 ]
             )
         ],
@@ -114,7 +124,6 @@ def test_build_canonical_toolset_registers_implemented_tools_with_pydanticai(
         "ls",
         "find",
         "subagent",
-        "ask_onboarding_question",
     ]
 
 
@@ -135,7 +144,8 @@ def test_build_canonical_toolset_exposes_rich_model_facing_tool_descriptions(
                     "ls",
                     "find",
                     "subagent",
-                    "ask_onboarding_question",
+                    "ask_mcq_question",
+                    "publish_teaching_packet",
                 ]
             )
         ],
@@ -359,17 +369,35 @@ def test_build_canonical_toolset_exposes_rich_model_facing_tool_descriptions(
             "or 'shell' when the child also needs shell commands."
         )
     )
-    assert function_tools["ask_onboarding_question"].description == (
-        "Present one onboarding multiple-choice question, wait for the user's "
-        "selection, persist it, and return the result. Supply four options, a "
-        "zero-based correct_index, evidence file paths, and a short "
-        "explanation. Do not reveal the correct answer before calling the tool."
+    assert function_tools["ask_mcq_question"].description == (
+        "Present one multiple-choice question, wait for the user's selection, "
+        "persist it, and return the result. Supply linked teaching packet ids, "
+        "four options, a zero-based correct_index, and a short explanation. "
+        "Do not reveal the correct answer before calling the tool."
     )
     assert (
-        function_tools["ask_onboarding_question"].parameters_json_schema[
+        function_tools["ask_mcq_question"].parameters_json_schema[
             "properties"
         ]["correct_index"]["maximum"]
         == 3
+    )
+    assert (
+        function_tools["ask_mcq_question"].parameters_json_schema[
+            "properties"
+        ]["packet_ids"]["minItems"]
+        == 1
+    )
+    assert function_tools["publish_teaching_packet"].description == (
+        "Publish one curated teaching packet into the transcript by resolving "
+        "1 to 5 code-file snippet references into canonical file text. "
+        "Documentation paths are not allowed. Supply a short title and "
+        "snippet references with path, start_line, and end_line."
+    )
+    assert (
+        function_tools["publish_teaching_packet"].parameters_json_schema[
+            "properties"
+        ]["snippets"]["maxItems"]
+        == 5
     )
 
 
@@ -388,7 +416,6 @@ def test_canonical_core_tool_schemas_stay_direct_and_within_budget(tmp_path) -> 
                     "ls",
                     "find",
                     "subagent",
-                    "ask_onboarding_question",
                 ]
             )
         ],
@@ -407,7 +434,6 @@ def test_canonical_core_tool_schemas_stay_direct_and_within_budget(tmp_path) -> 
         "ls",
         "find",
         "subagent",
-        "ask_onboarding_question",
     ]
     assert (
         len(_model_visible_tool_schema_payload(function_tools))
