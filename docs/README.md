@@ -22,6 +22,7 @@ read_when: start here, onboarding, or you need to find the right doc quickly
 - Permission rule-engine direction and simplification guardrails: [permission-rule-engine.md](permission-rule-engine.md)
 - Workspace trust bootstrap and repo-root trust targeting: [workspace-trust.md](workspace-trust.md)
 - PydanticAI grounding sources: [grounding.md](grounding.md)
+- DSPy and PydanticAI bridge direction: [dspy-pydanticai-bridge.md](dspy-pydanticai-bridge.md)
 - Development workflow and commands: [development.md](development.md)
 - Distribution, install lanes, and release behavior: [distribution.md](distribution.md)
 - Compaction architecture and invariants: [compaction.md](compaction.md)
@@ -67,6 +68,7 @@ read_when: start here, onboarding, or you need to find the right doc quickly
 - [permission-rule-engine.md](permission-rule-engine.md) - design stance for simplifying permission policy evaluation through a small backend rule engine
 - [workspace-trust.md](workspace-trust.md) - startup trust gate, trust target resolution, and repo-root instruction loading
 - [grounding.md](grounding.md) - official PydanticAI grounding sources
+- [dspy-pydanticai-bridge.md](dspy-pydanticai-bridge.md) - current onboarding DSPy integration and the future bridge back to canonical PydanticAI model/auth ownership
 - [development.md](development.md) - environment, commands, CI, and test workflow
 - [distribution.md](distribution.md) - published install path, repo checkout path, and release packaging rules
 - [compaction.md](compaction.md) - durable session compaction architecture and invariants

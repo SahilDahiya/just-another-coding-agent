@@ -1,0 +1,887 @@
+import asyncio
+import json
+import sqlite3
+from types import SimpleNamespace
+
+from pydantic_ai.messages import ModelMessage, ToolReturnPart, UserPromptPart
+from pydantic_ai.models.function import DeltaToolCall, FunctionModel
+
+from just_another_coding_agent.onboarding import (
+    GeneratedMcqQuestion,
+    PublishedMcqQuestion,
+    SnippetSelection,
+    onboarding_db_path,
+    publish_onboarding_mcq,
+)
+from just_another_coding_agent.provider_readiness import ProviderReadinessError
+from just_another_coding_agent.rpc.session_store import (
+    session_path_for_id,
+    workspace_sessions_dir,
+)
+from just_another_coding_agent.rpc.stdio import (
+    _extract_session_id_for_serialization,
+    handle_rpc_json_line,
+)
+from just_another_coding_agent.session import load_session
+from tests.contracts.rpc_stdio_test_support import (
+    _all_parts,
+    create_session_id,
+    rpc_messages,
+    text_only_stream,
+)
+
+
+class _FakeDspyForOnboarding:
+    class Signature:
+        pass
+
+    @staticmethod
+    def InputField(**_kwargs):
+        return None
+
+    @staticmethod
+    def OutputField(**_kwargs):
+        return None
+
+    class Predict:
+        def __init__(self, _signature):
+            self._prediction = SimpleNamespace(
+                prompt="What does pick_model return?",
+                option_a="gpt-5.3-codex",
+                option_b="gpt-5.4",
+                option_c="claude",
+                option_d="None",
+                correct_index=1,
+                explanation="The function returns the gpt-5.4 literal.",
+            )
+
+        def set_lm(self, _lm) -> None:
+            return None
+
+        def __call__(self, **_kwargs):
+            return self._prediction
+
+
+async def test_onboarding_start_persists_and_reopens_pending_attempt(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    (workspace_root / "main.py").write_text(
+        "def pick_model():\n    return 'gpt-5.4'\n",
+        encoding="utf-8",
+    )
+    sessions_root = tmp_path / "sessions"
+
+    monkeypatch.setattr(
+        "just_another_coding_agent.onboarding.generate_onboarding_mcq",
+        lambda **_kwargs: GeneratedMcqQuestion(
+            question_type="mcq",
+            snippet=SnippetSelection(
+                path="main.py",
+                start_line=1,
+                end_line=2,
+                text="def pick_model():\n    return 'gpt-5.4'",
+            ),
+            prompt="What does pick_model return?",
+            options=("gpt-5.3-codex", "gpt-5.4", "claude", "None"),
+            correct_index=1,
+            explanation="The function returns the gpt-5.4 literal.",
+        ),
+    )
+
+    trust_messages = await rpc_messages(
+        request_payload={
+            "id": "req-trust-accept",
+            "command": "workspace.trust_accept",
+            "payload": {},
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+    assert trust_messages[0]["type"] == "rpc_response"
+
+    first = await rpc_messages(
+        request_payload={
+            "id": "req-onboard-1",
+            "command": "onboarding.start",
+            "payload": {},
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+    assert first[0]["type"] == "rpc_response"
+    response = first[0]["response"]
+    assert response["created_session"] is True
+    assert response["question_type"] == "mcq"
+    assert response["options"] == ["gpt-5.3-codex", "gpt-5.4", "claude", "None"]
+    session_id = response["session_id"]
+    attempt_id = response["attempt_id"]
+
+    db_path = onboarding_db_path(
+        sessions_root=sessions_root,
+        workspace_root=workspace_root,
+    )
+    assert db_path.exists()
+    with sqlite3.connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT status, prompt FROM onboarding_attempts WHERE id = ?",
+            (attempt_id,),
+        ).fetchone()
+    assert row == ("pending", "What does pick_model return?")
+
+    second = await rpc_messages(
+        request_payload={
+            "id": "req-onboard-2",
+            "command": "onboarding.start",
+            "payload": {"session_id": session_id},
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+    assert second[0]["type"] == "rpc_response"
+    reopened = second[0]["response"]
+    assert reopened["created_session"] is False
+    assert reopened["attempt_id"] == attempt_id
+
+
+async def test_onboarding_submit_completes_attempt_without_regeneration(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    (workspace_root / "main.py").write_text(
+        "def pick_model():\n    return 'gpt-5.4'\n",
+        encoding="utf-8",
+    )
+    sessions_root = tmp_path / "sessions"
+
+    monkeypatch.setattr(
+        "just_another_coding_agent.onboarding.generate_onboarding_mcq",
+        lambda **_kwargs: GeneratedMcqQuestion(
+            question_type="mcq",
+            snippet=SnippetSelection(
+                path="main.py",
+                start_line=1,
+                end_line=2,
+                text="def pick_model():\n    return 'gpt-5.4'",
+            ),
+            prompt="What does pick_model return?",
+            options=("gpt-5.3-codex", "gpt-5.4", "claude", "None"),
+            correct_index=1,
+            explanation="The function returns the gpt-5.4 literal.",
+        ),
+    )
+
+    await rpc_messages(
+        request_payload={
+            "id": "req-trust-accept",
+            "command": "workspace.trust_accept",
+            "payload": {},
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    started = await rpc_messages(
+        request_payload={
+            "id": "req-onboard-start",
+            "command": "onboarding.start",
+            "payload": {},
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+    payload = started[0]["response"]
+
+    submitted = await rpc_messages(
+        request_payload={
+            "id": "req-onboard-submit",
+            "command": "onboarding.submit",
+            "payload": {
+                "session_id": payload["session_id"],
+                "attempt_id": payload["attempt_id"],
+                "selected_index": 1,
+            },
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+    assert submitted == [
+        {
+            "type": "rpc_response",
+            "id": "req-onboard-submit",
+            "response": {
+                "session_id": payload["session_id"],
+                "attempt_id": payload["attempt_id"],
+                "question_type": "mcq",
+                "selected_index": 1,
+                "correct_index": 1,
+                "correct_option": "gpt-5.4",
+                "is_correct": True,
+                "explanation": "The function returns the gpt-5.4 literal.",
+            },
+        }
+    ]
+
+    db_path = onboarding_db_path(
+        sessions_root=sessions_root,
+        workspace_root=workspace_root,
+    )
+    with sqlite3.connect(db_path) as conn:
+        row = conn.execute(
+            """
+            SELECT status, answer_payload_json, result_payload_json
+            FROM onboarding_attempts
+            WHERE id = ?
+            """,
+            (payload["attempt_id"],),
+        ).fetchone()
+    assert row is not None
+    assert row[0] == "completed"
+    assert json.loads(row[1]) == {"selected_index": 1}
+    assert json.loads(row[2]) == {"correct_index": 1, "is_correct": True}
+
+
+async def test_onboarding_start_returns_rpc_error_for_generation_runtime_failure(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+
+    monkeypatch.setattr(
+        "just_another_coding_agent.onboarding.generate_onboarding_mcq",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            RuntimeError("No supported code snippet was found for onboarding")
+        ),
+    )
+
+    await rpc_messages(
+        request_payload={
+            "id": "req-trust-accept",
+            "command": "workspace.trust_accept",
+            "payload": {},
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    messages = await rpc_messages(
+        request_payload={
+            "id": "req-onboard-start",
+            "command": "onboarding.start",
+            "payload": {},
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    assert messages == [
+        {
+            "type": "rpc_error",
+            "id": "req-onboard-start",
+            "error_type": "InvalidRequest",
+            "message": "No supported code snippet was found for onboarding",
+        }
+    ]
+
+
+async def test_onboarding_start_generation_failure_without_session_writes_no_state(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+
+    monkeypatch.setattr(
+        "just_another_coding_agent.onboarding.generate_onboarding_mcq",
+        lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("missing dspy")),
+    )
+
+    await rpc_messages(
+        request_payload={
+            "id": "req-trust-accept",
+            "command": "workspace.trust_accept",
+            "payload": {},
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    messages = await rpc_messages(
+        request_payload={
+            "id": "req-onboard-start",
+            "command": "onboarding.start",
+            "payload": {},
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    assert messages == [
+        {
+            "type": "rpc_error",
+            "id": "req-onboard-start",
+            "error_type": "InvalidRequest",
+            "message": "missing dspy",
+        }
+    ]
+
+    workspace_dir = workspace_sessions_dir(
+        sessions_root=sessions_root,
+        workspace_root=workspace_root,
+    )
+    assert not workspace_dir.exists()
+    assert not onboarding_db_path(
+        sessions_root=sessions_root,
+        workspace_root=workspace_root,
+    ).exists()
+
+
+async def test_onboarding_start_invalid_dspy_prediction_returns_rpc_error(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+
+    monkeypatch.setattr(
+        "just_another_coding_agent.onboarding._select_snippet",
+        lambda _workspace_root: SnippetSelection(
+            path="main.py",
+            start_line=1,
+            end_line=2,
+            text="def pick_model():\n    return 'gpt-5.4'",
+        ),
+    )
+    fake_dspy = _FakeDspyForOnboarding()
+    fake_dspy.Predict = type(
+        "InvalidPredict",
+        (),
+        {
+            "__init__": lambda self, _signature: None,
+            "set_lm": lambda self, _lm: None,
+            "__call__": lambda self, **_kwargs: SimpleNamespace(
+                prompt="What does pick_model return?",
+                option_a="gpt-5.3-codex",
+                option_b="gpt-5.4",
+                option_c="claude",
+                option_d="None",
+                correct_index="B",
+                explanation="The function returns the gpt-5.4 literal.",
+            ),
+        },
+    )
+    monkeypatch.setattr(
+        "just_another_coding_agent.onboarding.import_dspy",
+        lambda: fake_dspy,
+    )
+    monkeypatch.setattr(
+        "just_another_coding_agent.onboarding.build_dspy_lm",
+        lambda **_kwargs: object(),
+    )
+
+    await rpc_messages(
+        request_payload={
+            "id": "req-trust-accept",
+            "command": "workspace.trust_accept",
+            "payload": {},
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    messages = await rpc_messages(
+        request_payload={
+            "id": "req-onboard-start",
+            "command": "onboarding.start",
+            "payload": {},
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    assert messages == [
+        {
+            "type": "rpc_error",
+            "id": "req-onboard-start",
+            "error_type": "InvalidRequest",
+            "message": "invalid literal for int() with base 10: 'B'",
+        }
+    ]
+
+
+async def test_onboarding_start_provider_readiness_failure_returns_provider_not_ready(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+
+    monkeypatch.setattr(
+        "just_another_coding_agent.onboarding._select_snippet",
+        lambda _workspace_root: SnippetSelection(
+            path="main.py",
+            start_line=1,
+            end_line=2,
+            text="def pick_model():\n    return 'gpt-5.4'",
+        ),
+    )
+    monkeypatch.setattr(
+        "just_another_coding_agent.onboarding.import_dspy",
+        lambda: _FakeDspyForOnboarding(),
+    )
+    monkeypatch.setattr(
+        "just_another_coding_agent.onboarding.build_dspy_lm",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            ProviderReadinessError("openai is not ready: missing_secret")
+        ),
+    )
+
+    await rpc_messages(
+        request_payload={
+            "id": "req-trust-accept",
+            "command": "workspace.trust_accept",
+            "payload": {},
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    messages = await rpc_messages(
+        request_payload={
+            "id": "req-onboard-start",
+            "command": "onboarding.start",
+            "payload": {},
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    assert messages == [
+        {
+            "type": "rpc_error",
+            "id": "req-onboard-start",
+            "error_type": "ProviderNotReady",
+            "message": "openai is not ready: missing_secret",
+        }
+    ]
+
+
+async def test_onboarding_start_rejects_tool_authored_pending_attempt(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    (workspace_root / "docs").mkdir()
+    (workspace_root / "docs" / "goal.md").write_text(
+        "Python owns semantics.\n",
+        encoding="utf-8",
+    )
+    sessions_root = tmp_path / "sessions"
+
+    session_id = await create_session_id(
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    publish_onboarding_mcq(
+        sessions_root=sessions_root,
+        workspace_root=workspace_root,
+        session_id=session_id,
+        run_id="run-onboard-tool",
+        question=PublishedMcqQuestion(
+            question_type="mcq",
+            prompt="Which doc states Python owns semantics?",
+            options=("goal.md", "README.md", "architecture.md", "contracts.md"),
+            correct_index=0,
+            evidence=("docs/goal.md",),
+            explanation="docs/goal.md states it directly.",
+        ),
+    )
+
+    messages = await rpc_messages(
+        request_payload={
+            "id": "req-onboard-start",
+            "command": "onboarding.start",
+            "payload": {"session_id": session_id},
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    assert messages == [
+        {
+            "type": "rpc_error",
+            "id": "req-onboard-start",
+            "error_type": "InvalidRequest",
+            "message": (
+                "Session has a pending live onboarding tool question that cannot "
+                "be reopened through onboarding.start"
+            ),
+        }
+    ]
+
+
+async def test_run_interrupt_abandons_pending_live_onboarding_attempt(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    (workspace_root / "internal" / "jaca" / "app").mkdir(parents=True)
+    (workspace_root / "internal" / "jaca" / "app" / "slash.go").write_text(
+        "var slashCommands = []string{\"/onboard\"}\n",
+        encoding="utf-8",
+    )
+    (workspace_root / "main.py").write_text(
+        "def pick_model():\n    return 'gpt-5.4'\n",
+        encoding="utf-8",
+    )
+    sessions_root = tmp_path / "sessions"
+    session_id = await create_session_id(
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    request_payload = {
+        "id": "req-run",
+        "command": "run.start",
+        "payload": {
+            "session_id": session_id,
+            "prompt": "ask one onboarding question",
+        },
+    }
+    run_messages: list[dict[str, object]] = []
+    question_requested = asyncio.Event()
+
+    async def collect_run_messages() -> None:
+        async for line in handle_rpc_json_line(
+            line=json.dumps(request_payload),
+            model=FunctionModel(stream_function=_onboarding_tool_stream),
+            workspace_root=workspace_root,
+            sessions_root=sessions_root,
+            emit_rpc_event=lambda _request_id, _event: asyncio.sleep(0),
+        ):
+            message = json.loads(line)
+            run_messages.append(message)
+            if (
+                message["type"] == "rpc_event"
+                and message["event"]["type"] == "onboarding_question_requested"
+            ):
+                question_requested.set()
+
+    run_task = asyncio.create_task(collect_run_messages())
+    await question_requested.wait()
+
+    question_event = next(
+        message["event"]
+        for message in run_messages
+        if message["type"] == "rpc_event"
+        and message["event"]["type"] == "onboarding_question_requested"
+    )
+    attempt_id = question_event["attempt_id"]
+
+    interrupted = await rpc_messages(
+        request_payload={
+            "id": "req-interrupt",
+            "command": "run.interrupt",
+            "payload": {
+                "session_id": session_id,
+                "promote_queued_steer": False,
+            },
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+    await run_task
+
+    assert interrupted == [
+        {
+            "type": "rpc_response",
+            "id": "req-interrupt",
+            "response": {
+                "session_id": session_id,
+                "promoted_count": 0,
+            },
+        }
+    ]
+
+    db_path = onboarding_db_path(
+        sessions_root=sessions_root,
+        workspace_root=workspace_root,
+    )
+    with sqlite3.connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT status FROM onboarding_attempts WHERE id = ?",
+            (attempt_id,),
+        ).fetchone()
+    assert row == ("abandoned",)
+
+    monkeypatch.setattr(
+        "just_another_coding_agent.onboarding.generate_onboarding_mcq",
+        lambda **_kwargs: GeneratedMcqQuestion(
+            question_type="mcq",
+            snippet=SnippetSelection(
+                path="main.py",
+                start_line=1,
+                end_line=2,
+                text="def pick_model():\n    return 'gpt-5.4'",
+            ),
+            prompt="What does pick_model return?",
+            options=("gpt-5.3-codex", "gpt-5.4", "claude", "None"),
+            correct_index=1,
+            explanation="The function returns the gpt-5.4 literal.",
+        ),
+    )
+
+    restarted = await rpc_messages(
+        request_payload={
+            "id": "req-onboard-restart",
+            "command": "onboarding.start",
+            "payload": {"session_id": session_id},
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    assert restarted[0]["type"] == "rpc_response"
+    assert restarted[0]["response"]["attempt_id"] != attempt_id
+
+
+def _last_user_prompt(messages: list[ModelMessage]) -> str | None:
+    prompt: str | None = None
+    for message in messages:
+        for part in message.parts:
+            if isinstance(part, UserPromptPart):
+                prompt = part.content
+    return prompt
+
+
+def _has_onboarding_tool_return(messages: list[ModelMessage]) -> bool:
+    return any(
+        isinstance(part, ToolReturnPart)
+        and part.tool_name == "ask_onboarding_question"
+        for part in _all_parts(messages)
+    )
+
+
+async def _onboarding_tool_stream(
+    messages: list[ModelMessage],
+    _agent_info: object,
+):
+    latest_prompt = _last_user_prompt(messages)
+    saw_tool_return = _has_onboarding_tool_return(messages)
+    if latest_prompt == "ask one onboarding question" and not saw_tool_return:
+        yield {
+            0: DeltaToolCall(
+                name="ask_onboarding_question",
+                json_args=json.dumps(
+                    {
+                        "question": "Which file defines the slash command table?",
+                        "options": [
+                            "internal/jaca/app/model.go",
+                            "internal/jaca/app/slash.go",
+                            "internal/jaca/app/render.go",
+                            "internal/jaca/rpc/client.go",
+                        ],
+                        "correct_index": 1,
+                        "evidence": ["internal/jaca/app/slash.go"],
+                        "explanation": (
+                            "The slash command registry is declared in "
+                            "internal/jaca/app/slash.go."
+                        ),
+                    }
+                ),
+                tool_call_id="tool-onboarding-1",
+            )
+        }
+        return
+    if saw_tool_return:
+        yield "done"
+        return
+    raise AssertionError(f"unexpected prompt/tool state: {latest_prompt!r}")
+
+
+async def test_run_start_supports_live_onboarding_question_tool_without_dspy(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    (workspace_root / "internal" / "jaca" / "app").mkdir(parents=True)
+    (workspace_root / "internal" / "jaca" / "app" / "slash.go").write_text(
+        "var slashCommands = []string{\"/onboard\"}\n",
+        encoding="utf-8",
+    )
+    sessions_root = tmp_path / "sessions"
+    session_id = await create_session_id(
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    request_payload = {
+        "id": "req-run",
+        "command": "run.start",
+        "payload": {
+            "session_id": session_id,
+            "prompt": "ask one onboarding question",
+        },
+    }
+    run_messages: list[dict[str, object]] = []
+    question_requested = asyncio.Event()
+
+    async def collect_run_messages() -> None:
+        async for line in handle_rpc_json_line(
+            line=json.dumps(request_payload),
+            model=FunctionModel(stream_function=_onboarding_tool_stream),
+            workspace_root=workspace_root,
+            sessions_root=sessions_root,
+            emit_rpc_event=lambda _request_id, _event: asyncio.sleep(0),
+        ):
+            message = json.loads(line)
+            run_messages.append(message)
+            if (
+                message["type"] == "rpc_event"
+                and message["event"]["type"] == "onboarding_question_requested"
+            ):
+                question_requested.set()
+
+    run_task = asyncio.create_task(collect_run_messages())
+    await question_requested.wait()
+
+    question_event = next(
+        message["event"]
+        for message in run_messages
+        if message["type"] == "rpc_event"
+        and message["event"]["type"] == "onboarding_question_requested"
+    )
+    attempt_id = question_event["attempt_id"]
+    assert question_event["question_type"] == "mcq"
+    assert question_event["prompt"] == "Which file defines the slash command table?"
+    assert question_event["options"] == [
+        "internal/jaca/app/model.go",
+        "internal/jaca/app/slash.go",
+        "internal/jaca/app/render.go",
+        "internal/jaca/rpc/client.go",
+    ]
+    assert question_event["evidence"] == ["internal/jaca/app/slash.go"]
+
+    submit_messages = await rpc_messages(
+        request_payload={
+            "id": "req-onboard-submit",
+            "command": "onboarding.submit",
+            "payload": {
+                "session_id": session_id,
+                "attempt_id": attempt_id,
+                "selected_index": 1,
+            },
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+    await run_task
+
+    assert submit_messages == [
+        {
+            "type": "rpc_response",
+            "id": "req-onboard-submit",
+            "response": {
+                "session_id": session_id,
+                "attempt_id": attempt_id,
+                "question_type": "mcq",
+                "selected_index": 1,
+                "correct_index": 1,
+                "correct_option": "internal/jaca/app/slash.go",
+                "is_correct": True,
+                "explanation": (
+                    "The slash command registry is declared in "
+                    "internal/jaca/app/slash.go."
+                ),
+            },
+        }
+    ]
+    assert run_messages[-1]["type"] == "rpc_response"
+    event_types = [
+        message["event"]["type"]
+        for message in run_messages
+        if message["type"] == "rpc_event"
+    ]
+    assert "onboarding_question_requested" in event_types
+    assert "tool_call_started" in event_types
+    assert "tool_call_succeeded" in event_types
+    assert event_types[-1] == "run_succeeded"
+
+    db_path = onboarding_db_path(
+        sessions_root=sessions_root,
+        workspace_root=workspace_root,
+    )
+    with sqlite3.connect(db_path) as conn:
+        row = conn.execute(
+            """
+            SELECT status, prompt, answer_payload_json, result_payload_json
+            FROM onboarding_attempts
+            WHERE id = ?
+            """,
+            (attempt_id,),
+        ).fetchone()
+    assert row is not None
+    assert row[0] == "completed"
+    assert row[1] == "Which file defines the slash command table?"
+    assert json.loads(row[2]) == {"selected_index": 1}
+    assert json.loads(row[3]) == {"correct_index": 1, "is_correct": True}
+
+    session = load_session(
+        path=session_path_for_id(
+            sessions_root=sessions_root,
+            workspace_root=workspace_root,
+            session_id=session_id,
+        ),
+        workspace_root=workspace_root,
+    )
+    assert any(
+        isinstance(part, ToolReturnPart)
+        and part.tool_name == "ask_onboarding_question"
+        for message in session.message_history
+        for part in message.parts
+    )
+
+
+def test_onboarding_submit_is_not_session_serialized() -> None:
+    line = json.dumps(
+        {
+            "id": "req-onboard-submit",
+            "command": "onboarding.submit",
+            "payload": {
+                "session_id": "0123456789abcdef0123456789abcdef",
+                "attempt_id": "attempt-1",
+                "selected_index": 1,
+            },
+        }
+    )
+
+    assert _extract_session_id_for_serialization(line) is None

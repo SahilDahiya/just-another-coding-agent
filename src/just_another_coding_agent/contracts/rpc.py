@@ -200,6 +200,28 @@ class RunInterruptRequest(_RpcModel):
     payload: RunInterruptPayload
 
 
+class OnboardingStartPayload(_RpcModel):
+    session_id: SessionId | None = None
+
+
+class OnboardingStartRequest(_RpcModel):
+    id: str
+    command: Literal["onboarding.start"]
+    payload: OnboardingStartPayload
+
+
+class OnboardingSubmitPayload(_RpcModel):
+    session_id: SessionId
+    attempt_id: str
+    selected_index: int
+
+
+class OnboardingSubmitRequest(_RpcModel):
+    id: str
+    command: Literal["onboarding.submit"]
+    payload: OnboardingSubmitPayload
+
+
 class PermissionGetPayload(_RpcModel):
     session_id: SessionId | None = None
 
@@ -288,6 +310,8 @@ RpcRequest = Annotated[
     | RunStartRequest
     | RunEnqueueRequest
     | RunInterruptRequest
+    | OnboardingStartRequest
+    | OnboardingSubmitRequest
     | PermissionGetRequest
     | PermissionSetRequest
     | ApprovalSubmitRequest
@@ -380,6 +404,39 @@ class RunInterruptResponse(_RpcModel):
     promoted_count: int
 
 
+class OnboardingProjectDoc(_RpcModel):
+    path: str
+    filename: str
+    truncated: bool = False
+
+
+class OnboardingStartResponse(_RpcModel):
+    session_id: SessionId
+    created_session: bool
+    project_docs: list[OnboardingProjectDoc] = Field(default_factory=list)
+    attempt_id: str
+    question_type: Literal["mcq"]
+    snippet_path: str
+    snippet_start_line: int
+    snippet_end_line: int
+    snippet_text: str
+    prompt: str
+    options: list[str] = Field(min_length=4, max_length=4)
+    explanation: str
+    generator_version: str
+
+
+class OnboardingSubmitResponse(_RpcModel):
+    session_id: SessionId
+    attempt_id: str
+    question_type: Literal["mcq"]
+    selected_index: int
+    correct_index: int
+    correct_option: str
+    is_correct: bool
+    explanation: str
+
+
 class PermissionGetResponse(_RpcModel):
     session_id: SessionId | None = None
     permission_state: PermissionState
@@ -435,6 +492,8 @@ class RpcResponseEnvelope(_RpcModel):
         | RunStartResponse
         | RunEnqueueResponse
         | RunInterruptResponse
+        | OnboardingStartResponse
+        | OnboardingSubmitResponse
         | PermissionGetResponse
         | PermissionSetResponse
         | ApprovalSubmitResponse
@@ -502,6 +561,13 @@ __all__ = [
     "RunInterruptPayload",
     "RunInterruptRequest",
     "RunInterruptResponse",
+    "OnboardingProjectDoc",
+    "OnboardingStartPayload",
+    "OnboardingStartRequest",
+    "OnboardingStartResponse",
+    "OnboardingSubmitPayload",
+    "OnboardingSubmitRequest",
+    "OnboardingSubmitResponse",
     "PermissionGetPayload",
     "PermissionGetRequest",
     "PermissionGetResponse",

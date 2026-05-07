@@ -13,6 +13,7 @@ from typing import Any, Callable, TextIO
 
 from pydantic import TypeAdapter, ValidationError
 
+import just_another_coding_agent.onboarding as onboarding_domain
 from just_another_coding_agent.auth import (
     AuthStoreError,
     OpenAICodexLoginFlow,
@@ -31,6 +32,10 @@ from just_another_coding_agent.contracts.model_catalog import (
     CANONICAL_PROVIDER_ORDER,
     default_model_for_provider,
     shipped_models_for_provider,
+)
+from just_another_coding_agent.contracts.onboarding import (
+    OnboardingAnswerResult,
+    OnboardingQuestionRequest,
 )
 from just_another_coding_agent.contracts.rpc import (
     ApprovalSubmitRequest,
@@ -53,6 +58,11 @@ from just_another_coding_agent.contracts.rpc import (
     ModelCatalogProvider,
     ModelCatalogRequest,
     ModelCatalogResponse,
+    OnboardingProjectDoc,
+    OnboardingStartRequest,
+    OnboardingStartResponse,
+    OnboardingSubmitRequest,
+    OnboardingSubmitResponse,
     PermissionGetRequest,
     PermissionGetResponse,
     PermissionSetRequest,
@@ -104,6 +114,14 @@ from just_another_coding_agent.contracts.sandbox import (
     normalize_approval_decision,
 )
 from just_another_coding_agent.contracts.tools import CANONICAL_TOOL_NAMES
+from just_another_coding_agent.onboarding import (
+    OnboardingAttemptNotFoundError,
+    OnboardingGenerationError,
+    OnboardingValidationError,
+    abandon_pending_onboarding_attempt,
+    start_onboarding_mcq,
+    submit_onboarding_mcq,
+)
 from just_another_coding_agent.provider_readiness import ProviderReadinessError
 from just_another_coding_agent.rpc.session_store import (
     create_session,
@@ -410,6 +428,13 @@ class _PendingApprovalState:
 
 
 @dataclass
+class _PendingOnboardingQuestionState:
+    attempt_id: str
+    question: OnboardingQuestionRequest
+    response_future: asyncio.Future[OnboardingAnswerResult]
+
+
+@dataclass
 class _SessionPermissionContext:
     permission_state: PermissionState
     permission_memory: SessionPermissionMemory
@@ -427,6 +452,9 @@ class _RpcRuntimeState:
     pending_approvals: dict[str, dict[str, _PendingApprovalState]] = field(
         default_factory=lambda: defaultdict(dict)
     )
+    pending_onboarding_questions: dict[
+        str, dict[str, _PendingOnboardingQuestionState]
+    ] = field(default_factory=lambda: defaultdict(dict))
 
 
 def _new_runtime_state() -> _RpcRuntimeState:
@@ -546,6 +574,35 @@ def _workspace_project_docs_root(workspace_root: Path | str) -> Path:
     return resolve_workspace_trust_target(workspace_root)
 
 
+def _create_session_with_project_docs(
+    *,
+    sessions_root: Path | str,
+    workspace_root: Path | str,
+) -> tuple[str, list[WorkspaceProjectDoc]]:
+    session_id = create_session(
+        sessions_root=sessions_root,
+        workspace_root=workspace_root,
+        project_docs_root=_workspace_project_docs_root(workspace_root),
+    )
+    _RUNTIME_STATE.permission_states[session_id] = _SessionPermissionContext(
+        permission_state=_get_or_create_permission_context(
+            None
+        ).permission_state.model_copy(deep=True),
+        permission_memory=SessionPermissionMemory(),
+    )
+    project_docs = [
+        WorkspaceProjectDoc(
+            path=str(doc.path),
+            filename=doc.filename,
+            truncated=doc.truncated,
+        )
+        for doc in load_workspace_project_docs(
+            _workspace_project_docs_root(workspace_root)
+        )
+    ]
+    return session_id, project_docs
+
+
 def _workspace_untrusted_error(
     *,
     request_id: str,
@@ -573,31 +630,15 @@ async def _handle_session_create(
             workspace_root=ctx.workspace_root,
         ).model_dump_json()
         return
-    session_id = create_session(
+    session_id, project_docs = _create_session_with_project_docs(
         sessions_root=ctx.sessions_root,
         workspace_root=ctx.workspace_root,
-        project_docs_root=_workspace_project_docs_root(ctx.workspace_root),
-    )
-    _RUNTIME_STATE.permission_states[session_id] = _SessionPermissionContext(
-        permission_state=_get_or_create_permission_context(
-            None
-        ).permission_state.model_copy(deep=True),
-        permission_memory=SessionPermissionMemory(),
     )
     yield RpcResponseEnvelope(
         id=request.id,
         response=SessionCreateResponse(
             session_id=session_id,
-            project_docs=[
-                WorkspaceProjectDoc(
-                    path=str(doc.path),
-                    filename=doc.filename,
-                    truncated=doc.truncated,
-                )
-                for doc in load_workspace_project_docs(
-                    _workspace_project_docs_root(ctx.workspace_root)
-                )
-            ],
+            project_docs=project_docs,
         ),
     ).model_dump_json()
 
@@ -865,6 +906,170 @@ async def _handle_run_interrupt(
         response=RunInterruptResponse(
             session_id=request.payload.session_id,
             promoted_count=promoted_count,
+        ),
+    ).model_dump_json()
+
+
+@_rpc_error_handler(
+    _RpcErrorMapping(OnboardingGenerationError, "InvalidRequest"),
+    _RpcErrorMapping(OnboardingValidationError, "InvalidRequest"),
+    _RpcErrorMapping(ProviderReadinessError, "ProviderNotReady"),
+)
+async def _handle_onboarding_start(
+    request: OnboardingStartRequest,
+    ctx: _RpcContext,
+) -> AsyncIterator[str]:
+    if not _workspace_is_trusted(ctx.workspace_root):
+        yield _workspace_untrusted_error(
+            request_id=request.id,
+            workspace_root=ctx.workspace_root,
+        ).model_dump_json()
+        return
+
+    created_session = False
+    project_docs: list[WorkspaceProjectDoc] = []
+    session_id = request.payload.session_id
+    generated_question = None
+    if session_id is None:
+        try:
+            generated_question = await asyncio.to_thread(
+                onboarding_domain.generate_onboarding_mcq,
+                workspace_root=ctx.workspace_root,
+                model=ctx.model,
+            )
+        except ProviderReadinessError:
+            raise
+        except RuntimeError as error:
+            raise OnboardingGenerationError(str(error)) from error
+        created_session = True
+        session_id, project_docs = _create_session_with_project_docs(
+            sessions_root=ctx.sessions_root,
+            workspace_root=ctx.workspace_root,
+        )
+    else:
+        session_path = session_path_for_id(
+            sessions_root=ctx.sessions_root,
+            workspace_root=ctx.workspace_root,
+            session_id=session_id,
+        )
+        if not session_path.exists():
+            yield RpcErrorEnvelope(
+                id=request.id,
+                error_type="UnknownSession",
+                message=f"Unknown session_id: {session_id}",
+            ).model_dump_json()
+            return
+
+    try:
+        result = await asyncio.to_thread(
+            start_onboarding_mcq,
+            sessions_root=ctx.sessions_root,
+            workspace_root=ctx.workspace_root,
+            session_id=session_id,
+            model=ctx.model,
+            created_session=created_session,
+            generated_question=generated_question,
+        )
+    except Exception:
+        if created_session:
+            _cleanup_created_session_artifacts(
+                sessions_root=ctx.sessions_root,
+                workspace_root=ctx.workspace_root,
+                session_id=session_id,
+            )
+        raise
+    yield RpcResponseEnvelope(
+        id=request.id,
+        response=OnboardingStartResponse(
+            session_id=result.session_id,
+            created_session=result.created_session,
+            project_docs=[
+                OnboardingProjectDoc(
+                    path=doc.path,
+                    filename=doc.filename,
+                    truncated=doc.truncated,
+                )
+                for doc in project_docs
+            ],
+            attempt_id=result.attempt_id,
+            question_type=result.question_type,
+            snippet_path=result.snippet.path,
+            snippet_start_line=result.snippet.start_line,
+            snippet_end_line=result.snippet.end_line,
+            snippet_text=result.snippet.text,
+            prompt=result.prompt,
+            options=list(result.options),
+            explanation=result.explanation,
+            generator_version=result.generator_version,
+        ),
+    ).model_dump_json()
+
+
+def _cleanup_created_session_artifacts(
+    *,
+    sessions_root: Path | str,
+    workspace_root: Path | str,
+    session_id: str | None,
+) -> None:
+    if session_id is None:
+        return
+    session_path = session_path_for_id(
+        sessions_root=sessions_root,
+        workspace_root=workspace_root,
+        session_id=session_id,
+    )
+    session_path.unlink(missing_ok=True)
+    session_path.with_suffix(".meta.json").unlink(missing_ok=True)
+    _RUNTIME_STATE.permission_states.pop(session_id, None)
+
+
+@_rpc_error_handler(
+    _RpcErrorMapping(OnboardingAttemptNotFoundError, "InvalidRequest"),
+    _RpcErrorMapping(OnboardingValidationError, "InvalidRequest"),
+)
+async def _handle_onboarding_submit(
+    request: OnboardingSubmitRequest,
+    ctx: _RpcContext,
+) -> AsyncIterator[str]:
+    session_path = session_path_for_id(
+        sessions_root=ctx.sessions_root,
+        workspace_root=ctx.workspace_root,
+        session_id=request.payload.session_id,
+    )
+    if not session_path.exists():
+        yield RpcErrorEnvelope(
+            id=request.id,
+            error_type="UnknownSession",
+            message=f"Unknown session_id: {request.payload.session_id}",
+        ).model_dump_json()
+        return
+
+    result = await asyncio.to_thread(
+        submit_onboarding_mcq,
+        sessions_root=ctx.sessions_root,
+        workspace_root=ctx.workspace_root,
+        session_id=request.payload.session_id,
+        attempt_id=request.payload.attempt_id,
+        selected_index=request.payload.selected_index,
+    )
+    pending = _RUNTIME_STATE.pending_onboarding_questions.get(
+        request.payload.session_id,
+        {}
+    )
+    question_state = pending.get(request.payload.attempt_id)
+    if question_state is not None and not question_state.response_future.done():
+        question_state.response_future.set_result(result)
+    yield RpcResponseEnvelope(
+        id=request.id,
+        response=OnboardingSubmitResponse(
+            session_id=result.session_id,
+            attempt_id=result.attempt_id,
+            question_type=result.question_type,
+            selected_index=result.selected_index,
+            correct_index=result.correct_index,
+            correct_option=result.correct_option,
+            is_correct=result.is_correct,
+            explanation=result.explanation,
         ),
     ).model_dump_json()
 
@@ -1277,6 +1482,45 @@ async def _handle_run_start(
                         request.payload.session_id, None
                     )
 
+    async def resolve_onboarding_question(
+        question_request: OnboardingQuestionRequest,
+    ) -> OnboardingAnswerResult:
+        question_state = _PendingOnboardingQuestionState(
+            attempt_id=question_request.attempt_id,
+            question=question_request,
+            response_future=asyncio.get_running_loop().create_future(),
+        )
+        session_pending = _RUNTIME_STATE.pending_onboarding_questions[
+            request.payload.session_id
+        ]
+        if question_request.attempt_id in session_pending:
+            raise RuntimeError(
+                "Onboarding question already pending for session: "
+                f"{question_request.attempt_id}"
+            )
+        session_pending[question_request.attempt_id] = question_state
+        try:
+            return await question_state.response_future
+        except asyncio.CancelledError:
+            await asyncio.to_thread(
+                abandon_pending_onboarding_attempt,
+                sessions_root=ctx.sessions_root,
+                workspace_root=ctx.workspace_root,
+                session_id=request.payload.session_id,
+                attempt_id=question_request.attempt_id,
+            )
+            raise
+        finally:
+            current_pending = _RUNTIME_STATE.pending_onboarding_questions.get(
+                request.payload.session_id
+            )
+            if current_pending is not None:
+                current_pending.pop(question_request.attempt_id, None)
+                if not current_pending:
+                    _RUNTIME_STATE.pending_onboarding_questions.pop(
+                        request.payload.session_id, None
+                    )
+
     await _RUNTIME_STATE.follow_up_state.activate(
         request.payload.session_id,
         run_task=current_task,
@@ -1301,6 +1545,7 @@ async def _handle_run_start(
                         request.payload.session_id
                     ).permission_memory,
                     resolve_approval_request=resolve_approval_request,
+                    resolve_onboarding_question=resolve_onboarding_question,
                     activate_steer_boundary=activate_boundary,
                     submit_steer_boundary=submit_boundary,
                     deactivate_steer_boundary=lambda: (
@@ -1376,6 +1621,8 @@ _RPC_HANDLERS: dict[type[Any], RpcHandler] = {
     TraceLogfireStatusRequest: _handle_trace_logfire_status,
     RunEnqueueRequest: _handle_run_enqueue,
     RunInterruptRequest: _handle_run_interrupt,
+    OnboardingStartRequest: _handle_onboarding_start,
+    OnboardingSubmitRequest: _handle_onboarding_submit,
     PermissionGetRequest: _handle_permission_get,
     PermissionSetRequest: _handle_permission_set,
     ApprovalSubmitRequest: _handle_approval_submit,
@@ -1661,6 +1908,7 @@ def _extract_session_id_for_serialization(line: str) -> str | None:
         "session.compact",
         "session.name",
         "session.preview",
+        "onboarding.start",
     }:
         return None
     request_payload = payload.get("payload")
