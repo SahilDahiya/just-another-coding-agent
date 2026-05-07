@@ -135,6 +135,22 @@ _TOOL_GUIDANCE_BY_NAME = {
     "grep": ("Use grep for content search across files.",),
     "ls": ("Use ls for bounded directory listings.",),
     "find": ("Use find for file discovery by glob pattern.",),
+    "ask_onboarding_question": (
+        (
+            "Use ask_onboarding_question only when you are ready to quiz the "
+            "user with one concrete onboarding MCQ grounded in repo evidence."
+        ),
+        (
+            "You may use ask_onboarding_question multiple times across the "
+            "same session when the user asks for another question, but use it "
+            "at most once per quiz turn."
+        ),
+        (
+            "Do not reveal the correct answer in assistant text before "
+            "calling the tool; let the tool present the question and wait "
+            "for the user's selection."
+        ),
+    ),
     "subagent": (
         (
             "Use subagent for one bounded side task when either a fresh or "

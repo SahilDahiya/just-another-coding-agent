@@ -8,6 +8,10 @@ from typing import Any
 
 from pydantic_ai.messages import ModelMessage
 
+from just_another_coding_agent.contracts.onboarding import (
+    OnboardingAnswerResult,
+    OnboardingQuestionRequest,
+)
 from just_another_coding_agent.contracts.platform import detect_default_shell_family
 from just_another_coding_agent.contracts.run_events import (
     RunEvent,
@@ -188,6 +192,10 @@ async def stream_session_run_events(
     permission_memory: SessionPermissionMemory | None = None,
     resolve_approval_request: (
         Callable[[ApprovalRequest], Awaitable[ApprovalDecision]] | None
+    ) = None,
+    resolve_onboarding_question: (
+        Callable[[OnboardingQuestionRequest], Awaitable[OnboardingAnswerResult]]
+        | None
     ) = None,
     activate_steer_boundary: (
         Callable[[Callable[[list[str]], None]], Awaitable[None]]
@@ -383,6 +391,7 @@ async def stream_session_run_events(
             thinking=resolved_thinking,
             deps=WorkspaceDeps(
                 workspace_root=normalized_workspace_root,
+                sessions_root=session_path.parent.parent,
                 shell_family=shell_family,
                 session_scope=RunSessionScope(session_id=session_path.stem),
                 run_frame=RunRuntimeFrame(
@@ -397,6 +406,7 @@ async def stream_session_run_events(
             message_history_sink=_record_message_history,
             available_tool_names=tool_names,
             resolve_approval_request=resolve_approval_request,
+            resolve_onboarding_question=resolve_onboarding_question,
         )
         if (
             activate_steer_boundary is not None

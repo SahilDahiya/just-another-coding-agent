@@ -9,6 +9,9 @@ from just_another_coding_agent.tools.edit import EDIT_TOOL
 from just_another_coding_agent.tools.find import FIND_TOOL
 from just_another_coding_agent.tools.grep import GREP_TOOL
 from just_another_coding_agent.tools.ls import LS_TOOL
+from just_another_coding_agent.tools.onboarding_question import (
+    ASK_ONBOARDING_QUESTION_TOOL,
+)
 from just_another_coding_agent.tools.read import READ_TOOL
 from just_another_coding_agent.tools.registry import (
     PARALLEL_CANONICAL_TOOL_NAMES,
@@ -21,7 +24,7 @@ from just_another_coding_agent.tools.shell import SHELL_TOOL
 from just_another_coding_agent.tools.subagent import SUBAGENT_TOOL
 from just_another_coding_agent.tools.write import WRITE_TOOL
 
-CANONICAL_CORE_TOOL_SCHEMA_MAX_CHARS = 8_000
+CANONICAL_CORE_TOOL_SCHEMA_MAX_CHARS = 8_500
 
 
 def _model_visible_tool_schema_payload(function_tools: object) -> str:
@@ -46,6 +49,7 @@ def test_registry_exposes_canonical_tool_names() -> None:
         "ls",
         "find",
         "subagent",
+        "ask_onboarding_question",
     )
 
 
@@ -70,6 +74,7 @@ def test_registry_exposes_explicit_parallel_tool_policy() -> None:
     assert EDIT_TOOL.sequential is True
     assert SHELL_TOOL.sequential is True
     assert SUBAGENT_TOOL.sequential is True
+    assert ASK_ONBOARDING_QUESTION_TOOL.sequential is True
 
 
 def test_build_canonical_toolset_registers_implemented_tools_with_pydanticai(
@@ -80,7 +85,17 @@ def test_build_canonical_toolset_registers_implemented_tools_with_pydanticai(
         model,
         toolsets=[
             build_canonical_toolset(
-                ["read", "write", "edit", "shell", "grep", "ls", "find", "subagent"]
+                [
+                    "read",
+                    "write",
+                    "edit",
+                    "shell",
+                    "grep",
+                    "ls",
+                    "find",
+                    "subagent",
+                    "ask_onboarding_question",
+                ]
             )
         ],
         deps_type=WorkspaceDeps,
@@ -99,6 +114,7 @@ def test_build_canonical_toolset_registers_implemented_tools_with_pydanticai(
         "ls",
         "find",
         "subagent",
+        "ask_onboarding_question",
     ]
 
 
@@ -110,7 +126,17 @@ def test_build_canonical_toolset_exposes_rich_model_facing_tool_descriptions(
         model,
         toolsets=[
             build_canonical_toolset(
-                ["read", "write", "edit", "shell", "grep", "ls", "find", "subagent"]
+                [
+                    "read",
+                    "write",
+                    "edit",
+                    "shell",
+                    "grep",
+                    "ls",
+                    "find",
+                    "subagent",
+                    "ask_onboarding_question",
+                ]
             )
         ],
         deps_type=WorkspaceDeps,
@@ -333,6 +359,18 @@ def test_build_canonical_toolset_exposes_rich_model_facing_tool_descriptions(
             "or 'shell' when the child also needs shell commands."
         )
     )
+    assert function_tools["ask_onboarding_question"].description == (
+        "Present one onboarding multiple-choice question, wait for the user's "
+        "selection, persist it, and return the result. Supply four options, a "
+        "zero-based correct_index, evidence file paths, and a short "
+        "explanation. Do not reveal the correct answer before calling the tool."
+    )
+    assert (
+        function_tools["ask_onboarding_question"].parameters_json_schema[
+            "properties"
+        ]["correct_index"]["maximum"]
+        == 3
+    )
 
 
 def test_canonical_core_tool_schemas_stay_direct_and_within_budget(tmp_path) -> None:
@@ -341,7 +379,17 @@ def test_canonical_core_tool_schemas_stay_direct_and_within_budget(tmp_path) -> 
         model,
         toolsets=[
             build_canonical_toolset(
-                ["read", "write", "edit", "shell", "grep", "ls", "find", "subagent"]
+                [
+                    "read",
+                    "write",
+                    "edit",
+                    "shell",
+                    "grep",
+                    "ls",
+                    "find",
+                    "subagent",
+                    "ask_onboarding_question",
+                ]
             )
         ],
         deps_type=WorkspaceDeps,
@@ -359,6 +407,7 @@ def test_canonical_core_tool_schemas_stay_direct_and_within_budget(tmp_path) -> 
         "ls",
         "find",
         "subagent",
+        "ask_onboarding_question",
     ]
     assert (
         len(_model_visible_tool_schema_payload(function_tools))

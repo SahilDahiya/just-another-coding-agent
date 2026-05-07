@@ -77,7 +77,8 @@ def test_build_canonical_instructions_include_dynamic_context(tmp_path) -> None:
         in instructions
     )
     assert (
-        "Use only these tools: read, write, edit, shell, grep, ls, find, subagent."
+        "Use only these tools: read, write, edit, shell, grep, ls, find, "
+        "subagent, ask_onboarding_question."
         in instructions
     )
     assert "Use grep for content search across files." in instructions
@@ -109,6 +110,12 @@ def test_build_canonical_instructions_include_dynamic_context(tmp_path) -> None:
     assert (
         "Do not use subagent for broad multi-step work or when the next "
         "local command is already obvious."
+        in instructions
+    )
+    assert (
+        "You may use ask_onboarding_question multiple times across the same "
+        "session when the user asks for another question, but use it at most "
+        "once per quiz turn."
         in instructions
     )
     assert (

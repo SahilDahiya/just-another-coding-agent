@@ -6,6 +6,10 @@ from datetime import date
 from pathlib import Path
 from typing import Any, Literal, TypeAlias
 
+from just_another_coding_agent.contracts.onboarding import (
+    OnboardingAnswerResult,
+    OnboardingQuestionRequest,
+)
 from just_another_coding_agent.contracts.platform import (
     ShellFamily,
     detect_default_shell_family,
@@ -40,6 +44,10 @@ ToolUpdateSink: TypeAlias = Callable[
 ApprovalRequester: TypeAlias = Callable[
     [ApprovalRequest, str | None, str | None],
     Awaitable[ApprovalDecision],
+]
+OnboardingQuestionRequester: TypeAlias = Callable[
+    [OnboardingQuestionRequest],
+    Awaitable[OnboardingAnswerResult],
 ]
 RunSessionKind: TypeAlias = Literal["root", "subagent"]
 
@@ -187,6 +195,7 @@ class RunRuntimeFrame:
 @dataclass(frozen=True)
 class WorkspaceDeps:
     workspace_root: Path
+    sessions_root: Path | None = None
     shell_family: ShellFamily = "posix"
     session_scope: RunSessionScope = field(default_factory=RunSessionScope)
     run_frame: RunRuntimeFrame | None = field(
@@ -196,6 +205,7 @@ class WorkspaceDeps:
     )
     tool_update_sink: ToolUpdateSink | None = None
     approval_requester: ApprovalRequester | None = None
+    onboarding_question_requester: OnboardingQuestionRequester | None = None
     read_only_worker: ReadOnlyWorkerRuntime = field(
         default_factory=ReadOnlyWorkerRuntime,
         compare=False,
@@ -230,6 +240,7 @@ __all__ = [
     "RunSessionKind",
     "RunSessionScope",
     "ApprovalRequester",
+    "OnboardingQuestionRequester",
     "SessionPermissionMemory",
     "ToolUpdateSink",
     "WorkspaceDeps",

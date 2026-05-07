@@ -5,6 +5,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from just_another_coding_agent.contracts.compaction import CompactionBudgetReport
+from just_another_coding_agent.contracts.onboarding import OnboardingQuestionRequest
 from just_another_coding_agent.contracts.platform import ShellFamily
 from just_another_coding_agent.contracts.sandbox import (
     ApprovalDecision,
@@ -178,6 +179,31 @@ class ApprovalResolvedEvent(_RunEventBase):
     decision: ApprovalDecision
 
 
+class OnboardingQuestionRequestedEvent(_RunEventBase):
+    type: Literal["onboarding_question_requested"] = "onboarding_question_requested"
+    attempt_id: str
+    question_type: Literal["mcq"] = "mcq"
+    prompt: str
+    options: list[str]
+    evidence: list[str] = Field(default_factory=list)
+
+    @classmethod
+    def from_request(
+        cls,
+        *,
+        run_id: str,
+        request: OnboardingQuestionRequest,
+    ) -> "OnboardingQuestionRequestedEvent":
+        return cls(
+            run_id=run_id,
+            attempt_id=request.attempt_id,
+            question_type=request.question_type,
+            prompt=request.prompt,
+            options=list(request.options),
+            evidence=list(request.evidence),
+        )
+
+
 class ToolCallStartedEvent(_RunEventBase):
     type: Literal["tool_call_started"] = "tool_call_started"
     tool_call_id: str
@@ -296,6 +322,7 @@ RunEvent = Annotated[
     | AssistantTextDeltaEvent
     | ApprovalRequestedEvent
     | ApprovalResolvedEvent
+    | OnboardingQuestionRequestedEvent
     | ToolCallStartedEvent
     | ToolCallUpdatedEvent
     | ToolCallSucceededEvent
@@ -318,6 +345,7 @@ __all__ = [
     "InRunCompactionCompletedEvent",
     "JsonValue",
     "LsActivityDetails",
+    "OnboardingQuestionRequestedEvent",
     "ReadActivityDetails",
     "RunEvent",
     "RunFailedEvent",

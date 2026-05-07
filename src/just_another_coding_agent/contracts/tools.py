@@ -15,6 +15,7 @@ CANONICAL_TOOL_NAMES = (
     "ls",
     "find",
     "subagent",
+    "ask_onboarding_question",
 )
 CanonicalToolName = Literal[
     "read",
@@ -25,6 +26,7 @@ CanonicalToolName = Literal[
     "ls",
     "find",
     "subagent",
+    "ask_onboarding_question",
 ]
 
 

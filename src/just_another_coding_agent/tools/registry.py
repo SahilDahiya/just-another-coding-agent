@@ -15,6 +15,9 @@ from just_another_coding_agent.tools.errors import ErrorWrappingToolset
 from just_another_coding_agent.tools.find import FIND_TOOL
 from just_another_coding_agent.tools.grep import GREP_TOOL
 from just_another_coding_agent.tools.ls import LS_TOOL
+from just_another_coding_agent.tools.onboarding_question import (
+    ASK_ONBOARDING_QUESTION_TOOL,
+)
 from just_another_coding_agent.tools.read import READ_TOOL
 from just_another_coding_agent.tools.shell import SHELL_TOOL
 from just_another_coding_agent.tools.subagent import SUBAGENT_TOOL
@@ -36,9 +39,11 @@ SEQUENTIAL_CANONICAL_TOOL_NAMES = (
     "edit",
     "shell",
     "subagent",
+    "ask_onboarding_question",
 )
 
 _TOOLS_BY_NAME = {
+    "ask_onboarding_question": ASK_ONBOARDING_QUESTION_TOOL,
     "edit": EDIT_TOOL,
     "find": FIND_TOOL,
     "grep": GREP_TOOL,

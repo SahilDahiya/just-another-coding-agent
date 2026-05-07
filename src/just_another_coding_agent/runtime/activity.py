@@ -17,6 +17,7 @@ from just_another_coding_agent.tools._activity import truncate_activity_label
 
 _TOOL_ACTIVITY_DETAILS_ADAPTER = TypeAdapter(ToolActivityDetails)
 _TITLE_KEY_BY_TOOL = {
+    "ask_onboarding_question": "question",
     "read": "path",
     "write": "path",
     "edit": "path",
@@ -24,6 +25,7 @@ _TITLE_KEY_BY_TOOL = {
     "find": "pattern",
 }
 _DISPLAY_LABEL_BY_TOOL = {
+    "ask_onboarding_question": "Onboard",
     "read": "Read",
     "write": "Write",
     "edit": "Edit",

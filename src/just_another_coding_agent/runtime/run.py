@@ -35,12 +35,17 @@ from pydantic_ai.messages import (
 from pydantic_ai.usage import UsageLimits
 from pydantic_graph import End
 
+from just_another_coding_agent.contracts.onboarding import (
+    OnboardingAnswerResult,
+    OnboardingQuestionRequest,
+)
 from just_another_coding_agent.contracts.run_events import (
     ApprovalRequestedEvent,
     ApprovalResolvedEvent,
     AssistantTextDeltaEvent,
     InRunCompactionCompletedEvent,
     JsonValue,
+    OnboardingQuestionRequestedEvent,
     RunEvent,
     RunFailedEvent,
     RunStartedEvent,
@@ -141,6 +146,12 @@ class _QueuedApprovalRequest:
     response_future: asyncio.Future[ApprovalDecision]
 
 
+@dataclass(frozen=True)
+class _QueuedOnboardingQuestionRequest:
+    request: OnboardingQuestionRequest
+    response_future: asyncio.Future[OnboardingAnswerResult]
+
+
 class _RestartRunWithCorrection(Exception):
     def __init__(
         self,
@@ -231,6 +242,10 @@ def _bind_workspace_deps_to_run(
         [ApprovalRequest, str | None, str | None], Awaitable[ApprovalDecision]
     ]
     | None,
+    onboarding_question_requester: (
+        Callable[[OnboardingQuestionRequest], Awaitable[OnboardingAnswerResult]]
+        | None
+    ),
 ) -> WorkspaceDeps:
     return replace(
         deps,
@@ -240,6 +255,7 @@ def _bind_workspace_deps_to_run(
         ),
         tool_update_sink=tool_update_sink,
         approval_requester=approval_requester,
+        onboarding_question_requester=onboarding_question_requester,
     )
 
 
@@ -648,6 +664,10 @@ async def _stream_run_events(
     resolve_approval_request: (
         Callable[[ApprovalRequest], Awaitable[ApprovalDecision]] | None
     ) = None,
+    resolve_onboarding_question: (
+        Callable[[OnboardingQuestionRequest], Awaitable[OnboardingAnswerResult]]
+        | None
+    ) = None,
 ) -> AsyncIterator[RunEvent]:
     """Translate one PydanticAI run into the canonical streamed event contract.
 
@@ -722,11 +742,26 @@ async def _stream_run_events(
                     )
                     return await response_future
 
+                async def _queue_onboarding_question(
+                    request: OnboardingQuestionRequest,
+                ) -> OnboardingAnswerResult:
+                    response_future: asyncio.Future[OnboardingAnswerResult] = (
+                        asyncio.get_running_loop().create_future()
+                    )
+                    await queue.put(
+                        _QueuedOnboardingQuestionRequest(
+                            request=request,
+                            response_future=response_future,
+                        )
+                    )
+                    return await response_future
+
                 queued_deps = _bind_workspace_deps_to_run(
                     deps=deps,
                     run_id=run_id,
                     tool_update_sink=_queue_tool_update,
                     approval_requester=_queue_approval_request,
+                    onboarding_question_requester=_queue_onboarding_question,
                 )
             else:
                 queue = asyncio.Queue()
@@ -986,9 +1021,52 @@ async def _stream_run_events(
                                                         ):
                                                             denied_request_fingerprints.add(
                                                                 fingerprint
-                                                            )
+                                                        )
                                                         event.response_future.set_result(
                                                             decision
+                                                        )
+                                                    elif isinstance(
+                                                        event,
+                                                        _QueuedOnboardingQuestionRequest,
+                                                    ):
+                                                        yield (
+                                                            OnboardingQuestionRequestedEvent.from_request(
+                                                                run_id=run_id,
+                                                                request=event.request,
+                                                            )
+                                                        )
+                                                        if (
+                                                            resolve_onboarding_question
+                                                            is None
+                                                        ):
+                                                            error_message = (
+                                                                "Onboarding question "
+                                                                "emitted without a "
+                                                                "resolver"
+                                                            )
+                                                            error = RuntimeError(
+                                                                error_message
+                                                            )
+                                                            event.response_future.set_exception(
+                                                                error
+                                                            )
+                                                            raise error
+                                                        try:
+                                                            answer = await (
+                                                                resolve_onboarding_question(
+                                                                    event.request
+                                                                )
+                                                            )
+                                                        except Exception as error:
+                                                            if not (
+                                                                event.response_future.done()
+                                                            ):
+                                                                event.response_future.set_exception(
+                                                                    error
+                                                                )
+                                                            raise
+                                                        event.response_future.set_result(
+                                                            answer
                                                         )
                                                     else:
                                                         pending_tool_call = _resolve_tool_update(  # noqa: E501
@@ -1458,6 +1536,10 @@ async def stream_run_events(
     resolve_approval_request: (
         Callable[[ApprovalRequest], Awaitable[ApprovalDecision]] | None
     ) = None,
+    resolve_onboarding_question: (
+        Callable[[OnboardingQuestionRequest], Awaitable[OnboardingAnswerResult]]
+        | None
+    ) = None,
 ) -> AsyncIterator[RunEvent]:
     """Translate one PydanticAI run into the canonical streamed event contract."""
     steer_callbacks_present = (
@@ -1489,6 +1571,7 @@ async def stream_run_events(
         submit_steer_boundary=submit_steer_boundary,
         deactivate_steer_boundary=deactivate_steer_boundary,
         resolve_approval_request=resolve_approval_request,
+        resolve_onboarding_question=resolve_onboarding_question,
     ):
         if isinstance(event, RunSucceededEvent):
             event = event.model_copy(

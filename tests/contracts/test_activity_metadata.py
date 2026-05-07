@@ -17,6 +17,18 @@ from just_another_coding_agent.runtime.activity import (
 from just_another_coding_agent.tools._activity import shorten_path
 
 _SAMPLE_ARGS_BY_TOOL: dict[str, dict[str, object]] = {
+    "ask_onboarding_question": {
+        "question": "Which file defines the slash command table?",
+        "options": [
+            "internal/jaca/app/model.go",
+            "internal/jaca/app/slash.go",
+            "internal/jaca/app/render.go",
+            "internal/jaca/rpc/client.go",
+        ],
+        "correct_index": 1,
+        "evidence": ["internal/jaca/app/slash.go"],
+        "explanation": "internal/jaca/app/slash.go defines the table.",
+    },
     "read": {"path": "note.txt", "offset": 1, "limit": 10},
     "write": {"path": "note.txt", "content": "hello"},
     "edit": {"path": "note.txt", "old_text": "hello", "new_text": "world"},
@@ -39,6 +51,9 @@ _SAMPLE_ARGS_BY_TOOL: dict[str, dict[str, object]] = {
 }
 
 _EXPECTED_STARTED_TITLE_BY_TOOL = {
+    "ask_onboarding_question": (
+        "ask_onboarding_question Which file defines the slash command table?"
+    ),
     "read": "read note.txt",
     "write": "write note.txt",
     "edit": "edit note.txt",
@@ -50,6 +65,7 @@ _EXPECTED_STARTED_TITLE_BY_TOOL = {
 }
 
 _EXPECTED_DISPLAY_LABEL_BY_TOOL = {
+    "ask_onboarding_question": "Onboard",
     "read": "Read",
     "write": "Write",
     "edit": "Edit",

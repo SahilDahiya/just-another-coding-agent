@@ -349,12 +349,13 @@ Canonical tool set for the first maintained version:
 - `ls`
 - `find`
 - `subagent`
+- `ask_onboarding_question`
 
 Rules:
 
 - Tool names are stable once published.
-- The eight canonical coding tools remain directly model-visible. Do not hide
-  them behind a tool-search or deferred-loading indirection without a separate
+- The current canonical tools remain directly model-visible. Do not hide them
+  behind a tool-search or deferred-loading indirection without a separate
   evidence-backed contract change.
 - Tool inputs must be explicit and validated.
 - Canonical public tool schema and validation live on the PydanticAI tool
@@ -417,9 +418,9 @@ Expected tool-domain denial result:
 
 Initial executable tool slice:
 
-- canonical registry names: `read`, `write`, `edit`, `shell`, `grep`, `ls`, `find`, `subagent`
+- canonical registry names: `read`, `write`, `edit`, `shell`, `grep`, `ls`, `find`, `subagent`, `ask_onboarding_question`
 - unknown tool names fail explicitly
-- initial concrete tool implementations: `read`, `write`, `edit`, `shell`, `grep`, `ls`, `find`, `subagent`
+- initial concrete tool implementations: `read`, `write`, `edit`, `shell`, `grep`, `ls`, `find`, `subagent`, `ask_onboarding_question`
 
 `read` input contract:
 
@@ -783,7 +784,7 @@ Rules for the initial activity slice:
 Canonical tool concurrency policy:
 
 - `read`, `grep`, `find`, and `ls` are parallel-eligible
-- `write`, `edit`, and `shell` are sequential only
+- `write`, `edit`, `shell`, `subagent`, and `ask_onboarding_question` are sequential only
 - the runtime must set tool execution mode explicitly instead of relying on framework defaults
 - provider-side `parallel_tool_calls` is enabled by default for canonical model/provider paths; carve-outs should be explicit when a specific model path is known not to support it correctly
 
@@ -981,6 +982,8 @@ Initial executable RPC slice:
     - `session.name` with payload `{"session_id": <opaque-lowercase-hex-string>, "name": <string>}`
     - `session.preview` with payload `{"session_id": <opaque-lowercase-hex-string>}`
     - `session.compact` with payload `{"session_id": <opaque-lowercase-hex-string>}`
+    - `onboarding.start` with payload `{"session_id": <optional-opaque-lowercase-hex-string>}`
+    - `onboarding.submit` with payload `{"session_id": <opaque-lowercase-hex-string>, "attempt_id": <opaque-lowercase-hex-string>, "selected_index": 0 | 1 | 2 | 3}`
     - `run.start` with payload `{"session_id": <opaque-lowercase-hex-string>, "prompt": <string>, "thinking": <optional-thinking-setting>}`
     - `run.enqueue` with payload `{"session_id": <opaque-lowercase-hex-string>, "prompt": <string>, "mode": "next" | "later"}`
     - `run.interrupt` with payload `{"session_id": <opaque-lowercase-hex-string>, "promote_queued_steer": <bool>}`
@@ -996,12 +999,16 @@ Initial executable RPC slice:
     - `{"session_id": <opaque-lowercase-hex-string>, "name": <backend-normalized-session-name>}` for `session.name`
     - `{"session_id": <opaque-lowercase-hex-string>, "entries": [{"kind": "instructions" | "user" | "activity" | "assistant" | "error", "text": <string>}], "truncated": <bool>}` for `session.preview`
     - `{"compaction_id": <opaque-lowercase-hex-string>, "compacted_through_run_id": <run_id>}`
+    - `{"session_id": <opaque-lowercase-hex-string>, "created_session": <bool>, "project_docs": [{"path": <path>, "filename": <filename>, "truncated": <bool>}], "attempt_id": <opaque-lowercase-hex-string>, "question_type": "mcq", "snippet_path": <path>, "snippet_start_line": <positive-int>, "snippet_end_line": <positive-int>, "snippet_text": <string>, "prompt": <string>, "options": [<string>, <string>, <string>, <string>], "explanation": <string>, "generator_version": <string>}` for `onboarding.start`
+    - `{"session_id": <opaque-lowercase-hex-string>, "attempt_id": <opaque-lowercase-hex-string>, "question_type": "mcq", "selected_index": 0 | 1 | 2 | 3, "correct_index": 0 | 1 | 2 | 3, "correct_option": <string>, "is_correct": <bool>, "explanation": <string>}` for `onboarding.submit`
     - `{"session_id": <opaque-lowercase-hex-string>}` for `run.start`
     - `{"session_id": <opaque-lowercase-hex-string>, "queued_count": <positive-int>}` for `run.enqueue`
     - `{"session_id": <opaque-lowercase-hex-string>, "promoted_count": <non-negative-int>}` for `run.interrupt`
 - `rpc_event`
   - fields: `type`, `id`, `event`
   - `event` must be one canonical streamed run event payload or session lifecycle event payload
+  - current onboarding-specific run event:
+    - `{"type": "onboarding_question_requested", "run_id": <run_id>, "attempt_id": <opaque-lowercase-hex-string>, "question_type": "mcq", "prompt": <string>, "options": [<string>, <string>, <string>, <string>], "evidence": [<path>, ...]}`
 - `rpc_error`
   - fields: `type`, `id`, `error_type`, `message`
 
@@ -1031,6 +1038,23 @@ Ordering rules for the RPC slice:
   accepted for the current trust target
 - `session.create` may also append one backend-owned `session_project_docs`
   entry when workspace project docs were loaded for that new session
+- A valid `onboarding.start` request yields exactly one `rpc_response`
+  containing one backend-owned pending onboarding question for that session
+- `onboarding.start` with no `session_id` must create a new trusted session,
+  persist the onboarding attempt before responding, and return
+  `created_session: true`
+- `onboarding.start` on a session with an existing pending snippet-backed
+  `onboarding.start` attempt must reopen that same attempt instead of
+  generating a second pending question
+- `onboarding.start` must fail with `InvalidRequest` if the session already has
+  a pending live `ask_onboarding_question` attempt, because that tool-owned
+  question does not carry the snippet fields required by the `onboarding.start`
+  response contract
+- A valid `onboarding.submit` request yields exactly one `rpc_response` and
+  resolves correctness from the persisted pending attempt rather than from a
+  second model-generation step
+- `onboarding.submit` also resolves any live `ask_onboarding_question` tool
+  request blocked inside an active run for the same session and attempt id
 - `workspace.project_docs` must fail hard with `WorkspaceUntrusted` until trust
   is accepted for the current trust target
 - A valid `session.name` request must reference an existing `session_id`, append one backend-normalized `session_info` entry when the requested name changes, enforce workspace-local name uniqueness, and yield exactly one `rpc_response` containing that normalized session name

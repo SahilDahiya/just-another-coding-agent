@@ -41,11 +41,18 @@ Use PydanticAI primitives wherever they already solve the problem. Local code sh
 
 - Agent runtime for coding workflows
 - Thin first-party TUI with exactly three zones: status bar, transcript, and prompt
-- Canonical coding tools: `read`, `write`, `edit`, `shell`, `grep`, `ls`, `find`
+- Canonical backend tools: `read`, `write`, `edit`, `shell`, `grep`, `ls`,
+  `find`, `subagent`, `ask_onboarding_question`
 - Streaming run events
 - Session persistence
 - JSON-over-stdio RPC
 - Strict failure semantics with no fallbacks
+
+`ask_onboarding_question` is intentionally part of the canonical backend
+toolset rather than a hidden `/onboard`-only helper. `/onboard` starts a normal
+backend-owned run over the same tool surface, so the model must be able to
+reach that tool directly when the user asks for another onboarding question in
+the same session.
 
 ## Out of Scope
 
