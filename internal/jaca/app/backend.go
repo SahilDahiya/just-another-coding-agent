@@ -13,6 +13,7 @@ type Backend interface {
 	Shutdown(ctx context.Context) error
 	Interrupt(ctx context.Context) error
 	InterruptRun(ctx context.Context, sessionID string, promoteQueuedSteer bool) (rpc.RunInterruptResponse, error)
+	SubmitOnboarding(ctx context.Context, sessionID string, attemptID string, selectedIndex int) (rpc.OnboardingSubmitResponse, error)
 	CreateSession(ctx context.Context) (rpc.SessionCreateResponse, error)
 	WorkspaceTrustStatus(ctx context.Context) (rpc.WorkspaceTrustStatusResponse, error)
 	AcceptWorkspaceTrust(ctx context.Context) (rpc.WorkspaceTrustAcceptResponse, error)

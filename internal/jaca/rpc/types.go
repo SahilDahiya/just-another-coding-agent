@@ -85,6 +85,12 @@ type RunInterruptPayload struct {
 	PromoteQueuedSteer bool   `json:"promote_queued_steer,omitempty"`
 }
 
+type OnboardingSubmitPayload struct {
+	SessionID     string `json:"session_id"`
+	AttemptID     string `json:"attempt_id"`
+	SelectedIndex int    `json:"selected_index"`
+}
+
 type SandboxPolicy struct {
 	Mode          string `json:"mode"`
 	NetworkAccess string `json:"network_access,omitempty"`
@@ -334,6 +340,17 @@ type RunInterruptResponse struct {
 	PromotedCount int    `json:"promoted_count"`
 }
 
+type OnboardingSubmitResponse struct {
+	SessionID     string `json:"session_id"`
+	AttemptID     string `json:"attempt_id"`
+	QuestionType  string `json:"question_type"`
+	SelectedIndex int    `json:"selected_index"`
+	CorrectIndex  int    `json:"correct_index"`
+	CorrectOption string `json:"correct_option"`
+	IsCorrect     bool   `json:"is_correct"`
+	Explanation   string `json:"explanation"`
+}
+
 type SessionCompactSummary struct {
 	CurrentObjective *string  `json:"current_objective"`
 	EstablishedFacts []string `json:"established_facts"`
@@ -364,6 +381,11 @@ type EventEnvelope struct {
 type RunEvent struct {
 	Type                    string                `json:"type"`
 	RunID                   string                `json:"run_id"`
+	AttemptID               string                `json:"attempt_id,omitempty"`
+	QuestionType            string                `json:"question_type,omitempty"`
+	Prompt                  string                `json:"prompt,omitempty"`
+	Options                 []string              `json:"options,omitempty"`
+	Evidence                []string              `json:"evidence,omitempty"`
 	CompactionID            string                `json:"compaction_id,omitempty"`
 	CompactionCount         *int                  `json:"compaction_count,omitempty"`
 	SummarizedThrough       string                `json:"summarized_through_run_id,omitempty"`

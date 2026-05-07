@@ -86,6 +86,21 @@ func (m *Manager) InterruptRun(
 	return client.InterruptRun(ctx, sessionID, promoteQueuedSteer)
 }
 
+func (m *Manager) SubmitOnboarding(
+	ctx context.Context,
+	sessionID string,
+	attemptID string,
+	selectedIndex int,
+) (OnboardingSubmitResponse, error) {
+	m.mu.Lock()
+	client, err := m.ensureStartedLocked()
+	m.mu.Unlock()
+	if err != nil {
+		return OnboardingSubmitResponse{}, err
+	}
+	return client.SubmitOnboarding(ctx, sessionID, attemptID, selectedIndex)
+}
+
 func (m *Manager) ensureStartedLocked() (*Client, error) {
 	if m.client != nil {
 		return m.client, nil
@@ -1449,6 +1464,50 @@ func (c *Client) InterruptRun(
 		return RunInterruptResponse{}, fmt.Errorf("%s: %s", envelope.ErrorType, envelope.Message)
 	default:
 		return RunInterruptResponse{}, fmt.Errorf("unexpected envelope for run.interrupt: %T", line)
+	}
+}
+
+func (c *Client) SubmitOnboarding(
+	ctx context.Context,
+	sessionID string,
+	attemptID string,
+	selectedIndex int,
+) (OnboardingSubmitResponse, error) {
+	requestID := c.nextRequestID()
+	waiter, cleanup, err := c.registerWaiter(requestID)
+	if err != nil {
+		return OnboardingSubmitResponse{}, err
+	}
+	defer cleanup()
+	c.writeMu.Lock()
+	if err := c.writeRequest(Request{
+		ID:      requestID,
+		Command: "onboarding.submit",
+		Payload: OnboardingSubmitPayload{
+			SessionID:     sessionID,
+			AttemptID:     attemptID,
+			SelectedIndex: selectedIndex,
+		},
+	}); err != nil {
+		c.writeMu.Unlock()
+		return OnboardingSubmitResponse{}, err
+	}
+	c.writeMu.Unlock()
+	line, err := c.awaitEnvelope(ctx, waiter)
+	if err != nil {
+		return OnboardingSubmitResponse{}, err
+	}
+	switch envelope := line.(type) {
+	case ResponseEnvelope:
+		var response OnboardingSubmitResponse
+		if err := json.Unmarshal(envelope.Response, &response); err != nil {
+			return OnboardingSubmitResponse{}, err
+		}
+		return response, nil
+	case ErrorEnvelope:
+		return OnboardingSubmitResponse{}, fmt.Errorf("%s: %s", envelope.ErrorType, envelope.Message)
+	default:
+		return OnboardingSubmitResponse{}, fmt.Errorf("unexpected envelope for onboarding.submit: %T", line)
 	}
 }
 

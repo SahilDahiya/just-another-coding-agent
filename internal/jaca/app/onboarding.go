@@ -1,6 +1,8 @@
 package app
 
 import (
+	"context"
+	"fmt"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -93,10 +95,59 @@ func onboardingSelectionForProvider(provider string) int {
 }
 
 func (m *model) onboardingTitle() string {
+	if m.onboarding.Kind == "mcq" {
+		return "Codebase Onboarding"
+	}
 	return "Connect JACA"
 }
 
+func (m *model) onboardingBodyLines() []string {
+	if m.onboarding.Kind != "mcq" {
+		return nil
+	}
+	lines := make([]string, 0, 8)
+	lines = append(lines, m.onboarding.Prompt)
+	if len(m.onboarding.Evidence) > 0 {
+		lines = append(lines, "", "Evidence:")
+		for _, evidencePath := range m.onboarding.Evidence {
+			lines = append(lines, "  - "+evidencePath)
+		}
+	}
+	return lines
+}
+
+func (m *model) onboardingTranscriptLines() []string {
+	if m.onboarding.Kind != "mcq" {
+		return nil
+	}
+	lines := []string{m.onboarding.Prompt}
+	if len(m.onboarding.Evidence) == 0 {
+		return lines
+	}
+	lines = append(lines, "", "Evidence:")
+	for _, evidencePath := range m.onboarding.Evidence {
+		lines = append(lines, "  - "+evidencePath)
+	}
+	return lines
+}
+
+func isOnboardingSubmitKey(msg tea.KeyMsg) bool {
+	switch msg.String() {
+	case "enter", "ctrl+j", "ctrl+m":
+		return true
+	default:
+		return false
+	}
+}
+
 func (m *model) onboardingOptionLines() []string {
+	if m.onboarding.Kind == "mcq" {
+		rows := make([]string, 0, len(m.onboarding.Options))
+		for index, option := range m.onboarding.Options {
+			rows = append(rows, fmt.Sprintf("%d. %s", index+1, option))
+		}
+		return rows
+	}
 	return []string{
 		onboardingOptionLine(
 			"1. ChatGPT subscription",
@@ -117,6 +168,12 @@ func (m *model) onboardingOptionLines() []string {
 }
 
 func (m *model) onboardingHelpLines() []string {
+	if m.onboarding.Kind == "mcq" {
+		return []string{
+			"Use up/down to choose one answer.",
+			"Press Enter to submit.",
+		}
+	}
 	return []string{
 		"Each lane shows setup and readiness.",
 		"API-key setup prepares ~/.jaca/auth.json for you.",
@@ -197,6 +254,9 @@ func oauthProviderLoggedIn(statuses rpc.AuthStatusResponse, provider string) boo
 }
 
 func (m *model) handleOnboardingKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.onboarding.Kind == "mcq" {
+		return m.handleOnboardingMcqKey(msg)
+	}
 	switch msg.String() {
 	case "esc":
 		m.onboarding = onboardingState{}
@@ -221,14 +281,59 @@ func (m *model) handleOnboardingKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.refreshViewport()
 		return m, nil
-	case "enter":
-		return m.completeOnboardingSelection()
 	default:
+		if isOnboardingSubmitKey(msg) {
+			return m.completeOnboardingSelection()
+		}
+		return m, nil
+	}
+}
+
+func (m *model) handleOnboardingMcqKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		if m.streaming {
+			return m, nil
+		}
+		m.onboarding.Active = false
+		m.refreshViewport()
+		return m, nil
+	case "up":
+		if m.onboarding.Selected > 0 {
+			m.onboarding.Selected--
+			m.refreshViewport()
+		}
+		return m, nil
+	case "down":
+		if m.onboarding.Selected < len(m.onboarding.Options)-1 {
+			m.onboarding.Selected++
+			m.refreshViewport()
+		}
+		return m, nil
+	case "1", "2", "3", "4":
+		m.onboarding.Selected = int(msg.Runes[0] - '1')
+		if m.onboarding.Selected >= len(m.onboarding.Options) {
+			m.onboarding.Selected = len(m.onboarding.Options) - 1
+		}
+		m.refreshViewport()
+		return m, nil
+	default:
+		if isOnboardingSubmitKey(msg) {
+			return m.completeOnboardingSelection()
+		}
 		return m, nil
 	}
 }
 
 func (m *model) completeOnboardingSelection() (tea.Model, tea.Cmd) {
+	if m.onboarding.Kind == "mcq" {
+		return m, submitOnboardingSelection(
+			m.options.Backend,
+			m.sessionID,
+			m.onboarding.AttemptID,
+			m.onboarding.Selected,
+		)
+	}
 	selection := m.onboarding.Selected
 	m.onboarding = onboardingState{}
 	switch selection {
@@ -241,6 +346,30 @@ func (m *model) completeOnboardingSelection() (tea.Model, tea.Cmd) {
 	}
 	m.refreshViewport()
 	return m, nil
+}
+
+func (m *model) executeOnboardSlash(args string) (tea.Model, tea.Cmd) {
+	if m.workspaceTrustLoading || m.workspaceTrust == nil {
+		m.promptFooterNotice = "checking workspace trust"
+		m.refreshViewport()
+		return m, nil
+	}
+	if !m.workspaceTrust.Trusted {
+		m.trust.Active = true
+		m.refreshViewport()
+		return m, nil
+	}
+	prompt := "Explore this repository as needed, then call " +
+		"ask_onboarding_question exactly once to present one multiple-choice " +
+		"onboarding question. Use exactly four concise options, include " +
+		"evidence file paths, and do not reveal the correct answer in " +
+		"assistant text before calling the tool. If you already used " +
+		"ask_onboarding_question earlier in this session, you may use it " +
+		"again now because /onboard expects a fresh question for this run."
+	if trimmedArgs := strings.TrimSpace(args); trimmedArgs != "" {
+		prompt += " User direction for this onboarding question: " + trimmedArgs + "."
+	}
+	return m.submitNonSlashPrompt(prompt, prompt)
 }
 
 func (m *model) completeAuthenticatedOnboardingProviderSelection(provider string) (tea.Model, tea.Cmd) {
@@ -275,4 +404,23 @@ func (m *model) completeAuthenticatedOnboardingProviderSelection(provider string
 	}
 	m.refreshViewport()
 	return m, nil
+}
+
+func submitOnboardingSelection(
+	backend Backend,
+	sessionID string,
+	attemptID string,
+	selectedIndex int,
+) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), queueControlTimeout)
+		defer cancel()
+		response, err := backend.SubmitOnboarding(
+			ctx,
+			sessionID,
+			attemptID,
+			selectedIndex,
+		)
+		return onboardingSubmittedMsg{Response: response, Err: err}
+	}
 }

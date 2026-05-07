@@ -113,12 +113,23 @@ type sessionPreviewLoadedMsg struct {
 	Err     error
 }
 
+type onboardingSubmittedMsg struct {
+	Response rpc.OnboardingSubmitResponse
+	Err      error
+}
+
 type authStatusRetryMsg struct{}
 
 type onboardingState struct {
-	Active   bool
-	Kind     string
-	Selected int
+	Active           bool
+	Kind             string
+	Selected         int
+	AttemptID        string
+	QuestionType     string
+	Evidence         []string
+	Prompt           string
+	Options          []string
+	Explanation      string
 }
 
 type trustState struct {
@@ -451,6 +462,38 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.pendingApproval = msg.Event.Request
 			m.approvalPaused = true
 			m.approval.Selected = 0
+		case "onboarding_question_requested":
+			if msg.Event.QuestionType != "mcq" {
+				m.transcript.WriteError(
+					fmt.Sprintf(
+						"unsupported onboarding question type: %s",
+						msg.Event.QuestionType,
+					),
+				)
+				m.refreshViewport()
+				return m, listenAsync(m.asyncCh)
+			}
+			if len(msg.Event.Options) != 4 {
+				m.transcript.WriteError(
+					fmt.Sprintf(
+						"invalid onboarding event: expected 4 options, got %d",
+						len(msg.Event.Options),
+					),
+				)
+				m.refreshViewport()
+				return m, listenAsync(m.asyncCh)
+			}
+			m.onboarding = onboardingState{
+				Active:       true,
+				Kind:         "mcq",
+				Selected:     0,
+				AttemptID:    msg.Event.AttemptID,
+				QuestionType: msg.Event.QuestionType,
+				Prompt:       msg.Event.Prompt,
+				Options:      append([]string{}, msg.Event.Options...),
+				Evidence:     append([]string{}, msg.Event.Evidence...),
+			}
+			m.transcript.WriteNote("onboard", m.onboardingTranscriptLines())
 		case "approval_resolved":
 			if m.pendingApproval != nil && msg.Event.Decision != nil && m.pendingApproval.RequestID == msg.Event.Decision.RequestID {
 				m.pendingApproval = nil
@@ -472,6 +515,11 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Event.Type == "approval_requested" {
 			m.flushPendingAssistantDelta()
 			m.transcript.ApplyRunEvent(msg.Event)
+			m.refreshViewport()
+			return m, nil
+		}
+		if msg.Event.Type == "onboarding_question_requested" {
+			m.flushPendingAssistantDelta()
 			m.refreshViewport()
 			return m, nil
 		}
@@ -666,6 +714,38 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.transcript.ApplySessionPreview(msg.Preview)
 		m.refreshViewport()
 		return m, nil
+	case onboardingSubmittedMsg:
+		if msg.Err != nil {
+			m.transcript.WriteError(msg.Err.Error())
+			m.refreshViewport()
+			return m, nil
+		}
+		selectedOption := ""
+		if msg.Response.SelectedIndex >= 0 &&
+			msg.Response.SelectedIndex < len(m.onboarding.Options) {
+			selectedOption = m.onboarding.Options[msg.Response.SelectedIndex]
+		}
+		status := "incorrect"
+		if msg.Response.IsCorrect {
+			status = "correct"
+		}
+		lines := []string{
+			fmt.Sprintf("%s: %s", status, m.onboarding.Prompt),
+		}
+		if strings.TrimSpace(selectedOption) != "" {
+			lines = append(lines, fmt.Sprintf("selected: %s", selectedOption))
+		}
+		lines = append(lines, fmt.Sprintf("correct: %s", msg.Response.CorrectOption))
+		if strings.TrimSpace(msg.Response.Explanation) != "" {
+			lines = append(lines, msg.Response.Explanation)
+		}
+		m.transcript.WriteNote("onboard", lines)
+		m.onboarding = onboardingState{}
+		m.refreshViewport()
+		if m.streaming && m.asyncCh != nil {
+			return m, listenAsync(m.asyncCh)
+		}
+		return m, nil
 	case authStatusRetryMsg:
 		return m, m.requestAuthStatus()
 	case tea.MouseMsg:
@@ -800,8 +880,10 @@ func (m *model) currentViewModel() viewModel {
 		},
 		Onboarding: onboardingOverlayView{
 			Active:      m.onboarding.Active,
+			Kind:        m.onboarding.Kind,
 			Selected:    m.onboarding.Selected,
 			Title:       m.onboardingTitle(),
+			BodyLines:   m.onboardingBodyLines(),
 			OptionLines: m.onboardingOptionLines(),
 			HelpLines:   m.onboardingHelpLines(),
 		},
@@ -894,7 +976,18 @@ func (m *model) consumePromptDraft() string {
 	return strings.TrimSpace(m.pastes.Expand(m.textInput.Value()))
 }
 
+func normalizeEnterKey(msg tea.KeyMsg) tea.KeyMsg {
+	if msg.Type == tea.KeyRunes && len(msg.Runes) == 1 {
+		if msg.Runes[0] == '\r' || msg.Runes[0] == '\n' {
+			msg.Type = tea.KeyEnter
+			msg.Runes = nil
+		}
+	}
+	return msg
+}
+
 func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	msg = normalizeEnterKey(msg)
 	if m.trust.Active {
 		return m.handleTrustKey(msg)
 	}
@@ -1165,6 +1258,13 @@ func (m *model) handleEnter() (tea.Model, tea.Cmd) {
 	if strings.HasPrefix(prompt, "/") {
 		return m.submitSlashCommand(prompt, false)
 	}
+	return m.submitNonSlashPrompt(prompt, m.textInput.Value())
+}
+
+func (m *model) submitNonSlashPrompt(
+	prompt string,
+	pendingDraft string,
+) (tea.Model, tea.Cmd) {
 	provider := m.currentProvider()
 	// Auth / OAuth detours stash the current draft in PendingPrompt so it can
 	// be restored after the detour finishes. We want to keep the *labelled*
@@ -1172,7 +1272,6 @@ func (m *model) handleEnter() (tea.Model, tea.Cmd) {
 	// the placeholder UX survives a detoured submit. The pasteStore is not
 	// reset until the actual backend submission succeeds, so consumePromptDraft
 	// will re-expand the labels when the user presses Enter again.
-	pendingDraft := m.textInput.Value()
 	if isOpenAICodexOAuthModel(m.options.Model) {
 		loggedIn, err := m.openAICodexLoggedInFresh()
 		if err != nil {

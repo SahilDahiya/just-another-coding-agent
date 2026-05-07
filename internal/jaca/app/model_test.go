@@ -51,6 +51,12 @@ type stubBackend struct {
 	lastInterruptedRun   rpc.RunInterruptPayload
 	lastPermissionSet    rpc.PermissionSetPayload
 	lastApprovalDecision rpc.ApprovalDecision
+	lastOnboardingSubmit rpc.OnboardingSubmitPayload
+	lastStreamRunPrompt  string
+	lastStreamRunSession string
+	streamRunEvents      []rpc.RunEvent
+	onboardingSubmit     rpc.OnboardingSubmitResponse
+	onboardingSubmitErr  error
 }
 
 func newStubBackend() *stubBackend {
@@ -118,6 +124,34 @@ func (b *stubBackend) CreateSession(_ context.Context) (rpc.SessionCreateRespons
 			{Filename: "AGENTS.md"},
 		},
 	}, nil
+}
+func (b *stubBackend) SubmitOnboarding(
+	_ context.Context,
+	sessionID string,
+	attemptID string,
+	selectedIndex int,
+) (rpc.OnboardingSubmitResponse, error) {
+	b.lastOnboardingSubmit = rpc.OnboardingSubmitPayload{
+		SessionID:     sessionID,
+		AttemptID:     attemptID,
+		SelectedIndex: selectedIndex,
+	}
+	if b.onboardingSubmitErr != nil {
+		return rpc.OnboardingSubmitResponse{}, b.onboardingSubmitErr
+	}
+	if b.onboardingSubmit.SessionID == "" {
+		b.onboardingSubmit = rpc.OnboardingSubmitResponse{
+			SessionID:     sessionID,
+			AttemptID:     attemptID,
+			QuestionType:  "mcq",
+			SelectedIndex: selectedIndex,
+			CorrectIndex:  1,
+			CorrectOption: "/model",
+			IsCorrect:     selectedIndex == 1,
+			Explanation:   "/model routes to executeModelSlash.",
+		}
+	}
+	return b.onboardingSubmit, nil
 }
 func (b *stubBackend) WorkspaceTrustStatus(_ context.Context) (rpc.WorkspaceTrustStatusResponse, error) {
 	return b.workspaceTrust, nil
@@ -343,11 +377,18 @@ func (b *stubBackend) ClearProviderSecret(
 }
 func (b *stubBackend) StreamRun(
 	_ context.Context,
+	sessionID string,
+	prompt string,
 	_ string,
-	_ string,
-	_ string,
-	_ func(rpc.RunEvent) error,
+	sink func(rpc.RunEvent) error,
 ) error {
+	b.lastStreamRunSession = sessionID
+	b.lastStreamRunPrompt = prompt
+	for _, event := range b.streamRunEvents {
+		if err := sink(event); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 func (b *stubBackend) EnqueueRun(
@@ -1604,6 +1645,302 @@ func TestNewResumedSessionSkipsFirstRunOnboardingWithoutResumeNote(t *testing.T)
 	}
 }
 
+func TestOnboardSlashStartsMcqOverlayAndSubmitsSelection(t *testing.T) {
+	backend := newStubBackend()
+	backend.authStatuses["openai"] = rpc.AuthProviderStatus{
+		Provider:         "openai",
+		Configured:       true,
+		SecretConfigured: true,
+		RequiresSecret:   true,
+		Source:           "env",
+		EnvKey:           "OPENAI_API_KEY",
+		Reason:           "ok",
+	}
+	backend.streamRunEvents = []rpc.RunEvent{
+		{Type: "run_started", RunID: "run-1"},
+		{
+			Type:         "onboarding_question_requested",
+			RunID:        "run-1",
+			AttemptID:    "attempt-1",
+			QuestionType: "mcq",
+			Prompt:       "Which slash command switches the active model?",
+			Options:      []string{"/help", "/model", "/permission", "/quit"},
+			Evidence:     []string{"internal/jaca/app/slash.go"},
+		},
+	}
+	m := newTestModel()
+	m.options.Backend = backend
+	m.workspaceTrust = &rpc.WorkspaceTrustStatusResponse{
+		Trusted:     true,
+		TrustTarget: "/workspace",
+	}
+	m.startupOnboardingSet = false
+	m.onboarding = onboardingState{}
+
+	updated, cmd := m.submitSlashCommand("/onboard", false)
+	m = updated.(*model)
+	if cmd == nil {
+		t.Fatal("/onboard should call backend")
+	}
+	m = runTestCmd(m, cmd)
+
+	if got := backend.lastStreamRunSession; got != "session" {
+		t.Fatalf("StreamRun session id = %q, want session", got)
+	}
+	if got := backend.lastStreamRunPrompt; !strings.Contains(got, "ask_onboarding_question") {
+		t.Fatalf("StreamRun prompt = %q, want onboarding tool instruction", got)
+	}
+	if got := backend.lastStreamRunPrompt; !strings.Contains(
+		got,
+		"If you already used ask_onboarding_question earlier in this session, you may use it again now",
+	) {
+		t.Fatalf("StreamRun prompt = %q, want explicit reuse instruction", got)
+	}
+	if got := m.sessionID; got != "session" {
+		t.Fatalf("sessionID = %q, want session", got)
+	}
+	if !m.onboarding.Active || m.onboarding.Kind != "mcq" {
+		t.Fatalf("onboarding state = %#v, want active mcq", m.onboarding)
+	}
+	rendered := stripANSI(m.View())
+	for _, want := range []string{
+		"Which slash command switches the active model?",
+		"Evidence",
+		"internal/jaca/app/slash.go",
+		"1. /help",
+		"2. /model",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("inline onboarding view missing %q in %q", want, rendered)
+		}
+	}
+	if strings.Contains(rendered, "Codebase Onboarding") {
+		t.Fatalf("mcq onboarding should not use centered overlay: %q", rendered)
+	}
+
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyDown})
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	if got := backend.lastOnboardingSubmit.SessionID; got != "session" {
+		t.Fatalf("SubmitOnboarding session id = %q, want session", got)
+	}
+	if got := backend.lastOnboardingSubmit.AttemptID; got != "attempt-1" {
+		t.Fatalf("SubmitOnboarding attempt id = %q, want attempt-1", got)
+	}
+	if got := backend.lastOnboardingSubmit.SelectedIndex; got != 1 {
+		t.Fatalf("SubmitOnboarding selected index = %d, want 1", got)
+	}
+	if m.onboarding.Active {
+		t.Fatalf("onboarding overlay should close after submit: %#v", m.onboarding)
+	}
+	rendered = stripANSI(m.View())
+	for _, want := range []string{
+		"selected: /model",
+		"correct: /model",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("submitted onboarding result missing %q in %q", want, rendered)
+		}
+	}
+}
+
+func TestOnboardSlashIncludesUserDirectionInBackendPrompt(t *testing.T) {
+	backend := newStubBackend()
+	backend.authStatuses["openai"] = rpc.AuthProviderStatus{
+		Provider:         "openai",
+		Configured:       true,
+		SecretConfigured: true,
+		RequiresSecret:   true,
+		Source:           "env",
+		EnvKey:           "OPENAI_API_KEY",
+		Reason:           "ok",
+	}
+	backend.streamRunEvents = []rpc.RunEvent{
+		{Type: "run_started", RunID: "run-1"},
+		{
+			Type:         "onboarding_question_requested",
+			RunID:        "run-1",
+			AttemptID:    "attempt-1",
+			QuestionType: "mcq",
+			Prompt:       "Which layer owns permission policy?",
+			Options:      []string{"Go", "Python", "Shell", "Worker"},
+			Evidence:     []string{"docs/contracts.md"},
+		},
+	}
+	m := newTestModel()
+	m.options.Backend = backend
+	m.workspaceTrust = &rpc.WorkspaceTrustStatusResponse{
+		Trusted:     true,
+		TrustTarget: "/workspace",
+	}
+	m.startupOnboardingSet = false
+	m.onboarding = onboardingState{}
+
+	updated, cmd := m.submitSlashCommand("/onboard ask me about permission policy", false)
+	m = updated.(*model)
+	if cmd == nil {
+		t.Fatal("/onboard with args should call backend")
+	}
+	m = runTestCmd(m, cmd)
+
+	if got := backend.lastStreamRunPrompt; !strings.Contains(
+		got,
+		"User direction for this onboarding question: ask me about permission policy",
+	) {
+		t.Fatalf("StreamRun prompt = %q, want embedded user direction", got)
+	}
+}
+
+func TestOnboardingMcqCtrlMSubmitsSelection(t *testing.T) {
+	backend := newStubBackend()
+	m := newTestModel()
+	m.options.Backend = backend
+	m.sessionID = "session"
+	m.onboarding = onboardingState{
+		Active:    true,
+		Kind:      "mcq",
+		AttemptID: "attempt-1",
+		Prompt:    "Which slash command switches the active model?",
+		Options:   []string{"/help", "/model", "/permission", "/quit"},
+		Selected:  1,
+	}
+
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyCtrlM})
+
+	if got := backend.lastOnboardingSubmit.SessionID; got != "session" {
+		t.Fatalf("SubmitOnboarding session id = %q, want session", got)
+	}
+	if got := backend.lastOnboardingSubmit.AttemptID; got != "attempt-1" {
+		t.Fatalf("SubmitOnboarding attempt id = %q, want attempt-1", got)
+	}
+	if got := backend.lastOnboardingSubmit.SelectedIndex; got != 1 {
+		t.Fatalf("SubmitOnboarding selected index = %d, want 1", got)
+	}
+	if m.onboarding.Active {
+		t.Fatalf("onboarding overlay should close after ctrl+m submit: %#v", m.onboarding)
+	}
+}
+
+func TestOnboardingMcqCtrlJSubmitsSelection(t *testing.T) {
+	backend := newStubBackend()
+	m := newTestModel()
+	m.options.Backend = backend
+	m.sessionID = "session"
+	m.onboarding = onboardingState{
+		Active:    true,
+		Kind:      "mcq",
+		AttemptID: "attempt-1",
+		Prompt:    "Which slash command switches the active model?",
+		Options:   []string{"/help", "/model", "/permission", "/quit"},
+		Selected:  1,
+	}
+
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyCtrlJ})
+
+	if got := backend.lastOnboardingSubmit.SessionID; got != "session" {
+		t.Fatalf("SubmitOnboarding session id = %q, want session", got)
+	}
+	if got := backend.lastOnboardingSubmit.AttemptID; got != "attempt-1" {
+		t.Fatalf("SubmitOnboarding attempt id = %q, want attempt-1", got)
+	}
+	if got := backend.lastOnboardingSubmit.SelectedIndex; got != 1 {
+		t.Fatalf("SubmitOnboarding selected index = %d, want 1", got)
+	}
+	if m.onboarding.Active {
+		t.Fatalf("onboarding overlay should close after ctrl+j submit: %#v", m.onboarding)
+	}
+}
+
+func TestOnboardingMcqCarriageReturnRuneSubmitsSelection(t *testing.T) {
+	backend := newStubBackend()
+	m := newTestModel()
+	m.options.Backend = backend
+	m.sessionID = "session"
+	m.onboarding = onboardingState{
+		Active:    true,
+		Kind:      "mcq",
+		AttemptID: "attempt-1",
+		Prompt:    "Which slash command switches the active model?",
+		Options:   []string{"/help", "/model", "/permission", "/quit"},
+		Selected:  1,
+	}
+
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'\r'}})
+
+	if got := backend.lastOnboardingSubmit.SessionID; got != "session" {
+		t.Fatalf("SubmitOnboarding session id = %q, want session", got)
+	}
+}
+
+func TestOnboardingQuestionEventPausesAndSubmitResumesAsyncListening(t *testing.T) {
+	m := newTestModel()
+	m.streaming = true
+	m.asyncCh = make(chan tea.Msg, 1)
+
+	updated, cmd := m.Update(runEventMsg{Event: rpc.RunEvent{
+		Type:         "onboarding_question_requested",
+		RunID:        "run-1",
+		AttemptID:    "attempt-1",
+		QuestionType: "mcq",
+		Prompt:       "Which file owns the slash command table?",
+		Options: []string{
+			"internal/jaca/app/model.go",
+			"internal/jaca/app/slash.go",
+			"internal/jaca/app/render.go",
+			"internal/jaca/rpc/client.go",
+		},
+		Evidence: []string{"internal/jaca/app/slash.go"},
+	}})
+	m = updated.(*model)
+	if cmd != nil {
+		t.Fatal("onboarding_question_requested should pause async listening until the user answers")
+	}
+	if !m.onboarding.Active || m.onboarding.AttemptID != "attempt-1" {
+		t.Fatalf("onboarding state = %#v, want active attempt", m.onboarding)
+	}
+
+	m.asyncCh <- runEventMsg{Event: rpc.RunEvent{
+		Type:  "run_succeeded",
+		RunID: "run-1",
+	}}
+	updated, cmd = m.Update(onboardingSubmittedMsg{
+		Response: rpc.OnboardingSubmitResponse{
+			SessionID:     "session",
+			AttemptID:     "attempt-1",
+			QuestionType:  "mcq",
+			SelectedIndex: 1,
+			CorrectIndex:  1,
+			CorrectOption: "internal/jaca/app/slash.go",
+			IsCorrect:     true,
+			Explanation:   "slash.go defines the slash command table.",
+		},
+	})
+	m = updated.(*model)
+	if cmd == nil {
+		t.Fatal("onboardingSubmittedMsg should resume async listening while the run is still streaming")
+	}
+	msg := cmd()
+	runEvent, ok := msg.(runEventMsg)
+	if !ok {
+		t.Fatalf("cmd() = %T, want runEventMsg", msg)
+	}
+	if runEvent.Event.Type != "run_succeeded" {
+		t.Fatalf("runEvent.Type = %q, want run_succeeded", runEvent.Event.Type)
+	}
+	if m.onboarding.Active {
+		t.Fatalf("onboarding overlay should close after submit: %#v", m.onboarding)
+	}
+	rendered := stripANSI(m.transcript.Render())
+	for _, want := range []string{
+		"selected: internal/jaca/app/slash.go",
+		"correct: internal/jaca/app/slash.go",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("transcript missing %q in %q", want, rendered)
+		}
+	}
+}
+
 func TestResumedSessionPreviewHydratesRecentHistory(t *testing.T) {
 	m := newTestModel()
 	m.options.Backend = newStubBackend()
@@ -1996,9 +2333,9 @@ func TestSlashShowsInlineCommandSuggestions(t *testing.T) {
 		"/login",
 		"/model",
 		"/permission",
+		"/onboard",
 		"/approve",
 		"/deny",
-		"/version",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("view missing slash suggestion %q in %q", want, rendered)

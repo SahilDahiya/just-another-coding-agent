@@ -100,6 +100,12 @@ The core architectural risk is semantic drift between the Go shell and the Pytho
   During an active run, all slash commands must fail explicitly with recovery
   guidance instead of executing locally or being sent to the backend as model
   input.
+- `/onboard` should start a normal backend-owned run, not a separate local
+  workflow. When the backend emits `onboarding_question_requested`, the shell
+  should render the onboarding MCQ inline in the normal prompt rail rather than
+  inventing a separate local workflow or a second semantic surface. The shell
+  only renders the prompt, evidence paths, options, and selection state sent by
+  Python; it must not generate or grade questions locally.
 - `/model` suggestions should show the shipped model catalog even when a model
   is not currently usable, and label missing access explicitly instead of
   silently hiding those choices.

@@ -313,6 +313,52 @@ func TestDecodeEnvelopePreservesApprovalEventFields(t *testing.T) {
 	}
 }
 
+func TestDecodeEnvelopePreservesOnboardingQuestionEventFields(t *testing.T) {
+	line := []byte(`{
+		"type":"rpc_event",
+		"id":"req-6",
+		"event":{
+			"type":"onboarding_question_requested",
+			"run_id":"run-1",
+			"attempt_id":"attempt-1",
+			"question_type":"mcq",
+			"prompt":"Which file defines the slash command table?",
+			"options":[
+				"internal/jaca/app/model.go",
+				"internal/jaca/app/slash.go",
+				"internal/jaca/app/render.go",
+				"internal/jaca/rpc/client.go"
+			],
+			"evidence":["internal/jaca/app/slash.go"]
+		}
+	}`)
+
+	value, err := decodeEnvelope(line)
+	if err != nil {
+		t.Fatalf("decodeEnvelope() returned error: %v", err)
+	}
+
+	envelope, ok := value.(EventEnvelope)
+	if !ok {
+		t.Fatalf("decodeEnvelope() type = %T, want EventEnvelope", value)
+	}
+	if envelope.Event.AttemptID != "attempt-1" {
+		t.Fatalf("AttemptID = %q, want attempt-1", envelope.Event.AttemptID)
+	}
+	if envelope.Event.QuestionType != "mcq" {
+		t.Fatalf("QuestionType = %q, want mcq", envelope.Event.QuestionType)
+	}
+	if envelope.Event.Prompt != "Which file defines the slash command table?" {
+		t.Fatalf("Prompt = %q, want onboarding prompt", envelope.Event.Prompt)
+	}
+	if len(envelope.Event.Options) != 4 || envelope.Event.Options[1] != "internal/jaca/app/slash.go" {
+		t.Fatalf("Options = %#v, want slash.go as second option", envelope.Event.Options)
+	}
+	if len(envelope.Event.Evidence) != 1 || envelope.Event.Evidence[0] != "internal/jaca/app/slash.go" {
+		t.Fatalf("Evidence = %#v, want slash.go", envelope.Event.Evidence)
+	}
+}
+
 func TestDecodeEnvelopeWrapsParseErrorWithBytePreview(t *testing.T) {
 	// Regression: a parse failure on the backend stdout stream used to
 	// surface as a raw encoding/json error with no context. The enriched

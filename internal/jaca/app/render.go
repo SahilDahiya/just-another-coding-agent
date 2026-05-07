@@ -139,8 +139,10 @@ type trustOverlayView struct {
 
 type onboardingOverlayView struct {
 	Active      bool
+	Kind        string
 	Title       string
 	Selected    int
+	BodyLines   []string
 	OptionLines []string
 	HelpLines   []string
 }
@@ -179,7 +181,7 @@ func renderView(vm viewModel) string {
 	if vm.Update.Active {
 		return renderUpdateOverlay(vm)
 	}
-	if vm.Onboarding.Active {
+	if vm.Onboarding.Active && vm.Onboarding.Kind != "mcq" {
 		return renderOnboardingOverlay(vm)
 	}
 	if vm.Login.Active {
@@ -341,13 +343,27 @@ func renderUpdateOverlay(vm viewModel) string {
 func renderOnboardingOverlay(vm viewModel) string {
 	th := themeForPermissionPreset(vm.PermissionPreset)
 	panelWidth := 60
+	if len(vm.Onboarding.BodyLines) > 0 {
+		panelWidth = 92
+	}
 	if vm.Width > 0 {
-		panelWidth = min(68, max(48, vm.Width-8))
+		if len(vm.Onboarding.BodyLines) > 0 {
+			panelWidth = min(100, max(68, vm.Width-8))
+		} else {
+			panelWidth = min(68, max(48, vm.Width-8))
+		}
 	}
 	title := lipgloss.NewStyle().
 		Foreground(th.accentSoft).
 		Bold(true).
 		Render(vm.Onboarding.Title)
+	bodyLines := make([]string, 0, len(vm.Onboarding.BodyLines))
+	for _, line := range vm.Onboarding.BodyLines {
+		bodyLines = append(
+			bodyLines,
+			lipgloss.NewStyle().Foreground(th.textSoft).Render(line),
+		)
+	}
 	rows := make([]string, 0, len(vm.Onboarding.OptionLines))
 	for i, line := range vm.Onboarding.OptionLines {
 		prefix := " "
@@ -376,6 +392,8 @@ func renderOnboardingOverlay(vm viewModel) string {
 		Render(lipgloss.JoinVertical(
 			lipgloss.Left,
 			title,
+			"",
+			lipgloss.JoinVertical(lipgloss.Left, bodyLines...),
 			"",
 			lipgloss.JoinVertical(lipgloss.Left, rows...),
 			"",
@@ -710,6 +728,8 @@ func renderPrompt(vm viewModel) string {
 	}
 	if vm.Approval.Active {
 		promptParts = append(promptParts, renderApprovalPrompt(vm.Approval, th))
+	} else if vm.Onboarding.Active && vm.Onboarding.Kind == "mcq" {
+		promptParts = append(promptParts, renderInlineOnboardingPrompt(vm.Onboarding, th))
 	} else {
 		promptParts = append(promptParts,
 			lipgloss.JoinHorizontal(
@@ -740,6 +760,47 @@ func renderPrompt(vm viewModel) string {
 	}
 
 	return lipgloss.JoinVertical(lipgloss.Left, promptParts...)
+}
+
+func renderInlineOnboardingPrompt(onboarding onboardingOverlayView, th theme) string {
+	bodyLines := make([]string, 0, len(onboarding.BodyLines))
+	for _, line := range onboarding.BodyLines {
+		bodyLines = append(
+			bodyLines,
+			lipgloss.NewStyle().Foreground(th.textSoft).Render(line),
+		)
+	}
+	rows := make([]string, 0, len(onboarding.OptionLines))
+	for i, line := range onboarding.OptionLines {
+		prefix := " "
+		style := lipgloss.NewStyle().Foreground(th.textMuted)
+		if i == onboarding.Selected {
+			prefix = ">"
+			style = lipgloss.NewStyle().Foreground(th.accentSoft)
+		}
+		rows = append(
+			rows,
+			lipgloss.NewStyle().Foreground(th.textMuted).Render(prefix)+" "+style.Render(line),
+		)
+	}
+	helpLines := make([]string, 0, len(onboarding.HelpLines))
+	for _, line := range onboarding.HelpLines {
+		helpLines = append(
+			helpLines,
+			lipgloss.NewStyle().Foreground(th.textMuted).Render(line),
+		)
+	}
+	parts := make([]string, 0, len(bodyLines)+len(rows)+len(helpLines)+3)
+	parts = append(parts, bodyLines...)
+	if len(rows) > 0 {
+		parts = append(parts, "")
+		parts = append(parts, rows...)
+	}
+	if len(helpLines) > 0 {
+		parts = append(parts, "")
+		parts = append(parts, helpLines...)
+	}
+	return lipgloss.JoinVertical(lipgloss.Left, parts...)
 }
 
 func renderPromptFooterLine(
