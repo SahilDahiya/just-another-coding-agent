@@ -43,8 +43,8 @@ Use PydanticAI primitives wherever they already solve the problem. Local code sh
 - Thin first-party TUI with exactly three zones: status bar, transcript, and prompt
 - Canonical backend tools: `read`, `write`, `edit`, `shell`, `grep`, `ls`,
   `find`, `subagent`
-- Onboarding-mode-only tools such as `ask_mcq_question` and
-  `publish_teaching_packet`
+- Onboarding-mode-only tools such as `ask_mcq_question`,
+  `generate_mcq_from_teaching_packets`, and `publish_teaching_packet`
 - Streaming run events
 - Session persistence
 - JSON-over-stdio RPC

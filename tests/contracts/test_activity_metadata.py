@@ -121,6 +121,7 @@ def test_started_activity_includes_onboarding_mcq_metadata() -> None:
     activity = build_started_tool_activity(
         tool_name="ask_mcq_question",
         args={
+            "packet_ids": ["packet-1"],
             "question": "Which file defines the slash command table?",
             "options": [
                 "internal/jaca/app/model.go",
@@ -146,6 +147,14 @@ def test_started_activity_includes_teaching_packet_metadata() -> None:
         tool_name="publish_teaching_packet",
         args={
             "title": "Tool registration entrypoint",
+            "concept": "Run mode persists across turns and controls tool visibility.",
+            "relationships": [
+                {
+                    "statement": (
+                        "/onboard flips the session into onboarding mode."
+                    )
+                }
+            ],
             "snippets": [
                 {
                     "path": "internal/jaca/app/slash.go",
@@ -160,6 +169,20 @@ def test_started_activity_includes_teaching_packet_metadata() -> None:
     assert activity == ToolActivity(
         title="publish_teaching_packet Tool registration entrypoint",
         display_label="Teach",
+        group_kind=None,
+    )
+
+
+def test_started_activity_includes_mcq_generation_metadata() -> None:
+    activity = build_started_tool_activity(
+        tool_name="generate_mcq_from_teaching_packets",
+        args={"packet_ids": ["packet-1"]},
+        args_valid=True,
+    )
+
+    assert activity == ToolActivity(
+        title="generate_mcq_from_teaching_packets",
+        display_label="Onboard",
         group_kind=None,
     )
 

@@ -190,9 +190,10 @@ const (
 )
 
 var (
-	editHunkRe    = regexp.MustCompile(`^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@`)
-	diffRemovedRe = regexp.MustCompile(`^\d+ - `)
-	diffAddedRe   = regexp.MustCompile(`^\d+ \+ `)
+	editHunkRe         = regexp.MustCompile(`^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@`)
+	diffRemovedRe      = regexp.MustCompile(`^\d+ - `)
+	diffAddedRe        = regexp.MustCompile(`^\d+ \+ `)
+	teachingCodeLineRe = regexp.MustCompile(`^│\s+(\d+)\s+│\s?(.*)$`)
 )
 
 func formatToolActivityLine(entry *toolEntry) string {
@@ -671,6 +672,20 @@ func toolOutcomeColor(outcome string) lipgloss.TerminalColor {
 func styleToolDetailLine(line string) string {
 	trimmed := strings.TrimLeft(line, " │")
 	switch {
+	case strings.HasPrefix(trimmed, "Concept") ||
+		strings.HasPrefix(trimmed, "Relationships") ||
+		strings.HasPrefix(trimmed, "Code evidence"):
+		return lipgloss.NewStyle().Foreground(defaultTheme.accentSoft).Bold(true).Render(line)
+	case strings.HasPrefix(trimmed, "Evidence "):
+		return lipgloss.NewStyle().Foreground(defaultTheme.textSoft).Bold(true).Render(line)
+	case strings.HasPrefix(trimmed, "1. ") ||
+		strings.HasPrefix(trimmed, "2. ") ||
+		strings.HasPrefix(trimmed, "3. ") ||
+		strings.HasPrefix(trimmed, "4. ") ||
+		strings.HasPrefix(trimmed, "5. "):
+		return lipgloss.NewStyle().Foreground(defaultTheme.textSoft).Render(line)
+	case teachingCodeLineRe.MatchString(strings.TrimLeft(line, " ")):
+		return styleTeachingCodeLine(line)
 	case diffRemovedRe.MatchString(trimmed):
 		return lipgloss.NewStyle().Foreground(defaultTheme.errSoft).Render(line)
 	case diffAddedRe.MatchString(trimmed):
@@ -683,6 +698,46 @@ func styleToolDetailLine(line string) string {
 		return lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render(line)
 	default:
 		return lipgloss.NewStyle().Foreground(defaultTheme.textMuted).Render(line)
+	}
+}
+
+func styleTeachingCodeLine(line string) string {
+	trimmed := strings.TrimLeft(line, " ")
+	indent := line[:len(line)-len(trimmed)]
+	match := teachingCodeLineRe.FindStringSubmatch(trimmed)
+	if match == nil {
+		return lipgloss.NewStyle().Foreground(defaultTheme.textSoft).Render(line)
+	}
+	gutterStyle := lipgloss.NewStyle().Foreground(defaultTheme.textMuted)
+	codeStyle := teachingCodeStyle(match[2])
+	return indent +
+		gutterStyle.Render("│ "+match[1]+" │ ") +
+		codeStyle.Render(match[2])
+}
+
+func teachingCodeStyle(code string) lipgloss.Style {
+	trimmed := strings.TrimSpace(code)
+	switch {
+	case trimmed == "":
+		return lipgloss.NewStyle().Foreground(defaultTheme.textMuted)
+	case strings.HasPrefix(trimmed, "//") ||
+		strings.HasPrefix(trimmed, "#") ||
+		strings.HasPrefix(trimmed, "/*") ||
+		strings.HasPrefix(trimmed, "*"):
+		return lipgloss.NewStyle().Foreground(defaultTheme.textMuted)
+	case strings.HasPrefix(trimmed, "func ") ||
+		strings.HasPrefix(trimmed, "def ") ||
+		strings.HasPrefix(trimmed, "class ") ||
+		strings.HasPrefix(trimmed, "type ") ||
+		strings.HasPrefix(trimmed, "const ") ||
+		strings.HasPrefix(trimmed, "var "):
+		return lipgloss.NewStyle().Foreground(defaultTheme.accentSoft)
+	case strings.Contains(trimmed, "return ") ||
+		strings.Contains(trimmed, "raise ") ||
+		strings.Contains(trimmed, "yield "):
+		return lipgloss.NewStyle().Foreground(defaultTheme.successSoft)
+	default:
+		return lipgloss.NewStyle().Foreground(defaultTheme.text)
 	}
 }
 
@@ -821,12 +876,54 @@ func buildSubagentDetailLines(activity *rpc.ToolActivity) []string {
 }
 
 func buildTeachingPacketDetailLines(activity *rpc.ToolActivity) []string {
+	lines := []string{}
+
+	if concept, ok := activity.Details["concept"].(string); ok && concept != "" {
+		lines = append(
+			lines,
+			"  Concept",
+			"  │ "+truncateDisplayLine(concept, maxToolResultLineChars),
+		)
+	}
+
+	if rawRelationships, ok := activity.Details["relationships"].([]any); ok {
+		relationshipLines := []string{}
+		for _, rawRelationship := range rawRelationships {
+			relationship, ok := rawRelationship.(map[string]any)
+			if !ok {
+				continue
+			}
+			statement, _ := relationship["statement"].(string)
+			if statement == "" {
+				continue
+			}
+			relationshipLines = append(
+				relationshipLines,
+				fmt.Sprintf(
+					"  │ %d. %s",
+					len(relationshipLines)+1,
+					truncateDisplayLine(statement, maxToolResultLineChars),
+				),
+			)
+		}
+		if len(relationshipLines) > 0 {
+			lines = append(lines, "  Relationships")
+			lines = append(lines, relationshipLines...)
+		}
+	}
+
 	rawSnippets, ok := activity.Details["snippets"].([]any)
 	if !ok || len(rawSnippets) == 0 {
-		return nil
+		if len(lines) == 0 {
+			return nil
+		}
+		return lines
 	}
-	lines := make([]string, 0, len(rawSnippets)*4)
-	for _, rawSnippet := range rawSnippets {
+	if len(lines) > 0 {
+		lines = append(lines, "  Code evidence")
+	}
+	snippetLines := []string{}
+	for snippetIndex, rawSnippet := range rawSnippets {
 		snippet, ok := rawSnippet.(map[string]any)
 		if !ok {
 			continue
@@ -838,17 +935,37 @@ func buildTeachingPacketDetailLines(activity *rpc.ToolActivity) []string {
 		if path == "" || startLine == nil || endLine == nil || text == "" {
 			continue
 		}
-		lines = append(
-			lines,
-			fmt.Sprintf("  Snippet(%s:%d-%d)", path, *startLine, *endLine),
+		snippetLines = append(
+			snippetLines,
+			fmt.Sprintf(
+				"  Evidence %d  %s:%d-%d",
+				snippetIndex+1,
+				path,
+				*startLine,
+				*endLine,
+			),
 		)
-		for _, rawLine := range strings.Split(text, "\n") {
-			lines = append(
-				lines,
-				"  │ "+truncateDisplayLine(rawLine, maxToolResultLineChars),
+		lineNumberWidth := len(fmt.Sprintf("%d", *endLine))
+		for idx, rawLine := range strings.Split(text, "\n") {
+			lineNumber := *startLine + idx
+			snippetLines = append(
+				snippetLines,
+				fmt.Sprintf(
+					"  │ %*d │ %s",
+					lineNumberWidth,
+					lineNumber,
+					truncateDisplayLine(rawLine, maxToolResultLineChars),
+				),
 			)
 		}
 	}
+	if len(snippetLines) == 0 {
+		if len(lines) == 0 {
+			return nil
+		}
+		return lines
+	}
+	lines = append(lines, snippetLines...)
 	if len(lines) == 0 {
 		return nil
 	}

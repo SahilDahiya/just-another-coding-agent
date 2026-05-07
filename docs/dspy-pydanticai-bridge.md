@@ -9,10 +9,11 @@ what it gets wrong architecturally, and the clean future direction.
 
 ## Current State
 
-The current onboarding MVP no longer depends on DSPy on the critical path.
-`/onboard` now sets the active session into backend-owned onboarding mode, and
-that mode persists across later turns until `/exit-mode`. It can expose
-onboarding-only tools such as `ask_mcq_question`.
+The current onboarding MVP no longer depends on DSPy on the critical path for
+basic MCQ delivery. `/onboard` now sets the active session into backend-owned
+onboarding mode, and that mode persists across later turns until `/exit-mode`.
+It can expose onboarding-only tools such as `ask_mcq_question`,
+`publish_teaching_packet`, and `generate_mcq_from_teaching_packets`.
 
 DSPy is still retained for future question-generation work. When that path is
 used, DSPy LM construction flows through the runtime-owned bridge in
@@ -20,10 +21,12 @@ used, DSPy LM construction flows through the runtime-owned bridge in
 
 Today the DSPy generation flow is:
 
-1. The onboarding backend selects context and asks DSPy to generate one MCQ.
-2. The onboarding backend asks the runtime bridge to translate the effective
+1. The onboarding backend resolves one or more published teaching packets.
+2. It asks DSPy to generate one MCQ draft from the packet concept,
+   relationships, and canonical snippet text.
+3. The onboarding backend asks the runtime bridge to translate the effective
    JACA model selection into a DSPy LM.
-3. Answer checking remains deterministic from the stored `correct_index`.
+4. Answer checking remains deterministic from the stored `correct_index`.
 
 The bridge now supports both:
 

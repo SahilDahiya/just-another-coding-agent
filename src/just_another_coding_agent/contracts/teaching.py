@@ -1,10 +1,22 @@
 from __future__ import annotations
 
+from typing import Annotated
+
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class _TeachingModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+
+class TeachingRelationship(_TeachingModel):
+    statement: Annotated[str, Field(min_length=1)]
+
+    @model_validator(mode="after")
+    def _validate_statement(self) -> "TeachingRelationship":
+        if self.statement.strip() == "":
+            raise ValueError("Teaching relationship statement must not be blank")
+        return self
 
 
 class TeachingSnippetRef(_TeachingModel):
@@ -38,7 +50,24 @@ class TeachingSnippet(_TeachingModel):
         return self
 
 
+class TeachingPacket(_TeachingModel):
+    title: Annotated[str, Field(min_length=1)]
+    concept: Annotated[str, Field(min_length=1)]
+    relationships: list[TeachingRelationship] = Field(min_length=1)
+    snippets: list[TeachingSnippet] = Field(min_length=2, max_length=5)
+
+    @model_validator(mode="after")
+    def _validate_contents(self) -> "TeachingPacket":
+        if self.title.strip() == "":
+            raise ValueError("Teaching packet title must not be blank")
+        if self.concept.strip() == "":
+            raise ValueError("Teaching packet concept must not be blank")
+        return self
+
+
 __all__ = [
+    "TeachingPacket",
+    "TeachingRelationship",
     "TeachingSnippet",
     "TeachingSnippetRef",
 ]

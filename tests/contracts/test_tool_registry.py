@@ -59,6 +59,7 @@ def test_registry_exposes_canonical_tool_names() -> None:
 def test_registry_exposes_onboarding_only_tool_names() -> None:
     assert list_onboarding_tool_names() == (
         "ask_mcq_question",
+        "generate_mcq_from_teaching_packets",
         "publish_teaching_packet",
     )
 
@@ -145,6 +146,7 @@ def test_build_canonical_toolset_exposes_rich_model_facing_tool_descriptions(
                     "find",
                     "subagent",
                     "ask_mcq_question",
+                    "generate_mcq_from_teaching_packets",
                     "publish_teaching_packet",
                 ]
             )
@@ -387,11 +389,42 @@ def test_build_canonical_toolset_exposes_rich_model_facing_tool_descriptions(
         ]["packet_ids"]["minItems"]
         == 1
     )
+    assert function_tools["generate_mcq_from_teaching_packets"].description == (
+        "Generate one multiple-choice question draft from teaching packet ids "
+        "published earlier in this same run. Returns packet_ids, question, "
+        "four options, correct_index, and explanation so the result can be "
+        "passed to ask_mcq_question."
+    )
+    assert (
+        function_tools["generate_mcq_from_teaching_packets"].parameters_json_schema[
+            "properties"
+        ]["packet_ids"]["maxItems"]
+        == 3
+    )
     assert function_tools["publish_teaching_packet"].description == (
         "Publish one curated teaching packet into the transcript by resolving "
-        "1 to 5 code-file snippet references into canonical file text. "
-        "Documentation paths are not allowed. Supply a short title and "
-        "snippet references with path, start_line, and end_line."
+        "2 to 5 code-file snippet references into canonical file text. "
+        "Documentation paths are not allowed. Supply a short title, one "
+        "concept, one or more relationship statements, and snippet "
+        "references with path, start_line, and end_line."
+    )
+    assert (
+        function_tools["publish_teaching_packet"].parameters_json_schema[
+            "properties"
+        ]["concept"]["minLength"]
+        == 1
+    )
+    assert (
+        function_tools["publish_teaching_packet"].parameters_json_schema[
+            "properties"
+        ]["relationships"]["minItems"]
+        == 1
+    )
+    assert (
+        function_tools["publish_teaching_packet"].parameters_json_schema[
+            "properties"
+        ]["snippets"]["minItems"]
+        == 2
     )
     assert (
         function_tools["publish_teaching_packet"].parameters_json_schema[

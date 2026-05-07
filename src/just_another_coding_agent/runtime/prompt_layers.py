@@ -137,9 +137,13 @@ _ONBOARDING_MODE_SECTION = PromptSection(
             "would help the user understand an implementation detail."
         ),
         (
+            "A teaching packet should teach one concept using 2 to 5 code "
+            "snippets and explicit relationship statements among them."
+        ),
+        (
             "If you use ask_mcq_question, first call publish_teaching_packet "
-            "in the same run and pass the returned packet_id values into the "
-            "question tool."
+            "in the same run. You may also generate an MCQ draft from those "
+            "packet ids before asking the question."
         ),
         (
             "You control pacing and ordering. You may explain before, after, "
@@ -187,13 +191,25 @@ _TOOL_GUIDANCE_BY_NAME = {
             "for the user's selection."
         ),
     ),
+    "generate_mcq_from_teaching_packets": (
+        (
+            "Use generate_mcq_from_teaching_packets to draft one grounded MCQ "
+            "from teaching packet ids published earlier in this same run."
+        ),
+        (
+            "Pass the returned packet_ids, question, options, correct_index, "
+            "and explanation directly into ask_mcq_question when the draft is "
+            "good."
+        ),
+    ),
     "publish_teaching_packet": (
         (
             "Use publish_teaching_packet when a curated set of code excerpts "
             "would help teach a concept in the codebase."
         ),
         (
-            "Provide a short title and 1 to 5 snippet references using path, "
+            "Provide a short title, one concept, one or more relationship "
+            "statements, and 2 to 5 snippet references using path, "
             "start_line, and end_line. The backend reads canonical file text."
         ),
     ),

@@ -156,7 +156,8 @@ def test_build_onboarding_instructions_include_onboarding_tools_and_overlay(
 
     assert (
         "Use only these tools: read, write, edit, shell, grep, ls, find, "
-        "subagent, ask_mcq_question, publish_teaching_packet."
+        "subagent, ask_mcq_question, generate_mcq_from_teaching_packets, "
+        "publish_teaching_packet."
         in instructions
     )
     assert "This run is in onboarding mode." in instructions
@@ -173,6 +174,17 @@ def test_build_onboarding_instructions_include_onboarding_tools_and_overlay(
     assert (
         "Use publish_teaching_packet when a compact, code-grounded packet "
         "would help the user understand an implementation detail."
+        in instructions
+    )
+    assert (
+        "A teaching packet should teach one concept using 2 to 5 code "
+        "snippets and explicit relationship statements among them."
+        in instructions
+    )
+    assert (
+        "If you use ask_mcq_question, first call publish_teaching_packet in "
+        "the same run. You may also generate an MCQ draft from those packet "
+        "ids before asking the question."
         in instructions
     )
 

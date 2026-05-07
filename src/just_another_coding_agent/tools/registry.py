@@ -24,6 +24,9 @@ from just_another_coding_agent.tools.errors import ErrorWrappingToolset
 from just_another_coding_agent.tools.find import FIND_TOOL
 from just_another_coding_agent.tools.grep import GREP_TOOL
 from just_another_coding_agent.tools.ls import LS_TOOL
+from just_another_coding_agent.tools.mcq_from_teaching_packets import (
+    GENERATE_MCQ_FROM_TEACHING_PACKETS_TOOL,
+)
 from just_another_coding_agent.tools.onboarding_question import (
     ASK_MCQ_QUESTION_TOOL,
 )
@@ -54,6 +57,7 @@ SEQUENTIAL_CANONICAL_TOOL_NAMES = (
 )
 SEQUENTIAL_ONBOARDING_TOOL_NAMES = (
     "ask_mcq_question",
+    "generate_mcq_from_teaching_packets",
     "publish_teaching_packet",
 )
 
@@ -61,6 +65,9 @@ _TOOLS_BY_NAME = {
     "ask_mcq_question": ASK_MCQ_QUESTION_TOOL,
     "edit": EDIT_TOOL,
     "find": FIND_TOOL,
+    "generate_mcq_from_teaching_packets": (
+        GENERATE_MCQ_FROM_TEACHING_PACKETS_TOOL
+    ),
     "grep": GREP_TOOL,
     "ls": LS_TOOL,
     "publish_teaching_packet": PUBLISH_TEACHING_PACKET_TOOL,

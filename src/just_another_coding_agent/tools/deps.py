@@ -24,7 +24,10 @@ from just_another_coding_agent.contracts.sandbox import (
     build_default_permission_state,
 )
 from just_another_coding_agent.contracts.session import SessionName
-from just_another_coding_agent.contracts.teaching import TeachingSnippet
+from just_another_coding_agent.contracts.teaching import (
+    TeachingRelationship,
+    TeachingSnippet,
+)
 from just_another_coding_agent.contracts.thinking import ThinkingSetting
 from just_another_coding_agent.tools._workspace import (
     canonicalize_path_target,
@@ -198,6 +201,8 @@ class TeachingPacketRecord:
     packet_id: str
     run_id: str
     title: str
+    concept: str
+    relationships: tuple[TeachingRelationship, ...]
     snippets: tuple[TeachingSnippet, ...]
 
 
@@ -211,12 +216,16 @@ class TeachingPacketRegistry:
         packet_id: str,
         run_id: str,
         title: str,
+        concept: str,
+        relationships: tuple[TeachingRelationship, ...],
         snippets: tuple[TeachingSnippet, ...],
     ) -> TeachingPacketRecord:
         record = TeachingPacketRecord(
             packet_id=packet_id,
             run_id=run_id,
             title=title,
+            concept=concept,
+            relationships=relationships,
             snippets=snippets,
         )
         self.packets_by_id[packet_id] = record

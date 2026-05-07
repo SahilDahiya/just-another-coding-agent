@@ -62,6 +62,49 @@ class _FakeDspyForOnboarding:
             return self._prediction
 
 
+class _FakeDspyForPacketMcq:
+    class Signature:
+        pass
+
+    @staticmethod
+    def InputField(**_kwargs):
+        return None
+
+    @staticmethod
+    def OutputField(**_kwargs):
+        return None
+
+    class Predict:
+        def __init__(self, _signature):
+            self._prediction = SimpleNamespace(
+                question=(
+                    "How does onboarding mode change later tool visibility in "
+                    "the same session?"
+                ),
+                option_a="The Go TUI hardcodes a different tool list locally.",
+                option_b=(
+                    "The session persists current_mode, and the backend uses "
+                    "that effective run mode to resolve the tool names."
+                ),
+                option_c="The model provider remembers onboarding tools server-side.",
+                option_d=(
+                    "Only the first /onboard run can ever expose onboarding "
+                    "tools."
+                ),
+                correct_index=1,
+                explanation=(
+                    "The backend persists session mode and later resolves tool "
+                    "names from that effective run mode."
+                ),
+            )
+
+        def set_lm(self, _lm) -> None:
+            return None
+
+        def __call__(self, **_kwargs):
+            return self._prediction
+
+
 async def test_onboarding_start_persists_and_reopens_pending_attempt(
     tmp_path,
     monkeypatch,
@@ -718,10 +761,35 @@ async def _onboarding_tool_stream(
                 json_args=json.dumps(
                     {
                         "title": "Slash command registry",
+                        "concept": (
+                            "Slash command handling lives in the TUI layer, "
+                            "but onboarding behavior is delegated into the "
+                            "backend tool flow."
+                        ),
+                        "relationships": [
+                            {
+                                "statement": (
+                                    "The slash command entrypoint is declared "
+                                    "in slash.go."
+                                )
+                            },
+                            {
+                                "statement": (
+                                    "The same file exposes the /onboard "
+                                    "trigger that leads into backend-owned "
+                                    "onboarding behavior."
+                                )
+                            },
+                        ],
                         "snippets": [
                             {
                                 "path": "internal/jaca/app/slash.go",
                                 "start_line": 1,
+                                "end_line": 1,
+                            },
+                            {
+                                "path": "internal/jaca/app/slash.go",
+                                "start_line": 2,
                                 "end_line": 2,
                             }
                         ],
@@ -819,6 +887,26 @@ async def _teaching_packet_stream(
                 json_args=json.dumps(
                     {
                         "title": "Slash command dispatch",
+                        "concept": (
+                            "Onboarding mode is a backend-owned run mode that "
+                            "changes tool visibility for later turns."
+                        ),
+                        "relationships": [
+                            {
+                                "statement": (
+                                    "The slash command triggers onboarding "
+                                    "mode, and the backend persists that mode "
+                                    "into session metadata."
+                                )
+                            },
+                            {
+                                "statement": (
+                                    "The persisted run mode then determines "
+                                    "which tool names the backend exposes on "
+                                    "the next run."
+                                )
+                            },
+                        ],
                         "snippets": [
                             {
                                 "path": "internal/jaca/app/slash.go",
@@ -860,11 +948,28 @@ async def _doc_teaching_packet_stream(
                 json_args=json.dumps(
                     {
                         "title": "Docs only packet",
+                        "concept": (
+                            "Documentation should be rejected for teaching "
+                            "packets."
+                        ),
+                        "relationships": [
+                            {
+                                "statement": (
+                                    "This packet incorrectly points at docs "
+                                    "instead of code."
+                                )
+                            }
+                        ],
                         "snippets": [
                             {
                                 "path": "docs/goal.md",
                                 "start_line": 1,
-                                "end_line": 2,
+                                "end_line": 1,
+                            },
+                            {
+                                "path": "docs/goal.md",
+                                "start_line": 2,
+                                "end_line": 3,
                             }
                         ],
                     }
@@ -877,6 +982,17 @@ async def _doc_teaching_packet_stream(
         yield "done"
         return
     raise AssertionError(f"unexpected prompt/tool state: {latest_prompt!r}")
+
+
+def _first_generated_mcq(messages: list[ModelMessage]) -> dict[str, object] | None:
+    for part in _all_parts(messages):
+        if (
+            isinstance(part, ToolReturnPart)
+            and part.tool_name == "generate_mcq_from_teaching_packets"
+            and isinstance(part.content, dict)
+        ):
+            return part.content
+    return None
 
 
 async def test_run_start_supports_live_onboarding_question_tool_without_dspy(
@@ -1140,6 +1256,24 @@ async def test_run_start_supports_teaching_packet_tool_in_onboarding_mode(
     assert succeeded_event["activity"]["summary"] == "showing 2 snippets"
     assert succeeded_event["activity"]["details"] == {
         "kind": "teaching_packet",
+        "concept": (
+            "Onboarding mode is a backend-owned run mode that changes tool "
+            "visibility for later turns."
+        ),
+        "relationships": [
+            {
+                "statement": (
+                    "The slash command triggers onboarding mode, and the "
+                    "backend persists that mode into session metadata."
+                )
+            },
+            {
+                "statement": (
+                    "The persisted run mode then determines which tool names "
+                    "the backend exposes on the next run."
+                )
+            },
+        ],
         "snippets": [
             {
                 "path": "internal/jaca/app/slash.go",
@@ -1176,6 +1310,24 @@ async def test_run_start_supports_teaching_packet_tool_in_onboarding_mode(
     assert packet_return.content == {
         "packet_id": packet_return.content["packet_id"],
         "title": "Slash command dispatch",
+        "concept": (
+            "Onboarding mode is a backend-owned run mode that changes tool "
+            "visibility for later turns."
+        ),
+        "relationships": [
+            {
+                "statement": (
+                    "The slash command triggers onboarding mode, and the "
+                    "backend persists that mode into session metadata."
+                )
+            },
+            {
+                "statement": (
+                    "The persisted run mode then determines which tool names "
+                    "the backend exposes on the next run."
+                )
+            },
+        ],
         "snippet_count": 2,
         "snippets": [
             {
@@ -1192,6 +1344,260 @@ async def test_run_start_supports_teaching_packet_tool_in_onboarding_mode(
             },
         ],
     }
+
+
+async def _generate_mcq_from_packet_stream(
+    messages: list[ModelMessage],
+    _agent_info: object,
+):
+    latest_prompt = _last_user_prompt(messages)
+    packet_id = _first_teaching_packet_id(messages)
+    generated_mcq = _first_generated_mcq(messages)
+    saw_question_tool_return = _has_onboarding_tool_return(messages)
+    if latest_prompt == "teach me and then quiz me" and packet_id is None:
+        yield {
+            0: DeltaToolCall(
+                name="publish_teaching_packet",
+                json_args=json.dumps(
+                    {
+                        "title": "Slash command dispatch",
+                        "concept": (
+                            "The /onboard slash command switches the session "
+                            "into onboarding mode, and that durable mode "
+                            "changes later tool visibility."
+                        ),
+                        "relationships": [
+                            {
+                                "statement": (
+                                    "/onboard requests onboarding mode from the "
+                                    "TUI entrypoint."
+                                )
+                            },
+                            {
+                                "statement": (
+                                    "The persisted session mode becomes the "
+                                    "effective run mode on later turns."
+                                )
+                            },
+                            {
+                                "statement": (
+                                    "The effective run mode drives the toolset "
+                                    "the backend exposes."
+                                )
+                            },
+                        ],
+                        "snippets": [
+                            {
+                                "path": "internal/jaca/app/onboarding.go",
+                                "start_line": 1,
+                                "end_line": 2,
+                            },
+                            {
+                                "path": (
+                                    "src/just_another_coding_agent/contracts/"
+                                    "session.py"
+                                ),
+                                "start_line": 1,
+                                "end_line": 2,
+                            },
+                            {
+                                "path": "src/just_another_coding_agent/rpc/stdio.py",
+                                "start_line": 1,
+                                "end_line": 2,
+                            },
+                            {
+                                "path": (
+                                    "src/just_another_coding_agent/tools/"
+                                    "registry.py"
+                                ),
+                                "start_line": 1,
+                                "end_line": 2,
+                            },
+                        ],
+                    }
+                ),
+                tool_call_id="tool-packet-1",
+            )
+        }
+        return
+    if (
+        latest_prompt == "teach me and then quiz me"
+        and packet_id is not None
+        and generated_mcq is None
+    ):
+        yield {
+            0: DeltaToolCall(
+                name="generate_mcq_from_teaching_packets",
+                json_args=json.dumps(
+                    {
+                        "packet_ids": [packet_id],
+                    }
+                ),
+                tool_call_id="tool-mcq-draft-1",
+            )
+        }
+        return
+    if (
+        latest_prompt == "teach me and then quiz me"
+        and generated_mcq is not None
+        and not saw_question_tool_return
+    ):
+        yield {
+            0: DeltaToolCall(
+                name="ask_mcq_question",
+                json_args=json.dumps(generated_mcq),
+                tool_call_id="tool-onboarding-1",
+            )
+        }
+        return
+    if saw_question_tool_return:
+        yield "done"
+        return
+    raise AssertionError(
+        "unexpected prompt/tool state: "
+        f"{latest_prompt!r}, packet_id={packet_id!r}, generated={generated_mcq!r}"
+    )
+
+
+async def test_run_start_can_generate_mcq_from_teaching_packet(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        "just_another_coding_agent.tools.mcq_from_teaching_packets.import_dspy",
+        lambda: _FakeDspyForPacketMcq,
+    )
+    monkeypatch.setattr(
+        "just_another_coding_agent.tools.mcq_from_teaching_packets.build_dspy_lm",
+        lambda **_kwargs: object(),
+    )
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    (workspace_root / "internal" / "jaca" / "app").mkdir(parents=True)
+    (workspace_root / "internal" / "jaca" / "app" / "onboarding.go").write_text(
+        "package app\nfunc executeOnboardSlash() {}\n",
+        encoding="utf-8",
+    )
+    (workspace_root / "src" / "just_another_coding_agent" / "contracts").mkdir(
+        parents=True
+    )
+    (
+        workspace_root
+        / "src"
+        / "just_another_coding_agent"
+        / "contracts"
+        / "session.py"
+    ).write_text(
+        "class SessionMetadata:\n    current_mode = DEFAULT_RUN_MODE\n",
+        encoding="utf-8",
+    )
+    (workspace_root / "src" / "just_another_coding_agent" / "rpc").mkdir(
+        parents=True
+    )
+    (
+        workspace_root
+        / "src"
+        / "just_another_coding_agent"
+        / "rpc"
+        / "stdio.py"
+    ).write_text(
+        "effective_run_mode = request.payload.mode if "
+        "request.payload.mode is not None else "
+        "session_metadata.current_mode\n"
+        "tool_names = resolve_tool_names_for_run_mode(effective_run_mode)\n",
+        encoding="utf-8",
+    )
+    (workspace_root / "src" / "just_another_coding_agent" / "tools").mkdir(
+        parents=True
+    )
+    (
+        workspace_root
+        / "src"
+        / "just_another_coding_agent"
+        / "tools"
+        / "registry.py"
+    ).write_text(
+        "def resolve_tool_names_for_run_mode(mode):\n"
+        "    if mode == ONBOARDING_RUN_MODE:\n"
+        "        return tuple(KNOWN_TOOL_NAMES)\n",
+        encoding="utf-8",
+    )
+    sessions_root = tmp_path / "sessions"
+    session_id = await create_session_id(
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    request_payload = {
+        "id": "req-run-draft",
+        "command": "run.start",
+        "payload": {
+            "session_id": session_id,
+            "prompt": "teach me and then quiz me",
+            "mode": "onboarding",
+        },
+    }
+    run_messages: list[dict[str, object]] = []
+    question_requested = asyncio.Event()
+
+    async def collect_run_messages() -> None:
+        async for line in handle_rpc_json_line(
+            line=json.dumps(request_payload),
+            model=FunctionModel(stream_function=_generate_mcq_from_packet_stream),
+            workspace_root=workspace_root,
+            sessions_root=sessions_root,
+            emit_rpc_event=lambda _request_id, _event: asyncio.sleep(0),
+        ):
+            message = json.loads(line)
+            run_messages.append(message)
+            if (
+                message["type"] == "rpc_event"
+                and message["event"]["type"] == "onboarding_question_requested"
+            ):
+                question_requested.set()
+
+    run_task = asyncio.create_task(collect_run_messages())
+    await question_requested.wait()
+
+    question_event = next(
+        message["event"]
+        for message in run_messages
+        if message["type"] == "rpc_event"
+        and message["event"]["type"] == "onboarding_question_requested"
+    )
+    assert question_event["question_type"] == "mcq"
+    assert len(question_event["options"]) == 4
+    attempt_id = question_event["attempt_id"]
+
+    submit_messages = await rpc_messages(
+        request_payload={
+            "id": "req-draft-submit",
+            "command": "onboarding.submit",
+            "payload": {
+                "session_id": session_id,
+                "attempt_id": attempt_id,
+                "selected_index": 0,
+            },
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+    await run_task
+
+    assert submit_messages[0]["type"] == "rpc_response"
+    generated_result = next(
+        message["event"]["result"]
+        for message in run_messages
+        if message["type"] == "rpc_event"
+        and message["event"]["type"] == "tool_call_succeeded"
+        and message["event"]["tool_name"] == "generate_mcq_from_teaching_packets"
+    )
+    assert generated_result["packet_ids"]
+    assert generated_result["question"]
+    assert len(generated_result["options"]) == 4
+    assert 0 <= generated_result["correct_index"] <= 3
+    assert generated_result["explanation"]
 
 
 async def test_run_start_rejects_teaching_packet_with_docs_snippet(

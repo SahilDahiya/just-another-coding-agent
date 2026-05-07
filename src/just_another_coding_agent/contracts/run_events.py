@@ -11,7 +11,10 @@ from just_another_coding_agent.contracts.sandbox import (
     ApprovalDecision,
     ApprovalRequest,
 )
-from just_another_coding_agent.contracts.teaching import TeachingSnippet
+from just_another_coding_agent.contracts.teaching import (
+    TeachingRelationship,
+    TeachingSnippet,
+)
 
 type JsonValue = (
     None | bool | int | float | str | list[JsonValue] | dict[str, JsonValue]
@@ -98,7 +101,9 @@ class SubagentActivityDetails(_ToolActivityDetailsBase):
 
 class TeachingPacketActivityDetails(_ToolActivityDetailsBase):
     kind: Literal["teaching_packet"] = "teaching_packet"
-    snippets: list[TeachingSnippet] = Field(min_length=1, max_length=5)
+    concept: str
+    relationships: list[TeachingRelationship] = Field(min_length=1)
+    snippets: list[TeachingSnippet] = Field(min_length=2, max_length=5)
 
 
 ToolActivityDetails = Annotated[

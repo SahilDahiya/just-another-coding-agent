@@ -18,6 +18,7 @@ from just_another_coding_agent.tools._activity import truncate_activity_label
 _TOOL_ACTIVITY_DETAILS_ADAPTER = TypeAdapter(ToolActivityDetails)
 _TITLE_KEY_BY_TOOL = {
     "ask_mcq_question": "question",
+    "generate_mcq_from_teaching_packets": "packet_ids",
     "publish_teaching_packet": "title",
     "read": "path",
     "write": "path",
@@ -27,6 +28,7 @@ _TITLE_KEY_BY_TOOL = {
 }
 _DISPLAY_LABEL_BY_TOOL = {
     "ask_mcq_question": "Onboard",
+    "generate_mcq_from_teaching_packets": "Onboard",
     "publish_teaching_packet": "Teach",
     "read": "Read",
     "write": "Write",
@@ -292,6 +294,7 @@ def _build_fallback_success_summary(*, tool_name: str, result: Any) -> str | Non
         "ls": "listing completed",
         "find": "find completed",
         "subagent": "subagent completed",
+        "generate_mcq_from_teaching_packets": "generated MCQ draft",
     }
     return summaries.get(tool_name)
 

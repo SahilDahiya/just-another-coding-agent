@@ -11,6 +11,7 @@ from just_another_coding_agent.contracts.run_events import (
     TeachingPacketActivityDetails,
 )
 from just_another_coding_agent.contracts.teaching import (
+    TeachingRelationship,
     TeachingSnippet,
     TeachingSnippetRef,
 )
@@ -102,15 +103,23 @@ async def _read_exact_snippet(
 async def publish_teaching_packet(
     ctx: RunContext[WorkspaceDeps],
     title: Annotated[str, Field(min_length=1)],
-    snippets: Annotated[list[TeachingSnippetRef], Field(min_length=1, max_length=5)],
+    concept: Annotated[str, Field(min_length=1)],
+    relationships: Annotated[list[TeachingRelationship], Field(min_length=1)],
+    snippets: Annotated[list[TeachingSnippetRef], Field(min_length=2, max_length=5)],
 ) -> dict[str, object]:
     """Publish one curated code-teaching packet into the transcript.
 
     Args:
         title: Short title for the teaching packet.
-        snippets: One to five snippet references with path, start_line, and end_line.
+        concept: One concise concept this packet is teaching.
+        relationships: One or more statements relating the snippets to that concept.
+        snippets: Two to five snippet references with path, start_line, and end_line.
     """
 
+    if concept.strip() == "":
+        raise ToolOperationalError(
+            "publish_teaching_packet concept must not be blank"
+        )
     for snippet_ref in snippets:
         if _is_documentation_path(snippet_ref.path):
             raise ToolOperationalError(
@@ -131,6 +140,8 @@ async def publish_teaching_packet(
         packet_id=packet_id,
         run_id=run_id,
         title=title,
+        concept=concept.strip(),
+        relationships=tuple(relationships),
         snippets=tuple(materialized),
     )
     snippet_count = len(materialized)
@@ -139,6 +150,11 @@ async def publish_teaching_packet(
         return_value={
             "packet_id": packet_id,
             "title": title,
+            "concept": concept.strip(),
+            "relationships": [
+                relationship.model_dump(mode="json")
+                for relationship in relationships
+            ],
             "snippet_count": snippet_count,
             "snippets": [
                 snippet.model_dump(mode="json")
@@ -147,7 +163,11 @@ async def publish_teaching_packet(
         },
         title=title,
         summary=f"showing {snippet_count} {snippet_noun}",
-        details=TeachingPacketActivityDetails(snippets=materialized),
+        details=TeachingPacketActivityDetails(
+            concept=concept.strip(),
+            relationships=list(relationships),
+            snippets=materialized,
+        ),
         display_label="Teach",
     )
 
@@ -158,9 +178,10 @@ PUBLISH_TEACHING_PACKET_TOOL = Tool(
     name="publish_teaching_packet",
     description=(
         "Publish one curated teaching packet into the transcript by resolving "
-        "1 to 5 code-file snippet references into canonical file text. "
-        "Documentation paths are not allowed. Supply a short title and "
-        "snippet references with path, start_line, and end_line."
+        "2 to 5 code-file snippet references into canonical file text. "
+        "Documentation paths are not allowed. Supply a short title, one "
+        "concept, one or more relationship statements, and snippet "
+        "references with path, start_line, and end_line."
     ),
     docstring_format="google",
     require_parameter_descriptions=True,

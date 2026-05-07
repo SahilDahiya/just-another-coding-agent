@@ -18,6 +18,7 @@ CANONICAL_TOOL_NAMES = (
 )
 ONBOARDING_TOOL_NAMES = (
     "ask_mcq_question",
+    "generate_mcq_from_teaching_packets",
     "publish_teaching_packet",
 )
 KNOWN_TOOL_NAMES = (*CANONICAL_TOOL_NAMES, *ONBOARDING_TOOL_NAMES)
@@ -34,6 +35,7 @@ CanonicalToolName = Literal[
 ]
 OnboardingToolName = Literal[
     "ask_mcq_question",
+    "generate_mcq_from_teaching_packets",
     "publish_teaching_packet",
 ]
 KnownToolName = Literal[
@@ -46,6 +48,7 @@ KnownToolName = Literal[
     "find",
     "subagent",
     "ask_mcq_question",
+    "generate_mcq_from_teaching_packets",
     "publish_teaching_packet",
 ]
 

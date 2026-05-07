@@ -313,7 +313,13 @@ func TestTeachingPacketRowsRenderSnippetBlocks(t *testing.T) {
 			Summary:      strPtr("showing 1 snippet"),
 			DurationMS:   &duration,
 			Details: map[string]any{
-				"kind": "teaching_packet",
+				"kind":    "teaching_packet",
+				"concept": "Slash commands are the TUI entrypoint for onboarding mode.",
+				"relationships": []any{
+					map[string]any{
+						"statement": "/onboard routes into backend-owned onboarding behavior.",
+					},
+				},
 				"snippets": []any{
 					map[string]any{
 						"path":       "internal/jaca/app/slash.go",
@@ -329,9 +335,14 @@ func TestTeachingPacketRowsRenderSnippetBlocks(t *testing.T) {
 	plain := transcriptPlain(transcript)
 	for _, want := range []string{
 		"publish_teaching_packet  Slash command dispatch  ok  42ms",
-		"  Snippet(internal/jaca/app/slash.go:1-2)",
-		"  │ package app",
-		"  │ var slashCommands = []string{\"/onboard\"}",
+		"  Concept",
+		"  │ Slash commands are the TUI entrypoint for onboarding mode.",
+		"  Relationships",
+		"  │ 1. /onboard routes into backend-owned onboarding behavior.",
+		"  Code evidence",
+		"  Evidence 1  internal/jaca/app/slash.go:1-2",
+		"  │ 1 │ package app",
+		"  │ 2 │ var slashCommands = []string{\"/onboard\"}",
 	} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("teaching packet render missing %q in %q", want, plain)

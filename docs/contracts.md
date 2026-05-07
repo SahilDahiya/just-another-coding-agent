@@ -353,6 +353,7 @@ Canonical tool set for the first maintained version:
 Onboarding-mode extension tools:
 
 - `ask_mcq_question`
+- `generate_mcq_from_teaching_packets`
 - `publish_teaching_packet`
 
 Rules:
@@ -429,13 +430,25 @@ Expected tool-domain denial result:
 Initial executable tool slice:
 
 - canonical registry names: `read`, `write`, `edit`, `shell`, `grep`, `ls`, `find`, `subagent`
-- onboarding-mode extension registry names: `ask_mcq_question`, `publish_teaching_packet`
+- onboarding-mode extension registry names: `ask_mcq_question`, `generate_mcq_from_teaching_packets`, `publish_teaching_packet`
 - unknown tool names fail explicitly
-- initial concrete tool implementations: `read`, `write`, `edit`, `shell`, `grep`, `ls`, `find`, `subagent`, `ask_mcq_question`, `publish_teaching_packet`
+- initial concrete tool implementations: `read`, `write`, `edit`, `shell`, `grep`, `ls`, `find`, `subagent`, `ask_mcq_question`, `generate_mcq_from_teaching_packets`, `publish_teaching_packet`
 - `publish_teaching_packet` accepts only code-file snippet refs; documentation
   paths such as `docs/*`, `README*`, `AGENTS.md`, `CLAUDE.md`, or markdown-like
   files must fail explicitly
+- `publish_teaching_packet` requires:
+  - one short `title`
+  - one `concept`
+  - one or more `relationships`
+  - `2..5` code snippet refs using `path`, `start_line`, and `end_line`
 - `publish_teaching_packet` returns a durable `packet_id`
+- `generate_mcq_from_teaching_packets` accepts `1..3` `packet_id` values
+  published earlier in the same active run and returns:
+  - `packet_ids`
+  - `question`
+  - four `options`
+  - `correct_index`
+  - `explanation`
 - `ask_mcq_question` must link to one or more `packet_id` values that were
   published earlier in the same active run
 - the backend must fail `ask_mcq_question` explicitly when any linked
@@ -1096,8 +1109,9 @@ Ordering rules for the RPC slice:
 - `run.start` with `mode: "coding"` exposes only the canonical coding tool
   set
 - `run.start` with `mode: "onboarding"` exposes the canonical coding tools
-  plus onboarding-only tools such as `ask_mcq_question`, and applies the
-  onboarding prompt overlay in Python
+  plus onboarding-only tools such as `ask_mcq_question`,
+  `generate_mcq_from_teaching_packets`, and `publish_teaching_packet`, and
+  applies the onboarding prompt overlay in Python
 - `/onboard` is the user-facing signal that sets the session mode to
   `onboarding` before starting the run; `/exit-mode` returns the session mode
   to `coding`
