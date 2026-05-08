@@ -1,4 +1,5 @@
 from just_another_coding_agent.contracts.run_events import (
+    CodeModeActivityDetails,
     FindActivityDetails,
     GrepActivityDetails,
     LsActivityDetails,
@@ -225,6 +226,40 @@ def test_updated_subagent_activity_uses_backend_owned_preview_details() -> None:
             "preview_lines": ["read AGENTS.md"],
             "preview_terminal": False,
         },
+    )
+
+
+def test_updated_code_mode_activity_uses_backend_owned_nested_tool_details() -> None:
+    activity = build_updated_tool_activity(
+        tool_name="exec",
+        args={"source": "await tools.read(path='note.txt')"},
+        args_valid=True,
+        partial_result={
+            "summary": "read succeeded",
+            "details": {
+                "kind": "code_mode",
+                "cell_id": "cell-1",
+                "nested_tool": "read",
+                "nested_status": "succeeded",
+                "title": "read note.txt",
+                "elapsed_ms": 12,
+            },
+        },
+        duration_ms=19,
+    )
+
+    assert activity == ToolActivity(
+        title="exec await tools.read(path='note.txt')",
+        display_label="Code",
+        summary="read succeeded",
+        duration_ms=19,
+        details=CodeModeActivityDetails(
+            cell_id="cell-1",
+            nested_tool="read",
+            nested_status="succeeded",
+            title="read note.txt",
+            elapsed_ms=12,
+        ),
     )
 
 

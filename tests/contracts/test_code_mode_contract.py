@@ -4,6 +4,10 @@ import pytest
 from pydantic import ValidationError
 
 from just_another_coding_agent.contracts import code_mode
+from just_another_coding_agent.contracts.run_events import (
+    CodeModeActivityDetails,
+    ToolActivity,
+)
 
 
 def test_code_mode_contract_exports_expected_types() -> None:
@@ -126,3 +130,28 @@ def test_code_mode_cell_result_carries_output_and_terminal_status() -> None:
     }
     assert code_mode.is_code_mode_terminal_state(result.state)
     assert not code_mode.is_code_mode_terminal_state("yielded")
+
+
+def test_code_mode_activity_details_are_typed_for_exec_updates() -> None:
+    activity = ToolActivity(
+        title="exec code cell",
+        summary="read succeeded",
+        details=CodeModeActivityDetails(
+            cell_id="cell-1",
+            nested_tool="read",
+            nested_status="succeeded",
+            title="read note.txt",
+            elapsed_ms=12,
+        ),
+    )
+
+    assert activity.model_dump(mode="json")["details"] == {
+        "kind": "code_mode",
+        "cell_id": "cell-1",
+        "nested_tool": "read",
+        "nested_status": "succeeded",
+        "title": "read note.txt",
+        "elapsed_ms": 12,
+        "error_type": None,
+        "message": None,
+    }

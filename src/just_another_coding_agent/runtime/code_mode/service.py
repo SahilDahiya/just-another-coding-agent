@@ -97,6 +97,9 @@ class CodeModeCellService:
             max_output_tokens=request.max_output_tokens,
         )
         self._cells[cell_id] = record
+        bind_cell_id = getattr(tools, "bind_cell_id", None)
+        if bind_cell_id is not None:
+            bind_cell_id(cell_id)
         record.task = asyncio.create_task(
             self._run_cell(
                 cell_id=cell_id,

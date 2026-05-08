@@ -166,7 +166,7 @@ def build_updated_tool_activity(
     details = None
     if tool_name == "shell":
         summary = "command still running"
-    elif tool_name == "subagent" and isinstance(partial_result, dict):
+    elif tool_name in {"exec", "subagent"} and isinstance(partial_result, dict):
         partial_summary = partial_result.get("summary")
         if isinstance(partial_summary, str) and partial_summary.strip():
             summary = partial_summary

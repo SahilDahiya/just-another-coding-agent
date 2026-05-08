@@ -50,6 +50,96 @@ async def test_code_mode_bridge_calls_canonical_read_tool(tmp_path) -> None:
     assert result == "world\n"
 
 
+async def test_code_mode_bridge_publishes_nested_tool_updates(tmp_path) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    (workspace_root / "note.txt").write_text("hello", encoding="utf-8")
+    updates: list[tuple[str, str, object | None]] = []
+
+    async def sink(
+        tool_call_id: str,
+        tool_name: str,
+        payload: object | None,
+    ) -> None:
+        updates.append((tool_call_id, tool_name, payload))
+
+    deps = WorkspaceDeps(
+        workspace_root=workspace_root,
+        shell_family=detect_default_shell_family(),
+        tool_update_sink=sink,
+    )
+    bridge = CodeModeToolBridge(_ParentContext(deps=deps))
+    bridge.bind_cell_id("cell-1")
+
+    try:
+        result = await bridge.read(path="note.txt")
+    finally:
+        await deps.read_only_worker.close()
+
+    assert result == "hello"
+    assert len(updates) == 2
+    assert updates[0] == (
+        "call-exec",
+        "exec",
+        {
+            "summary": "read started",
+            "details": {
+                "kind": "code_mode",
+                "cell_id": "cell-1",
+                "nested_tool": "read",
+                "nested_status": "started",
+                "title": "read note.txt",
+                "elapsed_ms": 0,
+                "error_type": None,
+                "message": None,
+            },
+        },
+    )
+    assert updates[1][0:2] == ("call-exec", "exec")
+    assert updates[1][2]["summary"] == "read succeeded"  # type: ignore[index]
+    assert updates[1][2]["details"]["nested_status"] == "succeeded"  # type: ignore[index]
+    assert isinstance(updates[1][2]["details"]["elapsed_ms"], int)  # type: ignore[index]
+
+
+async def test_code_mode_bridge_publishes_failed_nested_tool_update(tmp_path) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    updates: list[tuple[str, str, object | None]] = []
+
+    async def sink(
+        tool_call_id: str,
+        tool_name: str,
+        payload: object | None,
+    ) -> None:
+        updates.append((tool_call_id, tool_name, payload))
+
+    deps = WorkspaceDeps(
+        workspace_root=workspace_root,
+        shell_family=detect_default_shell_family(),
+        tool_update_sink=sink,
+    )
+    bridge = CodeModeToolBridge(_ParentContext(deps=deps))
+    bridge.bind_cell_id("cell-1")
+
+    try:
+        try:
+            await bridge.read(path="missing.txt")
+        except Exception as exc:
+            assert type(exc).__name__ == "ToolPathError"
+    finally:
+        await deps.read_only_worker.close()
+
+    assert len(updates) == 2
+    assert updates[1][0:2] == ("call-exec", "exec")
+    assert updates[1][2]["summary"] == "read failed"  # type: ignore[index]
+    details = updates[1][2]["details"]  # type: ignore[index]
+    assert details["kind"] == "code_mode"
+    assert details["nested_tool"] == "read"
+    assert details["nested_status"] == "failed"
+    assert details["error_type"] == "ToolPathError"
+    assert "missing.txt" in details["message"]
+
+
 async def test_code_mode_bridge_calls_canonical_grep_tool(tmp_path) -> None:
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
@@ -75,6 +165,37 @@ async def test_code_mode_bridge_calls_canonical_shell_tool(tmp_path) -> None:
     result = await bridge.shell(command=_hello_command())
 
     assert result == {"exit_code": 0, "output": "hello"}
+
+
+async def test_code_mode_bridge_suppresses_raw_nested_shell_updates(tmp_path) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    updates: list[tuple[str, str, object | None]] = []
+
+    async def sink(
+        tool_call_id: str,
+        tool_name: str,
+        payload: object | None,
+    ) -> None:
+        updates.append((tool_call_id, tool_name, payload))
+
+    deps = WorkspaceDeps(
+        workspace_root=workspace_root,
+        shell_family=detect_default_shell_family(),
+        tool_update_sink=sink,
+    )
+    bridge = CodeModeToolBridge(_ParentContext(deps=deps))
+    bridge.bind_cell_id("cell-1")
+
+    result = await bridge.shell(command=_hello_command())
+
+    assert result == {"exit_code": 0, "output": "hello"}
+    assert [tool_name for _call_id, tool_name, _payload in updates] == [
+        "exec",
+        "exec",
+    ]
+    assert updates[0][2]["details"]["nested_status"] == "started"  # type: ignore[index]
+    assert updates[1][2]["details"]["nested_status"] == "succeeded"  # type: ignore[index]
 
 
 async def test_code_mode_exec_context_exposes_bridge_tools(tmp_path) -> None:

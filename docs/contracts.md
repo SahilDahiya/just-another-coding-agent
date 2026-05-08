@@ -472,6 +472,13 @@ Code Mode contract:
 - the first Code Mode bridge surface exposes `read`, `grep`, and `shell`
 - nested tool calls must preserve normal workspace, sandbox, approval,
   permission, activity, and failure semantics
+- nested Code Mode activity is surfaced as compact `tool_call_updated` events
+  on the parent `exec` tool call using typed `code_mode` activity details
+- nested bridge calls must not emit raw nested-tool updates, such as shell
+  streaming output, directly into the public stream
+- the first Code Mode streaming slice must not emit nested top-level
+  `tool_call_started` or `tool_call_succeeded` events for `read`, `grep`, or
+  `shell`
 - Code Mode may later call `subagent` only as a nested canonical tool call
   through the backend bridge; the ordinary subagent contract would still own
   child-run creation, spawn mode, capability limits, parent session/run

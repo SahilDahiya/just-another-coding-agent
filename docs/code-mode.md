@@ -45,6 +45,25 @@ The first bridge implementation exposes `read`, `grep`, and `shell`.
 `subagent` is intentionally deferred until the basic bridge, provenance, and
 timeline semantics are stable.
 
+Nested bridge activity is surfaced as compact updates on the parent `exec`
+tool call. The public stream should look like:
+
+```text
+tool_call_started exec
+tool_call_updated exec: nested read started
+tool_call_updated exec: nested read succeeded
+tool_call_updated exec: nested shell started
+tool_call_updated exec: nested shell failed
+tool_call_succeeded exec
+```
+
+The first slice deliberately does not emit nested `tool_call_started read` or
+`tool_call_started shell` events. That avoids making nested tool calls look
+like independent top-level model tool calls and keeps pending-tool ordering
+simple. Raw updates from nested tools, such as shell output streaming, must not
+escape directly as top-level nested-tool updates; Code Mode publishes its own
+typed `code_mode` activity details instead.
+
 ## What It Is Not
 
 Code Mode is not provider-side code interpreter. Provider-native code execution

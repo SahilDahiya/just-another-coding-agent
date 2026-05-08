@@ -99,6 +99,17 @@ class SubagentActivityDetails(_ToolActivityDetailsBase):
     preview_terminal: bool = False
 
 
+class CodeModeActivityDetails(_ToolActivityDetailsBase):
+    kind: Literal["code_mode"] = "code_mode"
+    cell_id: str
+    nested_tool: str
+    nested_status: Literal["started", "succeeded", "failed"]
+    title: str
+    elapsed_ms: int | None = None
+    error_type: str | None = None
+    message: str | None = None
+
+
 class TeachingPacketActivityDetails(_ToolActivityDetailsBase):
     kind: Literal["teaching_packet"] = "teaching_packet"
     concept: str
@@ -115,6 +126,7 @@ ToolActivityDetails = Annotated[
     | LsActivityDetails
     | FindActivityDetails
     | SubagentActivityDetails
+    | CodeModeActivityDetails
     | TeachingPacketActivityDetails,
     Field(discriminator="kind"),
 ]
@@ -349,6 +361,7 @@ __all__ = [
     "ApprovalRequestedEvent",
     "ApprovalResolvedEvent",
     "AssistantTextDeltaEvent",
+    "CodeModeActivityDetails",
     "EditActivityDetails",
     "FindActivityDetails",
     "GrepActivityDetails",
