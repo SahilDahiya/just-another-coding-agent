@@ -1,3 +1,7 @@
+from just_another_coding_agent.runtime.code_mode.bridge import (
+    CodeModeParentContext,
+    CodeModeToolBridge,
+)
 from just_another_coding_agent.runtime.code_mode.service import (
     CodeModeCellContext,
     CodeModeCellNotFoundError,
@@ -11,5 +15,7 @@ __all__ = [
     "CodeModeCellNotFoundError",
     "CodeModeCellService",
     "CodeModeCellStateError",
+    "CodeModeParentContext",
     "CodeModeRunner",
+    "CodeModeToolBridge",
 ]

@@ -36,16 +36,14 @@ The code cell calls JACA-owned APIs such as:
 await tools.read(path="README.md")
 await tools.grep(pattern="TODO", path="src")
 await tools.shell(command="pytest -q tests/contracts/test_read_tool.py")
-await tools.subagent(
-    task="Inspect these logs and report concrete verifier mismatch evidence.",
-    role="explore",
-    spawn_mode="fork",
-    capability="default",
-)
 ```
 
 Those calls must route through the canonical backend tool layer. They are not
 shortcuts to Python file I/O, subprocess execution, or direct workspace access.
+
+The first bridge implementation exposes `read`, `grep`, and `shell`.
+`subagent` is intentionally deferred until the basic bridge, provenance, and
+timeline semantics are stable.
 
 ## What It Is Not
 
@@ -57,9 +55,9 @@ Code Mode is not `subagent`. A subagent delegates cognition to another model
 run and returns a report. Code Mode delegates orchestration to deterministic
 program logic inside the current run.
 
-Code Mode may still call `subagent`, but only as a nested canonical tool call
-through the backend bridge. That means the ordinary subagent contract still
-owns child-run creation, spawn mode, capability limits, parent session/run
+Code Mode may later call `subagent`, but only as a nested canonical tool call
+through the backend bridge. That means the ordinary subagent contract would
+still own child-run creation, spawn mode, capability limits, parent session/run
 provenance, tool activity, and failure behavior. Code Mode must not implement a
 separate child-agent system behind the bridge.
 

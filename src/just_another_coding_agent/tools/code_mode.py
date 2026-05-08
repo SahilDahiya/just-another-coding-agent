@@ -9,6 +9,7 @@ from just_another_coding_agent.contracts.code_mode import (
     CodeModeExecRequest,
     CodeModeWaitRequest,
 )
+from just_another_coding_agent.runtime.code_mode.bridge import CodeModeToolBridge
 from just_another_coding_agent.tools._activity import make_tool_return
 from just_another_coding_agent.tools.deps import WorkspaceDeps
 
@@ -79,6 +80,7 @@ async def code_mode_exec(
             timeout_ms=timeout_ms,
         ),
         ctx.deps.code_mode_runner,
+        tools=CodeModeToolBridge(ctx),
     )
     payload = _result_payload(result)
     return make_tool_return(

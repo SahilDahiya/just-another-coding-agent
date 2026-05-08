@@ -5,7 +5,7 @@ import contextlib
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import TypeAlias
+from typing import Any, TypeAlias
 from uuid import uuid4
 
 from just_another_coding_agent.contracts.code_mode import (
@@ -51,9 +51,16 @@ class _CellRecord:
 
 
 class CodeModeCellContext:
-    def __init__(self, service: "CodeModeCellService", cell_id: str) -> None:
+    def __init__(
+        self,
+        service: "CodeModeCellService",
+        cell_id: str,
+        *,
+        tools: Any = None,
+    ) -> None:
         self._service = service
         self.cell_id = cell_id
+        self.tools = tools
 
     def emit(
         self,
@@ -79,6 +86,8 @@ class CodeModeCellService:
         self,
         request: CodeModeExecRequest,
         runner: CodeModeRunner,
+        *,
+        tools: Any = None,
     ) -> CodeModeCellResult:
         cell_id = f"cell-{uuid4().hex}"
         record = _CellRecord(
@@ -93,6 +102,7 @@ class CodeModeCellService:
                 cell_id=cell_id,
                 runner=runner,
                 timeout_ms=request.timeout_ms,
+                tools=tools,
             )
         )
         return await self._wait_for_cell(record, yield_time_ms=request.yield_time_ms)
@@ -114,9 +124,10 @@ class CodeModeCellService:
         cell_id: str,
         runner: CodeModeRunner,
         timeout_ms: int | None,
+        tools: Any,
     ) -> None:
         record = self._get_cell(cell_id)
-        context = CodeModeCellContext(self, cell_id)
+        context = CodeModeCellContext(self, cell_id, tools=tools)
         try:
             result_text = await asyncio.wait_for(
                 runner(context),

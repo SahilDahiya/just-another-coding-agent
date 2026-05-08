@@ -469,12 +469,13 @@ Code Mode contract:
 - Code Mode cells must call canonical tools through a backend-owned bridge
   rather than direct filesystem, shell, permission, session, or transcript
   access
+- the first Code Mode bridge surface exposes `read`, `grep`, and `shell`
 - nested tool calls must preserve normal workspace, sandbox, approval,
   permission, activity, and failure semantics
-- Code Mode may call `subagent` only as a nested canonical tool call through
-  the backend bridge; the ordinary subagent contract still owns child-run
-  creation, spawn mode, capability limits, parent session/run provenance, tool
-  activity, and failure behavior
+- Code Mode may later call `subagent` only as a nested canonical tool call
+  through the backend bridge; the ordinary subagent contract would still own
+  child-run creation, spawn mode, capability limits, parent session/run
+  provenance, tool activity, and failure behavior
 - Code Mode must not implement a separate child-agent system behind the bridge
 - Code Mode contract direction and non-goals are documented in
   `code-mode.md`

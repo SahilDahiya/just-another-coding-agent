@@ -29,7 +29,7 @@ from just_another_coding_agent.contracts.teaching import (
     TeachingSnippet,
 )
 from just_another_coding_agent.contracts.thinking import ThinkingSetting
-from just_another_coding_agent.runtime.code_mode import (
+from just_another_coding_agent.runtime.code_mode.service import (
     CodeModeCellService,
     CodeModeRunner,
 )
