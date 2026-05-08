@@ -189,6 +189,28 @@ def test_build_onboarding_instructions_include_onboarding_tools_and_overlay(
     )
 
 
+def test_static_agent_instructions_can_describe_explicit_code_mode_tools() -> None:
+    instructions = build_static_agent_instructions(tool_names=["exec", "wait"])
+
+    assert "Use only these tools: exec, wait." in instructions
+    assert (
+        "Use exec only when Code Mode is explicitly available and a small "
+        "deterministic orchestration cell is clearer than another model "
+        "reasoning step."
+        in instructions
+    )
+    assert (
+        "Code Mode cells must call tools through the provided bridge; do not "
+        "assume direct filesystem or shell access inside the cell."
+        in instructions
+    )
+    assert (
+        "Use wait only for a yielded Code Mode cell when you need more "
+        "output, completion, or termination."
+        in instructions
+    )
+
+
 def test_build_canonical_instructions_include_truthfulness_and_verification_rules(
     tmp_path,
 ) -> None:

@@ -171,6 +171,23 @@ _TOOL_GUIDANCE_BY_NAME = {
     "grep": ("Use grep for content search across files.",),
     "ls": ("Use ls for bounded directory listings.",),
     "find": ("Use find for file discovery by glob pattern.",),
+    "exec": (
+        (
+            "Use exec only when Code Mode is explicitly available and a small "
+            "deterministic orchestration cell is clearer than another model "
+            "reasoning step."
+        ),
+        (
+            "Code Mode cells must call tools through the provided bridge; do "
+            "not assume direct filesystem or shell access inside the cell."
+        ),
+    ),
+    "wait": (
+        (
+            "Use wait only for a yielded Code Mode cell when you need more "
+            "output, completion, or termination."
+        ),
+    ),
     "ask_mcq_question": (
         (
             "Use ask_mcq_question only when you are ready to quiz the user with "

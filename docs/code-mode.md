@@ -181,3 +181,9 @@ The first practical validation target is the evaluations job-analysis workflow:
 
 That workflow is deterministic parsing and aggregation work, so it should use
 Code Mode rather than spawning a second reasoning agent.
+
+The first validation harness uses an injected Python runner to exercise the
+backend contract end to end: explicit `exec`/`wait` tool visibility, run-local
+cell execution, `ctx.tools.read`, `ctx.tools.grep`, `ctx.tools.shell`, and
+compact nested activity updates. It does not implement the eventual Code Mode
+source-language runtime.
