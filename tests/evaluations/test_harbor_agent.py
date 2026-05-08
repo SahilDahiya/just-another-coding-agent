@@ -105,16 +105,17 @@ def test_harbor_agent_supports_current_base_installed_agent_api(
         "OPENAI_API_KEY": "openai-secret",
         "JUST_ANOTHER_CODING_AGENT_THINKING": "high",
         "JACA_SESSION_AUTO_COMPACTION_CONTEXT_WINDOW_UTILIZATION": "0.1",
+        "JACA_HARBOR_CODE_MODE": "1",
         "JACA_TRACE_MODE": "logfire",
         "LOGFIRE_SERVICE_NAME": "jaca-harbor",
         "LOGFIRE_TOKEN": "logfire-secret",
     }
     assert "evaluations.bench.exec_prompt" in commands[0].command
     assert "--model openai-responses:gpt-5.4" in commands[0].command
-    assert "--code-mode" not in commands[0].command
+    assert " --code-mode " in commands[0].command
 
 
-def test_harbor_agent_enables_code_mode_from_env(
+def test_harbor_agent_can_disable_code_mode_from_env(
     monkeypatch, tmp_path: Path
 ) -> None:
     for module_name in list(sys.modules):
@@ -125,7 +126,7 @@ def test_harbor_agent_enables_code_mode_from_env(
 
     _install_fake_harbor_modules()
     monkeypatch.setenv("OPENAI_API_KEY", "openai-secret")
-    monkeypatch.setenv("JACA_HARBOR_CODE_MODE", "1")
+    monkeypatch.setenv("JACA_HARBOR_CODE_MODE", "0")
     monkeypatch.setenv("LOGFIRE_TOKEN", "logfire-secret")
 
     module = importlib.import_module("evaluations.harbor.agent")
@@ -137,8 +138,8 @@ def test_harbor_agent_enables_code_mode_from_env(
     commands = agent.create_run_agent_commands("Fix the task")
 
     assert len(commands) == 1
-    assert " --code-mode " in commands[0].command
-    assert commands[0].env["JACA_HARBOR_CODE_MODE"] == "1"
+    assert "--code-mode" not in commands[0].command
+    assert commands[0].env["JACA_HARBOR_CODE_MODE"] == "0"
 
 
 def test_harbor_agent_uses_explicit_harbor_logfire_service_name_override(
@@ -168,6 +169,7 @@ def test_harbor_agent_uses_explicit_harbor_logfire_service_name_override(
     assert commands[0].env == {
         "OPENAI_API_KEY": "openai-secret",
         "JUST_ANOTHER_CODING_AGENT_THINKING": "high",
+        "JACA_HARBOR_CODE_MODE": "1",
         "JACA_TRACE_MODE": "logfire",
         "LOGFIRE_TOKEN": "logfire-secret",
         "LOGFIRE_SERVICE_NAME": "harbor-task",

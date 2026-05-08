@@ -71,7 +71,7 @@ export OPENAI_BASE_URL=...
 export JUST_ANOTHER_CODING_AGENT_THINKING=high
 export JACA_SESSION_AUTO_COMPACTION_CONTEXT_WINDOW_UTILIZATION=0.1
 export JACA_HARBOR_SESSIONS_ROOT=/tmp/.jaca/harbor-sessions
-export JACA_HARBOR_CODE_MODE=1
+export JACA_HARBOR_CODE_MODE=0
 export LOGFIRE_SERVICE_NAME=jaca-harbor
 ```
 
@@ -131,18 +131,20 @@ one-shot wrapper and `run.start`, export:
 export JUST_ANOTHER_CODING_AGENT_THINKING=high
 ```
 
-If you want the Harbor adapter to enable Code Mode for the one-shot run,
-export:
+The Harbor adapter enables Code Mode by default for one-shot runs. It passes
+`--code-mode` to `just-another-coding-agent-exec-prompt`, which sends
+`enable_code_mode: true` in `run.start`. That adds the Code Mode `exec` and
+`wait` tools for that run only. It does not change the session's persisted
+mode.
+
+If you want a baseline Harbor run without Code Mode, export:
 
 ```bash
-export JACA_HARBOR_CODE_MODE=1
+export JACA_HARBOR_CODE_MODE=0
 ```
 
-This makes the adapter pass `--code-mode` to
-`just-another-coding-agent-exec-prompt`, which sends
-`enable_code_mode: true` in `run.start`. The flag adds the Code Mode `exec`
-and `wait` tools for that run only. It does not change the session's persisted
-mode and it remains off by default.
+`JACA_HARBOR_CODE_MODE=1`, `true`, `yes`, or `on` also explicitly keep the
+default enabled behavior.
 
 ## Container Paths
 

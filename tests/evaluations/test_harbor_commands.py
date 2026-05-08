@@ -3,6 +3,7 @@ from evaluations.harbor.commands import (
     build_harbor_exec_command,
     build_provider_env,
     harbor_auth_file_uploads,
+    harbor_code_mode_enabled,
     resolve_harbor_sessions_root,
 )
 
@@ -28,6 +29,7 @@ def test_build_provider_env_filters_to_openai_provider_env() -> None:
         "OPENAI_BASE_URL": "https://example.test/v1",
         "JUST_ANOTHER_CODING_AGENT_THINKING": "high",
         "JACA_SESSION_AUTO_COMPACTION_CONTEXT_WINDOW_UTILIZATION": "0.1",
+        "JACA_HARBOR_CODE_MODE": "1",
         "JACA_TRACE_MODE": "logfire",
         "LOGFIRE_SERVICE_NAME": "jaca-harbor",
         "LOGFIRE_TOKEN": "logfire-secret",
@@ -69,6 +71,7 @@ def test_build_provider_env_exports_openai_codex_oauth_credentials(
         "OPENAI_CODEX_OAUTH_EXPIRES_AT": "1234567890000",
         "OPENAI_CODEX_OAUTH_ACCOUNT_ID": "acct-123",
         "JUST_ANOTHER_CODING_AGENT_THINKING": "high",
+        "JACA_HARBOR_CODE_MODE": "1",
         "JACA_TRACE_MODE": "logfire",
         "LOGFIRE_SERVICE_NAME": "jaca-harbor",
         "LOGFIRE_TOKEN": "logfire-secret",
@@ -121,6 +124,7 @@ def test_harbor_auth_file_uploads_skip_oauth_for_api_key_model(
         (auth_file, "/root/.jaca/auth.json"),
     ]
 
+
 def test_build_provider_env_uses_explicit_service_name_override() -> None:
     env = build_provider_env(
         model="openai-responses:gpt-5.4",
@@ -136,6 +140,7 @@ def test_build_provider_env_uses_explicit_service_name_override() -> None:
     assert env == {
         "OPENAI_API_KEY": "openai-secret",
         "JUST_ANOTHER_CODING_AGENT_THINKING": "high",
+        "JACA_HARBOR_CODE_MODE": "1",
         "JACA_TRACE_MODE": "logfire",
         "LOGFIRE_SERVICE_NAME": "harbor-task",
         "LOGFIRE_TOKEN": "logfire-secret",
@@ -189,6 +194,7 @@ def test_build_provider_env_reads_logfire_token_from_default_credentials_file(
     assert env == {
         "OPENAI_API_KEY": "openai-secret",
         "JUST_ANOTHER_CODING_AGENT_THINKING": "high",
+        "JACA_HARBOR_CODE_MODE": "1",
         "JACA_TRACE_MODE": "logfire",
         "LOGFIRE_SERVICE_NAME": "jaca-harbor",
         "LOGFIRE_TOKEN": "logfire-secret",
@@ -300,6 +306,14 @@ def test_build_harbor_exec_command_forwards_code_mode_when_requested() -> None:
     )
 
     assert " --code-mode " in command
+
+
+def test_harbor_code_mode_is_enabled_by_default() -> None:
+    assert harbor_code_mode_enabled(environ={}) is True
+
+
+def test_harbor_code_mode_can_be_disabled_by_env() -> None:
+    assert harbor_code_mode_enabled(environ={"JACA_HARBOR_CODE_MODE": "0"}) is False
 
 
 def test_resolve_harbor_sessions_root_uses_hidden_tmp_default() -> None:

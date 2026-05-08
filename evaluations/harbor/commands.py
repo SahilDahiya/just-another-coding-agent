@@ -69,6 +69,9 @@ def build_provider_env(
     source = os.environ if environ is None else environ
     allowed_keys = (*_provider_env_keys_for_model(model), *_COMMON_ENV_KEYS)
     selected = {key: source[key] for key in allowed_keys if key in source}
+    selected["JACA_HARBOR_CODE_MODE"] = (
+        "1" if harbor_code_mode_enabled(environ=source) else "0"
+    )
     if _is_openai_codex_model(model):
         _inject_openai_codex_oauth_credentials(selected=selected)
     _inject_required_provider_secret(model=model, selected=selected)
@@ -268,7 +271,9 @@ def harbor_code_mode_enabled(
 ) -> bool:
     source = os.environ if environ is None else environ
     value = source.get("JACA_HARBOR_CODE_MODE", "").strip().lower()
-    if value in {"", "0", "false", "no", "off"}:
+    if value == "":
+        return True
+    if value in {"0", "false", "no", "off"}:
         return False
     if value in {"1", "true", "yes", "on"}:
         return True
