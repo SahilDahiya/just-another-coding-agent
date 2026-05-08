@@ -10,6 +10,7 @@ from evaluations.harbor.commands import (
     build_harbor_exec_command,
     build_provider_env,
     harbor_auth_file_uploads,
+    harbor_code_mode_enabled,
 )
 from just_another_coding_agent.go_binaries import build_go_binary
 from just_another_coding_agent.tools.read_only_worker.launcher import (
@@ -106,6 +107,7 @@ else:
                         instruction=instruction,
                         model=self.model_name,
                         thinking=os.environ.get("JUST_ANOTHER_CODING_AGENT_THINKING"),
+                        code_mode=harbor_code_mode_enabled(),
                     ),
                     env=build_provider_env(model=self.model_name),
                 )

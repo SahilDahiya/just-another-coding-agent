@@ -864,6 +864,56 @@ def test_run_exec_prompt_forwards_thinking(tmp_path) -> None:
     assert requests[3]["payload"]["thinking"] == "high"
 
 
+def test_run_exec_prompt_forwards_code_mode_flag(tmp_path) -> None:
+    sessions_root = tmp_path / "sessions"
+    popen_factory, process, _captured = _make_popen(
+        [
+            _workspace_trust_accept_response(),
+            {
+                "type": "rpc_response",
+                "id": "req-create",
+                "response": {"session_id": "0" * 32},
+            },
+            _permission_set_response("0" * 32),
+            {
+                "type": "rpc_event",
+                "id": "req-run",
+                "event": {"run_id": "run-1", "type": "run_started"},
+            },
+            {
+                "type": "rpc_event",
+                "id": "req-run",
+                "event": {
+                    "run_id": "run-1",
+                    "type": "run_succeeded",
+                    "output_text": "done",
+                },
+            },
+            {
+                "type": "rpc_response",
+                "id": "req-run",
+                "response": {"session_id": "0" * 32},
+            },
+        ]
+    )
+
+    run_exec_prompt(
+        prompt="solve it",
+        model="openai-responses:gpt-5.3-codex",
+        workspace_root=tmp_path,
+        code_mode=True,
+        sessions_root=sessions_root,
+        popen_factory=popen_factory,
+    )
+
+    requests = [
+        json.loads(line)
+        for line in process.stdin.getvalue().splitlines()
+        if line.strip()
+    ]
+    assert requests[3]["payload"]["enable_code_mode"] is True
+
+
 def test_run_exec_prompt_raises_on_run_failed(tmp_path) -> None:
     popen_factory, _process, _captured = _make_popen(
         [
@@ -1117,6 +1167,37 @@ def test_main_parses_thinking_flag(tmp_path, monkeypatch) -> None:
 
     assert exit_code == 0
     assert captured["thinking"] == "high"
+
+
+def test_main_parses_code_mode_flag(tmp_path, monkeypatch) -> None:
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    captured: dict[str, object] = {}
+
+    def fake_run_exec_prompt(**kwargs) -> str:
+        captured.update(kwargs)
+        return "done"
+
+    monkeypatch.setattr(
+        "evaluations.bench.exec_prompt.run_exec_prompt",
+        fake_run_exec_prompt,
+    )
+
+    exit_code = main(
+        [
+            "--model",
+            "openai-responses:gpt-5.3-codex",
+            "--code-mode",
+            "-C",
+            str(tmp_path),
+            "solve it",
+        ],
+        stdout=stdout,
+        stderr=stderr,
+    )
+
+    assert exit_code == 0
+    assert captured["code_mode"] is True
 
 
 def test_main_passes_stderr_as_status_stream(tmp_path, monkeypatch) -> None:

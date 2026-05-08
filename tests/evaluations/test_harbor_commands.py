@@ -151,6 +151,7 @@ def test_build_provider_env_forwards_harbor_job_metadata() -> None:
             "JACA_HARBOR_JOB_NAME": "job-123",
             "JACA_HARBOR_SUBMISSION_ID": "submission-abc",
             "JACA_HARBOR_SLICE_NAME": "xhigh-a",
+            "JACA_HARBOR_CODE_MODE": "1",
         },
     )
 
@@ -159,6 +160,7 @@ def test_build_provider_env_forwards_harbor_job_metadata() -> None:
         "JACA_HARBOR_JOB_NAME": "job-123",
         "JACA_HARBOR_SUBMISSION_ID": "submission-abc",
         "JACA_HARBOR_SLICE_NAME": "xhigh-a",
+        "JACA_HARBOR_CODE_MODE": "1",
         "JACA_TRACE_MODE": "logfire",
         "LOGFIRE_SERVICE_NAME": "jaca-harbor",
         "LOGFIRE_TOKEN": "logfire-secret",
@@ -288,6 +290,16 @@ def test_build_harbor_exec_command_forwards_thinking_when_requested() -> None:
     )
 
     assert " --thinking high " in command
+
+
+def test_build_harbor_exec_command_forwards_code_mode_when_requested() -> None:
+    command = build_harbor_exec_command(
+        instruction="solve it",
+        model="openai-responses:gpt-5.3-codex",
+        code_mode=True,
+    )
+
+    assert " --code-mode " in command
 
 
 def test_resolve_harbor_sessions_root_uses_hidden_tmp_default() -> None:

@@ -95,7 +95,7 @@ async def _code_mode_failure_model(
                         f"command={_failing_shell_command()!r})\n"
                         "return_result('unreachable')"
                     ),
-                    "yield_time_ms": 1000,
+                    "yield_time_ms": 5000,
                     "max_output_tokens": 1000,
                 }
             ),

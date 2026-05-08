@@ -14,6 +14,8 @@ The adapter path is intentionally thin:
 - the adapter runs the one-shot wrapper `just-another-coding-agent-exec-prompt`
 - the wrapper launches the backend in `--headless` stdio-RPC mode and talks to it through `workspace.trust_accept`, `session.create`, `permission.set`, and `run.start`
 - the wrapper can also forward an optional explicit `thinking` setting into `run.start`
+- the wrapper can opt a single run into Code Mode, which adds `exec` and `wait`
+  to that run's model-facing tool list
 
 This is an adapter around the existing backend contract, not a second execution architecture.
 
@@ -69,6 +71,7 @@ export OPENAI_BASE_URL=...
 export JUST_ANOTHER_CODING_AGENT_THINKING=high
 export JACA_SESSION_AUTO_COMPACTION_CONTEXT_WINDOW_UTILIZATION=0.1
 export JACA_HARBOR_SESSIONS_ROOT=/tmp/.jaca/harbor-sessions
+export JACA_HARBOR_CODE_MODE=1
 export LOGFIRE_SERVICE_NAME=jaca-harbor
 ```
 
@@ -128,6 +131,19 @@ one-shot wrapper and `run.start`, export:
 export JUST_ANOTHER_CODING_AGENT_THINKING=high
 ```
 
+If you want the Harbor adapter to enable Code Mode for the one-shot run,
+export:
+
+```bash
+export JACA_HARBOR_CODE_MODE=1
+```
+
+This makes the adapter pass `--code-mode` to
+`just-another-coding-agent-exec-prompt`, which sends
+`enable_code_mode: true` in `run.start`. The flag adds the Code Mode `exec`
+and `wait` tools for that run only. It does not change the session's persisted
+mode and it remains off by default.
+
 ## Container Paths
 
 Current adapter behavior inside the task container:
@@ -178,6 +194,7 @@ If you need to set thinking explicitly when using the one-shot wrapper directly,
 python -m evaluations.bench.exec_prompt \
   --model openai-responses:gpt-5.3-codex \
   --thinking high \
+  --code-mode \
   -C /abs/path/to/workspace \
   "solve it"
 ```

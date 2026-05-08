@@ -1061,8 +1061,8 @@ Initial executable RPC slice:
     - `session.compact` with payload `{"session_id": <opaque-lowercase-hex-string>}`
     - `onboarding.start` with payload `{"session_id": <optional-opaque-lowercase-hex-string>}`
     - `onboarding.submit` with payload `{"session_id": <opaque-lowercase-hex-string>, "attempt_id": <opaque-lowercase-hex-string>, "selected_index": 0 | 1 | 2 | 3}`
-    - `run.start` with payload `{"session_id": <opaque-lowercase-hex-string>, "prompt": <string>, "thinking": <optional-thinking-setting>}`
-    - `run.start` with payload `{"session_id": <opaque-lowercase-hex-string>, "prompt": <string>, "mode": "default" | "onboarding", "thinking": <optional-bool-or-level>}`
+    - `run.start` with payload `{"session_id": <opaque-lowercase-hex-string>, "prompt": <string>, "thinking": <optional-thinking-setting>, "enable_code_mode": <optional-bool>}`
+    - `run.start` with payload `{"session_id": <opaque-lowercase-hex-string>, "prompt": <string>, "mode": "coding" | "onboarding", "thinking": <optional-bool-or-level>, "enable_code_mode": <optional-bool>}`
     - `run.enqueue` with payload `{"session_id": <opaque-lowercase-hex-string>, "prompt": <string>, "mode": "next" | "later"}`
     - `run.interrupt` with payload `{"session_id": <opaque-lowercase-hex-string>, "promote_queued_steer": <bool>}`
 - `rpc_response`
@@ -1157,6 +1157,9 @@ Ordering rules for the RPC slice:
   plus onboarding-only tools such as `ask_mcq_question`,
   `generate_mcq_from_teaching_packets`, and `publish_teaching_packet`, and
   applies the onboarding prompt overlay in Python
+- `run.start` with `enable_code_mode: true` appends the Code Mode `exec` and
+  `wait` tools to that run's model-facing tool list only; it does not change
+  the session's persisted mode and does not enable Code Mode for later runs
 - `/onboard` is the user-facing signal that sets the session mode to
   `onboarding` before starting the run; `/exit-mode` returns the session mode
   to `coding`

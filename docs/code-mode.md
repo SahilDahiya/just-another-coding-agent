@@ -111,6 +111,12 @@ backend explicitly includes those names in the agent tool list. They are not
 part of the default canonical tool set and they are not an onboarding-mode
 extension.
 
+RPC clients opt in per run with `enable_code_mode: true` on `run.start`.
+The one-shot benchmark wrapper exposes the same opt-in as `--code-mode`, and
+the Harbor adapter passes that flag when `JACA_HARBOR_CODE_MODE=1` is set in
+the Harbor host process. These switches append `exec` and `wait` for the
+current run only; they do not persist Code Mode as a session mode.
+
 The public lifecycle states are:
 
 - `running`

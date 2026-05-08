@@ -178,6 +178,7 @@ class RunStartPayload(_RpcModel):
     prompt: str
     mode: RunMode | None = None
     thinking: ThinkingSetting | None = None
+    enable_code_mode: bool = False
 
 
 class RunStartRequest(_RpcModel):

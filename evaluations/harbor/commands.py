@@ -21,6 +21,7 @@ _COMMON_ENV_KEYS = (
     "JACA_HARBOR_JOB_NAME",
     "JACA_HARBOR_SUBMISSION_ID",
     "JACA_HARBOR_SLICE_NAME",
+    "JACA_HARBOR_CODE_MODE",
 )
 _OPENAI_ENV_KEYS = ("OPENAI_API_KEY", "OPENAI_BASE_URL")
 _ANTHROPIC_ENV_KEYS = ("ANTHROPIC_API_KEY",)
@@ -230,6 +231,7 @@ def build_harbor_exec_command(
     instruction: str,
     model: str,
     thinking: str | None = None,
+    code_mode: bool = False,
     workspace_root: str = ".",
     sessions_root: str | None = None,
 ) -> str:
@@ -238,6 +240,7 @@ def build_harbor_exec_command(
     thinking_arg = (
         f"--thinking {shlex.quote(thinking)} " if thinking is not None else ""
     )
+    code_mode_arg = "--code-mode " if code_mode else ""
     resolved_sessions_root = (
         resolve_harbor_sessions_root() if sessions_root is None else sessions_root
     )
@@ -252,7 +255,24 @@ def build_harbor_exec_command(
         "evaluations.bench.exec_prompt "
         f"--model {shlex.quote(model)} "
         f"{thinking_arg}"
+        f"{code_mode_arg}"
         f"--sessions-root {shlex.quote(resolved_sessions_root)} "
         f"-C {shlex.quote(workspace_root)} - "
         "2>&1 | stdbuf -oL tee /logs/agent/just-another-coding-agent.txt"
+    )
+
+
+def harbor_code_mode_enabled(
+    *,
+    environ: Mapping[str, str] | None = None,
+) -> bool:
+    source = os.environ if environ is None else environ
+    value = source.get("JACA_HARBOR_CODE_MODE", "").strip().lower()
+    if value in {"", "0", "false", "no", "off"}:
+        return False
+    if value in {"1", "true", "yes", "on"}:
+        return True
+    raise ValueError(
+        "JACA_HARBOR_CODE_MODE must be one of: 1, true, yes, on, "
+        "0, false, no, off"
     )

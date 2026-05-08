@@ -28,6 +28,7 @@ from just_another_coding_agent.auth import (
     start_openai_codex_oauth_login,
     wait_for_openai_codex_oauth_login,
 )
+from just_another_coding_agent.contracts.code_mode import CODE_MODE_TOOL_NAMES
 from just_another_coding_agent.contracts.model_catalog import (
     CANONICAL_PROVIDER_ORDER,
     default_model_for_provider,
@@ -1487,6 +1488,8 @@ async def _handle_run_start(
             ).model_dump_json()
             return
     tool_names = resolve_tool_names_for_run_mode(effective_run_mode)
+    if request.payload.enable_code_mode:
+        tool_names = (*tool_names, *CODE_MODE_TOOL_NAMES)
 
     current_task = asyncio.current_task()
     if current_task is None:

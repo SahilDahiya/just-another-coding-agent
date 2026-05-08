@@ -109,6 +109,7 @@ def run_exec_prompt(
     model: str,
     workspace_root: Path | str,
     thinking: ThinkingSetting | None = None,
+    code_mode: bool = False,
     sessions_root: Path | str | None = None,
     first_rpc_event_timeout_sec: float = _DEFAULT_FIRST_RPC_EVENT_TIMEOUT_SEC,
     status_stream: TextIO | None = None,
@@ -129,12 +130,14 @@ def run_exec_prompt(
                 workspace_root=resolved_workspace_root,
                 sessions_root=resolved_sessions_root,
                 thinking=thinking,
+                code_mode=code_mode,
             ) as trace:
                 return _run_exec_prompt(
                     prompt=prompt,
                     model=model,
                     workspace_root=resolved_workspace_root,
                     thinking=thinking,
+                    code_mode=code_mode,
                     sessions_root=resolved_sessions_root,
                     first_rpc_event_timeout_sec=first_rpc_event_timeout_sec,
                     status_stream=status_stream,
@@ -149,12 +152,14 @@ def run_exec_prompt(
         workspace_root=resolved_workspace_root,
         sessions_root=resolved_sessions_root,
         thinking=thinking,
+        code_mode=code_mode,
     ) as trace:
         return _run_exec_prompt(
             prompt=prompt,
             model=model,
             workspace_root=resolved_workspace_root,
             thinking=thinking,
+            code_mode=code_mode,
             sessions_root=resolved_sessions_root,
             first_rpc_event_timeout_sec=first_rpc_event_timeout_sec,
             status_stream=status_stream,
@@ -169,6 +174,7 @@ def _run_exec_prompt(
     model: str,
     workspace_root: Path,
     thinking: ThinkingSetting | None,
+    code_mode: bool,
     sessions_root: Path,
     first_rpc_event_timeout_sec: float,
     status_stream: TextIO | None,
@@ -231,16 +237,19 @@ def _run_exec_prompt(
             diagnostics=diagnostics,
         )
 
+        run_start_payload: dict[str, object] = {
+            "session_id": session_id,
+            "prompt": build_benchmark_prompt(prompt),
+            "thinking": thinking,
+        }
+        if code_mode:
+            run_start_payload["enable_code_mode"] = True
         _write_json_line(
             process.stdin,
             {
                 "id": "req-run",
                 "command": "run.start",
-                "payload": {
-                    "session_id": session_id,
-                    "prompt": build_benchmark_prompt(prompt),
-                    "thinking": thinking,
-                },
+                "payload": run_start_payload,
             },
             diagnostics=diagnostics,
         )
@@ -627,6 +636,7 @@ def _trace_exec_prompt_run(
     workspace_root: Path,
     sessions_root: Path,
     thinking: ThinkingSetting | None,
+    code_mode: bool,
 ):
     if trace_mode() != "logfire":
         yield None
@@ -654,6 +664,7 @@ def _trace_exec_prompt_run(
     }
     if thinking is not None:
         metadata["jaca.exec_prompt.thinking"] = str(thinking)
+    metadata["jaca.exec_prompt.code_mode"] = code_mode
     for env_key in (
         "JACA_HARBOR_JOB_NAME",
         "JACA_HARBOR_SUBMISSION_ID",
@@ -719,6 +730,11 @@ def main(
         "--thinking",
         choices=["true", "false", "minimal", "low", "medium", "high", "xhigh"],
     )
+    parser.add_argument(
+        "--code-mode",
+        action="store_true",
+        help="Enable Code Mode exec/wait tools for this run.",
+    )
     parser.add_argument("--sessions-root")
     args = parser.parse_args(list(argv) if argv is not None else None)
 
@@ -729,6 +745,7 @@ def main(
             model=args.model,
             workspace_root=args.cd,
             thinking=_parse_thinking(args.thinking),
+            code_mode=args.code_mode,
             sessions_root=args.sessions_root,
             status_stream=error_stream,
         )
