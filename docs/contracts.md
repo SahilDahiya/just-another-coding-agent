@@ -470,6 +470,14 @@ Code Mode contract:
   rather than direct filesystem, shell, permission, session, or transcript
   access
 - the first Code Mode bridge surface exposes `read`, `grep`, and `shell`
+- when no test runner is injected, `exec` uses the default Python subprocess
+  source runtime
+- the default source runtime executes source as async Python with top-level
+  `await`, `emit`, `return_result`, and `tools.read`/`tools.grep`/`tools.shell`
+- the default source runtime exposes the standard-library `json` module for
+  deterministic parsing and formatting
+- the default source runtime does not expose imports, `open`, or direct
+  subprocess APIs, but this restriction is not a complete security sandbox
 - nested tool calls must preserve normal workspace, sandbox, approval,
   permission, activity, and failure semantics
 - nested Code Mode activity is surfaced as compact `tool_call_updated` events

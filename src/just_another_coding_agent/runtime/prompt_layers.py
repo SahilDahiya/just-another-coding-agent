@@ -178,6 +178,10 @@ _TOOL_GUIDANCE_BY_NAME = {
             "reasoning step."
         ),
         (
+            "exec source is async Python; top-level await is allowed, and "
+            "results should be returned with emit(...) or return_result(...)."
+        ),
+        (
             "Code Mode cells must call tools through the provided bridge; do "
             "not assume direct filesystem or shell access inside the cell."
         ),

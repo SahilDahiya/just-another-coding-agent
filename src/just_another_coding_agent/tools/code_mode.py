@@ -10,6 +10,9 @@ from just_another_coding_agent.contracts.code_mode import (
     CodeModeWaitRequest,
 )
 from just_another_coding_agent.runtime.code_mode.bridge import CodeModeToolBridge
+from just_another_coding_agent.runtime.code_mode.python_runtime import (
+    PythonSubprocessCodeModeRuntime,
+)
 from just_another_coding_agent.tools._activity import make_tool_return
 from just_another_coding_agent.tools.deps import WorkspaceDeps
 
@@ -69,8 +72,9 @@ async def code_mode_exec(
         timeout_ms: Optional total timeout in milliseconds.
     """
 
-    if ctx.deps.code_mode_runner is None:
-        raise RuntimeError("Code Mode runner is not configured")
+    runner = ctx.deps.code_mode_runner
+    if runner is None:
+        runner = PythonSubprocessCodeModeRuntime().create_runner(source)
 
     result = await ctx.deps.code_mode_cell_service.start_cell(
         CodeModeExecRequest(
@@ -79,7 +83,7 @@ async def code_mode_exec(
             max_output_tokens=max_output_tokens,
             timeout_ms=timeout_ms,
         ),
-        ctx.deps.code_mode_runner,
+        runner,
         tools=CodeModeToolBridge(ctx),
     )
     payload = _result_payload(result)

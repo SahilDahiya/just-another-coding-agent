@@ -30,16 +30,24 @@ model -> exec code cell
       -> wait resumes, polls, or terminates the yielded cell
 ```
 
-The code cell calls JACA-owned APIs such as:
+The current source runtime is a small Python subprocess. It executes source as
+the body of an async function, so top-level `await` is allowed. The code cell
+calls JACA-owned APIs such as:
 
 ```python
 await tools.read(path="README.md")
 await tools.grep(pattern="TODO", path="src")
 await tools.shell(command="pytest -q tests/contracts/test_read_tool.py")
+emit("intermediate text")
+data = json.loads('{"status": "done"}')
+return_result({"status": "done"})
 ```
 
 Those calls must route through the canonical backend tool layer. They are not
 shortcuts to Python file I/O, subprocess execution, or direct workspace access.
+The worker exposes a small builtins set and no import hook, `open`, or direct
+subprocess API. This is a process boundary and API restriction, not a complete
+security sandbox; workspace authority still belongs to the backend tools.
 
 The first bridge implementation exposes `read`, `grep`, and `shell`.
 `subagent` is intentionally deferred until the basic bridge, provenance, and
@@ -136,6 +144,31 @@ The contract models define:
 The TUI may render these typed fields. It must not infer lifecycle semantics,
 permission meaning, or nested tool behavior locally.
 
+## Source Runtime
+
+When no test-injected runner is configured, `exec` runs source through the
+default Python subprocess runtime.
+
+Runtime API:
+
+- `await tools.read(path="README.md", offset=None, limit=None)`
+- `await tools.grep(pattern="TODO", path="src", glob=None, ignore_case=False,
+  literal=False, limit=100)`
+- `await tools.shell(command="pytest -q", timeout=None)`
+- `json.loads(...)` and `json.dumps(...)`
+- `emit(value, channel="stdout")`
+- `return_result(value)`
+
+`emit` appends a `stdout` or `stderr` output chunk immediately. `return_result`
+ends the source cell and appends one `result` output chunk. Non-string emitted
+or returned values are JSON-stringified when possible.
+
+The default runtime communicates with the parent process over a JSON-line
+protocol. Tool calls are requests to the parent; the parent invokes the
+canonical `CodeModeToolBridge`, then sends either a result or an explicit error
+back to the worker. Unknown tools, malformed protocol messages, source errors,
+and nested-tool failures fail the cell.
+
 ## Backend Bridge Rule
 
 Nested tool calls must enter the same backend-owned tool semantics as ordinary
@@ -166,6 +199,7 @@ provenance and timeline surface.
 - no direct filesystem access from the code runtime
 - no direct shell access from the code runtime
 - no hidden unsandboxed execution path
+- no claim that the Python worker is a complete security sandbox
 - no general notebook UI
 - no Go-side semantic ownership
 - no migration or compatibility shim
@@ -182,8 +216,11 @@ The first practical validation target is the evaluations job-analysis workflow:
 That workflow is deterministic parsing and aggregation work, so it should use
 Code Mode rather than spawning a second reasoning agent.
 
-The first validation harness uses an injected Python runner to exercise the
-backend contract end to end: explicit `exec`/`wait` tool visibility, run-local
-cell execution, `ctx.tools.read`, `ctx.tools.grep`, `ctx.tools.shell`, and
-compact nested activity updates. It does not implement the eventual Code Mode
-source-language runtime.
+The validation harness now covers both paths:
+
+- injected runners for narrow service and bridge tests
+- the default Python subprocess runtime for source execution through
+  `tools.read`, `tools.grep`, `tools.shell`, `emit`, and `return_result`
+- an actual model/tool loop where the model calls `exec`, the default runtime
+  performs nested bridge calls, compact `exec` updates are streamed, and the
+  transcript records only the parent `exec` tool return

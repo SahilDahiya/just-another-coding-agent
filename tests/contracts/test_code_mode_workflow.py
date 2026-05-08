@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from collections.abc import AsyncIterator
 
+from pydantic_ai import capture_run_messages
 from pydantic_ai.messages import ModelMessage, ModelRequest, ToolReturnPart
 from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 
@@ -15,7 +16,6 @@ from just_another_coding_agent.contracts.run_events import (
     ToolCallUpdatedEvent,
 )
 from just_another_coding_agent.runtime.agent import build_canonical_agent
-from just_another_coding_agent.runtime.code_mode import CodeModeCellContext
 from just_another_coding_agent.runtime.run import stream_run_events
 from just_another_coding_agent.tools.deps import WorkspaceDeps
 
@@ -50,7 +50,18 @@ async def _code_mode_workflow_model(
             name="exec",
             json_args=json.dumps(
                 {
-                    "source": "inspect recent jobs",
+                    "source": (
+                        "raw_log = await tools.read(path='jobs/recent.jsonl')\n"
+                        "matches = await tools.grep("
+                        "pattern='tool_call', path='jobs', literal=True)\n"
+                        "shell_result = await tools.shell("
+                        f"command={_workflow_shell_command()!r})\n"
+                        "emit(f'inspected {len(raw_log.splitlines())} lines')\n"
+                        "return_result(json.dumps({\n"
+                        "    'has_tool_call_matches': 'tool_call' in matches,\n"
+                        "    'shell_output': shell_result['output'],\n"
+                        "}, sort_keys=True))"
+                    ),
                     "yield_time_ms": 1000,
                     "max_output_tokens": 1000,
                 }
@@ -84,27 +95,7 @@ async def test_code_mode_validates_jobs_tool_usage_workflow(tmp_path) -> None:
         encoding="utf-8",
     )
 
-    async def code_mode_runner(ctx: CodeModeCellContext) -> str:
-        raw_log = await ctx.tools.read(path="jobs/recent.jsonl")
-        matches = await ctx.tools.grep(
-            pattern="tool_call",
-            path="jobs",
-            literal=True,
-        )
-        shell_result = await ctx.tools.shell(command=_workflow_shell_command())
-        ctx.emit(f"inspected {len(raw_log.splitlines())} lines")
-        return json.dumps(
-            {
-                "has_tool_call_matches": "tool_call" in matches,
-                "shell_output": shell_result["output"],
-            },
-            sort_keys=True,
-        )
-
-    deps = WorkspaceDeps.from_workspace_root(
-        workspace_root,
-        code_mode_runner=code_mode_runner,
-    )
+    deps = WorkspaceDeps.from_workspace_root(workspace_root)
     agent = build_canonical_agent(
         model=FunctionModel(stream_function=_code_mode_workflow_model),
         workspace_root=workspace_root,
@@ -118,15 +109,22 @@ async def test_code_mode_validates_jobs_tool_usage_workflow(tmp_path) -> None:
     )
 
     try:
-        events = [
-            event
-            async for event in stream_run_events(
-                agent=agent,
-                prompt="inspect recent jobs",
-                deps=deps,
-                available_tool_names=["read", "grep", "shell", "exec", "wait"],
-            )
-        ]
+        with capture_run_messages() as messages:
+            events = [
+                event
+                async for event in stream_run_events(
+                    agent=agent,
+                    prompt="inspect recent jobs",
+                    deps=deps,
+                    available_tool_names=[
+                        "read",
+                        "grep",
+                        "shell",
+                        "exec",
+                        "wait",
+                    ],
+                )
+            ]
     finally:
         await deps.read_only_worker.close()
 
@@ -170,3 +168,12 @@ async def test_code_mode_validates_jobs_tool_usage_workflow(tmp_path) -> None:
 
     assert isinstance(events[-1], RunSucceededEvent)
     assert events[-1].output_text == "workflow complete"
+
+    tool_return_names = [
+        part.tool_name
+        for message in messages
+        if isinstance(message, ModelRequest)
+        for part in message.parts
+        if isinstance(part, ToolReturnPart)
+    ]
+    assert tool_return_names == ["exec"]

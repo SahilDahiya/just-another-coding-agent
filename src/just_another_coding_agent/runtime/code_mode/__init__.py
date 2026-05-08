@@ -13,7 +13,9 @@ __all__ = [
     "CodeModeCellStateError",
     "CodeModeParentContext",
     "CodeModeRunner",
+    "CodeModeSourceRuntimeError",
     "CodeModeToolBridge",
+    "PythonSubprocessCodeModeRuntime",
 ]
 
 
@@ -27,5 +29,15 @@ def __getattr__(name: str):
         return {
             "CodeModeParentContext": CodeModeParentContext,
             "CodeModeToolBridge": CodeModeToolBridge,
+        }[name]
+    if name in {"CodeModeSourceRuntimeError", "PythonSubprocessCodeModeRuntime"}:
+        from just_another_coding_agent.runtime.code_mode.python_runtime import (
+            CodeModeSourceRuntimeError,
+            PythonSubprocessCodeModeRuntime,
+        )
+
+        return {
+            "CodeModeSourceRuntimeError": CodeModeSourceRuntimeError,
+            "PythonSubprocessCodeModeRuntime": PythonSubprocessCodeModeRuntime,
         }[name]
     raise AttributeError(name)
