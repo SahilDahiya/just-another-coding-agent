@@ -469,11 +469,12 @@ Code Mode contract:
 - Code Mode cells must call canonical tools through a backend-owned bridge
   rather than direct filesystem, shell, permission, session, or transcript
   access
-- the first Code Mode bridge surface exposes `read`, `grep`, and `shell`
+- the Code Mode bridge surface exposes `read`, `grep`, `ls`, `find`, `write`,
+  `edit`, and `shell`
 - when no test runner is injected, `exec` uses the default Python subprocess
   source runtime
 - the default source runtime executes source as async Python with top-level
-  `await`, `emit`, `return_result`, and `tools.read`/`tools.grep`/`tools.shell`
+  `await`, `emit`, `return_result`, and the bridged `tools.*` APIs
 - the default source runtime exposes the standard-library `json` module for
   deterministic parsing and formatting
 - the default source runtime does not expose imports, `open`, or direct

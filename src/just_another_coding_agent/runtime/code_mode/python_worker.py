@@ -116,6 +116,18 @@ class _Tools:
     async def grep(self, **kwargs: Any) -> Any:
         return await self._protocol.call_tool("grep", kwargs)
 
+    async def ls(self, **kwargs: Any) -> Any:
+        return await self._protocol.call_tool("ls", kwargs)
+
+    async def find(self, **kwargs: Any) -> Any:
+        return await self._protocol.call_tool("find", kwargs)
+
+    async def write(self, **kwargs: Any) -> Any:
+        return await self._protocol.call_tool("write", kwargs)
+
+    async def edit(self, **kwargs: Any) -> Any:
+        return await self._protocol.call_tool("edit", kwargs)
+
     async def shell(self, **kwargs: Any) -> Any:
         return await self._protocol.call_tool("shell", kwargs)
 

@@ -37,6 +37,10 @@ calls JACA-owned APIs such as:
 ```python
 await tools.read(path="README.md")
 await tools.grep(pattern="TODO", path="src")
+await tools.ls(path="src")
+await tools.find(pattern="*.py", path="src")
+await tools.write(path="scratch.txt", content="done\n")
+await tools.edit(path="scratch.txt", old_text="done", new_text="verified")
 await tools.shell(command="pytest -q tests/contracts/test_read_tool.py")
 emit("intermediate text")
 data = json.loads('{"status": "done"}')
@@ -49,9 +53,9 @@ The worker exposes a small builtins set and no import hook, `open`, or direct
 subprocess API. This is a process boundary and API restriction, not a complete
 security sandbox; workspace authority still belongs to the backend tools.
 
-The first bridge implementation exposes `read`, `grep`, and `shell`.
-`subagent` is intentionally deferred until the basic bridge, provenance, and
-timeline semantics are stable.
+The current bridge exposes `read`, `grep`, `ls`, `find`, `write`, `edit`, and
+`shell`. `subagent` is intentionally deferred until the basic bridge,
+provenance, and timeline semantics are stable.
 
 Nested bridge activity is surfaced as compact updates on the parent `exec`
 tool call. The public stream should look like:
@@ -163,6 +167,10 @@ Runtime API:
 - `await tools.read(path="README.md", offset=None, limit=None)`
 - `await tools.grep(pattern="TODO", path="src", glob=None, ignore_case=False,
   literal=False, limit=100)`
+- `await tools.ls(path=None, limit=500)`
+- `await tools.find(pattern="*.py", path=None, limit=1000)`
+- `await tools.write(path="notes.txt", content="full file text")`
+- `await tools.edit(path="notes.txt", old_text="before", new_text="after")`
 - `await tools.shell(command="pytest -q", timeout=None)`
 - `json.loads(...)` and `json.dumps(...)`
 - `emit(value, channel="stdout")`
@@ -203,10 +211,11 @@ This rule protects:
 If a Code Mode implementation needs richer nested-tool metadata, add it to the
 Python contract first. Do not teach the Go TUI to infer it.
 
-The bridge should prove simple tool calls first, such as `read`, `grep`, and
-`shell`. Add `subagent` bridge coverage after the basic bridge semantics are
-stable, because it introduces another model run and therefore a larger
-provenance and timeline surface.
+The bridge should prove ordinary file and shell tool calls first, such as
+`read`, `grep`, `ls`, `find`, `write`, `edit`, and `shell`. Add `subagent`
+bridge coverage after the basic bridge semantics are stable, because it
+introduces another model run and therefore a larger provenance and timeline
+surface.
 
 ## First-Slice Non-Goals
 
@@ -235,7 +244,8 @@ The validation harness now covers both paths:
 
 - injected runners for narrow service and bridge tests
 - the default Python subprocess runtime for source execution through
-  `tools.read`, `tools.grep`, `tools.shell`, `emit`, and `return_result`
+  `tools.read`, `tools.grep`, `tools.ls`, `tools.find`, `tools.write`,
+  `tools.edit`, `tools.shell`, `emit`, and `return_result`
 - an actual model/tool loop where the model calls `exec`, the default runtime
   performs nested bridge calls, compact `exec` updates are streamed, and the
   transcript records only the parent `exec` tool return

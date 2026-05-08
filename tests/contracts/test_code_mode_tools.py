@@ -80,6 +80,36 @@ async def test_code_mode_exec_tool_uses_default_python_runtime(tmp_path) -> None
     ]
 
 
+async def test_code_mode_exec_default_runtime_exposes_canonical_file_tools(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    deps = WorkspaceDeps.from_workspace_root(workspace_root)
+
+    result = await code_mode_exec(
+        _run_context(deps),
+        source=(
+            "await tools.write(path='note.txt', content='hello\\n')\n"
+            "before = await tools.ls(path='.', limit=10)\n"
+            "matches = await tools.find(pattern='*.txt', path='.', limit=10)\n"
+            "await tools.edit("
+            "path='note.txt', old_text='hello', new_text='goodbye')\n"
+            "content = await tools.read(path='note.txt')\n"
+            "return_result({"
+            "'before': before, 'matches': matches, 'content': content"
+            "})"
+        ),
+        yield_time_ms=1000,
+    )
+    await deps.read_only_worker.close()
+
+    assert result.return_value["state"] == "completed"
+    assert [chunk["text"] for chunk in result.return_value["output"]] == [
+        '{"before": "note.txt", "content": "goodbye\\n", "matches": "note.txt"}'
+    ]
+
+
 async def test_code_mode_exec_default_runtime_blocks_direct_filesystem_access(
     tmp_path,
 ) -> None:

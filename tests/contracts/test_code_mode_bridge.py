@@ -156,6 +156,75 @@ async def test_code_mode_bridge_calls_canonical_grep_tool(tmp_path) -> None:
     assert result == "alpha.txt:1:needle one\nbeta.txt:2:needle two"
 
 
+async def test_code_mode_bridge_calls_canonical_ls_tool(tmp_path) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    (workspace_root / "alpha.txt").write_text("alpha\n", encoding="utf-8")
+    (workspace_root / "subdir").mkdir()
+    deps = WorkspaceDeps.from_workspace_root(workspace_root)
+    bridge = CodeModeToolBridge(_ParentContext(deps=deps))
+
+    try:
+        result = await bridge.ls(path=".", limit=10)
+    finally:
+        await deps.read_only_worker.close()
+
+    assert result == "alpha.txt\nsubdir/"
+
+
+async def test_code_mode_bridge_calls_canonical_find_tool(tmp_path) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    (workspace_root / "alpha.txt").write_text("alpha\n", encoding="utf-8")
+    (workspace_root / "beta.py").write_text("print('beta')\n", encoding="utf-8")
+    deps = WorkspaceDeps.from_workspace_root(workspace_root)
+    bridge = CodeModeToolBridge(_ParentContext(deps=deps))
+
+    try:
+        result = await bridge.find(pattern="*.py", path=".", limit=10)
+    finally:
+        await deps.read_only_worker.close()
+
+    assert result == "beta.py"
+
+
+async def test_code_mode_bridge_calls_canonical_write_tool(tmp_path) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    deps = WorkspaceDeps.from_workspace_root(workspace_root)
+    bridge = CodeModeToolBridge(_ParentContext(deps=deps))
+
+    try:
+        result = await bridge.write(path="created.txt", content="hello\n")
+    finally:
+        await deps.read_only_worker.close()
+
+    assert result == f"Wrote {workspace_root / 'created.txt'}"
+    assert (workspace_root / "created.txt").read_text(encoding="utf-8") == "hello\n"
+
+
+async def test_code_mode_bridge_calls_canonical_edit_tool(tmp_path) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    (workspace_root / "note.txt").write_text("hello\nworld\n", encoding="utf-8")
+    deps = WorkspaceDeps.from_workspace_root(workspace_root)
+    bridge = CodeModeToolBridge(_ParentContext(deps=deps))
+
+    try:
+        result = await bridge.edit(
+            path="note.txt",
+            old_text="hello",
+            new_text="goodbye",
+        )
+    finally:
+        await deps.read_only_worker.close()
+
+    assert result == f"Edited {workspace_root / 'note.txt'}"
+    assert (workspace_root / "note.txt").read_text(encoding="utf-8") == (
+        "goodbye\nworld\n"
+    )
+
+
 async def test_code_mode_bridge_calls_canonical_shell_tool(tmp_path) -> None:
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()

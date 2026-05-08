@@ -182,8 +182,14 @@ _TOOL_GUIDANCE_BY_NAME = {
             "results should be returned with emit(...) or return_result(...)."
         ),
         (
-            "Code Mode cells must call tools through the provided bridge; do "
-            "not assume direct filesystem or shell access inside the cell."
+            "Code Mode cells must call tools through the provided bridge: "
+            "tools.read, tools.grep, tools.ls, tools.find, tools.write, "
+            "tools.edit, and tools.shell."
+        ),
+        (
+            "Do not use imports, open, subprocess, or direct filesystem "
+            "access inside Code Mode cells; json is already available as "
+            "json."
         ),
     ),
     "wait": (

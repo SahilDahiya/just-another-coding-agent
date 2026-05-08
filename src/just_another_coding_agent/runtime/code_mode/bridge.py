@@ -10,9 +10,13 @@ from pydantic_ai.messages import ToolReturn
 
 from just_another_coding_agent.contracts.run_events import CodeModeActivityDetails
 from just_another_coding_agent.tools.deps import WorkspaceDeps
+from just_another_coding_agent.tools.edit import edit
+from just_another_coding_agent.tools.find import FIND_DEFAULT_LIMIT, find
 from just_another_coding_agent.tools.grep import GREP_MAX_MATCHES, grep
+from just_another_coding_agent.tools.ls import LS_DEFAULT_LIMIT, ls
 from just_another_coding_agent.tools.read import read
 from just_another_coding_agent.tools.shell import shell
+from just_another_coding_agent.tools.write import write
 
 
 class CodeModeParentContext(Protocol):
@@ -173,6 +177,79 @@ class CodeModeToolBridge:
                 ignore_case=ignore_case,
                 literal=literal,
                 limit=limit,
+            ),
+        )
+        return _unwrap_tool_return(result)
+
+    async def ls(
+        self,
+        *,
+        path: Annotated[str | None, Field(min_length=1)] = None,
+        limit: Annotated[int, Field(ge=1)] = LS_DEFAULT_LIMIT,
+    ) -> str:
+        title = "ls ." if path is None else f"ls {path}"
+        result = await self._call_nested_tool(
+            nested_tool="ls",
+            title=title,
+            call=lambda: ls(
+                self._nested_context("ls"),
+                path=path,
+                limit=limit,
+            ),
+        )
+        return _unwrap_tool_return(result)
+
+    async def find(
+        self,
+        *,
+        pattern: Annotated[str, Field(min_length=1)],
+        path: Annotated[str | None, Field(min_length=1)] = None,
+        limit: Annotated[int, Field(ge=1)] = FIND_DEFAULT_LIMIT,
+    ) -> str:
+        result = await self._call_nested_tool(
+            nested_tool="find",
+            title=f"find {pattern}",
+            call=lambda: find(
+                self._nested_context("find"),
+                pattern=pattern,
+                path=path,
+                limit=limit,
+            ),
+        )
+        return _unwrap_tool_return(result)
+
+    async def write(
+        self,
+        *,
+        path: Annotated[str, Field(min_length=1)],
+        content: str,
+    ) -> str:
+        result = await self._call_nested_tool(
+            nested_tool="write",
+            title=f"write {path}",
+            call=lambda: write(
+                self._nested_context("write"),
+                path=path,
+                content=content,
+            ),
+        )
+        return _unwrap_tool_return(result)
+
+    async def edit(
+        self,
+        *,
+        path: Annotated[str, Field(min_length=1)],
+        old_text: Annotated[str, Field(min_length=1)],
+        new_text: str,
+    ) -> str:
+        result = await self._call_nested_tool(
+            nested_tool="edit",
+            title=f"edit {path}",
+            call=lambda: edit(
+                self._nested_context("edit"),
+                path=path,
+                old_text=old_text,
+                new_text=new_text,
             ),
         )
         return _unwrap_tool_return(result)
