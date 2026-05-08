@@ -480,8 +480,12 @@ Code Mode contract:
   subprocess APIs, but this restriction is not a complete security sandbox
 - nested tool calls must preserve normal workspace, sandbox, approval,
   permission, activity, and failure semantics
+- runtime failures are represented as failed `CodeModeCellResult` payloads on
+  the parent `exec` tool result, so the current model can inspect and recover
 - nested Code Mode activity is surfaced as compact `tool_call_updated` events
   on the parent `exec` tool call using typed `code_mode` activity details
+- failed nested bridge calls must surface as compact `exec` updates with
+  `nested_status` set to `failed`
 - nested bridge calls must not emit raw nested-tool updates, such as shell
   streaming output, directly into the public stream
 - the first Code Mode streaming slice must not emit nested top-level

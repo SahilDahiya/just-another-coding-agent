@@ -26,6 +26,12 @@ def _workflow_shell_command() -> str:
     return "printf workflow-ok"
 
 
+def _failing_shell_command() -> str:
+    if detect_default_shell_family() == "powershell":
+        return "Write-Output workflow-fail; exit 7"
+    return "printf workflow-fail; exit 7"
+
+
 def _has_exec_tool_return(messages: list[ModelMessage]) -> bool:
     return any(
         isinstance(message, ModelRequest)
@@ -67,6 +73,33 @@ async def _code_mode_workflow_model(
                 }
             ),
             tool_call_id="call-exec",
+        )
+    }
+
+
+async def _code_mode_failure_model(
+    messages: list[ModelMessage],
+    _agent_info,
+) -> AsyncIterator[str | dict[int, DeltaToolCall]]:
+    if _has_exec_tool_return(messages):
+        yield "failure inspected"
+        return
+
+    yield {
+        0: DeltaToolCall(
+            name="exec",
+            json_args=json.dumps(
+                {
+                    "source": (
+                        "await tools.shell("
+                        f"command={_failing_shell_command()!r})\n"
+                        "return_result('unreachable')"
+                    ),
+                    "yield_time_ms": 1000,
+                    "max_output_tokens": 1000,
+                }
+            ),
+            tool_call_id="call-exec-fails",
         )
     }
 
@@ -168,6 +201,78 @@ async def test_code_mode_validates_jobs_tool_usage_workflow(tmp_path) -> None:
 
     assert isinstance(events[-1], RunSucceededEvent)
     assert events[-1].output_text == "workflow complete"
+
+    tool_return_names = [
+        part.tool_name
+        for message in messages
+        if isinstance(message, ModelRequest)
+        for part in message.parts
+        if isinstance(part, ToolReturnPart)
+    ]
+    assert tool_return_names == ["exec"]
+
+
+async def test_code_mode_nested_failure_stays_under_parent_exec(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    deps = WorkspaceDeps.from_workspace_root(workspace_root)
+    agent = build_canonical_agent(
+        model=FunctionModel(stream_function=_code_mode_failure_model),
+        workspace_root=workspace_root,
+        tool_names=[
+            "shell",
+            "exec",
+            "wait",
+        ],
+    )
+
+    with capture_run_messages() as messages:
+        events = [
+            event
+            async for event in stream_run_events(
+                agent=agent,
+                prompt="inspect failing code mode",
+                deps=deps,
+                available_tool_names=["shell", "exec", "wait"],
+            )
+        ]
+
+    started = [event for event in events if isinstance(event, ToolCallStartedEvent)]
+    assert [(event.tool_name, event.tool_call_id) for event in started] == [
+        ("exec", "call-exec-fails"),
+    ]
+
+    nested_statuses = [
+        (
+            event.tool_name,
+            event.activity.details.nested_tool,
+            event.activity.details.nested_status,
+        )
+        for event in events
+        if isinstance(event, ToolCallUpdatedEvent)
+        and isinstance(event.activity.details, CodeModeActivityDetails)
+    ]
+    assert nested_statuses == [
+        ("exec", "shell", "started"),
+        ("exec", "shell", "failed"),
+    ]
+
+    succeeded = [
+        event for event in events if isinstance(event, ToolCallSucceededEvent)
+    ]
+    assert [(event.tool_name, event.tool_call_id) for event in succeeded] == [
+        ("exec", "call-exec-fails"),
+    ]
+    exec_result = succeeded[0].result
+    assert exec_result["state"] == "failed"
+    assert exec_result["error"]["error_type"] == "CodeModeSourceRuntimeError"
+    assert "ToolCommandError" in exec_result["error"]["message"]
+
+    assert isinstance(events[-1], RunSucceededEvent)
+    assert events[-1].output_text == "failure inspected"
 
     tool_return_names = [
         part.tool_name

@@ -169,6 +169,12 @@ canonical `CodeModeToolBridge`, then sends either a result or an explicit error
 back to the worker. Unknown tools, malformed protocol messages, source errors,
 and nested-tool failures fail the cell.
 
+Runtime failures are returned as failed `CodeModeCellResult` values from the
+parent `exec` tool call. They do not create independent top-level nested tool
+returns in the transcript. If a nested bridge call fails, Code Mode emits a
+compact `tool_call_updated exec` activity with `nested_status="failed"` before
+the failed cell result is returned to the model.
+
 ## Backend Bridge Rule
 
 Nested tool calls must enter the same backend-owned tool semantics as ordinary
@@ -224,3 +230,5 @@ The validation harness now covers both paths:
 - an actual model/tool loop where the model calls `exec`, the default runtime
   performs nested bridge calls, compact `exec` updates are streamed, and the
   transcript records only the parent `exec` tool return
+- runtime failure cases covering source exceptions, missing source APIs,
+  nested bridge failures, shell failures, and cell timeout

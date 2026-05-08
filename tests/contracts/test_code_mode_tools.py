@@ -99,6 +99,81 @@ async def test_code_mode_exec_default_runtime_blocks_direct_filesystem_access(
     assert "name 'open' is not defined" in result.return_value["error"]["message"]
 
 
+async def test_code_mode_exec_default_runtime_reports_source_exception(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    deps = WorkspaceDeps.from_workspace_root(workspace_root)
+
+    result = await code_mode_exec(
+        _run_context(deps),
+        source="raise ValueError('bad source')",
+        yield_time_ms=1000,
+    )
+
+    assert result.return_value["state"] == "failed"
+    assert result.return_value["error"]["error_type"] == "CodeModeSourceRuntimeError"
+    assert "ValueError: bad source" in result.return_value["error"]["message"]
+
+
+async def test_code_mode_exec_default_runtime_reports_unknown_tool(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    deps = WorkspaceDeps.from_workspace_root(workspace_root)
+
+    result = await code_mode_exec(
+        _run_context(deps),
+        source="await tools.missing_tool()",
+        yield_time_ms=1000,
+    )
+
+    assert result.return_value["state"] == "failed"
+    assert result.return_value["error"]["error_type"] == "CodeModeSourceRuntimeError"
+    assert (
+        "'_Tools' object has no attribute 'missing_tool'"
+        in result.return_value["error"]["message"]
+    )
+
+
+async def test_code_mode_exec_default_runtime_fails_on_nested_read_error(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    deps = WorkspaceDeps.from_workspace_root(workspace_root)
+
+    result = await code_mode_exec(
+        _run_context(deps),
+        source="await tools.read(path='missing.txt')",
+        yield_time_ms=1000,
+    )
+    await deps.read_only_worker.close()
+
+    assert result.return_value["state"] == "failed"
+    assert result.return_value["error"]["error_type"] == "CodeModeSourceRuntimeError"
+    assert "missing.txt" in result.return_value["error"]["message"]
+
+
+async def test_code_mode_exec_default_runtime_times_out(tmp_path) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    deps = WorkspaceDeps.from_workspace_root(workspace_root)
+
+    result = await code_mode_exec(
+        _run_context(deps),
+        source="while True:\n    pass",
+        yield_time_ms=1000,
+        timeout_ms=50,
+    )
+
+    assert result.return_value["state"] == "failed"
+    assert result.return_value["error"]["error_type"] == "CodeModeTimeoutError"
+    assert result.return_value["error"]["message"] == "Code Mode cell timed out."
+
+
 async def test_code_mode_exec_default_runtime_return_result_is_terminal(
     tmp_path,
 ) -> None:
