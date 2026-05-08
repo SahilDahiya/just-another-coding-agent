@@ -4,6 +4,7 @@ from evaluations.harbor.commands import (
     build_provider_env,
     harbor_auth_file_uploads,
     harbor_code_mode_enabled,
+    harbor_code_mode_tools_only,
     resolve_harbor_sessions_root,
 )
 
@@ -308,12 +309,31 @@ def test_build_harbor_exec_command_forwards_code_mode_when_requested() -> None:
     assert " --code-mode " in command
 
 
+def test_build_harbor_exec_command_forwards_code_mode_only_when_requested() -> None:
+    command = build_harbor_exec_command(
+        instruction="solve it",
+        model="openai-responses:gpt-5.3-codex",
+        code_mode=True,
+        code_mode_only=True,
+    )
+
+    assert " --code-mode " in command
+    assert " --code-mode-only " in command
+
+
 def test_harbor_code_mode_is_enabled_by_default() -> None:
     assert harbor_code_mode_enabled(environ={}) is True
 
 
 def test_harbor_code_mode_can_be_disabled_by_env() -> None:
     assert harbor_code_mode_enabled(environ={"JACA_HARBOR_CODE_MODE": "0"}) is False
+
+
+def test_harbor_code_mode_only_can_be_enabled_by_env() -> None:
+    env = {"JACA_HARBOR_CODE_MODE": "only"}
+
+    assert harbor_code_mode_enabled(environ=env) is True
+    assert harbor_code_mode_tools_only(environ=env) is True
 
 
 def test_resolve_harbor_sessions_root_uses_hidden_tmp_default() -> None:

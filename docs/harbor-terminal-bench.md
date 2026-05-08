@@ -146,6 +146,18 @@ export JACA_HARBOR_CODE_MODE=0
 `JACA_HARBOR_CODE_MODE=1`, `true`, `yes`, or `on` also explicitly keep the
 default enabled behavior.
 
+For experiments that force the model through Code Mode, export:
+
+```bash
+export JACA_HARBOR_CODE_MODE=only
+```
+
+This makes the adapter pass both `--code-mode` and `--code-mode-only`; the
+backend then exposes only `exec` and `wait` as model-facing tools for that run.
+The first Code Mode bridge exposes `tools.read`, `tools.grep`, and
+`tools.shell`, so strict Code Mode runs may need shell-based file writes until
+additional bridge tools are added.
+
 ## Container Paths
 
 Current adapter behavior inside the task container:

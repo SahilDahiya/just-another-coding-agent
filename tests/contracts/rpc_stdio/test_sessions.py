@@ -387,6 +387,58 @@ async def test_handle_rpc_json_line_can_enable_code_mode_for_one_run(
     }
 
 
+async def test_handle_rpc_json_line_can_restrict_run_to_code_mode_tools(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    sessions_root = tmp_path / "sessions"
+    session_id = await create_session_id(
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+    captured: dict[str, object] = {}
+
+    async def fake_stream_session_run_events(**kwargs):
+        captured["tool_names"] = kwargs["tool_names"]
+        captured["run_mode"] = kwargs["run_mode"]
+        yield {"type": "run_started", "run_id": "run-1"}
+        yield {"type": "run_succeeded", "run_id": "run-1", "output_text": "done"}
+
+    monkeypatch.setattr(
+        rpc_stdio,
+        "stream_session_run_events",
+        fake_stream_session_run_events,
+    )
+
+    messages = await rpc_messages(
+        request_payload={
+            "id": "req-run-code-mode-only",
+            "command": "run.start",
+            "payload": {
+                "session_id": session_id,
+                "prompt": "hello",
+                "enable_code_mode": True,
+                "code_mode_tools_only": True,
+            },
+        },
+        model=FunctionModel(stream_function=text_only_stream),
+        workspace_root=workspace_root,
+        sessions_root=sessions_root,
+    )
+
+    assert captured == {
+        "tool_names": ("exec", "wait"),
+        "run_mode": "coding",
+    }
+    assert messages[-1] == {
+        "type": "rpc_response",
+        "id": "req-run-code-mode-only",
+        "response": {"session_id": session_id},
+    }
+
+
 async def test_handle_rpc_json_line_uses_onboarding_run_mode_toolset(
     tmp_path,
     monkeypatch,

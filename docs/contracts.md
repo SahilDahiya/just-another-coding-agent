@@ -1160,6 +1160,9 @@ Ordering rules for the RPC slice:
 - `run.start` with `enable_code_mode: true` appends the Code Mode `exec` and
   `wait` tools to that run's model-facing tool list only; it does not change
   the session's persisted mode and does not enable Code Mode for later runs
+- `run.start` with `code_mode_tools_only: true` exposes only the Code Mode
+  `exec` and `wait` tools for that run; it is an experimental benchmarking
+  control surface and does not change the session's persisted mode
 - `/onboard` is the user-facing signal that sets the session mode to
   `onboarding` before starting the run; `/exit-mode` returns the session mode
   to `coding`

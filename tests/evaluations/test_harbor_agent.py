@@ -142,6 +142,34 @@ def test_harbor_agent_can_disable_code_mode_from_env(
     assert commands[0].env["JACA_HARBOR_CODE_MODE"] == "0"
 
 
+def test_harbor_agent_can_enable_code_mode_only_from_env(
+    monkeypatch, tmp_path: Path
+) -> None:
+    for module_name in list(sys.modules):
+        if module_name.startswith("evaluations.harbor.agent") or module_name.startswith(
+            "harbor"
+        ):
+            sys.modules.pop(module_name)
+
+    _install_fake_harbor_modules()
+    monkeypatch.setenv("OPENAI_API_KEY", "openai-secret")
+    monkeypatch.setenv("JACA_HARBOR_CODE_MODE", "only")
+    monkeypatch.setenv("LOGFIRE_TOKEN", "logfire-secret")
+
+    module = importlib.import_module("evaluations.harbor.agent")
+    agent = module.JustAnotherCodingAgentHarborAgent(
+        logs_dir=tmp_path / "logs",
+        model_name="openai-responses:gpt-5.4",
+    )
+
+    commands = agent.create_run_agent_commands("Fix the task")
+
+    assert len(commands) == 1
+    assert " --code-mode " in commands[0].command
+    assert " --code-mode-only " in commands[0].command
+    assert commands[0].env["JACA_HARBOR_CODE_MODE"] == "only"
+
+
 def test_harbor_agent_uses_explicit_harbor_logfire_service_name_override(
     monkeypatch, tmp_path: Path
 ) -> None:

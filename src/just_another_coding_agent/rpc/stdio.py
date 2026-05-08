@@ -1487,8 +1487,11 @@ async def _handle_run_start(
                 message=str(error),
             ).model_dump_json()
             return
-    tool_names = resolve_tool_names_for_run_mode(effective_run_mode)
-    if request.payload.enable_code_mode:
+    if request.payload.code_mode_tools_only:
+        tool_names = CODE_MODE_TOOL_NAMES
+    else:
+        tool_names = resolve_tool_names_for_run_mode(effective_run_mode)
+    if request.payload.enable_code_mode and not request.payload.code_mode_tools_only:
         tool_names = (*tool_names, *CODE_MODE_TOOL_NAMES)
 
     current_task = asyncio.current_task()

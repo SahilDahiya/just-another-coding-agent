@@ -179,6 +179,7 @@ class RunStartPayload(_RpcModel):
     mode: RunMode | None = None
     thinking: ThinkingSetting | None = None
     enable_code_mode: bool = False
+    code_mode_tools_only: bool = False
 
 
 class RunStartRequest(_RpcModel):

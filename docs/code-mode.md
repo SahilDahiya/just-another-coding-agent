@@ -115,8 +115,10 @@ RPC clients opt in per run with `enable_code_mode: true` on `run.start`.
 The one-shot benchmark wrapper exposes the same opt-in as `--code-mode`, and
 the Harbor adapter passes that flag by default. Set
 `JACA_HARBOR_CODE_MODE=0` in the Harbor host process only when a baseline run
-must disable Code Mode. These switches append `exec` and `wait` for the current
-run only; they do not persist Code Mode as a session mode.
+must disable Code Mode. Set `JACA_HARBOR_CODE_MODE=only` for strict Harbor
+experiments where the model-facing tool list is only `exec` and `wait`. These
+switches affect the current run only; they do not persist Code Mode as a
+session mode.
 
 The public lifecycle states are:
 

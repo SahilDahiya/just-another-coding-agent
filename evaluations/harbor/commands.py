@@ -6,6 +6,7 @@ import shlex
 import tomllib
 from collections.abc import Mapping
 from pathlib import Path, PurePosixPath
+from typing import Literal
 from urllib.parse import urlparse
 
 from just_another_coding_agent.auth import (
@@ -35,6 +36,7 @@ _DEFAULT_HARBOR_LOGFIRE_SERVICE_NAME = "jaca-harbor"
 _LOCAL_HOSTNAMES = frozenset({"localhost", "127.0.0.1", "::1"})
 _HARBOR_SESSIONS_ROOT_ENV_KEY = "JACA_HARBOR_SESSIONS_ROOT"
 DEFAULT_HARBOR_SESSIONS_ROOT = "/tmp/.jaca/harbor-sessions"
+HarborCodeModeSetting = Literal["off", "available", "only"]
 
 
 def _is_absolute_harbor_container_path(value: str) -> bool:
@@ -69,9 +71,12 @@ def build_provider_env(
     source = os.environ if environ is None else environ
     allowed_keys = (*_provider_env_keys_for_model(model), *_COMMON_ENV_KEYS)
     selected = {key: source[key] for key in allowed_keys if key in source}
-    selected["JACA_HARBOR_CODE_MODE"] = (
-        "1" if harbor_code_mode_enabled(environ=source) else "0"
-    )
+    code_mode_setting = harbor_code_mode_setting(environ=source)
+    selected["JACA_HARBOR_CODE_MODE"] = {
+        "available": "1",
+        "off": "0",
+        "only": "only",
+    }[code_mode_setting]
     if _is_openai_codex_model(model):
         _inject_openai_codex_oauth_credentials(selected=selected)
     _inject_required_provider_secret(model=model, selected=selected)
@@ -235,6 +240,7 @@ def build_harbor_exec_command(
     model: str,
     thinking: str | None = None,
     code_mode: bool = False,
+    code_mode_only: bool = False,
     workspace_root: str = ".",
     sessions_root: str | None = None,
 ) -> str:
@@ -244,6 +250,7 @@ def build_harbor_exec_command(
         f"--thinking {shlex.quote(thinking)} " if thinking is not None else ""
     )
     code_mode_arg = "--code-mode " if code_mode else ""
+    code_mode_only_arg = "--code-mode-only " if code_mode_only else ""
     resolved_sessions_root = (
         resolve_harbor_sessions_root() if sessions_root is None else sessions_root
     )
@@ -259,6 +266,7 @@ def build_harbor_exec_command(
         f"--model {shlex.quote(model)} "
         f"{thinking_arg}"
         f"{code_mode_arg}"
+        f"{code_mode_only_arg}"
         f"--sessions-root {shlex.quote(resolved_sessions_root)} "
         f"-C {shlex.quote(workspace_root)} - "
         "2>&1 | stdbuf -oL tee /logs/agent/just-another-coding-agent.txt"
@@ -269,15 +277,31 @@ def harbor_code_mode_enabled(
     *,
     environ: Mapping[str, str] | None = None,
 ) -> bool:
+    return harbor_code_mode_setting(environ=environ) != "off"
+
+
+def harbor_code_mode_tools_only(
+    *,
+    environ: Mapping[str, str] | None = None,
+) -> bool:
+    return harbor_code_mode_setting(environ=environ) == "only"
+
+
+def harbor_code_mode_setting(
+    *,
+    environ: Mapping[str, str] | None = None,
+) -> HarborCodeModeSetting:
     source = os.environ if environ is None else environ
     value = source.get("JACA_HARBOR_CODE_MODE", "").strip().lower()
     if value == "":
-        return True
+        return "available"
     if value in {"0", "false", "no", "off"}:
-        return False
+        return "off"
     if value in {"1", "true", "yes", "on"}:
-        return True
+        return "available"
+    if value in {"only", "strict", "required"}:
+        return "only"
     raise ValueError(
-        "JACA_HARBOR_CODE_MODE must be one of: 1, true, yes, on, "
-        "0, false, no, off"
+        "JACA_HARBOR_CODE_MODE must be one of: 1, true, yes, on, only, "
+        "strict, required, 0, false, no, off"
     )
