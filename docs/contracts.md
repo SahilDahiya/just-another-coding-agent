@@ -454,6 +454,29 @@ Initial executable tool slice:
 - the backend must fail `ask_mcq_question` explicitly when any linked
   `packet_id` is missing, duplicated, blank, or from a different run
 
+Code Mode contract:
+
+- first-slice Code Mode registry names are `exec` and `wait`
+- `exec` and `wait` are not part of the default canonical tool set
+- the backend must expose `exec` and `wait` only through an explicit
+  backend-owned visibility policy
+- Code Mode lifecycle states are `running`, `yielded`, `completed`, `failed`,
+  and `terminated`
+- terminal Code Mode states are `completed`, `failed`, and `terminated`
+- `CodeModeCellResult` may carry a typed error only when the state is `failed`
+- Code Mode cells must call canonical tools through a backend-owned bridge
+  rather than direct filesystem, shell, permission, session, or transcript
+  access
+- nested tool calls must preserve normal workspace, sandbox, approval,
+  permission, activity, and failure semantics
+- Code Mode may call `subagent` only as a nested canonical tool call through
+  the backend bridge; the ordinary subagent contract still owns child-run
+  creation, spawn mode, capability limits, parent session/run provenance, tool
+  activity, and failure behavior
+- Code Mode must not implement a separate child-agent system behind the bridge
+- Code Mode contract direction and non-goals are documented in
+  `code-mode.md`
+
 `read` input contract:
 
 - fields: `path`, `offset`, `limit`
