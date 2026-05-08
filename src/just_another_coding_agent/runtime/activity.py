@@ -18,6 +18,7 @@ from just_another_coding_agent.tools._activity import truncate_activity_label
 _TOOL_ACTIVITY_DETAILS_ADAPTER = TypeAdapter(ToolActivityDetails)
 _TITLE_KEY_BY_TOOL = {
     "ask_mcq_question": "question",
+    "exec": "source",
     "generate_mcq_from_teaching_packets": "packet_ids",
     "publish_teaching_packet": "title",
     "read": "path",
@@ -25,6 +26,7 @@ _TITLE_KEY_BY_TOOL = {
     "edit": "path",
     "grep": "pattern",
     "find": "pattern",
+    "wait": "cell_id",
 }
 _DISPLAY_LABEL_BY_TOOL = {
     "ask_mcq_question": "Onboard",
@@ -33,11 +35,13 @@ _DISPLAY_LABEL_BY_TOOL = {
     "read": "Read",
     "write": "Write",
     "edit": "Edit",
+    "exec": "Code",
     "shell": "Shell",
     "grep": "Search",
     "ls": "List",
     "find": "Find",
     "subagent": "Subagent",
+    "wait": "Code",
 }
 _EXPLORATION_TOOL_NAMES = frozenset({"read", "grep", "ls", "find"})
 _SUBAGENT_DISPLAY_LABEL_BY_ROLE = {
@@ -290,10 +294,12 @@ def _build_fallback_success_summary(*, tool_name: str, result: Any) -> str | Non
         "read": "read completed",
         "write": "wrote file",
         "edit": "edit applied",
+        "exec": "code cell completed",
         "grep": "search completed",
         "ls": "listing completed",
         "find": "find completed",
         "subagent": "subagent completed",
+        "wait": "code cell wait completed",
         "generate_mcq_from_teaching_packets": "generated MCQ draft",
     }
     return summaries.get(tool_name)

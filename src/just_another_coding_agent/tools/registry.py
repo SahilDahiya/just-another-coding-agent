@@ -5,6 +5,7 @@ from collections.abc import Sequence
 from pydantic_ai import FunctionToolset
 from pydantic_ai.toolsets import AbstractToolset
 
+from just_another_coding_agent.contracts.code_mode import CODE_MODE_TOOL_NAMES
 from just_another_coding_agent.contracts.run_mode import (
     DEFAULT_RUN_MODE,
     ONBOARDING_RUN_MODE,
@@ -17,6 +18,10 @@ from just_another_coding_agent.contracts.tools import (
     CanonicalToolName,
     KnownToolName,
     OnboardingToolName,
+)
+from just_another_coding_agent.tools.code_mode import (
+    CODE_MODE_EXEC_TOOL,
+    CODE_MODE_WAIT_TOOL,
 )
 from just_another_coding_agent.tools.deps import WorkspaceDeps
 from just_another_coding_agent.tools.edit import EDIT_TOOL
@@ -60,10 +65,12 @@ SEQUENTIAL_ONBOARDING_TOOL_NAMES = (
     "generate_mcq_from_teaching_packets",
     "publish_teaching_packet",
 )
+SEQUENTIAL_CODE_MODE_TOOL_NAMES = CODE_MODE_TOOL_NAMES
 
 _TOOLS_BY_NAME = {
     "ask_mcq_question": ASK_MCQ_QUESTION_TOOL,
     "edit": EDIT_TOOL,
+    "exec": CODE_MODE_EXEC_TOOL,
     "find": FIND_TOOL,
     "generate_mcq_from_teaching_packets": (
         GENERATE_MCQ_FROM_TEACHING_PACKETS_TOOL
@@ -74,6 +81,7 @@ _TOOLS_BY_NAME = {
     "read": READ_TOOL,
     "shell": SHELL_TOOL,
     "subagent": SUBAGENT_TOOL,
+    "wait": CODE_MODE_WAIT_TOOL,
     "write": WRITE_TOOL,
 }
 
@@ -96,6 +104,9 @@ if set(PARALLEL_CANONICAL_TOOL_NAMES).isdisjoint(SEQUENTIAL_ONBOARDING_TOOL_NAME
         raise RuntimeError("Known tool concurrency policy must cover all tools")
 else:
     raise RuntimeError("Onboarding tool concurrency policy must be disjoint")
+
+if not set(SEQUENTIAL_CODE_MODE_TOOL_NAMES).issubset(_TOOLS_BY_NAME):
+    raise RuntimeError("Code Mode tool policy references unknown tools")
 
 
 def list_canonical_tool_names() -> tuple[CanonicalToolName, ...]:
@@ -125,13 +136,14 @@ def build_canonical_toolset(
             raise ValueError(f"Duplicate tool name: {tool_name}")
         seen_names.add(tool_name)
 
-        if tool_name not in KNOWN_TOOL_NAMES:
+        if tool_name not in _TOOLS_BY_NAME:
             raise UnknownToolError(f"Unknown canonical tool: {tool_name}")
 
         tool = _TOOLS_BY_NAME[tool_name]
         expected_sequential = (
             tool_name in SEQUENTIAL_CANONICAL_TOOL_NAMES
             or tool_name in SEQUENTIAL_ONBOARDING_TOOL_NAMES
+            or tool_name in SEQUENTIAL_CODE_MODE_TOOL_NAMES
         )
         if tool.sequential is not expected_sequential:
             raise RuntimeError(
@@ -146,7 +158,9 @@ def build_canonical_toolset(
 
 
 __all__ = [
+    "CODE_MODE_TOOL_NAMES",
     "PARALLEL_CANONICAL_TOOL_NAMES",
+    "SEQUENTIAL_CODE_MODE_TOOL_NAMES",
     "SEQUENTIAL_CANONICAL_TOOL_NAMES",
     "SEQUENTIAL_ONBOARDING_TOOL_NAMES",
     "UnknownToolError",

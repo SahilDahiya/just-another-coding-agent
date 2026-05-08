@@ -460,6 +460,8 @@ Code Mode contract:
 - `exec` and `wait` are not part of the default canonical tool set
 - the backend must expose `exec` and `wait` only through an explicit
   backend-owned visibility policy
+- the current first visibility policy is explicit `tool_names` selection at
+  agent construction; Code Mode is not a durable run mode yet
 - Code Mode lifecycle states are `running`, `yielded`, `completed`, `failed`,
   and `terminated`
 - terminal Code Mode states are `completed`, `failed`, and `terminated`

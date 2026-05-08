@@ -14,6 +14,7 @@ from just_another_coding_agent.tools.onboarding_question import (
 )
 from just_another_coding_agent.tools.read import READ_TOOL
 from just_another_coding_agent.tools.registry import (
+    CODE_MODE_TOOL_NAMES,
     PARALLEL_CANONICAL_TOOL_NAMES,
     SEQUENTIAL_CANONICAL_TOOL_NAMES,
     UnknownToolError,
@@ -54,6 +55,12 @@ def test_registry_exposes_canonical_tool_names() -> None:
         "find",
         "subagent",
     )
+    assert "exec" not in list_canonical_tool_names()
+    assert "wait" not in list_canonical_tool_names()
+
+
+def test_registry_exposes_code_mode_tool_names_separately() -> None:
+    assert CODE_MODE_TOOL_NAMES == ("exec", "wait")
 
 
 def test_registry_exposes_onboarding_only_tool_names() -> None:
@@ -126,6 +133,33 @@ def test_build_canonical_toolset_registers_implemented_tools_with_pydanticai(
         "find",
         "subagent",
     ]
+
+
+def test_build_canonical_toolset_registers_code_mode_tools_only_when_explicit(
+    tmp_path,
+) -> None:
+    model = TestModel(call_tools=[], custom_output_text="ok")
+    agent = Agent(
+        model,
+        toolsets=[build_canonical_toolset(["read", "exec", "wait"])],
+        deps_type=WorkspaceDeps,
+    )
+
+    agent.run_sync("What tools are available?", deps=WorkspaceDeps(tmp_path))
+
+    function_tools = model.last_model_request_parameters.function_tools
+    tool_names = [tool.name for tool in function_tools]
+    assert tool_names == ["read", "exec", "wait"]
+
+    tools_by_name = {tool.name: tool for tool in function_tools}
+    assert tools_by_name["exec"].description == (
+        "Start one run-local Code Mode cell. The cell executes through the "
+        "backend-owned Code Mode service and may call canonical tools only "
+        "through the Code Mode bridge."
+    )
+    assert tools_by_name["wait"].description == (
+        "Poll, wait for, or terminate a yielded Code Mode cell by cell_id."
+    )
 
 
 def test_build_canonical_toolset_exposes_rich_model_facing_tool_descriptions(

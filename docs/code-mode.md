@@ -81,6 +81,11 @@ model -> consumes structured output
 The first contract slice lives in
 `src/just_another_coding_agent/contracts/code_mode.py`.
 
+The first tool-registration slice exposes `exec` and `wait` only when the
+backend explicitly includes those names in the agent tool list. They are not
+part of the default canonical tool set and they are not an onboarding-mode
+extension.
+
 The public lifecycle states are:
 
 - `running`

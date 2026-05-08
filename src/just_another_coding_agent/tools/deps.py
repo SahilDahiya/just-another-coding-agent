@@ -29,6 +29,10 @@ from just_another_coding_agent.contracts.teaching import (
     TeachingSnippet,
 )
 from just_another_coding_agent.contracts.thinking import ThinkingSetting
+from just_another_coding_agent.runtime.code_mode import (
+    CodeModeCellService,
+    CodeModeRunner,
+)
 from just_another_coding_agent.tools._workspace import (
     canonicalize_path_target,
     normalize_workspace_root,
@@ -265,6 +269,16 @@ class WorkspaceDeps:
     tool_update_sink: ToolUpdateSink | None = None
     approval_requester: ApprovalRequester | None = None
     onboarding_question_requester: OnboardingQuestionRequester | None = None
+    code_mode_cell_service: CodeModeCellService = field(
+        default_factory=CodeModeCellService,
+        compare=False,
+        repr=False,
+    )
+    code_mode_runner: CodeModeRunner | None = field(
+        default=None,
+        compare=False,
+        repr=False,
+    )
     read_only_worker: ReadOnlyWorkerRuntime = field(
         default_factory=ReadOnlyWorkerRuntime,
         compare=False,
@@ -287,10 +301,16 @@ class WorkspaceDeps:
     )
 
     @classmethod
-    def from_workspace_root(cls, workspace_root: Path | str) -> WorkspaceDeps:
+    def from_workspace_root(
+        cls,
+        workspace_root: Path | str,
+        *,
+        code_mode_runner: CodeModeRunner | None = None,
+    ) -> WorkspaceDeps:
         return cls(
             workspace_root=normalize_workspace_root(workspace_root),
             shell_family=detect_default_shell_family(),
+            code_mode_runner=code_mode_runner,
         )
 
 
