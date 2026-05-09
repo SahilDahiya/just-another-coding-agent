@@ -29,7 +29,7 @@ async def test_code_mode_exec_tool_uses_injected_runner(tmp_path) -> None:
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
 
-    async def runner(ctx: CodeModeCellContext) -> str:
+    async def runner(ctx: CodeModeCellContext, request) -> str:
         ctx.emit("seen")
         return "done"
 
@@ -378,7 +378,7 @@ async def test_code_mode_wait_tool_uses_shared_cell_service(tmp_path) -> None:
     workspace_root.mkdir()
     release = asyncio.Event()
 
-    async def runner(ctx: CodeModeCellContext) -> str:
+    async def runner(ctx: CodeModeCellContext, request) -> str:
         ctx.emit("starting")
         await release.wait()
         return "done"

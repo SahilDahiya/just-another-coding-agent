@@ -112,13 +112,6 @@ async def code_mode_wait(
             ),
         ),
     ] = None,
-    max_output_tokens: Annotated[
-        int | None,
-        Field(
-            ge=1,
-            description="Optional maximum output budget for this wait result.",
-        ),
-    ] = None,
     terminate: Annotated[
         bool,
         Field(description="Whether to terminate the running cell."),
@@ -129,7 +122,6 @@ async def code_mode_wait(
     Args:
         cell_id: Identifier of the yielded Code Mode cell.
         yield_time_ms: Optional milliseconds to wait before yielding again.
-        max_output_tokens: Optional maximum output budget for this wait result.
         terminate: Whether to terminate the running cell.
     """
 
@@ -137,7 +129,6 @@ async def code_mode_wait(
         CodeModeWaitRequest(
             cell_id=cell_id,
             yield_time_ms=yield_time_ms,
-            max_output_tokens=max_output_tokens,
             terminate=terminate,
         )
     )

@@ -17,7 +17,8 @@ from just_another_coding_agent.runtime.code_mode import (
 async def test_code_mode_cell_service_completes_a_cell() -> None:
     service = CodeModeCellService()
 
-    async def runner(ctx):
+    async def runner(ctx, request):
+        assert request.source == "await tools.read(path='jobs.jsonl')"
         ctx.emit("loaded jobs")
         return '{"rows": 5}'
 
@@ -37,11 +38,35 @@ async def test_code_mode_cell_service_completes_a_cell() -> None:
     assert result.cell_id not in service.active_cell_ids()
 
 
+async def test_code_mode_cell_service_passes_request_source_to_runner() -> None:
+    service = CodeModeCellService()
+    seen_source = None
+
+    async def runner(_ctx, request):
+        nonlocal seen_source
+        seen_source = request.source
+        return request.source.upper()
+
+    result = await service.start_cell(
+        CodeModeExecRequest(
+            source="return_result('model source')",
+            yield_time_ms=100,
+        ),
+        runner,
+    )
+
+    assert seen_source == "return_result('model source')"
+    assert result.state == "completed"
+    assert [chunk.text for chunk in result.output] == [
+        "RETURN_RESULT('MODEL SOURCE')"
+    ]
+
+
 async def test_code_mode_cell_service_yields_then_waits_for_completion() -> None:
     service = CodeModeCellService()
     release = asyncio.Event()
 
-    async def runner(ctx):
+    async def runner(ctx, request):
         ctx.emit("starting")
         await release.wait()
         ctx.emit("finished")
@@ -70,7 +95,7 @@ async def test_code_mode_cell_service_terminates_a_running_cell() -> None:
     service = CodeModeCellService()
     cancelled = asyncio.Event()
 
-    async def runner(ctx):
+    async def runner(ctx, request):
         ctx.emit("starting")
         try:
             await asyncio.sleep(60)
@@ -92,10 +117,41 @@ async def test_code_mode_cell_service_terminates_a_running_cell() -> None:
     assert initial.cell_id not in service.active_cell_ids()
 
 
+async def test_code_mode_cell_service_terminate_handles_swallowed_cancel() -> None:
+    service = CodeModeCellService()
+    cancelled = asyncio.Event()
+
+    async def runner(ctx, request):
+        del request
+        ctx.emit("starting")
+        try:
+            await asyncio.sleep(60)
+        except asyncio.CancelledError:
+            cancelled.set()
+            return "runner completed after cancel"
+
+    initial = await service.start_cell(
+        CodeModeExecRequest(source="await slow()", yield_time_ms=1),
+        runner,
+    )
+
+    result = await service.wait_cell(
+        CodeModeWaitRequest(cell_id=initial.cell_id, terminate=True),
+    )
+
+    assert result.state == "completed"
+    assert cancelled.is_set()
+    assert [chunk.text for chunk in result.output] == [
+        "starting",
+        "runner completed after cancel",
+    ]
+    assert initial.cell_id not in service.active_cell_ids()
+
+
 async def test_code_mode_cell_service_fails_on_cell_timeout() -> None:
     service = CodeModeCellService()
 
-    async def runner(ctx):
+    async def runner(ctx, request):
         ctx.emit("starting")
         await asyncio.sleep(60)
 
@@ -118,7 +174,7 @@ async def test_code_mode_cell_service_fails_on_cell_timeout() -> None:
 async def test_code_mode_cell_service_truncates_output() -> None:
     service = CodeModeCellService()
 
-    async def runner(ctx):
+    async def runner(ctx, request):
         ctx.emit("abcdefghijklmnopqrstuvwxyz")
         return "done"
 

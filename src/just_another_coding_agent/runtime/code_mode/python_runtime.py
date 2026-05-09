@@ -7,6 +7,7 @@ import sys
 from asyncio.subprocess import PIPE, Process
 from typing import Any
 
+from just_another_coding_agent.contracts.code_mode import CodeModeExecRequest
 from just_another_coding_agent.runtime.code_mode.service import (
     CodeModeCellContext,
     CodeModeRunner,
@@ -23,7 +24,14 @@ class PythonSubprocessCodeModeRuntime:
         self._lock = asyncio.Lock()
 
     def create_runner(self, source: str) -> CodeModeRunner:
-        async def _runner(context: CodeModeCellContext) -> str | None:
+        async def _runner(
+            context: CodeModeCellContext,
+            request: CodeModeExecRequest,
+        ) -> str | None:
+            if request.source != source:
+                raise CodeModeSourceRuntimeError(
+                    "runtime runner source does not match exec request source"
+                )
             return await self.run_source(context, source)
 
         return _runner

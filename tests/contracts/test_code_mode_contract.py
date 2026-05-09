@@ -53,14 +53,16 @@ def test_code_mode_wait_request_defaults_and_validation() -> None:
 
     assert request.cell_id == "cell-1"
     assert request.yield_time_ms is None
-    assert request.max_output_tokens is None
     assert request.terminate is False
 
     with pytest.raises(ValidationError):
         code_mode.CodeModeWaitRequest(cell_id="")
 
     with pytest.raises(ValidationError):
-        code_mode.CodeModeWaitRequest(cell_id="cell-1", max_output_tokens=0)
+        code_mode.CodeModeWaitRequest(
+            cell_id="cell-1",
+            max_output_tokens=1,
+        )
 
 
 def test_code_mode_cell_result_validates_error_state_relationship() -> None:

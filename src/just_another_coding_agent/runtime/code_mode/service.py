@@ -22,7 +22,10 @@ from just_another_coding_agent.contracts.compaction import (
     COMPACTION_CHARS_PER_TOKEN_HEURISTIC,
 )
 
-CodeModeRunner: TypeAlias = Callable[["CodeModeCellContext"], Awaitable[str | None]]
+CodeModeRunner: TypeAlias = Callable[
+    ["CodeModeCellContext", CodeModeExecRequest],
+    Awaitable[str | None],
+]
 
 
 class CodeModeCellNotFoundError(KeyError):
@@ -104,6 +107,7 @@ class CodeModeCellService:
             self._run_cell(
                 cell_id=cell_id,
                 runner=runner,
+                request=request,
                 timeout_ms=request.timeout_ms,
                 tools=tools,
             )
@@ -117,6 +121,8 @@ class CodeModeCellService:
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
+            if is_code_mode_terminal_state(record.state):
+                return self._build_result(record, remove_terminal=True)
             self._set_terminal_state(record, "terminated")
             return self._build_result(record, remove_terminal=True)
         return await self._wait_for_cell(record, yield_time_ms=request.yield_time_ms)
@@ -126,6 +132,7 @@ class CodeModeCellService:
         *,
         cell_id: str,
         runner: CodeModeRunner,
+        request: CodeModeExecRequest,
         timeout_ms: int | None,
         tools: Any,
     ) -> None:
@@ -133,7 +140,7 @@ class CodeModeCellService:
         context = CodeModeCellContext(self, cell_id, tools=tools)
         try:
             result_text = await asyncio.wait_for(
-                runner(context),
+                runner(context, request),
                 timeout=None if timeout_ms is None else timeout_ms / 1000,
             )
         except asyncio.CancelledError:

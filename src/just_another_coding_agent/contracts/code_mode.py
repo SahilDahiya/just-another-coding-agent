@@ -35,7 +35,6 @@ class CodeModeExecRequest(_CodeModeContractModel):
 class CodeModeWaitRequest(_CodeModeContractModel):
     cell_id: str = Field(min_length=1)
     yield_time_ms: int | None = Field(default=None, ge=0)
-    max_output_tokens: int | None = Field(default=None, ge=1)
     terminate: bool = False
 
 

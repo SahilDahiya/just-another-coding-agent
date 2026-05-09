@@ -272,7 +272,7 @@ async def test_code_mode_exec_context_exposes_bridge_tools(tmp_path) -> None:
     workspace_root.mkdir()
     (workspace_root / "note.txt").write_text("hello", encoding="utf-8")
 
-    async def runner(ctx):
+    async def runner(ctx, request):
         content = await ctx.tools.read(path="note.txt")
         ctx.emit(content)
         return "done"

@@ -147,7 +147,6 @@ The contract models define:
 - `CodeModeWaitRequest`
   - cell id
   - optional yield wait budget
-  - optional output token budget
   - optional terminate flag
 - `CodeModeCellResult`
   - cell id
