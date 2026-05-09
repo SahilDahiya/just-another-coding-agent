@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 
-from just_another_coding_agent.rpc.stdio import _FollowUpState
+from just_another_coding_agent.rpc.state import _FollowUpState
 from tests.contracts.rpc_stdio_test_support import (
     noop_emit_queue_state,
     noop_emit_submitted_prompt_batch,

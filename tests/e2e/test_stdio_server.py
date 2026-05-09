@@ -24,7 +24,10 @@ from just_another_coding_agent.contracts.run_events import (
     RunSucceededEvent,
 )
 from just_another_coding_agent.rpc import serve_rpc_stdio
-from just_another_coding_agent.rpc.session_store import session_path_for_id
+from just_another_coding_agent.rpc.session_store import (
+    create_session,
+    session_path_for_id,
+)
 from just_another_coding_agent.runtime.turn_context import (
     build_runtime_context_message,
     build_runtime_context_update_message,
@@ -71,6 +74,24 @@ def _assistant_texts(messages: list[ModelMessage]) -> list[str]:
 
 def _trust_workspace(workspace_root) -> None:
     accept_workspace_trust(workspace_root)
+
+
+def _create_fixed_session(
+    monkeypatch,
+    *,
+    sessions_root,
+    workspace_root,
+    session_id: str,
+) -> None:
+    monkeypatch.setattr(
+        "just_another_coding_agent.rpc.session_store.uuid4",
+        lambda: SimpleNamespace(hex=session_id),
+    )
+    created_session_id = create_session(
+        sessions_root=sessions_root,
+        workspace_root=workspace_root,
+    )
+    assert created_session_id == session_id
 
 
 async def resume_aware_write_stream(
@@ -258,22 +279,11 @@ async def test_serve_rpc_stdio_handles_auth_status_while_run_is_streaming(
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
     sessions_root = tmp_path / "sessions"
-    session_path = session_path_for_id(
+    _create_fixed_session(
+        monkeypatch,
         sessions_root=sessions_root,
         workspace_root=workspace_root,
         session_id=fixed_session_id,
-    )
-    session_path.parent.mkdir(parents=True, exist_ok=True)
-    session_path.write_text(
-        json.dumps(
-            {
-                "type": "session_header",
-                "workspace_root": str(workspace_root),
-                "shell_family": "bash",
-            }
-        )
-        + "\n",
-        encoding="utf-8",
     )
     input_stream = io.StringIO(
         "\n".join(
@@ -311,7 +321,7 @@ async def test_serve_rpc_stdio_handles_auth_status_while_run_is_streaming(
         fake_stream_session_run_events,
     )
     monkeypatch.setattr(
-        "just_another_coding_agent.rpc.stdio.list_provider_auth_statuses",
+        "just_another_coding_agent.rpc.handlers.auth.list_provider_auth_statuses",
         lambda: [
             ProviderAuthStatus(
                 provider="openai",
@@ -426,22 +436,11 @@ async def test_serve_rpc_stdio_drains_queued_follow_up_after_run(
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
     sessions_root = tmp_path / "sessions"
-    session_path = session_path_for_id(
+    _create_fixed_session(
+        monkeypatch,
         sessions_root=sessions_root,
         workspace_root=workspace_root,
         session_id=fixed_session_id,
-    )
-    session_path.parent.mkdir(parents=True, exist_ok=True)
-    session_path.write_text(
-        json.dumps(
-            {
-                "type": "session_header",
-                "workspace_root": str(workspace_root),
-                "shell_family": "bash",
-            }
-        )
-        + "\n",
-        encoding="utf-8",
     )
     input_stream = io.StringIO(
         "\n".join(
@@ -539,22 +538,11 @@ async def test_serve_rpc_stdio_batches_multiple_later_follow_ups_into_one_run(
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
     sessions_root = tmp_path / "sessions"
-    session_path = session_path_for_id(
+    _create_fixed_session(
+        monkeypatch,
         sessions_root=sessions_root,
         workspace_root=workspace_root,
         session_id=fixed_session_id,
-    )
-    session_path.parent.mkdir(parents=True, exist_ok=True)
-    session_path.write_text(
-        json.dumps(
-            {
-                "type": "session_header",
-                "workspace_root": str(workspace_root),
-                "shell_family": "bash",
-            }
-        )
-        + "\n",
-        encoding="utf-8",
     )
     input_stream = io.StringIO(
         "\n".join(
@@ -676,22 +664,11 @@ async def test_serve_rpc_stdio_submits_next_queue_after_active_tool_phase_comple
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
     sessions_root = tmp_path / "sessions"
-    session_path = session_path_for_id(
+    _create_fixed_session(
+        monkeypatch,
         sessions_root=sessions_root,
         workspace_root=workspace_root,
         session_id=fixed_session_id,
-    )
-    session_path.parent.mkdir(parents=True, exist_ok=True)
-    session_path.write_text(
-        json.dumps(
-            {
-                "type": "session_header",
-                "workspace_root": str(workspace_root),
-                "shell_family": "bash",
-            }
-        )
-        + "\n",
-        encoding="utf-8",
     )
     input_stream = io.StringIO(
         "\n".join(
@@ -780,22 +757,11 @@ async def test_serve_rpc_stdio_interrupt_promotes_next_steer_into_immediate_foll
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
     sessions_root = tmp_path / "sessions"
-    session_path = session_path_for_id(
+    _create_fixed_session(
+        monkeypatch,
         sessions_root=sessions_root,
         workspace_root=workspace_root,
         session_id=fixed_session_id,
-    )
-    session_path.parent.mkdir(parents=True, exist_ok=True)
-    session_path.write_text(
-        json.dumps(
-            {
-                "type": "session_header",
-                "workspace_root": str(workspace_root),
-                "shell_family": "bash",
-            }
-        )
-        + "\n",
-        encoding="utf-8",
     )
     input_stream = io.StringIO(
         "\n".join(

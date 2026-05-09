@@ -5,7 +5,7 @@ import pytest
 from pydantic_ai.messages import ModelMessage, ToolReturnPart, UserPromptPart
 from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 
-import just_another_coding_agent.rpc.stdio as rpc_stdio
+import just_another_coding_agent.rpc.state as rpc_state
 from just_another_coding_agent.rpc.session_store import session_path_for_id
 from just_another_coding_agent.rpc.stdio import handle_rpc_json_line
 from just_another_coding_agent.session import load_session
@@ -20,8 +20,8 @@ def _isolate_jaca_home(tmp_path, monkeypatch) -> None:
 
 @pytest.fixture(autouse=True, name="rpc_runtime_state")
 def _rpc_runtime_state(monkeypatch):
-    state = rpc_stdio._new_runtime_state()
-    monkeypatch.setattr(rpc_stdio, "_RUNTIME_STATE", state)
+    state = rpc_state._new_runtime_state()
+    monkeypatch.setattr(rpc_state, "_RUNTIME_STATE", state)
     return state
 
 

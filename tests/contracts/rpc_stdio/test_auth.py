@@ -17,10 +17,8 @@ from just_another_coding_agent.contracts.model_catalog import (
     shipped_models_for_provider,
 )
 from just_another_coding_agent.oauth_openai_codex import start_openai_codex_login
-from just_another_coding_agent.rpc.stdio import (
-    _OpenAICodexLoginFlowState,
-    _prune_stale_login_flows,
-)
+from just_another_coding_agent.rpc.handlers.auth import _prune_stale_login_flows
+from just_another_coding_agent.rpc.state import _OpenAICodexLoginFlowState
 from tests.contracts.rpc_stdio_test_support import (
     rpc_messages,
     text_only_stream,
@@ -88,7 +86,7 @@ async def test_handle_rpc_json_line_returns_auth_status(
     workspace_root.mkdir()
     sessions_root = tmp_path / "sessions"
     monkeypatch.setattr(
-        "just_another_coding_agent.rpc.stdio.list_provider_auth_statuses",
+        "just_another_coding_agent.rpc.handlers.auth.list_provider_auth_statuses",
         lambda: [
             ProviderAuthStatus(
                 provider="openai",
@@ -111,7 +109,7 @@ async def test_handle_rpc_json_line_returns_auth_status(
         ],
     )
     monkeypatch.setattr(
-        "just_another_coding_agent.rpc.stdio.get_local_secret_store_status",
+        "just_another_coding_agent.rpc.handlers.auth.get_local_secret_store_status",
         lambda: {
             "available": True,
             "message": None,
@@ -119,7 +117,7 @@ async def test_handle_rpc_json_line_returns_auth_status(
         },
     )
     monkeypatch.setattr(
-        "just_another_coding_agent.rpc.stdio.get_oauth_provider_statuses",
+        "just_another_coding_agent.rpc.handlers.auth.get_oauth_provider_statuses",
         lambda: [
             {
                 "provider": "openai-codex",
@@ -192,7 +190,7 @@ async def test_handle_rpc_json_line_returns_logfire_trace_status(
     workspace_root.mkdir()
     sessions_root = tmp_path / "sessions"
     monkeypatch.setattr(
-        "just_another_coding_agent.rpc.stdio.logfire_setup_status",
+        "just_another_coding_agent.rpc.handlers.auth.logfire_setup_status",
         lambda: SimpleNamespace(installed=False, credentials_configured=False),
     )
 
@@ -228,7 +226,7 @@ async def test_handle_rpc_json_line_starts_openai_codex_login(
     workspace_root.mkdir()
     sessions_root = tmp_path / "sessions"
     monkeypatch.setattr(
-        "just_another_coding_agent.rpc.stdio.start_openai_codex_oauth_login",
+        "just_another_coding_agent.rpc.handlers.auth.start_openai_codex_oauth_login",
         lambda: (
             OpenAICodexLoginFlow(flow_id="flow-1", verifier="v", state="s"),
             "flow-1",
@@ -245,7 +243,7 @@ async def test_handle_rpc_json_line_starts_openai_codex_login(
         await gate.wait()
 
     monkeypatch.setattr(
-        "just_another_coding_agent.rpc.stdio.wait_for_openai_codex_oauth_login",
+        "just_another_coding_agent.rpc.handlers.auth.wait_for_openai_codex_oauth_login",
         _wait,
     )
 
@@ -318,11 +316,11 @@ async def test_handle_rpc_json_line_replaces_existing_openai_codex_login_flow(
             raise
 
     monkeypatch.setattr(
-        "just_another_coding_agent.rpc.stdio.start_openai_codex_oauth_login",
+        "just_another_coding_agent.rpc.handlers.auth.start_openai_codex_oauth_login",
         lambda: next(issued_flows),
     )
     monkeypatch.setattr(
-        "just_another_coding_agent.rpc.stdio.wait_for_openai_codex_oauth_login",
+        "just_another_coding_agent.rpc.handlers.auth.wait_for_openai_codex_oauth_login",
         _wait,
     )
 
@@ -398,7 +396,7 @@ async def test_handle_rpc_json_line_preserves_login_flow_after_failed_completion
         }
 
     monkeypatch.setattr(
-        "just_another_coding_agent.rpc.stdio.complete_openai_codex_oauth_login",
+        "just_another_coding_agent.rpc.handlers.auth.complete_openai_codex_oauth_login",
         _complete,
     )
 
@@ -479,7 +477,7 @@ async def test_handle_rpc_json_line_waits_for_openai_codex_login(
         )
 
     monkeypatch.setattr(
-        "just_another_coding_agent.rpc.stdio.wait_for_openai_codex_oauth_login",
+        "just_another_coding_agent.rpc.handlers.auth.wait_for_openai_codex_oauth_login",
         _wait,
     )
 
@@ -552,11 +550,11 @@ async def test_handle_rpc_json_line_wait_openai_codex_resolves_after_manual_comp
         )
 
     monkeypatch.setattr(
-        "just_another_coding_agent.rpc.stdio.wait_for_openai_codex_oauth_login",
+        "just_another_coding_agent.rpc.handlers.auth.wait_for_openai_codex_oauth_login",
         _wait,
     )
     monkeypatch.setattr(
-        "just_another_coding_agent.rpc.stdio.complete_openai_codex_oauth_login",
+        "just_another_coding_agent.rpc.handlers.auth.complete_openai_codex_oauth_login",
         _complete,
     )
 
@@ -637,7 +635,7 @@ async def test_handle_rpc_json_line_openai_wait_unknown_flow_returns_logged_in_s
     sessions_root.mkdir()
 
     monkeypatch.setattr(
-        "just_another_coding_agent.rpc.stdio.get_oauth_provider_statuses",
+        "just_another_coding_agent.rpc.handlers.auth.get_oauth_provider_statuses",
         lambda: [
             OAuthProviderStatus(
                 provider="openai-codex",
@@ -726,7 +724,7 @@ async def test_handle_rpc_json_line_sets_provider_secret(
     sessions_root = tmp_path / "sessions"
     captured: dict[str, str] = {}
     monkeypatch.setattr(
-        "just_another_coding_agent.rpc.stdio.set_provider_secret",
+        "just_another_coding_agent.rpc.handlers.auth.set_provider_secret",
         lambda provider, secret, storage: (
             captured.update(
                 {"provider": provider, "secret": secret, "storage": storage}
@@ -790,7 +788,7 @@ async def test_handle_rpc_json_line_prepares_auth_file(
     workspace_root.mkdir()
     sessions_root = tmp_path / "sessions"
     monkeypatch.setattr(
-        "just_another_coding_agent.rpc.stdio.prepare_provider_secret_file",
+        "just_another_coding_agent.rpc.handlers.auth.prepare_provider_secret_file",
         lambda provider: type(
             "PreparedAuthFile",
             (),
@@ -843,7 +841,7 @@ async def test_handle_rpc_json_line_clears_provider_secret(
     sessions_root = tmp_path / "sessions"
     captured: dict[str, str] = {}
     monkeypatch.setattr(
-        "just_another_coding_agent.rpc.stdio.clear_provider_secret",
+        "just_another_coding_agent.rpc.handlers.auth.clear_provider_secret",
         lambda provider: (
             captured.update({"provider": provider})
             or ProviderAuthStatus(
@@ -930,7 +928,7 @@ async def test_handle_rpc_json_line_returns_internal_error_for_auth_status_failu
     workspace_root.mkdir()
     sessions_root = tmp_path / "sessions"
     monkeypatch.setattr(
-        "just_another_coding_agent.rpc.stdio.list_provider_auth_statuses",
+        "just_another_coding_agent.rpc.handlers.auth.list_provider_auth_statuses",
         lambda: (_ for _ in ()).throw(AuthStoreError("auth store unavailable")),
     )
 
@@ -963,7 +961,7 @@ async def test_handle_rpc_json_line_returns_internal_error_for_auth_clear_store_
     workspace_root.mkdir()
     sessions_root = tmp_path / "sessions"
     monkeypatch.setattr(
-        "just_another_coding_agent.rpc.stdio.clear_provider_secret",
+        "just_another_coding_agent.rpc.handlers.auth.clear_provider_secret",
         lambda _provider: (_ for _ in ()).throw(
             AuthStoreError("auth store unavailable")
         ),

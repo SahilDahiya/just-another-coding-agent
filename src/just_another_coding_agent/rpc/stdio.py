@@ -4,70 +4,36 @@ import asyncio
 import concurrent.futures
 import io
 import json
-import time
-from collections import defaultdict, deque
 from collections.abc import AsyncIterator, Awaitable
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, TextIO
 
 from pydantic import TypeAdapter, ValidationError
 
 import just_another_coding_agent.onboarding as onboarding_domain
-from just_another_coding_agent.auth import (
-    AuthStoreError,
-    OpenAICodexLoginFlow,
-    ProviderSecretValidationError,
-    clear_provider_secret,
-    complete_openai_codex_oauth_login,
-    get_local_secret_store_status,
-    get_oauth_provider_statuses,
-    list_provider_auth_statuses,
-    prepare_provider_secret_file,
-    set_provider_secret,
-    start_openai_codex_oauth_login,
-    wait_for_openai_codex_oauth_login,
-)
+import just_another_coding_agent.rpc.state as rpc_state
 from just_another_coding_agent.contracts.code_mode import CODE_MODE_TOOL_NAMES
-from just_another_coding_agent.contracts.model_catalog import (
-    CANONICAL_PROVIDER_ORDER,
-    default_model_for_provider,
-    shipped_models_for_provider,
-)
 from just_another_coding_agent.contracts.onboarding import (
     OnboardingAnswerResult,
     OnboardingQuestionRequest,
 )
 from just_another_coding_agent.contracts.rpc import (
     ApprovalSubmitRequest,
-    ApprovalSubmitResponse,
     AuthClearRequest,
-    AuthClearResponse,
     AuthLoginOpenAICodexCompleteRequest,
-    AuthLoginOpenAICodexCompleteResponse,
     AuthLoginOpenAICodexStartRequest,
-    AuthLoginOpenAICodexStartResponse,
     AuthLoginOpenAICodexWaitRequest,
-    AuthLoginOpenAICodexWaitResponse,
     AuthPrepareFileRequest,
-    AuthPrepareFileResponse,
     AuthSetRequest,
-    AuthSetResponse,
     AuthStatusRequest,
-    AuthStatusResponse,
-    ModelCatalogModel,
-    ModelCatalogProvider,
     ModelCatalogRequest,
-    ModelCatalogResponse,
     OnboardingProjectDoc,
     OnboardingStartRequest,
     OnboardingStartResponse,
     OnboardingSubmitRequest,
     OnboardingSubmitResponse,
     PermissionGetRequest,
-    PermissionGetResponse,
     PermissionSetRequest,
-    PermissionSetResponse,
     RpcErrorEnvelope,
     RpcEventEnvelope,
     RpcRequest,
@@ -79,24 +45,16 @@ from just_another_coding_agent.contracts.rpc import (
     RunStartRequest,
     RunStartResponse,
     SessionCompactRequest,
-    SessionCompactResponse,
     SessionCreateRequest,
     SessionCreateResponse,
     SessionModeSetRequest,
-    SessionModeSetResponse,
     SessionNameRequest,
-    SessionNameResponse,
     SessionPreviewRequest,
-    SessionPreviewResponse,
     TraceLogfireStatusRequest,
-    TraceLogfireStatusResponse,
     WorkspaceProjectDoc,
     WorkspaceProjectDocsRequest,
-    WorkspaceProjectDocsResponse,
     WorkspaceTrustAcceptRequest,
-    WorkspaceTrustAcceptResponse,
     WorkspaceTrustStatusRequest,
-    WorkspaceTrustStatusResponse,
 )
 from just_another_coding_agent.contracts.run_events import (
     RunEvent,
@@ -106,15 +64,7 @@ from just_another_coding_agent.contracts.run_events import (
 )
 from just_another_coding_agent.contracts.sandbox import (
     ApprovalDecision,
-    ApprovalPolicy,
     ApprovalRequest,
-    DangerFullAccessSandboxPolicy,
-    EffectiveCapabilities,
-    PermissionState,
-    SandboxPolicy,
-    build_default_permission_state,
-    build_permission_state,
-    normalize_approval_decision,
 )
 from just_another_coding_agent.onboarding import (
     OnboardingAttemptNotFoundError,
@@ -125,28 +75,57 @@ from just_another_coding_agent.onboarding import (
     submit_onboarding_mcq,
 )
 from just_another_coding_agent.provider_readiness import ProviderReadinessError
+from just_another_coding_agent.rpc.context import (
+    RpcHandler,
+    _rpc_error_handler,
+    _RpcContext,
+    _RpcErrorMapping,
+)
+from just_another_coding_agent.rpc.handlers.auth import (
+    _handle_auth_clear,
+    _handle_auth_login_openai_codex_complete,
+    _handle_auth_login_openai_codex_start,
+    _handle_auth_login_openai_codex_wait,
+    _handle_auth_prepare_file,
+    _handle_auth_set,
+    _handle_auth_status,
+    _handle_trace_logfire_status,
+    _prune_stale_login_flows,
+)
+from just_another_coding_agent.rpc.handlers.catalog import _handle_model_catalog
+from just_another_coding_agent.rpc.handlers.permissions import (
+    _handle_approval_submit,
+    _handle_permission_get,
+    _handle_permission_set,
+)
+from just_another_coding_agent.rpc.handlers.sessions import (
+    _handle_session_compact,
+    _handle_session_mode_set,
+    _handle_session_name,
+    _handle_session_preview,
+)
+from just_another_coding_agent.rpc.handlers.workspace import (
+    _handle_workspace_project_docs,
+    _handle_workspace_trust_accept,
+    _handle_workspace_trust_status,
+    _workspace_is_trusted,
+    _workspace_project_docs_root,
+    _workspace_untrusted_error,
+)
 from just_another_coding_agent.rpc.session_store import (
     create_session,
     session_path_for_id,
 )
-from just_another_coding_agent.runtime.compaction import (
-    summarize_and_append_compaction_to_session,
+from just_another_coding_agent.rpc.state import (
+    _PendingApprovalState,
+    _PendingOnboardingQuestionState,
 )
-from just_another_coding_agent.runtime.observability import logfire_setup_status
 from just_another_coding_agent.runtime.project_docs import (
     load_workspace_project_docs,
 )
 from just_another_coding_agent.runtime.session import stream_session_run_events
-from just_another_coding_agent.runtime.workspace_trust import (
-    accept_workspace_trust,
-    resolve_workspace_trust_target,
-    workspace_trust_status,
-)
 from just_another_coding_agent.session import (
     SessionFormatError,
-    SessionNameValidationError,
-    append_session_name_to_session,
-    build_session_preview,
     read_session_metadata,
     update_session_mode,
 )
@@ -154,429 +133,10 @@ from just_another_coding_agent.tools.deps import SessionPermissionMemory
 from just_another_coding_agent.tools.registry import resolve_tool_names_for_run_mode
 
 _RPC_REQUEST_ADAPTER = TypeAdapter(RpcRequest)
-_LOGIN_FLOW_TTL_SECONDS = 15 * 60
-
-
-@dataclass
-class _QueuedPromptBatch:
-    kind: str
-    prompts: list[str]
-
-
-class _FollowUpState:
-    def __init__(self) -> None:
-        self._lock = asyncio.Lock()
-        self._active_sessions: set[str] = set()
-        self._active_run_tasks: dict[str, asyncio.Task[None]] = {}
-        self._follow_up_queues: dict[str, deque[_QueuedPromptBatch]] = defaultdict(
-            deque
-        )
-        self._steer_queues: dict[str, deque[str]] = defaultdict(deque)
-        self._active_steer_targets: dict[str, Callable[[list[str]], None]] = {}
-        self._queue_event_emitters: dict[
-            str, Callable[[SessionQueueStateEvent], Awaitable[None]]
-        ] = {}
-        self._submitted_prompt_emitters: dict[
-            str, Callable[[str, list[str]], Awaitable[None]]
-        ] = {}
-
-    async def activate(
-        self,
-        session_id: str,
-        *,
-        run_task: asyncio.Task[None],
-        emit_queue_state: Callable[[SessionQueueStateEvent], Awaitable[None]],
-        emit_submitted_prompt_batch: Callable[[str, list[str]], Awaitable[None]]
-        | None = None,
-    ) -> None:
-        async with self._lock:
-            self._active_sessions.add(session_id)
-            self._active_run_tasks[session_id] = run_task
-            self._queue_event_emitters[session_id] = emit_queue_state
-            if emit_submitted_prompt_batch is not None:
-                self._submitted_prompt_emitters[session_id] = (
-                    emit_submitted_prompt_batch
-                )
-            event = self._build_queue_state_event_locked(session_id)
-        if event.next_prompts or event.later_prompts:
-            await emit_queue_state(event)
-
-    async def deactivate(self, session_id: str) -> None:
-        emitter: Callable[[SessionQueueStateEvent], Any] | None = None
-        event: SessionQueueStateEvent | None = None
-        async with self._lock:
-            previous_event = self._build_queue_state_event_locked(session_id)
-            self._active_sessions.discard(session_id)
-            self._active_run_tasks.pop(session_id, None)
-            self._active_steer_targets.pop(session_id, None)
-            emitter = self._queue_event_emitters.pop(session_id, None)
-            self._submitted_prompt_emitters.pop(session_id, None)
-            if emitter is not None and (
-                previous_event.next_prompts or previous_event.later_prompts
-            ):
-                event = SessionQueueStateEvent(next_prompts=[], later_prompts=[])
-            if not self._follow_up_queues.get(session_id):
-                self._follow_up_queues.pop(session_id, None)
-            if not self._steer_queues.get(session_id):
-                self._steer_queues.pop(session_id, None)
-        if emitter is not None and event is not None:
-            await emitter(event)
-
-    async def enqueue(
-        self,
-        session_id: str,
-        prompt: str,
-        *,
-        mode: str,
-    ) -> int:
-        emitter: Callable[[SessionQueueStateEvent], Any] | None = None
-        event: SessionQueueStateEvent | None = None
-        async with self._lock:
-            if session_id not in self._active_sessions:
-                raise RuntimeError("Queueing requires an active run for this session.")
-            previous_event = self._build_queue_state_event_locked(session_id)
-            if mode == "next":
-                queue = self._steer_queues[session_id]
-                queue.append(prompt)
-                queued_count = len(queue)
-                emitter = self._queue_event_emitters.get(session_id)
-                event = self._build_queue_state_event_locked(session_id)
-            else:
-                queued_count = self._append_follow_up_locked(
-                    session_id,
-                    prompt=prompt,
-                    kind="later",
-                )
-                emitter = self._queue_event_emitters.get(session_id)
-                event = self._build_queue_state_event_locked(session_id)
-        if emitter is not None and event is not None and previous_event != event:
-            await emitter(event)
-        return queued_count
-
-    async def activate_steer_boundary(
-        self,
-        session_id: str,
-        attach: Callable[[list[str]], None],
-    ) -> None:
-        emitter: Callable[[SessionQueueStateEvent], Any] | None = None
-        event: SessionQueueStateEvent | None = None
-        async with self._lock:
-            previous_event = self._build_queue_state_event_locked(session_id)
-            if self._active_steer_targets.get(session_id) is not None:
-                raise RuntimeError("Steer boundary already active for session")
-            self._active_steer_targets[session_id] = attach
-            emitter = self._queue_event_emitters.get(session_id)
-            event = self._build_queue_state_event_locked(session_id)
-        if emitter is not None and event is not None and previous_event != event:
-            await emitter(event)
-
-    async def submit_active_steer_boundary(self, session_id: str) -> None:
-        attach: Callable[[list[str]], None] | None = None
-        emitter: Callable[[SessionQueueStateEvent], Any] | None = None
-        event: SessionQueueStateEvent | None = None
-        submitted_emitter: Callable[[str, list[str]], Awaitable[None]] | None = None
-        submitted_prompts: list[str] = []
-        async with self._lock:
-            previous_event = self._build_queue_state_event_locked(session_id)
-            attach = self._active_steer_targets.get(session_id)
-            if attach is None:
-                raise RuntimeError("Steer boundary is not active for session")
-            queue = self._steer_queues.get(session_id)
-            if queue:
-                while queue:
-                    submitted_prompts.append(queue.popleft())
-                self._steer_queues.pop(session_id, None)
-                attach(list(submitted_prompts))
-            emitter = self._queue_event_emitters.get(session_id)
-            event = self._build_queue_state_event_locked(session_id)
-            submitted_emitter = self._submitted_prompt_emitters.get(session_id)
-        if emitter is not None and event is not None and previous_event != event:
-            await emitter(event)
-        if submitted_emitter is not None and submitted_prompts:
-            await submitted_emitter("next", submitted_prompts)
-
-    async def deactivate_steer_boundary(self, session_id: str) -> None:
-        emitter: Callable[[SessionQueueStateEvent], Any] | None = None
-        event: SessionQueueStateEvent | None = None
-        async with self._lock:
-            previous_event = self._build_queue_state_event_locked(session_id)
-            self._active_steer_targets.pop(session_id, None)
-            emitter = self._queue_event_emitters.get(session_id)
-            event = self._build_queue_state_event_locked(session_id)
-        if emitter is not None and event is not None and previous_event != event:
-            await emitter(event)
-
-    async def downgrade_pending_steers_to_follow_ups(self, session_id: str) -> None:
-        emitter: Callable[[SessionQueueStateEvent], Any] | None = None
-        event: SessionQueueStateEvent | None = None
-        async with self._lock:
-            previous_event = self._build_queue_state_event_locked(session_id)
-            prompts = self._drain_pending_steers_locked(session_id)
-            if not prompts:
-                return
-            self._prepend_follow_ups_locked(session_id, prompts)
-            emitter = self._queue_event_emitters.get(session_id)
-            event = self._build_queue_state_event_locked(session_id)
-        if emitter is not None and event is not None and previous_event != event:
-            await emitter(event)
-
-    async def take_next_follow_up_batch(self, session_id: str) -> list[str] | None:
-        emitter: Callable[[SessionQueueStateEvent], Any] | None = None
-        event: SessionQueueStateEvent | None = None
-        async with self._lock:
-            queue = self._follow_up_queues.get(session_id)
-            if not queue:
-                return None
-            previous_event = self._build_queue_state_event_locked(session_id)
-            batch = queue.popleft()
-            if not queue:
-                self._follow_up_queues.pop(session_id, None)
-            emitter = self._queue_event_emitters.get(session_id)
-            event = self._build_queue_state_event_locked(session_id)
-            prompts = list(batch.prompts)
-        if emitter is not None and event is not None and previous_event != event:
-            await emitter(event)
-        return prompts
-
-    async def interrupt(
-        self,
-        session_id: str,
-        *,
-        promote_queued_steer: bool,
-    ) -> int:
-        emitter: Callable[[SessionQueueStateEvent], Any] | None = None
-        event: SessionQueueStateEvent | None = None
-        async with self._lock:
-            if session_id not in self._active_sessions:
-                raise RuntimeError("Interrupt requires an active run for this session.")
-            previous_event = self._build_queue_state_event_locked(session_id)
-            run_task = self._active_run_tasks.get(session_id)
-            if run_task is None:
-                raise RuntimeError("Interrupt requires an active run for this session.")
-            promoted_count = 0
-            if promote_queued_steer:
-                prompts = self._drain_pending_steers_locked(session_id)
-                promoted_count = len(prompts)
-                if prompts:
-                    self._prepend_follow_ups_locked(session_id, prompts)
-            emitter = self._queue_event_emitters.get(session_id)
-            event = self._build_queue_state_event_locked(session_id)
-            run_task.cancel()
-        if emitter is not None and event is not None and previous_event != event:
-            await emitter(event)
-        return promoted_count
-
-    def _drain_pending_steers_locked(self, session_id: str) -> list[str]:
-        prompts: list[str] = []
-        queue = self._steer_queues.get(session_id)
-        if queue:
-            while queue:
-                prompts.append(queue.popleft())
-            self._steer_queues.pop(session_id, None)
-        return prompts
-
-    def _prepend_follow_ups_locked(
-        self,
-        session_id: str,
-        prompts: list[str],
-    ) -> None:
-        follow_ups = self._follow_up_queues[session_id]
-        follow_ups.appendleft(_QueuedPromptBatch(kind="next", prompts=list(prompts)))
-
-    def _append_follow_up_locked(
-        self,
-        session_id: str,
-        *,
-        prompt: str,
-        kind: str,
-    ) -> int:
-        follow_ups = self._follow_up_queues[session_id]
-        if follow_ups and follow_ups[-1].kind == kind:
-            follow_ups[-1].prompts.append(prompt)
-            return len(follow_ups[-1].prompts)
-        follow_ups.append(_QueuedPromptBatch(kind=kind, prompts=[prompt]))
-        return 1
-
-    def _build_queue_state_event_locked(
-        self,
-        session_id: str,
-    ) -> SessionQueueStateEvent:
-        next_prompts: list[str] = []
-        queue = self._steer_queues.get(session_id)
-        if queue:
-            next_prompts.extend(queue)
-
-        later_prompts: list[str] = []
-        for batch in self._follow_up_queues.get(session_id, ()):
-            if batch.kind == "later":
-                later_prompts.extend(batch.prompts)
-
-        return SessionQueueStateEvent(
-            next_prompts=next_prompts,
-            later_prompts=later_prompts,
-        )
-
-
-@dataclass
-class _OpenAICodexLoginFlowState:
-    flow: OpenAICodexLoginFlow
-    task: asyncio.Task[Any] | None = None
-    result: asyncio.Future[Any] | None = None
-    started_at: float | None = None
-
-
-@dataclass
-class _PendingApprovalState:
-    request_id: str
-    request: ApprovalRequest
-    response_future: asyncio.Future[ApprovalDecision]
-
-
-@dataclass
-class _PendingOnboardingQuestionState:
-    attempt_id: str
-    question: OnboardingQuestionRequest
-    response_future: asyncio.Future[OnboardingAnswerResult]
-
-
-@dataclass
-class _SessionPermissionContext:
-    permission_state: PermissionState
-    permission_memory: SessionPermissionMemory
-
-
-@dataclass
-class _RpcRuntimeState:
-    follow_up_state: _FollowUpState = field(default_factory=_FollowUpState)
-    openai_codex_login_flows: dict[str, _OpenAICodexLoginFlowState] = field(
-        default_factory=dict
-    )
-    permission_states: dict[str, _SessionPermissionContext] = field(
-        default_factory=dict
-    )
-    pending_approvals: dict[str, dict[str, _PendingApprovalState]] = field(
-        default_factory=lambda: defaultdict(dict)
-    )
-    pending_onboarding_questions: dict[
-        str, dict[str, _PendingOnboardingQuestionState]
-    ] = field(default_factory=lambda: defaultdict(dict))
-
-
-def _new_runtime_state() -> _RpcRuntimeState:
-    return _RpcRuntimeState()
-
-
-_RUNTIME_STATE = _new_runtime_state()
-_DEFAULT_PERMISSION_STATE_KEY = "__workspace_default__"
-
-
-RpcHandler = Callable[[Any, "_RpcContext"], AsyncIterator[str]]
-
-
-@dataclass(frozen=True)
-class _RpcContext:
-    model: Any
-    workspace_root: Path | str
-    sessions_root: Path | str
-    emit_rpc_event: (
-        Callable[[str, RunEvent | SessionLifecycleEvent], Awaitable[None]] | None
-    )
-
-
-@dataclass(frozen=True)
-class _RpcErrorMapping:
-    exception: type[BaseException]
-    error_type: str
 
 
 def _combine_prompt_batch(prompts: list[str]) -> str:
     return "\n\n".join(prompts)
-
-
-def _build_live_permission_state(
-    *,
-    sandbox_policy: SandboxPolicy | None = None,
-    approval_policy: ApprovalPolicy | None = None,
-) -> PermissionState:
-    default_state = build_default_permission_state()
-    resolved_sandbox_policy = sandbox_policy or default_state.sandbox_policy
-    resolved_approval_policy = approval_policy or default_state.approval_policy
-    filesystem_access = default_state.effective_capabilities.filesystem_access
-    network_access = default_state.effective_capabilities.network_access
-    if isinstance(resolved_sandbox_policy, DangerFullAccessSandboxPolicy):
-        filesystem_access = "full_access"
-        network_access = "enabled"
-    return build_permission_state(
-        sandbox_policy=resolved_sandbox_policy,
-        approval_policy=resolved_approval_policy,
-        effective_capabilities=EffectiveCapabilities(
-            filesystem_access=filesystem_access,
-            network_access=network_access,
-            execution_isolation="unsandboxed",
-            approval_mode=resolved_approval_policy.mode,
-            approval_by_kind=resolved_approval_policy.by_kind,
-        ),
-    )
-
-
-def _permission_state_key(session_id: str | None) -> str:
-    if session_id is None:
-        return _DEFAULT_PERMISSION_STATE_KEY
-    return session_id
-
-
-def _build_permission_context_for_session(
-    session_id: str | None,
-) -> _SessionPermissionContext:
-    return _SessionPermissionContext(
-        permission_state=_build_live_permission_state(),
-        permission_memory=SessionPermissionMemory(),
-    )
-
-
-def _get_or_create_permission_context(
-    session_id: str | None,
-) -> _SessionPermissionContext:
-    state = _RUNTIME_STATE.permission_states.get(_permission_state_key(session_id))
-    if state is None:
-        state = _build_permission_context_for_session(session_id)
-        _RUNTIME_STATE.permission_states[_permission_state_key(session_id)] = state
-    return state
-
-
-def _rpc_error_handler(
-    *mappings: _RpcErrorMapping,
-) -> Callable[[RpcHandler], RpcHandler]:
-    exception_types = tuple(mapping.exception for mapping in mappings)
-
-    def decorator(handler: RpcHandler) -> RpcHandler:
-        async def wrapped(request: Any, ctx: _RpcContext) -> AsyncIterator[str]:
-            try:
-                async for line in handler(request, ctx):
-                    yield line
-            except exception_types as error:
-                error_type = next(
-                    mapping.error_type
-                    for mapping in mappings
-                    if isinstance(error, mapping.exception)
-                )
-                yield RpcErrorEnvelope(
-                    id=request.id,
-                    error_type=error_type,
-                    message=str(error),
-                ).model_dump_json()
-
-        return wrapped
-
-    return decorator
-
-
-def _workspace_is_trusted(workspace_root: Path | str) -> bool:
-    return workspace_trust_status(workspace_root).trusted
-
-
-def _workspace_project_docs_root(workspace_root: Path | str) -> Path:
-    return resolve_workspace_trust_target(workspace_root)
 
 
 def _create_session_with_project_docs(
@@ -589,11 +149,13 @@ def _create_session_with_project_docs(
         workspace_root=workspace_root,
         project_docs_root=_workspace_project_docs_root(workspace_root),
     )
-    _RUNTIME_STATE.permission_states[session_id] = _SessionPermissionContext(
-        permission_state=_get_or_create_permission_context(
-            None
-        ).permission_state.model_copy(deep=True),
-        permission_memory=SessionPermissionMemory(),
+    rpc_state._RUNTIME_STATE.permission_states[session_id] = (
+        rpc_state._SessionPermissionContext(
+            permission_state=rpc_state._get_or_create_permission_context(
+                None
+            ).permission_state.model_copy(deep=True),
+            permission_memory=SessionPermissionMemory(),
+        )
     )
     project_docs = [
         WorkspaceProjectDoc(
@@ -606,23 +168,6 @@ def _create_session_with_project_docs(
         )
     ]
     return session_id, project_docs
-
-
-def _workspace_untrusted_error(
-    *,
-    request_id: str,
-    workspace_root: Path | str,
-) -> RpcErrorEnvelope:
-    status = workspace_trust_status(workspace_root)
-    return RpcErrorEnvelope(
-        id=request_id,
-        error_type="WorkspaceUntrusted",
-        message=(
-            "Workspace is not trusted yet. Accept trust for "
-            f"{status.trust_target} before loading project instructions or "
-            "starting a session."
-        ),
-    )
 
 
 async def _handle_session_create(
@@ -648,215 +193,6 @@ async def _handle_session_create(
     ).model_dump_json()
 
 
-async def _handle_model_catalog(
-    request: ModelCatalogRequest,
-    _ctx: _RpcContext,
-) -> AsyncIterator[str]:
-    yield RpcResponseEnvelope(
-        id=request.id,
-        response=ModelCatalogResponse(
-            providers=[
-                ModelCatalogProvider(
-                    provider=provider,
-                    default_model_id=default_model_for_provider(provider),
-                    models=[
-                        ModelCatalogModel(
-                            model_id=model.model_id,
-                            description=model.description,
-                        )
-                        for model in shipped_models_for_provider(provider)
-                    ],
-                )
-                for provider in CANONICAL_PROVIDER_ORDER
-            ]
-        ),
-    ).model_dump_json()
-
-
-@_rpc_error_handler(_RpcErrorMapping(AuthStoreError, "InternalError"))
-async def _handle_auth_status(
-    request: AuthStatusRequest,
-    _ctx: _RpcContext,
-) -> AsyncIterator[str]:
-    providers = list_provider_auth_statuses()
-    yield RpcResponseEnvelope(
-        id=request.id,
-        response=AuthStatusResponse(
-            providers=providers,
-            local_secret_store=get_local_secret_store_status(),
-            oauth_providers=get_oauth_provider_statuses(),
-        ),
-    ).model_dump_json()
-
-
-async def _handle_trace_logfire_status(
-    request: TraceLogfireStatusRequest,
-    _ctx: _RpcContext,
-) -> AsyncIterator[str]:
-    status = logfire_setup_status()
-    yield RpcResponseEnvelope(
-        id=request.id,
-        response=TraceLogfireStatusResponse(
-            installed=status.installed,
-            credentials_configured=status.credentials_configured,
-        ),
-    ).model_dump_json()
-
-
-@_rpc_error_handler(_RpcErrorMapping(AuthStoreError, "InternalError"))
-async def _handle_auth_prepare_file(
-    request: AuthPrepareFileRequest,
-    _ctx: _RpcContext,
-) -> AsyncIterator[str]:
-    prepared = prepare_provider_secret_file(request.payload.provider)
-    yield RpcResponseEnvelope(
-        id=request.id,
-        response=AuthPrepareFileResponse(
-            provider=prepared.provider,
-            env_key=prepared.env_key,
-            file_path=prepared.file_path,
-            created=prepared.created,
-            file_snippet=prepared.file_snippet,
-            entry_snippet=prepared.entry_snippet,
-        ),
-    ).model_dump_json()
-
-
-@_rpc_error_handler(
-    _RpcErrorMapping(ProviderSecretValidationError, "InvalidRequest"),
-    _RpcErrorMapping(AuthStoreError, "InternalError"),
-)
-async def _handle_auth_set(
-    request: AuthSetRequest,
-    _ctx: _RpcContext,
-) -> AsyncIterator[str]:
-    status = set_provider_secret(
-        request.payload.provider,
-        request.payload.secret,
-        storage=request.payload.storage,
-    )
-    yield RpcResponseEnvelope(
-        id=request.id,
-        response=AuthSetResponse(status=status),
-    ).model_dump_json()
-
-
-@_rpc_error_handler(_RpcErrorMapping(AuthStoreError, "InternalError"))
-async def _handle_auth_clear(
-    request: AuthClearRequest,
-    _ctx: _RpcContext,
-) -> AsyncIterator[str]:
-    status = clear_provider_secret(request.payload.provider)
-    yield RpcResponseEnvelope(
-        id=request.id,
-        response=AuthClearResponse(status=status),
-    ).model_dump_json()
-
-
-@_rpc_error_handler(_RpcErrorMapping(AuthStoreError, "InternalError"))
-async def _handle_auth_login_openai_codex_start(
-    request: AuthLoginOpenAICodexStartRequest,
-    _ctx: _RpcContext,
-) -> AsyncIterator[str]:
-    flow, flow_id, auth_url, instructions = start_openai_codex_oauth_login()
-    for state in _RUNTIME_STATE.openai_codex_login_flows.values():
-        _cancel_login_flow_task(state.task)
-        _fail_login_result(state.result, "login flow cancelled")
-    _RUNTIME_STATE.openai_codex_login_flows.clear()
-
-    result = asyncio.get_running_loop().create_future()
-    _RUNTIME_STATE.openai_codex_login_flows[flow_id] = _OpenAICodexLoginFlowState(
-        flow=flow,
-        task=asyncio.create_task(
-            _drive_login_result(
-                result=result,
-                wait_for_status=wait_for_openai_codex_oauth_login(flow),
-            )
-        ),
-        result=result,
-        started_at=time.monotonic(),
-    )
-    yield RpcResponseEnvelope(
-        id=request.id,
-        response=AuthLoginOpenAICodexStartResponse(
-            flow_id=flow_id,
-            auth_url=auth_url,
-            instructions=instructions,
-        ),
-    ).model_dump_json()
-
-
-async def _handle_auth_login_openai_codex_wait(
-    request: AuthLoginOpenAICodexWaitRequest,
-    _ctx: _RpcContext,
-) -> AsyncIterator[str]:
-    state = _RUNTIME_STATE.openai_codex_login_flows.get(request.payload.flow_id)
-    result = state.result if state is not None else None
-    if result is None:
-        status = _find_oauth_provider_status("openai-codex")
-        if status is not None and status.logged_in:
-            yield RpcResponseEnvelope(
-                id=request.id,
-                response=AuthLoginOpenAICodexWaitResponse(status=status),
-            ).model_dump_json()
-            return
-        yield RpcErrorEnvelope(
-            id=request.id,
-            error_type="InvalidRequest",
-            message="unknown OpenAI Codex login flow",
-        ).model_dump_json()
-        return
-    try:
-        status = await result
-    except Exception as error:
-        _pop_login_flow_state(request.payload.flow_id)
-        yield RpcErrorEnvelope(
-            id=request.id,
-            error_type="InternalError",
-            message=str(error),
-        ).model_dump_json()
-        return
-    _pop_login_flow_state(request.payload.flow_id)
-    yield RpcResponseEnvelope(
-        id=request.id,
-        response=AuthLoginOpenAICodexWaitResponse(status=status),
-    ).model_dump_json()
-
-
-async def _handle_auth_login_openai_codex_complete(
-    request: AuthLoginOpenAICodexCompleteRequest,
-    _ctx: _RpcContext,
-) -> AsyncIterator[str]:
-    state = _RUNTIME_STATE.openai_codex_login_flows.get(request.payload.flow_id)
-    if state is None or state.result is None:
-        yield RpcErrorEnvelope(
-            id=request.id,
-            error_type="InvalidRequest",
-            message="unknown OpenAI Codex login flow",
-        ).model_dump_json()
-        return
-    try:
-        status = await complete_openai_codex_oauth_login(
-            state.flow,
-            request.payload.callback_or_code,
-        )
-    except Exception as error:
-        yield RpcErrorEnvelope(
-            id=request.id,
-            error_type="InternalError",
-            message=str(error),
-        ).model_dump_json()
-        return
-    state = _pop_login_flow_state(request.payload.flow_id)
-    if state is not None and state.result is not None and not state.result.done():
-        state.result.set_result(status)
-    _cancel_login_flow_task(state.task if state is not None else None)
-    yield RpcResponseEnvelope(
-        id=request.id,
-        response=AuthLoginOpenAICodexCompleteResponse(status=status),
-    ).model_dump_json()
-
-
 async def _handle_run_enqueue(
     request: RunEnqueueRequest,
     _ctx: _RpcContext,
@@ -869,7 +205,7 @@ async def _handle_run_enqueue(
         ).model_dump_json()
         return
     try:
-        queued_count = await _RUNTIME_STATE.follow_up_state.enqueue(
+        queued_count = await rpc_state._RUNTIME_STATE.follow_up_state.enqueue(
             request.payload.session_id,
             request.payload.prompt,
             mode=request.payload.mode,
@@ -895,7 +231,7 @@ async def _handle_run_interrupt(
     _ctx: _RpcContext,
 ) -> AsyncIterator[str]:
     try:
-        promoted_count = await _RUNTIME_STATE.follow_up_state.interrupt(
+        promoted_count = await rpc_state._RUNTIME_STATE.follow_up_state.interrupt(
             request.payload.session_id,
             promote_queued_steer=request.payload.promote_queued_steer,
         )
@@ -1023,7 +359,7 @@ def _cleanup_created_session_artifacts(
     )
     session_path.unlink(missing_ok=True)
     session_path.with_suffix(".meta.json").unlink(missing_ok=True)
-    _RUNTIME_STATE.permission_states.pop(session_id, None)
+    rpc_state._RUNTIME_STATE.permission_states.pop(session_id, None)
 
 
 @_rpc_error_handler(
@@ -1054,7 +390,7 @@ async def _handle_onboarding_submit(
         attempt_id=request.payload.attempt_id,
         selected_index=request.payload.selected_index,
     )
-    pending = _RUNTIME_STATE.pending_onboarding_questions.get(
+    pending = rpc_state._RUNTIME_STATE.pending_onboarding_questions.get(
         request.payload.session_id,
         {}
     )
@@ -1075,369 +411,6 @@ async def _handle_onboarding_submit(
             correct_option=result.correct_option,
             is_correct=result.is_correct,
             explanation=result.explanation,
-        ),
-    ).model_dump_json()
-
-
-async def _handle_permission_get(
-    request: PermissionGetRequest,
-    ctx: _RpcContext,
-) -> AsyncIterator[str]:
-    if request.payload.session_id is not None:
-        session_path = session_path_for_id(
-            sessions_root=ctx.sessions_root,
-            workspace_root=ctx.workspace_root,
-            session_id=request.payload.session_id,
-        )
-        if not session_path.exists():
-            yield RpcErrorEnvelope(
-                id=request.id,
-                error_type="UnknownSession",
-                message=f"Unknown session_id: {request.payload.session_id}",
-            ).model_dump_json()
-            return
-
-    yield RpcResponseEnvelope(
-        id=request.id,
-        response=PermissionGetResponse(
-            session_id=request.payload.session_id,
-            permission_state=_get_or_create_permission_context(
-                request.payload.session_id
-            ).permission_state,
-        ),
-    ).model_dump_json()
-
-
-async def _handle_permission_set(
-    request: PermissionSetRequest,
-    ctx: _RpcContext,
-) -> AsyncIterator[str]:
-    if request.payload.session_id is not None:
-        session_path = session_path_for_id(
-            sessions_root=ctx.sessions_root,
-            workspace_root=ctx.workspace_root,
-            session_id=request.payload.session_id,
-        )
-        if not session_path.exists():
-            yield RpcErrorEnvelope(
-                id=request.id,
-                error_type="UnknownSession",
-                message=f"Unknown session_id: {request.payload.session_id}",
-            ).model_dump_json()
-            return
-
-    existing_context = _get_or_create_permission_context(
-        request.payload.session_id
-    )
-    permission_state = _build_live_permission_state(
-        sandbox_policy=(
-            request.payload.sandbox_policy
-            or existing_context.permission_state.sandbox_policy
-        ),
-        approval_policy=(
-            request.payload.approval_policy
-            or existing_context.permission_state.approval_policy
-        ),
-    )
-    existing_context.permission_memory.clear()
-    state_key = _permission_state_key(request.payload.session_id)
-    _RUNTIME_STATE.permission_states[state_key] = _SessionPermissionContext(
-        permission_state=permission_state,
-        permission_memory=existing_context.permission_memory,
-    )
-
-    yield RpcResponseEnvelope(
-        id=request.id,
-        response=PermissionSetResponse(
-            session_id=request.payload.session_id,
-            permission_state=permission_state,
-        ),
-    ).model_dump_json()
-
-
-async def _handle_approval_submit(
-    request: ApprovalSubmitRequest,
-    ctx: _RpcContext,
-) -> AsyncIterator[str]:
-    session_path = session_path_for_id(
-        sessions_root=ctx.sessions_root,
-        workspace_root=ctx.workspace_root,
-        session_id=request.payload.session_id,
-    )
-    if not session_path.exists():
-        yield RpcErrorEnvelope(
-            id=request.id,
-            error_type="UnknownSession",
-            message=f"Unknown session_id: {request.payload.session_id}",
-        ).model_dump_json()
-        return
-
-    pending = _RUNTIME_STATE.pending_approvals.get(request.payload.session_id, {})
-    approval_state = pending.get(request.payload.decision.request_id)
-    if approval_state is None:
-        yield RpcErrorEnvelope(
-            id=request.id,
-            error_type="InvalidRequest",
-            message=(
-                "Unknown approval request for session: "
-                f"{request.payload.decision.request_id}"
-            ),
-        ).model_dump_json()
-        return
-    if approval_state.response_future.done():
-        yield RpcErrorEnvelope(
-            id=request.id,
-            error_type="InvalidRequest",
-            message=(
-                "Approval request already resolved: "
-                f"{request.payload.decision.request_id}"
-            ),
-        ).model_dump_json()
-        return
-
-    try:
-        decision = normalize_approval_decision(
-            request=approval_state.request,
-            decision=request.payload.decision,
-        )
-    except ValueError as error:
-        yield RpcErrorEnvelope(
-            id=request.id,
-            error_type="InvalidRequest",
-            message=str(error),
-        ).model_dump_json()
-        return
-
-    approval_state.response_future.set_result(decision)
-    yield RpcResponseEnvelope(
-        id=request.id,
-        response=ApprovalSubmitResponse(
-            session_id=request.payload.session_id,
-            decision=decision,
-        ),
-    ).model_dump_json()
-
-
-async def _handle_session_name(
-    request: SessionNameRequest,
-    ctx: _RpcContext,
-) -> AsyncIterator[str]:
-    session_path = session_path_for_id(
-        sessions_root=ctx.sessions_root,
-        workspace_root=ctx.workspace_root,
-        session_id=request.payload.session_id,
-    )
-    if not session_path.exists():
-        yield RpcErrorEnvelope(
-            id=request.id,
-            error_type="UnknownSession",
-            message=f"Unknown session_id: {request.payload.session_id}",
-        ).model_dump_json()
-        return
-    try:
-        name = append_session_name_to_session(
-            path=session_path,
-            workspace_root=ctx.workspace_root,
-            name=request.payload.name,
-        )
-    except SessionNameValidationError as error:
-        yield RpcErrorEnvelope(
-            id=request.id,
-            error_type="InvalidRequest",
-            message=str(error),
-        ).model_dump_json()
-        return
-    except SessionFormatError as error:
-        yield RpcErrorEnvelope(
-            id=request.id,
-            error_type="InvalidSession",
-            message=str(error),
-        ).model_dump_json()
-        return
-
-    yield RpcResponseEnvelope(
-        id=request.id,
-        response=SessionNameResponse(
-            session_id=request.payload.session_id,
-            name=name,
-        ),
-    ).model_dump_json()
-
-
-async def _handle_session_preview(
-    request: SessionPreviewRequest,
-    ctx: _RpcContext,
-) -> AsyncIterator[str]:
-    session_path = session_path_for_id(
-        sessions_root=ctx.sessions_root,
-        workspace_root=ctx.workspace_root,
-        session_id=request.payload.session_id,
-    )
-    if not session_path.exists():
-        yield RpcErrorEnvelope(
-            id=request.id,
-            error_type="UnknownSession",
-            message=f"Unknown session_id: {request.payload.session_id}",
-        ).model_dump_json()
-        return
-    try:
-        preview = build_session_preview(
-            path=session_path,
-            workspace_root=ctx.workspace_root,
-        )
-    except SessionFormatError as error:
-        yield RpcErrorEnvelope(
-            id=request.id,
-            error_type="InvalidSession",
-            message=str(error),
-        ).model_dump_json()
-        return
-
-    yield RpcResponseEnvelope(
-        id=request.id,
-        response=SessionPreviewResponse(
-            session_id=preview.session_id,
-            entries=preview.entries,
-            truncated=preview.truncated,
-        ),
-    ).model_dump_json()
-
-
-async def _handle_session_mode_set(
-    request: SessionModeSetRequest,
-    ctx: _RpcContext,
-) -> AsyncIterator[str]:
-    session_path = session_path_for_id(
-        sessions_root=ctx.sessions_root,
-        workspace_root=ctx.workspace_root,
-        session_id=request.payload.session_id,
-    )
-    if not session_path.exists():
-        yield RpcErrorEnvelope(
-            id=request.id,
-            error_type="UnknownSession",
-            message=f"Unknown session_id: {request.payload.session_id}",
-        ).model_dump_json()
-        return
-    try:
-        metadata = update_session_mode(
-            path=session_path,
-            current_mode=request.payload.mode,
-        )
-    except SessionFormatError as error:
-        yield RpcErrorEnvelope(
-            id=request.id,
-            error_type="InvalidSession",
-            message=str(error),
-        ).model_dump_json()
-        return
-
-    yield RpcResponseEnvelope(
-        id=request.id,
-        response=SessionModeSetResponse(
-            session_id=request.payload.session_id,
-            mode=metadata.current_mode,
-        ),
-    ).model_dump_json()
-
-
-async def _handle_workspace_project_docs(
-    request: WorkspaceProjectDocsRequest,
-    ctx: _RpcContext,
-) -> AsyncIterator[str]:
-    if not _workspace_is_trusted(ctx.workspace_root):
-        yield _workspace_untrusted_error(
-            request_id=request.id,
-            workspace_root=ctx.workspace_root,
-        ).model_dump_json()
-        return
-    yield RpcResponseEnvelope(
-        id=request.id,
-        response=WorkspaceProjectDocsResponse(
-            documents=[
-                WorkspaceProjectDoc(
-                    path=str(doc.path),
-                    filename=doc.filename,
-                    truncated=doc.truncated,
-                )
-                for doc in load_workspace_project_docs(
-                    _workspace_project_docs_root(ctx.workspace_root)
-                )
-            ]
-        ),
-    ).model_dump_json()
-
-
-async def _handle_workspace_trust_status(
-    request: WorkspaceTrustStatusRequest,
-    ctx: _RpcContext,
-) -> AsyncIterator[str]:
-    status = workspace_trust_status(ctx.workspace_root)
-    yield RpcResponseEnvelope(
-        id=request.id,
-        response=WorkspaceTrustStatusResponse(
-            trusted=status.trusted,
-            trust_target=status.trust_target,
-        ),
-    ).model_dump_json()
-
-
-async def _handle_workspace_trust_accept(
-    request: WorkspaceTrustAcceptRequest,
-    ctx: _RpcContext,
-) -> AsyncIterator[str]:
-    status = accept_workspace_trust(ctx.workspace_root)
-    yield RpcResponseEnvelope(
-        id=request.id,
-        response=WorkspaceTrustAcceptResponse(
-            trusted=status.trusted,
-            trust_target=status.trust_target,
-        ),
-    ).model_dump_json()
-
-
-async def _handle_session_compact(
-    request: SessionCompactRequest,
-    ctx: _RpcContext,
-) -> AsyncIterator[str]:
-    session_path = session_path_for_id(
-        sessions_root=ctx.sessions_root,
-        workspace_root=ctx.workspace_root,
-        session_id=request.payload.session_id,
-    )
-    if not session_path.exists():
-        yield RpcErrorEnvelope(
-            id=request.id,
-            error_type="UnknownSession",
-            message=f"Unknown session_id: {request.payload.session_id}",
-        ).model_dump_json()
-        return
-    try:
-        compaction = await summarize_and_append_compaction_to_session(
-            model=ctx.model,
-            path=session_path,
-            workspace_root=ctx.workspace_root,
-        )
-    except SessionFormatError as error:
-        yield RpcErrorEnvelope(
-            id=request.id,
-            error_type="InvalidSession",
-            message=str(error),
-        ).model_dump_json()
-        return
-    except Exception as error:
-        yield RpcErrorEnvelope(
-            id=request.id,
-            error_type="InternalError",
-            message=str(error),
-        ).model_dump_json()
-        return
-
-    yield RpcResponseEnvelope(
-        id=request.id,
-        response=SessionCompactResponse(
-            compaction_id=compaction.compaction_id,
-            compacted_through_run_id=compaction.compacted_through_run_id,
         ),
     ).model_dump_json()
 
@@ -1518,13 +491,13 @@ async def _handle_run_start(
     async def activate_boundary(
         attach: Callable[[list[str]], None],
     ) -> None:
-        await _RUNTIME_STATE.follow_up_state.activate_steer_boundary(
+        await rpc_state._RUNTIME_STATE.follow_up_state.activate_steer_boundary(
             request.payload.session_id,
             attach,
         )
 
     async def submit_boundary() -> None:
-        await _RUNTIME_STATE.follow_up_state.submit_active_steer_boundary(
+        await rpc_state._RUNTIME_STATE.follow_up_state.submit_active_steer_boundary(
             request.payload.session_id
         )
 
@@ -1538,7 +511,7 @@ async def _handle_run_start(
                 asyncio.get_running_loop().create_future()
             ),
         )
-        session_pending = _RUNTIME_STATE.pending_approvals[
+        session_pending = rpc_state._RUNTIME_STATE.pending_approvals[
             request.payload.session_id
         ]
         if decision_request.request_id in session_pending:
@@ -1550,13 +523,13 @@ async def _handle_run_start(
         try:
             return await approval_state.response_future
         finally:
-            current_pending = _RUNTIME_STATE.pending_approvals.get(
+            current_pending = rpc_state._RUNTIME_STATE.pending_approvals.get(
                 request.payload.session_id
             )
             if current_pending is not None:
                 current_pending.pop(decision_request.request_id, None)
                 if not current_pending:
-                    _RUNTIME_STATE.pending_approvals.pop(
+                    rpc_state._RUNTIME_STATE.pending_approvals.pop(
                         request.payload.session_id, None
                     )
 
@@ -1568,7 +541,7 @@ async def _handle_run_start(
             question=question_request,
             response_future=asyncio.get_running_loop().create_future(),
         )
-        session_pending = _RUNTIME_STATE.pending_onboarding_questions[
+        session_pending = rpc_state._RUNTIME_STATE.pending_onboarding_questions[
             request.payload.session_id
         ]
         if question_request.attempt_id in session_pending:
@@ -1588,17 +561,17 @@ async def _handle_run_start(
             )
             raise
         finally:
-            current_pending = _RUNTIME_STATE.pending_onboarding_questions.get(
+            current_pending = rpc_state._RUNTIME_STATE.pending_onboarding_questions.get(
                 request.payload.session_id
             )
             if current_pending is not None:
                 current_pending.pop(question_request.attempt_id, None)
                 if not current_pending:
-                    _RUNTIME_STATE.pending_onboarding_questions.pop(
+                    rpc_state._RUNTIME_STATE.pending_onboarding_questions.pop(
                         request.payload.session_id, None
                     )
 
-    await _RUNTIME_STATE.follow_up_state.activate(
+    await rpc_state._RUNTIME_STATE.follow_up_state.activate(
         request.payload.session_id,
         run_task=current_task,
         emit_queue_state=emit_queue_state,
@@ -1616,10 +589,10 @@ async def _handle_run_start(
                     tool_names=tool_names,
                     run_mode=effective_run_mode,
                     thinking=request.payload.thinking,
-                    permission_state=_get_or_create_permission_context(
+                    permission_state=rpc_state._get_or_create_permission_context(
                         request.payload.session_id
                     ).permission_state,
-                    permission_memory=_get_or_create_permission_context(
+                    permission_memory=rpc_state._get_or_create_permission_context(
                         request.payload.session_id
                     ).permission_memory,
                     resolve_approval_request=resolve_approval_request,
@@ -1627,7 +600,7 @@ async def _handle_run_start(
                     activate_steer_boundary=activate_boundary,
                     submit_steer_boundary=submit_boundary,
                     deactivate_steer_boundary=lambda: (
-                        _RUNTIME_STATE.follow_up_state.deactivate_steer_boundary(
+                        rpc_state._RUNTIME_STATE.follow_up_state.deactivate_steer_boundary(
                             request.payload.session_id
                         )
                     ),
@@ -1667,7 +640,7 @@ async def _handle_run_start(
                 ).model_dump_json()
                 return
 
-            follow_up_state = _RUNTIME_STATE.follow_up_state
+            follow_up_state = rpc_state._RUNTIME_STATE.follow_up_state
             await follow_up_state.downgrade_pending_steers_to_follow_ups(
                 request.payload.session_id
             )
@@ -1679,7 +652,9 @@ async def _handle_run_start(
             await emit_submitted_prompt_batch("later", prompt_batch)
             prompt = _combine_prompt_batch(prompt_batch)
     finally:
-        await _RUNTIME_STATE.follow_up_state.deactivate(request.payload.session_id)
+        await rpc_state._RUNTIME_STATE.follow_up_state.deactivate(
+            request.payload.session_id
+        )
     yield RpcResponseEnvelope(
         id=request.id,
         response=RunStartResponse(session_id=request.payload.session_id),
@@ -1907,70 +882,12 @@ async def serve_rpc_stdio(
             output_executor.shutdown(wait=True, cancel_futures=True)
 
 
-def _prune_stale_login_flows(now: float | None = None) -> None:
-    current = time.monotonic() if now is None else now
-    stale_ids = [
-        flow_id
-        for flow_id, state in _RUNTIME_STATE.openai_codex_login_flows.items()
-        if (
-            state.started_at is not None
-            and (current - state.started_at) > _LOGIN_FLOW_TTL_SECONDS
-        )
-    ]
-    for flow_id in stale_ids:
-        state = _pop_login_flow_state(flow_id)
-        if state is None:
-            continue
-        _cancel_login_flow_task(state.task)
-        _fail_login_result(state.result, "OpenAI Codex login flow expired")
-
-
-def _pop_login_flow_state(flow_id: str) -> _OpenAICodexLoginFlowState | None:
-    return _RUNTIME_STATE.openai_codex_login_flows.pop(flow_id, None)
-
-
-def _cancel_login_flow_task(task: asyncio.Task | None) -> None:
-    if task is None or task.done():
-        return
-    task.cancel()
-
-
-def _fail_login_result(result: asyncio.Future | None, message: str) -> None:
-    if result is None or result.done():
-        return
-    result.set_exception(RuntimeError(message))
-
-
-async def _drive_login_result(
-    *,
-    result: asyncio.Future,
-    wait_for_status: Awaitable[Any],
-) -> None:
-    try:
-        status = await wait_for_status
-    except asyncio.CancelledError:
-        raise
-    except Exception as error:
-        if not result.done():
-            result.set_exception(error)
-        return
-    if not result.done():
-        result.set_result(status)
-
-
 def _extract_request_id(payload: Any) -> str | None:
     if isinstance(payload, dict):
         request_id = payload.get("id")
         if isinstance(request_id, str):
             return request_id
 
-    return None
-
-
-def _find_oauth_provider_status(provider: str):
-    for status in get_oauth_provider_statuses():
-        if status.provider == provider:
-            return status
     return None
 
 
