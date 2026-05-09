@@ -200,8 +200,15 @@ def test_static_agent_instructions_can_describe_explicit_code_mode_tools() -> No
         in instructions
     )
     assert (
-        "Code Mode cells must call tools through the provided bridge; do not "
-        "assume direct filesystem or shell access inside the cell."
+        "Code Mode cells must call tools through the provided bridge: "
+        "tools.read, tools.grep, tools.ls, tools.find, tools.write, "
+        "tools.edit, and tools.shell."
+        in instructions
+    )
+    assert (
+        "Allowed imports are json, re, math, collections, statistics, "
+        "itertools, functools, and decimal. Do not use open, subprocess, "
+        "or direct filesystem access inside Code Mode cells."
         in instructions
     )
     assert (
