@@ -159,7 +159,7 @@ async def test_code_mode_validates_jobs_tool_usage_workflow(tmp_path) -> None:
                 )
             ]
     finally:
-        await deps.read_only_worker.close()
+        await deps.close_runtime_resources()
 
     started = [event for event in events if isinstance(event, ToolCallStartedEvent)]
     assert [(event.tool_name, event.tool_call_id) for event in started] == [
@@ -229,16 +229,19 @@ async def test_code_mode_nested_failure_stays_under_parent_exec(
         ],
     )
 
-    with capture_run_messages() as messages:
-        events = [
-            event
-            async for event in stream_run_events(
-                agent=agent,
-                prompt="inspect failing code mode",
-                deps=deps,
-                available_tool_names=["shell", "exec", "wait"],
-            )
-        ]
+    try:
+        with capture_run_messages() as messages:
+            events = [
+                event
+                async for event in stream_run_events(
+                    agent=agent,
+                    prompt="inspect failing code mode",
+                    deps=deps,
+                    available_tool_names=["shell", "exec", "wait"],
+                )
+            ]
+    finally:
+        await deps.close_runtime_resources()
 
     started = [event for event in events if isinstance(event, ToolCallStartedEvent)]
     assert [(event.tool_name, event.tool_call_id) for event in started] == [

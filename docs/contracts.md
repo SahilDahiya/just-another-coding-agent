@@ -478,10 +478,15 @@ Code Mode contract:
 - the default source runtime normalizes positional tool arguments and a single
   positional argument dictionary into the same named backend tool arguments;
   ambiguous mixed forms fail explicitly
-- the default source runtime exposes the standard-library `json` module for
-  deterministic parsing and formatting
-- the default source runtime does not expose imports, `open`, or direct
-  subprocess APIs, but this restriction is not a complete security sandbox
+- the default source runtime is run-local and persistent across cells for the
+  same `WorkspaceDeps`; variables, helper functions, and allowlisted imports
+  defined in one completed cell remain available to later cells in that run
+- the default source runtime exposes a small allowlist of standard-library
+  modules for deterministic parsing and computation: `json`, `re`, `math`,
+  `collections`, `statistics`, `itertools`, `functools`, and `decimal`
+- the default source runtime does not expose arbitrary imports, `open`, or
+  direct subprocess APIs, but this restriction is not a complete security
+  sandbox
 - nested tool calls must preserve normal workspace, sandbox, approval,
   permission, activity, and failure semantics
 - runtime failures are represented as failed `CodeModeCellResult` payloads on

@@ -1516,7 +1516,7 @@ async def _stream_run_events(
                     error_message="Run terminated before a terminal event",
                 )
             if isinstance(queued_deps, WorkspaceDeps):
-                await queued_deps.read_only_worker.close()
+                await queued_deps.close_runtime_resources()
 
 
 async def stream_run_events(

@@ -1,9 +1,18 @@
 from __future__ import annotations
 
+import ast
 import asyncio
+import collections
+import decimal
+import functools
+import importlib
+import inspect
+import itertools
 import json
+import math
+import re
+import statistics
 import sys
-import textwrap
 from dataclasses import dataclass
 from typing import Any
 from uuid import uuid4
@@ -17,6 +26,36 @@ class _ReturnResult(BaseException):
 
 class _ToolError(RuntimeError):
     pass
+
+
+_ALLOWED_MODULES: dict[str, Any] = {
+    "collections": collections,
+    "decimal": decimal,
+    "functools": functools,
+    "itertools": itertools,
+    "json": json,
+    "math": math,
+    "re": re,
+    "statistics": statistics,
+}
+
+
+def _restricted_import(
+    name: str,
+    globals: dict[str, Any] | None = None,
+    locals: dict[str, Any] | None = None,
+    fromlist: tuple[str, ...] = (),
+    level: int = 0,
+) -> Any:
+    del globals, locals
+    if level != 0:
+        raise ImportError("relative imports are not available in Code Mode")
+    if name not in _ALLOWED_MODULES:
+        raise ImportError(f"module `{name}` is not available in Code Mode")
+    module = importlib.import_module(name)
+    if fromlist:
+        return module
+    return module
 
 
 def _stringify(value: Any) -> str:
@@ -55,6 +94,7 @@ class _RuntimeProtocol:
     def __init__(self) -> None:
         self._pending: dict[str, _PendingToolCall] = {}
         self._listener: asyncio.Task[None] | None = None
+        self._control_messages: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
 
     def start(self) -> None:
         self._listener = asyncio.create_task(self._listen())
@@ -72,6 +112,9 @@ class _RuntimeProtocol:
         while True:
             message = await _read_json_line()
             message_type = message.get("type")
+            if message_type in {"execute", "shutdown"}:
+                await self._control_messages.put(message)
+                continue
             call_id = message.get("id")
             if not isinstance(call_id, str):
                 raise RuntimeError("parent response is missing string id")
@@ -89,6 +132,9 @@ class _RuntimeProtocol:
                 pending.future.set_exception(
                     RuntimeError(f"unknown parent response type: {message_type}")
                 )
+
+    async def next_control_message(self) -> dict[str, Any]:
+        return await self._control_messages.get()
 
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
         call_id = f"tool-{uuid4().hex}"
@@ -235,6 +281,7 @@ def _restricted_builtins() -> dict[str, Any]:
         "all": all,
         "any": any,
         "bool": bool,
+        "__import__": _restricted_import,
         "dict": dict,
         "enumerate": enumerate,
         "Exception": Exception,
@@ -257,24 +304,21 @@ def _restricted_builtins() -> dict[str, Any]:
     }
 
 
-async def _execute_source(source: str, protocol: _RuntimeProtocol) -> Any:
-    indented_source = textwrap.indent(source, "    ")
-    compiled_source = (
-        "async def __code_mode_main__():\n"
-        f"{indented_source if indented_source.strip() else '    pass'}\n"
+async def _execute_source(
+    source: str,
+    namespace: dict[str, Any],
+) -> Any:
+    code = compile(
+        source,
+        "<code-mode-cell>",
+        "exec",
+        flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT,
     )
-    globals_dict: dict[str, Any] = {
-        "__builtins__": _restricted_builtins(),
-        "emit": _emit,
-        "json": json,
-        "return_result": _return_result,
-        "tools": _Tools(protocol),
-    }
-    locals_dict: dict[str, Any] = {}
-    exec(compiled_source, globals_dict, locals_dict)
-    main = locals_dict["__code_mode_main__"]
     try:
-        return await main()
+        result = eval(code, namespace, namespace)
+        if inspect.isawaitable(result):
+            result = await result
+        return result
     except _ReturnResult as result:
         return result.value
 
@@ -283,21 +327,51 @@ async def _main() -> int:
     start_message = await _read_json_line()
     if start_message.get("type") != "start":
         raise RuntimeError("first protocol message must be start")
-    source = start_message.get("source")
-    if not isinstance(source, str) or source == "":
-        raise RuntimeError("start message source must be a non-empty string")
 
     protocol = _RuntimeProtocol()
+    namespace: dict[str, Any] = {
+        "__builtins__": _restricted_builtins(),
+        "emit": _emit,
+        "json": json,
+        "return_result": _return_result,
+        "tools": _Tools(protocol),
+    }
     protocol.start()
     try:
-        result = await _execute_source(source, protocol)
+        while True:
+            message = await protocol.next_control_message()
+            if message.get("type") == "shutdown":
+                return 0
+            cell_id = message.get("id")
+            if not isinstance(cell_id, str):
+                raise RuntimeError("execute message id must be a string")
+            source = message.get("source")
+            if not isinstance(source, str) or source == "":
+                raise RuntimeError("execute message source must be a non-empty string")
+            try:
+                result = await _execute_source(source, namespace)
+            except Exception as exc:
+                _send(
+                    {
+                        "type": "error",
+                        "id": cell_id,
+                        "error_type": type(exc).__name__,
+                        "message": str(exc),
+                    }
+                )
+                continue
+            if result is not None:
+                _send(
+                    {
+                        "type": "result",
+                        "id": cell_id,
+                        "text": _stringify(result),
+                    }
+                )
+            else:
+                _send({"type": "result", "id": cell_id, "text": None})
     finally:
         await protocol.close()
-    if result is not None:
-        _send({"type": "result", "text": _stringify(result)})
-    else:
-        _send({"type": "result", "text": None})
-    return 0
 
 
 def main() -> None:

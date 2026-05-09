@@ -51,9 +51,10 @@ return_result({"status": "done"})
 
 Those calls must route through the canonical backend tool layer. They are not
 shortcuts to Python file I/O, subprocess execution, or direct workspace access.
-The worker exposes a small builtins set and no import hook, `open`, or direct
-subprocess API. This is a process boundary and API restriction, not a complete
-security sandbox; workspace authority still belongs to the backend tools.
+The worker exposes a small builtins set, an allowlisted standard-library import
+hook, and no `open` or direct subprocess API. This is a process boundary and
+API restriction, not a complete security sandbox; workspace authority still
+belongs to the backend tools.
 
 The current bridge exposes `read`, `grep`, `ls`, `find`, `write`, `edit`, and
 `shell`. `subagent` is intentionally deferred until the basic bridge,
@@ -175,8 +176,15 @@ Runtime API:
 - `await tools.edit(path="notes.txt", old_text="before", new_text="after")`
 - `await tools.shell(command="pytest -q", timeout=None)`
 - `json.loads(...)` and `json.dumps(...)`
+- allowlisted imports: `json`, `re`, `math`, `collections`, `statistics`,
+  `itertools`, `functools`, and `decimal`
 - `emit(value, channel="stdout")`
 - `return_result(value)`
+
+The default Python worker is run-local and persistent across Code Mode cells
+for the same `WorkspaceDeps`. Variables, helper functions, and allowlisted
+imports defined by one completed cell remain available to later cells in the
+same run. Runtime resources are closed at run cleanup.
 
 The canonical backend tool arguments are named fields. The worker also
 normalizes two model-boundary conveniences into those same named fields:
@@ -209,10 +217,10 @@ the failed cell result is returned to the model.
 
 ## Persistent Python Direction
 
-The current subprocess runtime is the first source-runtime slice, not the final
-shape. Recent Harbor-style A/B checks showed that Code Mode can improve task
-progress, but repeated shell-wrapped Python and process startup remain a real
-cost.
+The current subprocess runtime is a persistent run-local Python worker, but it
+is still an early source-runtime slice. Recent Harbor-style A/B checks showed
+that Code Mode can improve task progress, but repeated shell-wrapped Python and
+avoidable process/script startup remain a real cost.
 
 Observed examples:
 
@@ -223,10 +231,10 @@ Observed examples:
   Mode-only also timed out, but wrote a valid artifact. The verifier passed
   correctness and failed only speed (`64.40%` runtime vs `60.00%` required).
 
-The next runtime direction is a general persistent Python session: keep imports,
-helper functions, parsed data, and intermediate variables warm across cells
-within a run. This should reduce `tools.shell("python ...")` loops without
-adding task-specific primitives.
+The runtime direction is to keep improving the general persistent Python
+session: keep imports, helper functions, parsed data, and intermediate
+variables warm across cells within a run. This should reduce
+`tools.shell("python ...")` loops without adding task-specific primitives.
 
 DSPy RLM validates the same architectural pattern: separate variable space from
 token space, let the model inspect data through iterative Python execution, and

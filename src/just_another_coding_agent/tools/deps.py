@@ -29,6 +29,9 @@ from just_another_coding_agent.contracts.teaching import (
     TeachingSnippet,
 )
 from just_another_coding_agent.contracts.thinking import ThinkingSetting
+from just_another_coding_agent.runtime.code_mode.python_runtime import (
+    PythonSubprocessCodeModeRuntime,
+)
 from just_another_coding_agent.runtime.code_mode.service import (
     CodeModeCellService,
     CodeModeRunner,
@@ -279,6 +282,11 @@ class WorkspaceDeps:
         compare=False,
         repr=False,
     )
+    code_mode_source_runtime: PythonSubprocessCodeModeRuntime = field(
+        default_factory=PythonSubprocessCodeModeRuntime,
+        compare=False,
+        repr=False,
+    )
     read_only_worker: ReadOnlyWorkerRuntime = field(
         default_factory=ReadOnlyWorkerRuntime,
         compare=False,
@@ -312,6 +320,10 @@ class WorkspaceDeps:
             shell_family=detect_default_shell_family(),
             code_mode_runner=code_mode_runner,
         )
+
+    async def close_runtime_resources(self) -> None:
+        await self.code_mode_source_runtime.close()
+        await self.read_only_worker.close()
 
 
 __all__ = [

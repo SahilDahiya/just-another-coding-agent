@@ -45,7 +45,7 @@ async def test_code_mode_bridge_calls_canonical_read_tool(tmp_path) -> None:
     try:
         result = await bridge.read(path="note.txt", offset=2, limit=1)
     finally:
-        await deps.read_only_worker.close()
+        await deps.close_runtime_resources()
 
     assert result == "world\n"
 
@@ -74,7 +74,7 @@ async def test_code_mode_bridge_publishes_nested_tool_updates(tmp_path) -> None:
     try:
         result = await bridge.read(path="note.txt")
     finally:
-        await deps.read_only_worker.close()
+        await deps.close_runtime_resources()
 
     assert result == "hello"
     assert len(updates) == 2
@@ -127,7 +127,7 @@ async def test_code_mode_bridge_publishes_failed_nested_tool_update(tmp_path) ->
         except Exception as exc:
             assert type(exc).__name__ == "ToolPathError"
     finally:
-        await deps.read_only_worker.close()
+        await deps.close_runtime_resources()
 
     assert len(updates) == 2
     assert updates[1][0:2] == ("call-exec", "exec")
@@ -151,7 +151,7 @@ async def test_code_mode_bridge_calls_canonical_grep_tool(tmp_path) -> None:
     try:
         result = await bridge.grep(pattern="needle")
     finally:
-        await deps.read_only_worker.close()
+        await deps.close_runtime_resources()
 
     assert result == "alpha.txt:1:needle one\nbeta.txt:2:needle two"
 
@@ -167,7 +167,7 @@ async def test_code_mode_bridge_calls_canonical_ls_tool(tmp_path) -> None:
     try:
         result = await bridge.ls(path=".", limit=10)
     finally:
-        await deps.read_only_worker.close()
+        await deps.close_runtime_resources()
 
     assert result == "alpha.txt\nsubdir/"
 
@@ -183,7 +183,7 @@ async def test_code_mode_bridge_calls_canonical_find_tool(tmp_path) -> None:
     try:
         result = await bridge.find(pattern="*.py", path=".", limit=10)
     finally:
-        await deps.read_only_worker.close()
+        await deps.close_runtime_resources()
 
     assert result == "beta.py"
 
@@ -197,7 +197,7 @@ async def test_code_mode_bridge_calls_canonical_write_tool(tmp_path) -> None:
     try:
         result = await bridge.write(path="created.txt", content="hello\n")
     finally:
-        await deps.read_only_worker.close()
+        await deps.close_runtime_resources()
 
     assert result == f"Wrote {workspace_root / 'created.txt'}"
     assert (workspace_root / "created.txt").read_text(encoding="utf-8") == "hello\n"
@@ -217,7 +217,7 @@ async def test_code_mode_bridge_calls_canonical_edit_tool(tmp_path) -> None:
             new_text="goodbye",
         )
     finally:
-        await deps.read_only_worker.close()
+        await deps.close_runtime_resources()
 
     assert result == f"Edited {workspace_root / 'note.txt'}"
     assert (workspace_root / "note.txt").read_text(encoding="utf-8") == (
@@ -289,7 +289,7 @@ async def test_code_mode_exec_context_exposes_bridge_tools(tmp_path) -> None:
             yield_time_ms=100,
         )
     finally:
-        await deps.read_only_worker.close()
+        await deps.close_runtime_resources()
 
     assert [chunk["text"] for chunk in result.return_value["output"]] == [
         "hello",

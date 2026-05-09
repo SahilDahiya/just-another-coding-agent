@@ -10,9 +10,6 @@ from just_another_coding_agent.contracts.code_mode import (
     CodeModeWaitRequest,
 )
 from just_another_coding_agent.runtime.code_mode.bridge import CodeModeToolBridge
-from just_another_coding_agent.runtime.code_mode.python_runtime import (
-    PythonSubprocessCodeModeRuntime,
-)
 from just_another_coding_agent.tools._activity import make_tool_return
 from just_another_coding_agent.tools.deps import WorkspaceDeps
 
@@ -74,7 +71,7 @@ async def code_mode_exec(
 
     runner = ctx.deps.code_mode_runner
     if runner is None:
-        runner = PythonSubprocessCodeModeRuntime().create_runner(source)
+        runner = ctx.deps.code_mode_source_runtime.create_runner(source)
 
     result = await ctx.deps.code_mode_cell_service.start_cell(
         CodeModeExecRequest(

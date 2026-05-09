@@ -18,17 +18,58 @@ class CodeModeSourceRuntimeError(RuntimeError):
 
 
 class PythonSubprocessCodeModeRuntime:
+    def __init__(self) -> None:
+        self._process: Process | None = None
+        self._lock = asyncio.Lock()
+
     def create_runner(self, source: str) -> CodeModeRunner:
         async def _runner(context: CodeModeCellContext) -> str | None:
             return await self.run_source(context, source)
 
         return _runner
 
+    async def close(self) -> None:
+        process = self._process
+        self._process = None
+        if process is None:
+            return
+        if process.returncode is None:
+            with contextlib.suppress(CodeModeSourceRuntimeError, BrokenPipeError):
+                await _write_message(process, {"type": "shutdown"})
+            await _close_stdin(process)
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(process.wait(), timeout=1)
+        if process.returncode is None:
+            await _terminate_process(process)
+
     async def run_source(
         self,
         context: CodeModeCellContext,
         source: str,
     ) -> str | None:
+        async with self._lock:
+            process = await self._ensure_process()
+            try:
+                await _write_message(
+                    process,
+                    {
+                        "type": "execute",
+                        "id": context.cell_id,
+                        "source": source,
+                    },
+                )
+                return await self._run_protocol_loop(context, process)
+            except asyncio.CancelledError:
+                await self._discard_process(process)
+                raise
+            except Exception:
+                if process.returncode is not None:
+                    self._process = None
+                raise
+
+    async def _ensure_process(self) -> Process:
+        if self._process is not None and self._process.returncode is None:
+            return self._process
         process = await asyncio.create_subprocess_exec(
             sys.executable,
             "-m",
@@ -37,16 +78,14 @@ class PythonSubprocessCodeModeRuntime:
             stdout=PIPE,
             stderr=PIPE,
         )
-        try:
-            await _write_message(process, {"type": "start", "source": source})
-            return await self._run_protocol_loop(context, process)
-        except asyncio.CancelledError:
-            await _terminate_process(process)
-            raise
-        finally:
-            await _close_stdin(process)
-            if process.returncode is None:
-                await _terminate_process(process)
+        await _write_message(process, {"type": "start"})
+        self._process = process
+        return process
+
+    async def _discard_process(self, process: Process) -> None:
+        if self._process is process:
+            self._process = None
+        await _terminate_process(process)
 
     async def _run_protocol_loop(
         self,
@@ -66,7 +105,10 @@ class PythonSubprocessCodeModeRuntime:
                     channel=_require_channel(message),
                 )
             elif message_type == "result":
-                await _require_clean_exit(process)
+                if message.get("id") != context.cell_id:
+                    raise CodeModeSourceRuntimeError(
+                        "runtime result id did not match the active cell"
+                    )
                 text = message.get("text")
                 if text is None:
                     return None
@@ -78,6 +120,13 @@ class PythonSubprocessCodeModeRuntime:
             elif message_type == "tool_call":
                 await self._handle_tool_call(context, process, message)
             elif message_type == "error":
+                error_id = message.get("id")
+                if error_id not in {None, context.cell_id}:
+                    raise CodeModeSourceRuntimeError(
+                        "runtime error id did not match the active cell"
+                    )
+                if error_id is None:
+                    await self._discard_process(process)
                 raise CodeModeSourceRuntimeError(_format_child_error(message))
             else:
                 raise CodeModeSourceRuntimeError(
@@ -85,6 +134,7 @@ class PythonSubprocessCodeModeRuntime:
                 )
 
         await _require_clean_exit(process)
+        self._process = None
         return None
 
     async def _handle_tool_call(

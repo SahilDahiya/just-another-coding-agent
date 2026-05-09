@@ -21,6 +21,10 @@ def _run_context(deps: WorkspaceDeps) -> RunContext[WorkspaceDeps]:
     )
 
 
+async def _close_deps(deps: WorkspaceDeps) -> None:
+    await deps.close_runtime_resources()
+
+
 async def test_code_mode_exec_tool_uses_injected_runner(tmp_path) -> None:
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
@@ -70,7 +74,7 @@ async def test_code_mode_exec_tool_uses_default_python_runtime(tmp_path) -> None
         ),
         yield_time_ms=1000,
     )
-    await deps.read_only_worker.close()
+    await _close_deps(deps)
 
     assert result.return_value["state"] == "completed"
     assert [chunk["text"] for chunk in result.return_value["output"]] == [
@@ -102,7 +106,7 @@ async def test_code_mode_exec_default_runtime_exposes_canonical_file_tools(
         ),
         yield_time_ms=1000,
     )
-    await deps.read_only_worker.close()
+    await _close_deps(deps)
 
     assert result.return_value["state"] == "completed"
     assert [chunk["text"] for chunk in result.return_value["output"]] == [
@@ -130,12 +134,101 @@ async def test_code_mode_exec_default_runtime_normalizes_tool_call_shapes(
         ),
         yield_time_ms=1000,
     )
-    await deps.read_only_worker.close()
+    await _close_deps(deps)
 
     assert result.return_value["state"] == "completed"
     assert [chunk["text"] for chunk in result.return_value["output"]] == [
         '{"content": "hello\\n", "listing": "note.txt", "matches": "note.txt"}'
     ]
+
+
+async def test_code_mode_exec_default_runtime_reuses_python_session_state(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    deps = WorkspaceDeps.from_workspace_root(workspace_root)
+
+    first = await code_mode_exec(
+        _run_context(deps),
+        source=(
+            "numbers = [1, 2, 3]\n"
+            "label = 'warm'\n"
+            "return_result({'stored': len(numbers)})"
+        ),
+        yield_time_ms=1000,
+    )
+
+    second = await code_mode_exec(
+        _run_context(deps),
+        source="return_result({'label': label, 'total': sum(numbers)})",
+        yield_time_ms=1000,
+    )
+    await _close_deps(deps)
+
+    assert first.return_value["state"] == "completed"
+    assert [chunk["text"] for chunk in first.return_value["output"]] == [
+        '{"stored": 3}'
+    ]
+    assert second.return_value["state"] == "completed"
+    assert [chunk["text"] for chunk in second.return_value["output"]] == [
+        '{"label": "warm", "total": 6}'
+    ]
+
+
+async def test_code_mode_exec_default_runtime_reuses_allowlisted_imports(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    deps = WorkspaceDeps.from_workspace_root(workspace_root)
+
+    first = await code_mode_exec(
+        _run_context(deps),
+        source=(
+            "import re\n"
+            "matcher = re.compile('needle')\n"
+            "return_result(matcher.pattern)"
+        ),
+        yield_time_ms=1000,
+    )
+
+    second = await code_mode_exec(
+        _run_context(deps),
+        source="return_result(bool(matcher.search('needle in text')))",
+        yield_time_ms=1000,
+    )
+    await _close_deps(deps)
+
+    assert first.return_value["state"] == "completed"
+    assert [chunk["text"] for chunk in first.return_value["output"]] == [
+        "needle"
+    ]
+    assert second.return_value["state"] == "completed"
+    assert [chunk["text"] for chunk in second.return_value["output"]] == [
+        "true"
+    ]
+
+
+async def test_code_mode_exec_default_runtime_rejects_unavailable_imports(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    deps = WorkspaceDeps.from_workspace_root(workspace_root)
+
+    result = await code_mode_exec(
+        _run_context(deps),
+        source="import os",
+        yield_time_ms=1000,
+    )
+    await _close_deps(deps)
+
+    assert result.return_value["state"] == "failed"
+    assert result.return_value["error"]["error_type"] == "CodeModeSourceRuntimeError"
+    assert "module `os` is not available in Code Mode" in (
+        result.return_value["error"]["message"]
+    )
 
 
 async def test_code_mode_exec_default_runtime_rejects_ambiguous_tool_call_shape(
@@ -150,7 +243,7 @@ async def test_code_mode_exec_default_runtime_rejects_ambiguous_tool_call_shape(
         source="await tools.read({'path': 'note.txt'}, path='other.txt')",
         yield_time_ms=1000,
     )
-    await deps.read_only_worker.close()
+    await _close_deps(deps)
 
     assert result.return_value["state"] == "failed"
     assert result.return_value["error"]["error_type"] == "CodeModeSourceRuntimeError"
@@ -172,6 +265,7 @@ async def test_code_mode_exec_default_runtime_blocks_direct_filesystem_access(
         source="return_result(open('README.md').read())",
         yield_time_ms=1000,
     )
+    await _close_deps(deps)
 
     assert result.return_value["state"] == "failed"
     assert result.return_value["error"]["error_type"] == "CodeModeSourceRuntimeError"
@@ -190,6 +284,7 @@ async def test_code_mode_exec_default_runtime_reports_source_exception(
         source="raise ValueError('bad source')",
         yield_time_ms=1000,
     )
+    await _close_deps(deps)
 
     assert result.return_value["state"] == "failed"
     assert result.return_value["error"]["error_type"] == "CodeModeSourceRuntimeError"
@@ -208,6 +303,7 @@ async def test_code_mode_exec_default_runtime_reports_unknown_tool(
         source="await tools.missing_tool()",
         yield_time_ms=1000,
     )
+    await _close_deps(deps)
 
     assert result.return_value["state"] == "failed"
     assert result.return_value["error"]["error_type"] == "CodeModeSourceRuntimeError"
@@ -229,7 +325,7 @@ async def test_code_mode_exec_default_runtime_fails_on_nested_read_error(
         source="await tools.read(path='missing.txt')",
         yield_time_ms=1000,
     )
-    await deps.read_only_worker.close()
+    await _close_deps(deps)
 
     assert result.return_value["state"] == "failed"
     assert result.return_value["error"]["error_type"] == "CodeModeSourceRuntimeError"
@@ -247,6 +343,7 @@ async def test_code_mode_exec_default_runtime_times_out(tmp_path) -> None:
         yield_time_ms=1000,
         timeout_ms=50,
     )
+    await _close_deps(deps)
 
     assert result.return_value["state"] == "failed"
     assert result.return_value["error"]["error_type"] == "CodeModeTimeoutError"
@@ -270,6 +367,7 @@ async def test_code_mode_exec_default_runtime_return_result_is_terminal(
         ),
         yield_time_ms=1000,
     )
+    await _close_deps(deps)
 
     assert result.return_value["state"] == "completed"
     assert [chunk["text"] for chunk in result.return_value["output"]] == ["done"]

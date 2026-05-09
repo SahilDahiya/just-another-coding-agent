@@ -192,9 +192,9 @@ _TOOL_GUIDANCE_BY_NAME = {
             "tools.ls(path='.'), and tools.write('solution.sparql', query)."
         ),
         (
-            "Do not use imports, open, subprocess, or direct filesystem "
-            "access inside Code Mode cells; json is already available as "
-            "json."
+            "Allowed imports are json, re, math, collections, statistics, "
+            "itertools, functools, and decimal. Do not use open, subprocess, "
+            "or direct filesystem access inside Code Mode cells."
         ),
         (
             "Write Python parsing and computation directly in the Code Mode "
