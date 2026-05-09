@@ -35,6 +35,15 @@ exception, not a general invitation to spread product semantics across
 languages. Python still owns tool registration, higher-level activity
 metadata, session meaning, RPC meaning, and recovery policy.
 
+The same boundary applies to MCP. PydanticAI may provide MCP client/server
+plumbing, and MCP servers may provide tools and resources, but JACA owns the
+runtime MCP manager, model-facing namespacing, trust and approval policy,
+activity/provenance metadata, session persistence, and Code Mode nested routing.
+MCP is the extension substrate; it is not a second product contract. The first
+built-in MCP should be onboarding: `/onboard` selects the onboarding prompt and
+state posture, while model-visible onboarding capabilities are exposed only by
+the `jaca_onboarding` MCP server.
+
 For Go TUI refactors, optimize first for module boundaries, testability, and reduced semantic drift. Treat LOC reduction as a guardrail rather than a target, and sequence extractions before new interface layers so the same transcript subsystem is not refactored twice without learning anything.
 
 ## Implementation Stance
@@ -52,6 +61,10 @@ Prefer direct use of PydanticAI primitives before creating local abstractions:
 - use PydanticAI testing primitives for unit and contract tests
 
 Local code should translate those primitives into the canonical backend contract for tools, events, sessions, RPC, and failure semantics.
+For MCP, this means PydanticAI MCP transports and toolsets are implementation
+seams under a JACA-owned MCP manager. Do not directly attach arbitrary MCP
+toolsets to the canonical agent in a way that bypasses JACA namespacing,
+policy, activity shaping, or Code Mode nested dispatch.
 `runtime/models.py` is the sanctioned local seam for explicit model construction and provider-native policy.
 PydanticAI-native carrier features such as `ToolReturn.metadata` may be used internally, but they must be normalized immediately into typed backend contract fields before crossing the public stream/session boundary. For canonical tools, success activity ownership lives with the tools themselves; the runtime only validates and maps that metadata into the public event/session contract. Non-success tool activity stays intentionally small: backend-owned titles, optional summaries, and durations, without re-parsing typed args into structured details.
 re-entry, that validator should stay private to the tool or runtime seam rather

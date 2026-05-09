@@ -43,8 +43,8 @@ Use PydanticAI primitives wherever they already solve the problem. Local code sh
 - Thin first-party TUI with exactly three zones: status bar, transcript, and prompt
 - Canonical backend tools: `read`, `write`, `edit`, `shell`, `grep`, `ls`,
   `find`, `subagent`
-- Onboarding-mode-only tools such as `ask_mcq_question`,
-  `generate_mcq_from_teaching_packets`, and `publish_teaching_packet`
+- MCP-backed tool surfaces, starting with built-in onboarding tools exposed
+  only through the `jaca_onboarding` MCP server
 - Streaming run events
 - Session persistence
 - JSON-over-stdio RPC
@@ -53,9 +53,11 @@ Use PydanticAI primitives wherever they already solve the problem. Local code sh
 `/onboard` is the explicit signal to put the active session into onboarding
 mode. That mode then persists across later plain user turns until the user
 exits it with `/exit-mode`. The backend, not the Go TUI, owns what onboarding
-mode means: onboarding prompt overlay, onboarding tool visibility, and any
-future onboarding-specific primitives. The current default is to keep the same
-model unless a later product decision proves otherwise.
+mode means: onboarding prompt overlay, onboarding state, and the built-in
+`jaca_onboarding` MCP surface. Onboarding tools must not be registered as
+native model-facing tools; MCP is the only model-visible onboarding boundary.
+The current default is to keep the same model unless a later product decision
+proves otherwise.
 
 ## Out of Scope
 

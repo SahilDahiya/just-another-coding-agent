@@ -14,6 +14,13 @@ The code cell may call canonical JACA tools through a backend-owned bridge, but
 it must not touch the workspace, shell, permissions, sessions, or transcript
 state directly.
 
+The next routing target is MCP. Code Mode should call MCP-backed tools through
+the same backend-owned nested tool router as canonical tools, with generated
+namespaced helpers such as
+`tools.mcp__jaca_onboarding__publish_teaching_packet(...)`. Code Mode must not
+grow a separate MCP client or a raw server-call side door that bypasses JACA
+policy, provenance, activity shaping, or session semantics.
+
 ## What It Is
 
 Code Mode lets the current model write deterministic program logic that can
@@ -266,6 +273,11 @@ The bridge should prove ordinary file and shell tool calls first, such as
 bridge coverage after the basic bridge semantics are stable, because it
 introduces another model run and therefore a larger provenance and timeline
 surface.
+
+MCP bridge coverage belongs on the same path. A Code Mode MCP call should route
+through the JACA MCP manager, use the same model-facing MCP tool name as an
+ordinary top-level tool call, and surface nested activity as parented
+`code_mode` activity under the current `exec` call.
 
 ## First-Slice Non-Goals
 
