@@ -187,9 +187,20 @@ _TOOL_GUIDANCE_BY_NAME = {
             "tools.edit, and tools.shell."
         ),
         (
+            "Use keyword arguments or the simple positional order shown by "
+            "the tool name, for example tools.read(path='README.md'), "
+            "tools.ls(path='.'), and tools.write('solution.sparql', query)."
+        ),
+        (
             "Do not use imports, open, subprocess, or direct filesystem "
             "access inside Code Mode cells; json is already available as "
             "json."
+        ),
+        (
+            "Write Python parsing and computation directly in the Code Mode "
+            "cell; do not generate Python and run it through tools.shell. "
+            "Use tools.shell only for external CLI commands, tests, and "
+            "builds."
         ),
     ),
     "wait": (

@@ -36,10 +36,12 @@ calls JACA-owned APIs such as:
 
 ```python
 await tools.read(path="README.md")
+await tools.read("README.md")
 await tools.grep(pattern="TODO", path="src")
 await tools.ls(path="src")
 await tools.find(pattern="*.py", path="src")
 await tools.write(path="scratch.txt", content="done\n")
+await tools.write("scratch.txt", "done\n")
 await tools.edit(path="scratch.txt", old_text="done", new_text="verified")
 await tools.shell(command="pytest -q tests/contracts/test_read_tool.py")
 emit("intermediate text")
@@ -175,6 +177,19 @@ Runtime API:
 - `json.loads(...)` and `json.dumps(...)`
 - `emit(value, channel="stdout")`
 - `return_result(value)`
+
+The canonical backend tool arguments are named fields. The worker also
+normalizes two model-boundary conveniences into those same named fields:
+positional arguments in the documented order, such as `tools.read("README.md")`
+or `tools.write("solution.sparql", query)`, and a single positional argument
+dictionary, such as `tools.read({"path": "README.md"})`. Ambiguous mixed forms
+fail explicitly.
+
+Use the Code Mode Python cell itself for parsing, filtering, aggregation, and
+other deterministic computation. Do not generate Python source and run that
+source through `tools.shell`; it adds quoting failure modes and bypasses the
+cell's direct bridge API. Use `tools.shell` for external command-line tools,
+tests, and builds.
 
 `emit` appends a `stdout` or `stderr` output chunk immediately. `return_result`
 ends the source cell and appends one `result` output chunk. Non-string emitted

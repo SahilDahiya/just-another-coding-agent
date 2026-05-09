@@ -475,6 +475,9 @@ Code Mode contract:
   source runtime
 - the default source runtime executes source as async Python with top-level
   `await`, `emit`, `return_result`, and the bridged `tools.*` APIs
+- the default source runtime normalizes positional tool arguments and a single
+  positional argument dictionary into the same named backend tool arguments;
+  ambiguous mixed forms fail explicitly
 - the default source runtime exposes the standard-library `json` module for
   deterministic parsing and formatting
 - the default source runtime does not expose imports, `open`, or direct

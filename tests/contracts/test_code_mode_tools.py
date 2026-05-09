@@ -110,6 +110,55 @@ async def test_code_mode_exec_default_runtime_exposes_canonical_file_tools(
     ]
 
 
+async def test_code_mode_exec_default_runtime_normalizes_tool_call_shapes(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    deps = WorkspaceDeps.from_workspace_root(workspace_root)
+
+    result = await code_mode_exec(
+        _run_context(deps),
+        source=(
+            "await tools.write('note.txt', 'hello\\n')\n"
+            "listing = await tools.ls('.')\n"
+            "content = await tools.read({'path': 'note.txt'})\n"
+            "matches = await tools.find('*.txt', path='.')\n"
+            "return_result({"
+            "'listing': listing, 'content': content, 'matches': matches"
+            "})"
+        ),
+        yield_time_ms=1000,
+    )
+    await deps.read_only_worker.close()
+
+    assert result.return_value["state"] == "completed"
+    assert [chunk["text"] for chunk in result.return_value["output"]] == [
+        '{"content": "hello\\n", "listing": "note.txt", "matches": "note.txt"}'
+    ]
+
+
+async def test_code_mode_exec_default_runtime_rejects_ambiguous_tool_call_shape(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    deps = WorkspaceDeps.from_workspace_root(workspace_root)
+
+    result = await code_mode_exec(
+        _run_context(deps),
+        source="await tools.read({'path': 'note.txt'}, path='other.txt')",
+        yield_time_ms=1000,
+    )
+    await deps.read_only_worker.close()
+
+    assert result.return_value["state"] == "failed"
+    assert result.return_value["error"]["error_type"] == "CodeModeSourceRuntimeError"
+    assert "cannot combine a positional argument dict with keyword arguments" in (
+        result.return_value["error"]["message"]
+    )
+
+
 async def test_code_mode_exec_default_runtime_blocks_direct_filesystem_access(
     tmp_path,
 ) -> None:

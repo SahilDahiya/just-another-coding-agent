@@ -106,30 +106,118 @@ class _RuntimeProtocol:
         return await future
 
 
+def _normalize_tool_arguments(
+    *,
+    positional_fields: tuple[str, ...],
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+) -> dict[str, Any]:
+    if len(args) == 1 and isinstance(args[0], dict):
+        if kwargs:
+            raise TypeError(
+                "cannot combine a positional argument dict with keyword arguments"
+            )
+        arguments = dict(args[0])
+    else:
+        if len(args) > len(positional_fields):
+            raise TypeError(
+                f"expected at most {len(positional_fields)} positional arguments; "
+                f"got {len(args)}"
+            )
+        arguments = dict(kwargs)
+        for field, value in zip(positional_fields, args, strict=False):
+            if field in arguments:
+                raise TypeError(
+                    f"got multiple values for tool argument `{field}`"
+                )
+            arguments[field] = value
+
+    for key in arguments:
+        if not isinstance(key, str):
+            raise TypeError("tool argument names must be strings")
+    return arguments
+
+
 class _Tools:
     def __init__(self, protocol: _RuntimeProtocol) -> None:
         self._protocol = protocol
 
-    async def read(self, **kwargs: Any) -> Any:
-        return await self._protocol.call_tool("read", kwargs)
+    async def read(self, *args: Any, **kwargs: Any) -> Any:
+        return await self._protocol.call_tool(
+            "read",
+            _normalize_tool_arguments(
+                positional_fields=("path", "offset", "limit"),
+                args=args,
+                kwargs=kwargs,
+            ),
+        )
 
-    async def grep(self, **kwargs: Any) -> Any:
-        return await self._protocol.call_tool("grep", kwargs)
+    async def grep(self, *args: Any, **kwargs: Any) -> Any:
+        return await self._protocol.call_tool(
+            "grep",
+            _normalize_tool_arguments(
+                positional_fields=(
+                    "pattern",
+                    "path",
+                    "glob",
+                    "ignore_case",
+                    "literal",
+                    "limit",
+                ),
+                args=args,
+                kwargs=kwargs,
+            ),
+        )
 
-    async def ls(self, **kwargs: Any) -> Any:
-        return await self._protocol.call_tool("ls", kwargs)
+    async def ls(self, *args: Any, **kwargs: Any) -> Any:
+        return await self._protocol.call_tool(
+            "ls",
+            _normalize_tool_arguments(
+                positional_fields=("path", "limit"),
+                args=args,
+                kwargs=kwargs,
+            ),
+        )
 
-    async def find(self, **kwargs: Any) -> Any:
-        return await self._protocol.call_tool("find", kwargs)
+    async def find(self, *args: Any, **kwargs: Any) -> Any:
+        return await self._protocol.call_tool(
+            "find",
+            _normalize_tool_arguments(
+                positional_fields=("pattern", "path", "limit"),
+                args=args,
+                kwargs=kwargs,
+            ),
+        )
 
-    async def write(self, **kwargs: Any) -> Any:
-        return await self._protocol.call_tool("write", kwargs)
+    async def write(self, *args: Any, **kwargs: Any) -> Any:
+        return await self._protocol.call_tool(
+            "write",
+            _normalize_tool_arguments(
+                positional_fields=("path", "content"),
+                args=args,
+                kwargs=kwargs,
+            ),
+        )
 
-    async def edit(self, **kwargs: Any) -> Any:
-        return await self._protocol.call_tool("edit", kwargs)
+    async def edit(self, *args: Any, **kwargs: Any) -> Any:
+        return await self._protocol.call_tool(
+            "edit",
+            _normalize_tool_arguments(
+                positional_fields=("path", "old_text", "new_text"),
+                args=args,
+                kwargs=kwargs,
+            ),
+        )
 
-    async def shell(self, **kwargs: Any) -> Any:
-        return await self._protocol.call_tool("shell", kwargs)
+    async def shell(self, *args: Any, **kwargs: Any) -> Any:
+        return await self._protocol.call_tool(
+            "shell",
+            _normalize_tool_arguments(
+                positional_fields=("command", "timeout"),
+                args=args,
+                kwargs=kwargs,
+            ),
+        )
 
 
 def _emit(value: Any, *, channel: str = "stdout") -> None:
