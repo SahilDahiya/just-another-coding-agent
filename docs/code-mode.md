@@ -207,6 +207,34 @@ returns in the transcript. If a nested bridge call fails, Code Mode emits a
 compact `tool_call_updated exec` activity with `nested_status="failed"` before
 the failed cell result is returned to the model.
 
+## Persistent Python Direction
+
+The current subprocess runtime is the first source-runtime slice, not the final
+shape. Recent Harbor-style A/B checks showed that Code Mode can improve task
+progress, but repeated shell-wrapped Python and process startup remain a real
+cost.
+
+Observed examples:
+
+- `sparql-university` improved after worker call-shape normalization: Code Mode
+  still passed, `exec` calls dropped from 23 to 10, and failed cells dropped
+  from 13 to 1.
+- `tune-mjcf` baseline timed out without writing `/app/model.xml`; Code
+  Mode-only also timed out, but wrote a valid artifact. The verifier passed
+  correctness and failed only speed (`64.40%` runtime vs `60.00%` required).
+
+The next runtime direction is a general persistent Python session: keep imports,
+helper functions, parsed data, and intermediate variables warm across cells
+within a run. This should reduce `tools.shell("python ...")` loops without
+adding task-specific primitives.
+
+DSPy RLM validates the same architectural pattern: separate variable space from
+token space, let the model inspect data through iterative Python execution, and
+reserve model calls for semantic work. JACA should adopt that runtime lesson
+without letting DSPy own JACA session, auth, tool, or RPC semantics. Recursive
+model calls such as `llm_query`, `predict`, or `subagent` are a later design
+decision after persistent Python execution is stable.
+
 ## Backend Bridge Rule
 
 Nested tool calls must enter the same backend-owned tool semantics as ordinary
