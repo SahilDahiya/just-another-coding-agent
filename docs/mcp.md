@@ -93,6 +93,12 @@ The TUI-facing activity contract uses `McpActivityDetails` in
 `contracts/run_events.py`; clients should render those typed fields instead of
 parsing MCP meaning from display text.
 
+The first runtime slice lives in
+`src/just_another_coding_agent/runtime/mcp.py`. It provides a discovery-only
+`McpManager` with the built-in `jaca_onboarding` server metadata and stable
+model-facing tool names. It does not execute MCP tools, attach them to the
+agent, or replace native onboarding tools yet.
+
 ## Code Mode
 
 Code Mode should call MCP tools through the same nested tool router it uses for

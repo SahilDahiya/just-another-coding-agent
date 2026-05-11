@@ -15,6 +15,7 @@ __all__ = [
     "build_runtime_context_text",
     "build_static_agent_instructions",
     "build_canonical_model_settings",
+    "build_default_mcp_manager",
     "resolve_canonical_model",
     "stream_run_events",
     "stream_session_run_events",
@@ -35,6 +36,7 @@ _LAZY_EXPORTS = {
         ".models",
         "build_canonical_model_settings",
     ),
+    "build_default_mcp_manager": (".mcp", "build_default_mcp_manager"),
     "resolve_canonical_model": (".models", "resolve_canonical_model"),
     "CANONICAL_RUN_RECOVERY_RETRY_LIMIT": (
         ".recovery",
