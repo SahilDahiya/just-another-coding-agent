@@ -2,9 +2,14 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from just_another_coding_agent.contracts.compaction import CompactionBudgetReport
+from just_another_coding_agent.contracts.mcp import (
+    McpFailure,
+    McpToolCallProvenance,
+    parse_mcp_model_tool_name,
+)
 from just_another_coding_agent.contracts.onboarding import OnboardingQuestionRequest
 from just_another_coding_agent.contracts.platform import ShellFamily
 from just_another_coding_agent.contracts.sandbox import (
@@ -110,6 +115,24 @@ class CodeModeActivityDetails(_ToolActivityDetailsBase):
     message: str | None = None
 
 
+class McpActivityDetails(_ToolActivityDetailsBase):
+    kind: Literal["mcp"] = "mcp"
+    server_id: str
+    tool_name: str
+    model_tool_name: str
+    provenance: McpToolCallProvenance
+    failure: McpFailure | None = None
+
+    @model_validator(mode="after")
+    def _validate_model_tool_name(self) -> "McpActivityDetails":
+        identity = parse_mcp_model_tool_name(self.model_tool_name)
+        if identity.server_id != self.server_id or identity.tool_name != self.tool_name:
+            raise ValueError(
+                "model_tool_name must match MCP activity server_id and tool_name"
+            )
+        return self
+
+
 class TeachingPacketActivityDetails(_ToolActivityDetailsBase):
     kind: Literal["teaching_packet"] = "teaching_packet"
     concept: str
@@ -127,6 +150,7 @@ ToolActivityDetails = Annotated[
     | FindActivityDetails
     | SubagentActivityDetails
     | CodeModeActivityDetails
+    | McpActivityDetails
     | TeachingPacketActivityDetails,
     Field(discriminator="kind"),
 ]
@@ -368,6 +392,7 @@ __all__ = [
     "InRunCompactionCompletedEvent",
     "JsonValue",
     "LsActivityDetails",
+    "McpActivityDetails",
     "OnboardingQuestionRequestedEvent",
     "ReadActivityDetails",
     "RunEvent",

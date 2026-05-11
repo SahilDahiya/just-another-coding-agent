@@ -80,6 +80,19 @@ The manager is a backend runtime component. The Go TUI may render backend-owned
 MCP status and activity, but it must not infer MCP trust, tool meaning, or
 server lifecycle state locally.
 
+The first contract slice lives in
+`src/just_another_coding_agent/contracts/mcp.py`. It defines:
+
+- stable model-facing MCP tool names with the form `mcp__server__tool`
+- the reserved built-in onboarding server id, `jaca_onboarding`
+- provenance for top-level model calls vs Code Mode nested calls
+- typed MCP failure kinds for startup, discovery, tool execution, and resource
+  reads
+
+The TUI-facing activity contract uses `McpActivityDetails` in
+`contracts/run_events.py`; clients should render those typed fields instead of
+parsing MCP meaning from display text.
+
 ## Code Mode
 
 Code Mode should call MCP tools through the same nested tool router it uses for
@@ -149,4 +162,3 @@ domain seam and return a typed result.
 6. Add tests that prove ordinary model tool calls and Code Mode nested calls
    both reach the same MCP-backed onboarding tools with the same provenance and
    failure behavior.
-

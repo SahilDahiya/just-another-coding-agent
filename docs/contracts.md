@@ -48,6 +48,30 @@ Rules:
 - longer explanations remain allowed when the user asks for detail or the task
   needs it
 
+## MCP Contract
+
+Initial MCP contract slice:
+
+- MCP model-facing tool names use `mcp__server__tool`.
+- MCP server and tool identifiers must be normalized before they become
+  model-facing names.
+- The built-in onboarding server id is `jaca_onboarding`.
+- MCP call provenance distinguishes top-level model calls from Code Mode nested
+  calls.
+- MCP failures are typed as startup, discovery, tool execution, or resource
+  read failures.
+- TUI/RPC clients receive typed `McpActivityDetails`; they must not parse MCP
+  server, tool, provenance, or failure meaning from display text.
+
+Rules:
+
+- MCP namespacing is backend-owned and must fail hard for invalid names.
+- Code Mode MCP calls must carry the parent `exec` tool call id and Code Mode
+  cell id.
+- Top-level MCP calls must not carry Code Mode parent fields.
+- Onboarding capabilities must be model-visible only through the
+  `jaca_onboarding` MCP server, not native onboarding tool registration.
+
 ## Model Settings Contract
 
 Initial canonical model-setting slice:
