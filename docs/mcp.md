@@ -93,11 +93,13 @@ The TUI-facing activity contract uses `McpActivityDetails` in
 `contracts/run_events.py`; clients should render those typed fields instead of
 parsing MCP meaning from display text.
 
-The first runtime slice lives in
-`src/just_another_coding_agent/runtime/mcp.py`. It provides a discovery-only
-`McpManager` with the built-in `jaca_onboarding` server metadata and stable
-model-facing tool names. It does not execute MCP tools, attach them to the
-agent, or replace native onboarding tools yet.
+The first runtime slices live in
+`src/just_another_coding_agent/runtime/mcp.py`. They provide a backend-owned
+`McpManager`, built-in `jaca_onboarding` server metadata, a PydanticAI
+`McpToolset`, and an `McpToolExecutor` seam. The toolset can expose MCP-shaped
+tools to the model and route calls through the executor while returning typed
+`McpActivityDetails`. This still does not attach MCP tools to the canonical
+agent by default or replace native onboarding tools yet.
 
 ## Code Mode
 

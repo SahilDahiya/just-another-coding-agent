@@ -1,23 +1,42 @@
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+
 import pytest
+from pydantic_ai import Agent, RunContext
+from pydantic_ai.models.function import DeltaToolCall, FunctionModel
+from pydantic_ai.models.test import TestModel
 
 from just_another_coding_agent.contracts.mcp import (
     JACA_ONBOARDING_MCP_SERVER_ID,
+    McpToolCallProvenance,
     McpToolIdentity,
+)
+from just_another_coding_agent.contracts.run_events import (
+    McpActivityDetails,
+    ToolCallSucceededEvent,
 )
 from just_another_coding_agent.runtime import (
     build_default_mcp_manager as lazy_build_default_mcp_manager,
+)
+from just_another_coding_agent.runtime import (
+    build_mcp_toolset as lazy_build_mcp_toolset,
 )
 from just_another_coding_agent.runtime.mcp import (
     DEFAULT_BUILTIN_MCP_SERVERS,
     McpManager,
     McpServerDefinition,
     McpToolDefinition,
+    StaticMcpToolExecutor,
     UnknownMcpServerError,
     UnknownMcpToolError,
     build_default_mcp_manager,
+    build_mcp_toolset,
 )
+from just_another_coding_agent.runtime.run import stream_run_events
+from just_another_coding_agent.tools.deps import WorkspaceDeps
+
+_PUBLISH_TOOL_NAME = "mcp__jaca_onboarding__publish_teaching_packet"
 
 
 def test_default_mcp_manager_discovers_builtin_onboarding_server() -> None:
@@ -128,3 +147,156 @@ def test_mcp_runtime_definitions_require_human_readable_text() -> None:
 
     with pytest.raises(ValueError, match="display_name"):
         McpServerDefinition(server_id="demo", display_name="")
+
+    with pytest.raises(ValueError, match="input_schema"):
+        McpToolDefinition(
+            identity=McpToolIdentity(server_id="demo", tool_name="echo"),
+            title="Echo",
+            description="Echo input.",
+            input_schema={"type": "array"},
+        )
+
+
+async def test_mcp_toolset_exposes_discovered_tools_to_model(tmp_path) -> None:
+    model = TestModel(call_tools=[], custom_output_text="ok")
+    manager = build_default_mcp_manager()
+    agent = Agent(
+        model,
+        toolsets=[
+            lazy_build_mcp_toolset(
+                manager=manager,
+                executor=StaticMcpToolExecutor(handlers={}),
+            )
+        ],
+        deps_type=WorkspaceDeps,
+    )
+
+    await agent.run("What tools are available?", deps=WorkspaceDeps(tmp_path))
+
+    function_tools = model.last_model_request_parameters.function_tools
+    assert [tool.name for tool in function_tools] == [
+        "mcp__jaca_onboarding__ask_mcq_question",
+        "mcp__jaca_onboarding__generate_mcq_from_teaching_packets",
+        _PUBLISH_TOOL_NAME,
+    ]
+    publish_tool = {tool.name: tool for tool in function_tools}[_PUBLISH_TOOL_NAME]
+    assert publish_tool.description == (
+        "Publish one code-grounded onboarding teaching packet."
+    )
+    assert publish_tool.sequential is True
+    assert publish_tool.parameters_json_schema["type"] == "object"
+    assert publish_tool.parameters_json_schema["required"] == ["title"]
+    assert publish_tool.parameters_json_schema["additionalProperties"] is False
+
+
+async def test_mcp_toolset_routes_fake_tool_execution_through_stream_events(
+    tmp_path,
+) -> None:
+    async def publish_handler(
+        identity: McpToolIdentity,
+        arguments: dict[str, object],
+        ctx: RunContext[WorkspaceDeps],
+        provenance: McpToolCallProvenance,
+    ) -> dict[str, object]:
+        assert identity.model_tool_name == _PUBLISH_TOOL_NAME
+        assert arguments == {"title": "Packet"}
+        assert ctx.deps.workspace_root == tmp_path
+        assert provenance.source == "top_level_model"
+        return {"packet_id": "packet-1", "title": arguments["title"]}
+
+    agent = Agent(
+        FunctionModel(stream_function=_call_publish_then_done),
+        output_type=str,
+        toolsets=[
+            build_mcp_toolset(
+                manager=build_default_mcp_manager(),
+                executor=StaticMcpToolExecutor(
+                    handlers={_PUBLISH_TOOL_NAME: publish_handler},
+                ),
+            )
+        ],
+        deps_type=WorkspaceDeps,
+    )
+
+    events = [
+        event
+        async for event in stream_run_events(
+            agent=agent,
+            prompt="go",
+            deps=WorkspaceDeps(tmp_path),
+            available_tool_names=(_PUBLISH_TOOL_NAME,),
+        )
+    ]
+
+    succeeded = next(
+        event for event in events if isinstance(event, ToolCallSucceededEvent)
+    )
+    assert succeeded.tool_name == _PUBLISH_TOOL_NAME
+    assert succeeded.result == {"packet_id": "packet-1", "title": "Packet"}
+    assert succeeded.activity is not None
+    assert succeeded.activity.display_label == "MCP"
+    assert isinstance(succeeded.activity.details, McpActivityDetails)
+    assert succeeded.activity.details.server_id == "jaca_onboarding"
+    assert succeeded.activity.details.tool_name == "publish_teaching_packet"
+    assert succeeded.activity.details.failure is None
+
+
+async def test_mcp_toolset_returns_typed_failure_activity_for_executor_errors(
+    tmp_path,
+) -> None:
+    agent = Agent(
+        FunctionModel(stream_function=_call_publish_then_done),
+        output_type=str,
+        toolsets=[
+            build_mcp_toolset(
+                manager=build_default_mcp_manager(),
+                executor=StaticMcpToolExecutor(handlers={}),
+            )
+        ],
+        deps_type=WorkspaceDeps,
+    )
+
+    events = [
+        event
+        async for event in stream_run_events(
+            agent=agent,
+            prompt="go",
+            deps=WorkspaceDeps(tmp_path),
+            available_tool_names=(_PUBLISH_TOOL_NAME,),
+        )
+    ]
+
+    succeeded = next(
+        event for event in events if isinstance(event, ToolCallSucceededEvent)
+    )
+    assert succeeded.tool_name == _PUBLISH_TOOL_NAME
+    assert succeeded.result == {
+        "ok": False,
+        "error_type": "MissingMcpToolHandlerError",
+        "message": f"No MCP execution handler for {_PUBLISH_TOOL_NAME}",
+    }
+    assert succeeded.activity is not None
+    assert isinstance(succeeded.activity.details, McpActivityDetails)
+    failure = succeeded.activity.details.failure
+    assert failure is not None
+    assert failure.kind == "tool_failed"
+    assert failure.error_type == "MissingMcpToolHandlerError"
+    assert failure.server_id == "jaca_onboarding"
+    assert failure.tool_name == "publish_teaching_packet"
+
+
+async def _call_publish_then_done(
+    messages: object,
+    _agent_info: object,
+) -> AsyncIterator[str | dict[int, DeltaToolCall]]:
+    if len(messages) == 1:
+        yield {
+            0: DeltaToolCall(
+                name=_PUBLISH_TOOL_NAME,
+                json_args='{"title": "Packet"}',
+                tool_call_id="call-mcp-publish",
+            )
+        }
+        return
+
+    yield "done"
