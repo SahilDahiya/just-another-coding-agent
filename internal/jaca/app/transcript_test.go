@@ -350,6 +350,69 @@ func TestTeachingPacketRowsRenderSnippetBlocks(t *testing.T) {
 	}
 }
 
+func TestMCPWrappedTeachingPacketRowsRenderSnippetBlocks(t *testing.T) {
+	transcript := NewTranscript()
+	duration := 42
+	transcript.ApplyRunEvent(rpc.RunEvent{
+		Type:       "tool_call_started",
+		ToolName:   "mcp__jaca_onboarding__publish_teaching_packet",
+		ToolCallID: "call-packet",
+		Activity: &rpc.ToolActivity{
+			Title:        "mcp__jaca_onboarding__publish_teaching_packet",
+			DisplayLabel: strPtr("MCP"),
+		},
+	})
+	transcript.ApplyRunEvent(rpc.RunEvent{
+		Type:       "tool_call_succeeded",
+		ToolName:   "mcp__jaca_onboarding__publish_teaching_packet",
+		ToolCallID: "call-packet",
+		Activity: &rpc.ToolActivity{
+			Title:        "Slash command dispatch",
+			DisplayLabel: strPtr("Teach"),
+			Summary:      strPtr("showing 1 snippet"),
+			DurationMS:   &duration,
+			Details: map[string]any{
+				"kind":            "mcp",
+				"server_id":       "jaca_onboarding",
+				"tool_name":       "publish_teaching_packet",
+				"model_tool_name": "mcp__jaca_onboarding__publish_teaching_packet",
+				"wrapped_details": map[string]any{
+					"kind":    "teaching_packet",
+					"concept": "Slash commands are the TUI entrypoint for onboarding mode.",
+					"relationships": []any{
+						map[string]any{
+							"statement": "/onboard routes into backend-owned onboarding behavior.",
+						},
+					},
+					"snippets": []any{
+						map[string]any{
+							"path":       "internal/jaca/app/slash.go",
+							"start_line": 1,
+							"end_line":   2,
+							"text":       "package app\nvar slashCommands = []string{\"/onboard\"}",
+						},
+					},
+				},
+			},
+		},
+	})
+
+	plain := transcriptPlain(transcript)
+	for _, want := range []string{
+		"mcp__jaca_onboarding__publish_teaching_packet  ok  showing 1 snippet  42ms",
+		"  Concept",
+		"  │ Slash commands are the TUI entrypoint for onboarding mode.",
+		"  Code evidence",
+		"  Evidence 1  internal/jaca/app/slash.go:1-2",
+		"  │ 1 │ package app",
+		"  │ 2 │ var slashCommands = []string{\"/onboard\"}",
+	} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("MCP teaching packet render missing %q in %q", want, plain)
+		}
+	}
+}
+
 func TestRunFailureRendersStructuredErrorRow(t *testing.T) {
 	transcript := NewTranscript()
 	transcript.ApplyRunEvent(rpc.RunEvent{

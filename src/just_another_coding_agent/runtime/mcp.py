@@ -106,6 +106,14 @@ def _tool_return_value(value: Any) -> Any:
     return value
 
 
+def _tool_return_metadata(value: Any) -> dict[str, Any]:
+    if isinstance(value, ToolReturn):
+        metadata = value.metadata
+        if isinstance(metadata, dict):
+            return metadata
+    return {}
+
+
 @dataclass(frozen=True)
 class McpToolDefinition:
     identity: McpToolIdentity
@@ -238,36 +246,30 @@ class JacaOnboardingMcpExecutor:
 
         if identity.tool_name == _ASK_MCQ_TOOL_NAME:
             parsed = _AskMcqQuestionArgs.model_validate(arguments)
-            return _tool_return_value(
-                await ask_mcq_question(
-                    ctx,
-                    packet_ids=parsed.packet_ids,
-                    question=parsed.question,
-                    options=parsed.options,
-                    correct_index=parsed.correct_index,
-                    explanation=parsed.explanation,
-                )
+            return await ask_mcq_question(
+                ctx,
+                packet_ids=parsed.packet_ids,
+                question=parsed.question,
+                options=parsed.options,
+                correct_index=parsed.correct_index,
+                explanation=parsed.explanation,
             )
 
         if identity.tool_name == _GENERATE_MCQ_TOOL_NAME:
             parsed = _GenerateMcqFromTeachingPacketsArgs.model_validate(arguments)
-            return _tool_return_value(
-                await generate_mcq_from_teaching_packets(
-                    ctx,
-                    packet_ids=parsed.packet_ids,
-                )
+            return await generate_mcq_from_teaching_packets(
+                ctx,
+                packet_ids=parsed.packet_ids,
             )
 
         if identity.tool_name == _PUBLISH_TEACHING_PACKET_TOOL_NAME:
             parsed = _PublishTeachingPacketArgs.model_validate(arguments)
-            return _tool_return_value(
-                await publish_teaching_packet(
-                    ctx,
-                    title=parsed.title,
-                    concept=parsed.concept,
-                    relationships=parsed.relationships,
-                    snippets=parsed.snippets,
-                )
+            return await publish_teaching_packet(
+                ctx,
+                title=parsed.title,
+                concept=parsed.concept,
+                relationships=parsed.relationships,
+                snippets=parsed.snippets,
             )
 
         raise UnknownMcpToolError(f"Unknown MCP tool: {identity.model_tool_name}")
@@ -334,7 +336,7 @@ class McpToolset(AbstractToolset[WorkspaceDeps]):
         definition = self._manager.get_tool(name)
         provenance = McpToolCallProvenance(source="top_level_model")
         try:
-            result = await self._executor.execute_tool(
+            executor_result = await self._executor.execute_tool(
                 identity=definition.identity,
                 arguments=tool_args,
                 ctx=ctx,
@@ -366,16 +368,37 @@ class McpToolset(AbstractToolset[WorkspaceDeps]):
                 ),
             )
 
+        result_metadata = _tool_return_metadata(executor_result)
+        wrapped_title = result_metadata.get("title")
+        wrapped_summary = result_metadata.get("summary")
+        wrapped_display_label = result_metadata.get("display_label")
+        wrapped_details = result_metadata.get("details")
         return make_tool_return(
-            return_value=result,
-            title=definition.title,
-            summary=None,
-            display_label="MCP",
+            return_value=_tool_return_value(executor_result),
+            title=wrapped_title if isinstance(wrapped_title, str) else definition.title,
+            summary=wrapped_summary if isinstance(wrapped_summary, str) else None,
+            display_label=(
+                wrapped_display_label
+                if isinstance(wrapped_display_label, str)
+                else "MCP"
+            ),
             details=McpActivityDetails(
                 server_id=definition.identity.server_id,
                 tool_name=definition.identity.tool_name,
                 model_tool_name=definition.model_tool_name,
                 provenance=provenance,
+                wrapped_title=wrapped_title if isinstance(wrapped_title, str) else None,
+                wrapped_summary=(
+                    wrapped_summary if isinstance(wrapped_summary, str) else None
+                ),
+                wrapped_display_label=(
+                    wrapped_display_label
+                    if isinstance(wrapped_display_label, str)
+                    else None
+                ),
+                wrapped_details=(
+                    wrapped_details if isinstance(wrapped_details, dict) else None
+                ),
             ),
         )
 

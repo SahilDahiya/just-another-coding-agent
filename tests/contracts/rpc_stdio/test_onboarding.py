@@ -1252,9 +1252,9 @@ async def test_run_start_supports_teaching_packet_tool_in_onboarding_mode(
         and message["event"]["type"] == "tool_call_succeeded"
         and message["event"]["tool_name"] == PUBLISH_TEACHING_PACKET_MCP_TOOL_NAME
     )
-    assert succeeded_event["activity"]["title"] == "Publish teaching packet"
-    assert succeeded_event["activity"]["display_label"] == "MCP"
-    assert succeeded_event["activity"]["summary"] is None
+    assert succeeded_event["activity"]["title"] == "Slash command dispatch"
+    assert succeeded_event["activity"]["display_label"] == "Teach"
+    assert succeeded_event["activity"]["summary"] == "showing 2 snippets"
     assert succeeded_event["activity"]["details"] == {
         "kind": "mcp",
         "server_id": "jaca_onboarding",
@@ -1266,6 +1266,44 @@ async def test_run_start_supports_teaching_packet_tool_in_onboarding_mode(
             "code_mode_cell_id": None,
         },
         "failure": None,
+        "wrapped_title": "Slash command dispatch",
+        "wrapped_display_label": "Teach",
+        "wrapped_summary": "showing 2 snippets",
+        "wrapped_details": {
+            "kind": "teaching_packet",
+            "concept": (
+                "Onboarding mode is a backend-owned run mode that changes tool "
+                "visibility for later turns."
+            ),
+            "relationships": [
+                {
+                    "statement": (
+                        "The slash command triggers onboarding mode, and the "
+                        "backend persists that mode into session metadata."
+                    )
+                },
+                {
+                    "statement": (
+                        "The persisted run mode then determines which tool names "
+                        "the backend exposes on the next run."
+                    )
+                },
+            ],
+            "snippets": [
+                {
+                    "path": "internal/jaca/app/slash.go",
+                    "start_line": 1,
+                    "end_line": 2,
+                    "text": 'package app\nvar slashCommands = []string{"/onboard"}',
+                },
+                {
+                    "path": "internal/jaca/app/model.go",
+                    "start_line": 1,
+                    "end_line": 2,
+                    "text": "package app\nfunc submitPrompt() {}",
+                },
+            ],
+        },
     }
 
     session = load_session(

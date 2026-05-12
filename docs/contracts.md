@@ -869,6 +869,11 @@ Rules for the initial activity slice:
 - v1 remains within the existing event families; no group or timeline event families are added
 - `activity` must be derived from canonical tool semantics in the backend, not guessed in the frontend
 - canonical tool success activity should be owned by the tools themselves and passed through an internal carrier such as `ToolReturn.metadata`; the runtime validates and normalizes that metadata before emitting public events
+- MCP tool success activity should preserve MCP identity and provenance in
+  `details.kind == "mcp"`. If the MCP executor delegates to a native tool that
+  emits richer activity, the backend may include that native activity as
+  wrapped activity fields inside the MCP details so clients can render it
+  without reclassifying MCP tool names locally.
 - `transcript_summary.activity_groups` are derived from emitted backend-owned
   tool activity. Clients may render them as grouped transcript rows, but must
   not reclassify commands or tool names locally.

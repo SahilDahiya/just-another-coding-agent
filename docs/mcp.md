@@ -104,8 +104,12 @@ do not expose native onboarding tools directly to the model.
 
 The first built-in executor is `JacaOnboardingMcpExecutor`. It adapts the
 `jaca_onboarding` MCP tool identities onto the existing backend onboarding
-implementations, unwrapping their native `ToolReturn` values while preserving
-MCP-shaped activity metadata at the outer tool boundary.
+implementations, unwrapping their native `ToolReturn` values for model-visible
+tool results while preserving MCP-shaped activity metadata at the outer tool
+boundary. When the native implementation emits richer activity, such as a
+teaching packet with code snippets, the MCP activity carries that as wrapped
+activity metadata so clients can render the useful teaching surface without
+reclassifying MCP tool names locally.
 
 ## Code Mode
 

@@ -812,7 +812,16 @@ func buildToolDetailLines(activity *rpc.ToolActivity) []string {
 	if activity == nil || activity.Details == nil {
 		return nil
 	}
-	kind, _ := activity.Details["kind"].(string)
+	details := activity.Details
+	if kind, _ := details["kind"].(string); kind == "mcp" {
+		if wrappedDetails, ok := details["wrapped_details"].(map[string]any); ok {
+			details = wrappedDetails
+			copied := *activity
+			copied.Details = wrappedDetails
+			activity = &copied
+		}
+	}
+	kind, _ := details["kind"].(string)
 	switch kind {
 	case "edit":
 		return buildEditDetailLines(activity)

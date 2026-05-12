@@ -208,6 +208,10 @@ def test_mcp_activity_details_are_typed_for_tui_rendering() -> None:
             "code_mode_cell_id": None,
         },
         "failure": None,
+        "wrapped_title": None,
+        "wrapped_display_label": None,
+        "wrapped_summary": None,
+        "wrapped_details": None,
     }
 
     with pytest.raises(ValidationError):

@@ -291,9 +291,17 @@ async def test_onboarding_mcp_executor_routes_publish_to_native_tool(
     )
     assert succeeded.tool_name == _PUBLISH_TOOL_NAME
     assert succeeded.activity is not None
+    assert succeeded.activity.title == "Tool packet"
+    assert succeeded.activity.display_label == "Teach"
+    assert succeeded.activity.summary == "showing 2 snippets"
     assert isinstance(succeeded.activity.details, McpActivityDetails)
     assert succeeded.activity.details.model_tool_name == _PUBLISH_TOOL_NAME
     assert succeeded.activity.details.failure is None
+    assert succeeded.activity.details.wrapped_title == "Tool packet"
+    assert succeeded.activity.details.wrapped_display_label == "Teach"
+    assert succeeded.activity.details.wrapped_summary == "showing 2 snippets"
+    assert succeeded.activity.details.wrapped_details is not None
+    assert succeeded.activity.details.wrapped_details.kind == "teaching_packet"
     assert isinstance(succeeded.result, dict)
     assert succeeded.result["title"] == "Tool packet"
     assert succeeded.result["concept"] == "MCP adapter"

@@ -115,6 +115,28 @@ class CodeModeActivityDetails(_ToolActivityDetailsBase):
     message: str | None = None
 
 
+class TeachingPacketActivityDetails(_ToolActivityDetailsBase):
+    kind: Literal["teaching_packet"] = "teaching_packet"
+    concept: str
+    relationships: list[TeachingRelationship] = Field(min_length=1)
+    snippets: list[TeachingSnippet] = Field(min_length=2, max_length=5)
+
+
+McpWrappedActivityDetails = Annotated[
+    ShellActivityDetails
+    | ReadActivityDetails
+    | WriteActivityDetails
+    | EditActivityDetails
+    | GrepActivityDetails
+    | LsActivityDetails
+    | FindActivityDetails
+    | SubagentActivityDetails
+    | CodeModeActivityDetails
+    | TeachingPacketActivityDetails,
+    Field(discriminator="kind"),
+]
+
+
 class McpActivityDetails(_ToolActivityDetailsBase):
     kind: Literal["mcp"] = "mcp"
     server_id: str
@@ -122,6 +144,10 @@ class McpActivityDetails(_ToolActivityDetailsBase):
     model_tool_name: str
     provenance: McpToolCallProvenance
     failure: McpFailure | None = None
+    wrapped_title: str | None = None
+    wrapped_display_label: str | None = None
+    wrapped_summary: str | None = None
+    wrapped_details: McpWrappedActivityDetails | None = None
 
     @model_validator(mode="after")
     def _validate_model_tool_name(self) -> "McpActivityDetails":
@@ -131,13 +157,6 @@ class McpActivityDetails(_ToolActivityDetailsBase):
                 "model_tool_name must match MCP activity server_id and tool_name"
             )
         return self
-
-
-class TeachingPacketActivityDetails(_ToolActivityDetailsBase):
-    kind: Literal["teaching_packet"] = "teaching_packet"
-    concept: str
-    relationships: list[TeachingRelationship] = Field(min_length=1)
-    snippets: list[TeachingSnippet] = Field(min_length=2, max_length=5)
 
 
 ToolActivityDetails = Annotated[
