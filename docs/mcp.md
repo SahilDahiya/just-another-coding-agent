@@ -101,6 +101,11 @@ tools to the model and route calls through the executor while returning typed
 `McpActivityDetails`. This still does not attach MCP tools to the canonical
 agent by default or replace native onboarding tools yet.
 
+The first built-in executor is `JacaOnboardingMcpExecutor`. It adapts the
+`jaca_onboarding` MCP tool identities onto the existing backend onboarding
+implementations, unwrapping their native `ToolReturn` values while preserving
+MCP-shaped activity metadata at the outer tool boundary.
+
 ## Code Mode
 
 Code Mode should call MCP tools through the same nested tool router it uses for

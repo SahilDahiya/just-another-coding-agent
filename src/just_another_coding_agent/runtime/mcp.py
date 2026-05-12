@@ -5,7 +5,9 @@ from dataclasses import dataclass, field
 from inspect import isawaitable
 from typing import Any, Protocol
 
+from pydantic import BaseModel, ConfigDict, Field
 from pydantic_ai import RunContext
+from pydantic_ai.messages import ToolReturn
 from pydantic_ai.tools import ToolDefinition
 from pydantic_ai.toolsets import AbstractToolset, ToolsetTool
 from pydantic_core import SchemaValidator, core_schema
@@ -19,8 +21,17 @@ from just_another_coding_agent.contracts.mcp import (
     parse_mcp_model_tool_name,
 )
 from just_another_coding_agent.contracts.run_events import McpActivityDetails
+from just_another_coding_agent.contracts.teaching import (
+    TeachingRelationship,
+    TeachingSnippetRef,
+)
 from just_another_coding_agent.tools._activity import make_tool_return
 from just_another_coding_agent.tools.deps import WorkspaceDeps
+from just_another_coding_agent.tools.mcq_from_teaching_packets import (
+    generate_mcq_from_teaching_packets,
+)
+from just_another_coding_agent.tools.onboarding_question import ask_mcq_question
+from just_another_coding_agent.tools.teaching_packet import publish_teaching_packet
 
 _MCP_TOOL_ARGS_VALIDATOR = SchemaValidator(
     core_schema.dict_schema(
@@ -28,6 +39,9 @@ _MCP_TOOL_ARGS_VALIDATOR = SchemaValidator(
         values_schema=core_schema.any_schema(),
     )
 )
+_ASK_MCQ_TOOL_NAME = "ask_mcq_question"
+_GENERATE_MCQ_TOOL_NAME = "generate_mcq_from_teaching_packets"
+_PUBLISH_TEACHING_PACKET_TOOL_NAME = "publish_teaching_packet"
 
 McpToolHandler = Callable[
     [McpToolIdentity, dict[str, Any], RunContext[WorkspaceDeps], McpToolCallProvenance],
@@ -61,6 +75,35 @@ class McpToolExecutor(Protocol):
         provenance: McpToolCallProvenance,
     ) -> Any:
         """Execute one resolved MCP tool."""
+
+
+class _OnboardingMcpModel(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+
+class _AskMcqQuestionArgs(_OnboardingMcpModel):
+    packet_ids: list[str] = Field(min_length=1, max_length=3)
+    question: str = Field(min_length=1)
+    options: list[str] = Field(min_length=4, max_length=4)
+    correct_index: int = Field(ge=0, le=3)
+    explanation: str = Field(min_length=1)
+
+
+class _GenerateMcqFromTeachingPacketsArgs(_OnboardingMcpModel):
+    packet_ids: list[str] = Field(min_length=1, max_length=3)
+
+
+class _PublishTeachingPacketArgs(_OnboardingMcpModel):
+    title: str = Field(min_length=1)
+    concept: str = Field(min_length=1)
+    relationships: list[TeachingRelationship] = Field(min_length=1)
+    snippets: list[TeachingSnippetRef] = Field(min_length=2, max_length=5)
+
+
+def _tool_return_value(value: Any) -> Any:
+    if isinstance(value, ToolReturn):
+        return value.return_value
+    return value
 
 
 @dataclass(frozen=True)
@@ -180,6 +223,56 @@ class StaticMcpToolExecutor:
         return result
 
 
+class JacaOnboardingMcpExecutor:
+    async def execute_tool(
+        self,
+        *,
+        identity: McpToolIdentity,
+        arguments: dict[str, Any],
+        ctx: RunContext[WorkspaceDeps],
+        provenance: McpToolCallProvenance,
+    ) -> Any:
+        del provenance
+        if identity.server_id != JACA_ONBOARDING_MCP_SERVER_ID:
+            raise UnknownMcpServerError(f"Unknown MCP server: {identity.server_id}")
+
+        if identity.tool_name == _ASK_MCQ_TOOL_NAME:
+            parsed = _AskMcqQuestionArgs.model_validate(arguments)
+            return _tool_return_value(
+                await ask_mcq_question(
+                    ctx,
+                    packet_ids=parsed.packet_ids,
+                    question=parsed.question,
+                    options=parsed.options,
+                    correct_index=parsed.correct_index,
+                    explanation=parsed.explanation,
+                )
+            )
+
+        if identity.tool_name == _GENERATE_MCQ_TOOL_NAME:
+            parsed = _GenerateMcqFromTeachingPacketsArgs.model_validate(arguments)
+            return _tool_return_value(
+                await generate_mcq_from_teaching_packets(
+                    ctx,
+                    packet_ids=parsed.packet_ids,
+                )
+            )
+
+        if identity.tool_name == _PUBLISH_TEACHING_PACKET_TOOL_NAME:
+            parsed = _PublishTeachingPacketArgs.model_validate(arguments)
+            return _tool_return_value(
+                await publish_teaching_packet(
+                    ctx,
+                    title=parsed.title,
+                    concept=parsed.concept,
+                    relationships=parsed.relationships,
+                    snippets=parsed.snippets,
+                )
+            )
+
+        raise UnknownMcpToolError(f"Unknown MCP tool: {identity.model_tool_name}")
+
+
 class McpToolset(AbstractToolset[WorkspaceDeps]):
     def __init__(
         self,
@@ -286,7 +379,7 @@ DEFAULT_BUILTIN_MCP_SERVERS = (
             McpToolDefinition(
                 identity=McpToolIdentity(
                     server_id=JACA_ONBOARDING_MCP_SERVER_ID,
-                    tool_name="ask_mcq_question",
+                    tool_name=_ASK_MCQ_TOOL_NAME,
                 ),
                 title="Ask MCQ question",
                 description="Ask one backend-rendered onboarding MCQ question.",
@@ -294,19 +387,39 @@ DEFAULT_BUILTIN_MCP_SERVERS = (
                     "type": "object",
                     "properties": {
                         "question": {"type": "string"},
+                        "packet_ids": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "minItems": 1,
+                            "maxItems": 3,
+                        },
                         "options": {
                             "type": "array",
                             "items": {"type": "string"},
+                            "minItems": 4,
+                            "maxItems": 4,
                         },
+                        "correct_index": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 3,
+                        },
+                        "explanation": {"type": "string"},
                     },
-                    "required": ["question", "options"],
+                    "required": [
+                        "packet_ids",
+                        "question",
+                        "options",
+                        "correct_index",
+                        "explanation",
+                    ],
                     "additionalProperties": False,
                 },
             ),
             McpToolDefinition(
                 identity=McpToolIdentity(
                     server_id=JACA_ONBOARDING_MCP_SERVER_ID,
-                    tool_name="generate_mcq_from_teaching_packets",
+                    tool_name=_GENERATE_MCQ_TOOL_NAME,
                 ),
                 title="Generate MCQ from teaching packets",
                 description="Draft one MCQ from previously published teaching packets.",
@@ -316,6 +429,8 @@ DEFAULT_BUILTIN_MCP_SERVERS = (
                         "packet_ids": {
                             "type": "array",
                             "items": {"type": "string"},
+                            "minItems": 1,
+                            "maxItems": 3,
                         },
                     },
                     "required": ["packet_ids"],
@@ -325,7 +440,7 @@ DEFAULT_BUILTIN_MCP_SERVERS = (
             McpToolDefinition(
                 identity=McpToolIdentity(
                     server_id=JACA_ONBOARDING_MCP_SERVER_ID,
-                    tool_name="publish_teaching_packet",
+                    tool_name=_PUBLISH_TEACHING_PACKET_TOOL_NAME,
                 ),
                 title="Publish teaching packet",
                 description="Publish one code-grounded onboarding teaching packet.",
@@ -333,8 +448,36 @@ DEFAULT_BUILTIN_MCP_SERVERS = (
                     "type": "object",
                     "properties": {
                         "title": {"type": "string"},
+                        "concept": {"type": "string"},
+                        "relationships": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "statement": {"type": "string"},
+                                },
+                                "required": ["statement"],
+                                "additionalProperties": False,
+                            },
+                            "minItems": 1,
+                        },
+                        "snippets": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "path": {"type": "string"},
+                                    "start_line": {"type": "integer", "minimum": 1},
+                                    "end_line": {"type": "integer", "minimum": 1},
+                                },
+                                "required": ["path", "start_line", "end_line"],
+                                "additionalProperties": False,
+                            },
+                            "minItems": 2,
+                            "maxItems": 5,
+                        },
                     },
-                    "required": ["title"],
+                    "required": ["title", "concept", "relationships", "snippets"],
                     "additionalProperties": False,
                 },
             ),
@@ -363,6 +506,7 @@ def build_mcp_toolset(
 
 __all__ = [
     "DEFAULT_BUILTIN_MCP_SERVERS",
+    "JacaOnboardingMcpExecutor",
     "McpManagerError",
     "McpManager",
     "McpServerDefinition",

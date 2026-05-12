@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 from collections.abc import AsyncIterator
+from dataclasses import replace
 
 import pytest
 from pydantic_ai import Agent, RunContext
@@ -24,6 +26,7 @@ from just_another_coding_agent.runtime import (
 )
 from just_another_coding_agent.runtime.mcp import (
     DEFAULT_BUILTIN_MCP_SERVERS,
+    JacaOnboardingMcpExecutor,
     McpManager,
     McpServerDefinition,
     McpToolDefinition,
@@ -34,7 +37,8 @@ from just_another_coding_agent.runtime.mcp import (
     build_mcp_toolset,
 )
 from just_another_coding_agent.runtime.run import stream_run_events
-from just_another_coding_agent.tools.deps import WorkspaceDeps
+from just_another_coding_agent.tools.deps import RunSessionScope, WorkspaceDeps
+from tests.read_only_worker_test_support import workspace_deps
 
 _PUBLISH_TOOL_NAME = "mcp__jaca_onboarding__publish_teaching_packet"
 
@@ -185,7 +189,12 @@ async def test_mcp_toolset_exposes_discovered_tools_to_model(tmp_path) -> None:
     )
     assert publish_tool.sequential is True
     assert publish_tool.parameters_json_schema["type"] == "object"
-    assert publish_tool.parameters_json_schema["required"] == ["title"]
+    assert publish_tool.parameters_json_schema["required"] == [
+        "title",
+        "concept",
+        "relationships",
+        "snippets",
+    ]
     assert publish_tool.parameters_json_schema["additionalProperties"] is False
 
 
@@ -241,6 +250,62 @@ async def test_mcp_toolset_routes_fake_tool_execution_through_stream_events(
     assert succeeded.activity.details.failure is None
 
 
+async def test_onboarding_mcp_executor_routes_publish_to_native_tool(
+    tmp_path,
+) -> None:
+    (tmp_path / "module.py").write_text(
+        "def alpha():\n    return 1\n",
+        encoding="utf-8",
+    )
+    deps = replace(
+        workspace_deps(tmp_path),
+        session_scope=RunSessionScope(session_id="a" * 32, run_id="placeholder"),
+    )
+    agent = Agent(
+        FunctionModel(stream_function=_call_real_publish_then_done),
+        output_type=str,
+        toolsets=[
+            build_mcp_toolset(
+                manager=build_default_mcp_manager(),
+                executor=JacaOnboardingMcpExecutor(),
+            )
+        ],
+        deps_type=WorkspaceDeps,
+    )
+
+    try:
+        events = [
+            event
+            async for event in stream_run_events(
+                agent=agent,
+                prompt="go",
+                deps=deps,
+                available_tool_names=(_PUBLISH_TOOL_NAME,),
+            )
+        ]
+    finally:
+        await deps.close_runtime_resources()
+
+    succeeded = next(
+        event for event in events if isinstance(event, ToolCallSucceededEvent)
+    )
+    assert succeeded.tool_name == _PUBLISH_TOOL_NAME
+    assert succeeded.activity is not None
+    assert isinstance(succeeded.activity.details, McpActivityDetails)
+    assert succeeded.activity.details.model_tool_name == _PUBLISH_TOOL_NAME
+    assert succeeded.activity.details.failure is None
+    assert isinstance(succeeded.result, dict)
+    assert succeeded.result["title"] == "Tool packet"
+    assert succeeded.result["concept"] == "MCP adapter"
+    assert succeeded.result["snippet_count"] == 2
+    assert len(succeeded.result["snippets"]) == 2
+    packet_id = succeeded.result["packet_id"]
+    assert isinstance(packet_id, str)
+    assert deps.teaching_packet_registry.packets_by_id[packet_id].title == (
+        "Tool packet"
+    )
+
+
 async def test_mcp_toolset_returns_typed_failure_activity_for_executor_errors(
     tmp_path,
 ) -> None:
@@ -294,6 +359,48 @@ async def _call_publish_then_done(
             0: DeltaToolCall(
                 name=_PUBLISH_TOOL_NAME,
                 json_args='{"title": "Packet"}',
+                tool_call_id="call-mcp-publish",
+            )
+        }
+        return
+
+    yield "done"
+
+
+async def _call_real_publish_then_done(
+    messages: object,
+    _agent_info: object,
+) -> AsyncIterator[str | dict[int, DeltaToolCall]]:
+    if len(messages) == 1:
+        yield {
+            0: DeltaToolCall(
+                name=_PUBLISH_TOOL_NAME,
+                json_args=json.dumps(
+                    {
+                        "title": "Tool packet",
+                        "concept": "MCP adapter",
+                        "relationships": [
+                            {
+                                "statement": (
+                                    "The MCP executor delegates to the native "
+                                    "teaching packet implementation."
+                                )
+                            }
+                        ],
+                        "snippets": [
+                            {
+                                "path": "module.py",
+                                "start_line": 1,
+                                "end_line": 1,
+                            },
+                            {
+                                "path": "module.py",
+                                "start_line": 2,
+                                "end_line": 2,
+                            },
+                        ],
+                    }
+                ),
                 tool_call_id="call-mcp-publish",
             )
         }
