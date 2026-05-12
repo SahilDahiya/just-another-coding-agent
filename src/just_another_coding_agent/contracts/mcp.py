@@ -7,6 +7,11 @@ from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validat
 
 MCP_TOOL_NAME_PREFIX = "mcp__"
 JACA_ONBOARDING_MCP_SERVER_ID = "jaca_onboarding"
+JACA_ONBOARDING_MCP_TOOL_NAMES = (
+    "mcp__jaca_onboarding__ask_mcq_question",
+    "mcp__jaca_onboarding__generate_mcq_from_teaching_packets",
+    "mcp__jaca_onboarding__publish_teaching_packet",
+)
 
 McpCallSource = Literal["top_level_model", "code_mode"]
 McpFailureKind = Literal[
@@ -136,6 +141,7 @@ def parse_mcp_model_tool_name(model_tool_name: str) -> McpToolIdentity:
 
 __all__ = [
     "JACA_ONBOARDING_MCP_SERVER_ID",
+    "JACA_ONBOARDING_MCP_TOOL_NAMES",
     "MCP_TOOL_NAME_PREFIX",
     "McpCallSource",
     "McpFailure",

@@ -13,6 +13,7 @@ from just_another_coding_agent.contracts.run_events import (
 def test_mcp_contract_exports_expected_types() -> None:
     assert set(mcp.__all__) == {
         "JACA_ONBOARDING_MCP_SERVER_ID",
+        "JACA_ONBOARDING_MCP_TOOL_NAMES",
         "MCP_TOOL_NAME_PREFIX",
         "McpCallSource",
         "McpFailure",

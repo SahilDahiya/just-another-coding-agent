@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic_ai.messages import ModelMessage
 
+from just_another_coding_agent.contracts.mcp import JACA_ONBOARDING_MCP_TOOL_NAMES
 from just_another_coding_agent.contracts.run_mode import (
     DEFAULT_RUN_MODE,
     ONBOARDING_RUN_MODE,
@@ -113,10 +114,7 @@ _FILESYSTEM_TRUTH_SECTION = PromptSection(
     name="filesystem_truth",
     lines=(
         "Refer to files clearly by path.",
-        (
-            "For read, write, and edit, relative paths resolve from the "
-            "workspace root."
-        ),
+        ("For read, write, and edit, relative paths resolve from the workspace root."),
         "shell runs in the workspace root and no tool is a filesystem sandbox.",
     ),
 )
@@ -129,21 +127,24 @@ _ONBOARDING_MODE_SECTION = PromptSection(
             "recent changes when useful."
         ),
         (
-            "Use ask_mcq_question only when a quiz will help the user learn; "
-            "teaching in normal assistant text remains the default."
+            "Use the jaca_onboarding MCP tools only when structured teaching "
+            "or a quiz will help; teaching in normal assistant text remains "
+            "the default."
         ),
         (
-            "Use publish_teaching_packet when a compact, code-grounded packet "
-            "would help the user understand an implementation detail."
+            "Use mcp__jaca_onboarding__publish_teaching_packet when a "
+            "compact, code-grounded packet would help the user understand an "
+            "implementation detail."
         ),
         (
             "A teaching packet should teach one concept using 2 to 5 code "
             "snippets and explicit relationship statements among them."
         ),
         (
-            "If you use ask_mcq_question, first call publish_teaching_packet "
-            "in the same run. You may also generate an MCQ draft from those "
-            "packet ids before asking the question."
+            "If you use mcp__jaca_onboarding__ask_mcq_question, first call "
+            "mcp__jaca_onboarding__publish_teaching_packet in the same run. "
+            "You may also generate an MCQ draft from those packet ids before "
+            "asking the question."
         ),
         (
             "You control pacing and ordering. You may explain before, after, "
@@ -207,6 +208,47 @@ _TOOL_GUIDANCE_BY_NAME = {
         (
             "Use wait only for a yielded Code Mode cell when you need more "
             "output, completion, or termination."
+        ),
+    ),
+    JACA_ONBOARDING_MCP_TOOL_NAMES[0]: (
+        (
+            "Use mcp__jaca_onboarding__ask_mcq_question only when you are "
+            "ready to quiz the user with one concrete multiple-choice "
+            "question."
+        ),
+        (
+            "Before mcp__jaca_onboarding__ask_mcq_question, publish at least "
+            "one teaching packet in this same run and pass the returned "
+            "packet_ids to the question."
+        ),
+        (
+            "Do not reveal the correct answer in assistant text before "
+            "calling the tool; let the tool present the question and wait "
+            "for the user's selection."
+        ),
+    ),
+    JACA_ONBOARDING_MCP_TOOL_NAMES[1]: (
+        (
+            "Use mcp__jaca_onboarding__generate_mcq_from_teaching_packets to "
+            "draft one grounded MCQ from teaching packet ids published "
+            "earlier in this same run."
+        ),
+        (
+            "Pass the returned packet_ids, question, options, correct_index, "
+            "and explanation directly into "
+            "mcp__jaca_onboarding__ask_mcq_question when the draft is good."
+        ),
+    ),
+    JACA_ONBOARDING_MCP_TOOL_NAMES[2]: (
+        (
+            "Use mcp__jaca_onboarding__publish_teaching_packet when a "
+            "curated set of code excerpts would help teach a concept in the "
+            "codebase."
+        ),
+        (
+            "Provide a short title, one concept, one or more relationship "
+            "statements, and 2 to 5 snippet references using path, "
+            "start_line, and end_line. The backend reads canonical file text."
         ),
     ),
     "ask_mcq_question": (
@@ -404,11 +446,7 @@ def build_base_product_prompt(
             extra_sections=extra_sections,
         )
     )
-    return "\n".join(
-        line
-        for section in sections
-        for line in section.lines
-    )
+    return "\n".join(line for section in sections for line in section.lines)
 
 
 def build_default_mode_messages() -> tuple[ModelMessage, ...]:

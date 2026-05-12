@@ -6,6 +6,7 @@ from pydantic_ai import FunctionToolset
 from pydantic_ai.toolsets import AbstractToolset
 
 from just_another_coding_agent.contracts.code_mode import CODE_MODE_TOOL_NAMES
+from just_another_coding_agent.contracts.mcp import JACA_ONBOARDING_MCP_TOOL_NAMES
 from just_another_coding_agent.contracts.run_mode import (
     DEFAULT_RUN_MODE,
     ONBOARDING_RUN_MODE,
@@ -16,7 +17,6 @@ from just_another_coding_agent.contracts.tools import (
     KNOWN_TOOL_NAMES,
     ONBOARDING_TOOL_NAMES,
     CanonicalToolName,
-    KnownToolName,
     OnboardingToolName,
 )
 from just_another_coding_agent.tools.code_mode import (
@@ -72,9 +72,7 @@ _TOOLS_BY_NAME = {
     "edit": EDIT_TOOL,
     "exec": CODE_MODE_EXEC_TOOL,
     "find": FIND_TOOL,
-    "generate_mcq_from_teaching_packets": (
-        GENERATE_MCQ_FROM_TEACHING_PACKETS_TOOL
-    ),
+    "generate_mcq_from_teaching_packets": (GENERATE_MCQ_FROM_TEACHING_PACKETS_TOOL),
     "grep": GREP_TOOL,
     "ls": LS_TOOL,
     "publish_teaching_packet": PUBLISH_TEACHING_PACKET_TOOL,
@@ -86,21 +84,17 @@ _TOOLS_BY_NAME = {
 }
 
 if set(PARALLEL_CANONICAL_TOOL_NAMES).isdisjoint(SEQUENTIAL_CANONICAL_TOOL_NAMES):
-    if (
-        set(PARALLEL_CANONICAL_TOOL_NAMES) | set(SEQUENTIAL_CANONICAL_TOOL_NAMES)
-        != set(CANONICAL_TOOL_NAMES)
+    if set(PARALLEL_CANONICAL_TOOL_NAMES) | set(SEQUENTIAL_CANONICAL_TOOL_NAMES) != set(
+        CANONICAL_TOOL_NAMES
     ):
         raise RuntimeError("Canonical tool concurrency policy must cover all tools")
 else:
     raise RuntimeError("Canonical tool concurrency policy must be disjoint")
 
 if set(PARALLEL_CANONICAL_TOOL_NAMES).isdisjoint(SEQUENTIAL_ONBOARDING_TOOL_NAMES):
-    if (
-        set(PARALLEL_CANONICAL_TOOL_NAMES)
-        | set(SEQUENTIAL_CANONICAL_TOOL_NAMES)
-        | set(SEQUENTIAL_ONBOARDING_TOOL_NAMES)
-        != set(KNOWN_TOOL_NAMES)
-    ):
+    if set(PARALLEL_CANONICAL_TOOL_NAMES) | set(SEQUENTIAL_CANONICAL_TOOL_NAMES) | set(
+        SEQUENTIAL_ONBOARDING_TOOL_NAMES
+    ) != set(KNOWN_TOOL_NAMES):
         raise RuntimeError("Known tool concurrency policy must cover all tools")
 else:
     raise RuntimeError("Onboarding tool concurrency policy must be disjoint")
@@ -117,11 +111,11 @@ def list_onboarding_tool_names() -> tuple[OnboardingToolName, ...]:
     return ONBOARDING_TOOL_NAMES
 
 
-def resolve_tool_names_for_run_mode(mode: RunMode) -> tuple[KnownToolName, ...]:
+def resolve_tool_names_for_run_mode(mode: RunMode) -> tuple[str, ...]:
     if mode == DEFAULT_RUN_MODE:
         return KNOWN_TOOL_NAMES[: len(CANONICAL_TOOL_NAMES)]
     if mode == ONBOARDING_RUN_MODE:
-        return tuple(KNOWN_TOOL_NAMES)
+        return (*CANONICAL_TOOL_NAMES, *JACA_ONBOARDING_MCP_TOOL_NAMES)
     raise ValueError(f"Unknown run mode: {mode}")
 
 

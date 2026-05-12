@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from pydantic_ai.messages import ModelMessage, ToolReturnPart, UserPromptPart
 from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 
+from just_another_coding_agent.contracts.mcp import JACA_ONBOARDING_MCP_TOOL_NAMES
 from just_another_coding_agent.onboarding import (
     GeneratedMcqQuestion,
     PublishedMcqQuestion,
@@ -29,6 +30,10 @@ from tests.contracts.rpc_stdio_test_support import (
     rpc_messages,
     text_only_stream,
 )
+
+ASK_MCQ_MCP_TOOL_NAME = JACA_ONBOARDING_MCP_TOOL_NAMES[0]
+GENERATE_MCQ_MCP_TOOL_NAME = JACA_ONBOARDING_MCP_TOOL_NAMES[1]
+PUBLISH_TEACHING_PACKET_MCP_TOOL_NAME = JACA_ONBOARDING_MCP_TOOL_NAMES[2]
 
 
 class _FakeDspyForOnboarding:
@@ -88,8 +93,7 @@ class _FakeDspyForPacketMcq:
                 ),
                 option_c="The model provider remembers onboarding tools server-side.",
                 option_d=(
-                    "Only the first /onboard run can ever expose onboarding "
-                    "tools."
+                    "Only the first /onboard run can ever expose onboarding tools."
                 ),
                 correct_index=1,
                 explanation=(
@@ -596,7 +600,7 @@ async def test_run_interrupt_abandons_pending_live_onboarding_attempt(
     workspace_root.mkdir()
     (workspace_root / "internal" / "jaca" / "app").mkdir(parents=True)
     (workspace_root / "internal" / "jaca" / "app" / "slash.go").write_text(
-        "package app\nvar slashCommands = []string{\"/onboard\"}\n",
+        'package app\nvar slashCommands = []string{"/onboard"}\n',
         encoding="utf-8",
     )
     (workspace_root / "main.py").write_text(
@@ -728,8 +732,7 @@ def _last_user_prompt(messages: list[ModelMessage]) -> str | None:
 
 def _has_onboarding_tool_return(messages: list[ModelMessage]) -> bool:
     return any(
-        isinstance(part, ToolReturnPart)
-        and part.tool_name == "ask_mcq_question"
+        isinstance(part, ToolReturnPart) and part.tool_name == ASK_MCQ_MCP_TOOL_NAME
         for part in _all_parts(messages)
     )
 
@@ -738,7 +741,7 @@ def _first_teaching_packet_id(messages: list[ModelMessage]) -> str | None:
     for part in _all_parts(messages):
         if (
             isinstance(part, ToolReturnPart)
-            and part.tool_name == "publish_teaching_packet"
+            and part.tool_name == PUBLISH_TEACHING_PACKET_MCP_TOOL_NAME
             and isinstance(part.content, dict)
         ):
             packet_id = part.content.get("packet_id")
@@ -757,7 +760,7 @@ async def _onboarding_tool_stream(
     if latest_prompt == "ask one onboarding question" and packet_id is None:
         yield {
             0: DeltaToolCall(
-                name="publish_teaching_packet",
+                name=PUBLISH_TEACHING_PACKET_MCP_TOOL_NAME,
                 json_args=json.dumps(
                     {
                         "title": "Slash command registry",
@@ -791,7 +794,7 @@ async def _onboarding_tool_stream(
                                 "path": "internal/jaca/app/slash.go",
                                 "start_line": 2,
                                 "end_line": 2,
-                            }
+                            },
                         ],
                     }
                 ),
@@ -802,7 +805,7 @@ async def _onboarding_tool_stream(
     if latest_prompt == "ask one onboarding question" and not saw_tool_return:
         yield {
             0: DeltaToolCall(
-                name="ask_mcq_question",
+                name=ASK_MCQ_MCP_TOOL_NAME,
                 json_args=json.dumps(
                     {
                         "packet_ids": [packet_id],
@@ -842,7 +845,7 @@ async def _onboarding_tool_without_packet_stream(
     ):
         yield {
             0: DeltaToolCall(
-                name="ask_mcq_question",
+                name=ASK_MCQ_MCP_TOOL_NAME,
                 json_args=json.dumps(
                     {
                         "packet_ids": ["packet-missing"],
@@ -877,13 +880,13 @@ async def _teaching_packet_stream(
     latest_prompt = _last_user_prompt(messages)
     saw_packet_return = any(
         isinstance(part, ToolReturnPart)
-        and part.tool_name == "publish_teaching_packet"
+        and part.tool_name == PUBLISH_TEACHING_PACKET_MCP_TOOL_NAME
         for part in _all_parts(messages)
     )
     if latest_prompt == "teach me dispatch" and not saw_packet_return:
         yield {
             0: DeltaToolCall(
-                name="publish_teaching_packet",
+                name=PUBLISH_TEACHING_PACKET_MCP_TOOL_NAME,
                 json_args=json.dumps(
                     {
                         "title": "Slash command dispatch",
@@ -938,19 +941,18 @@ async def _doc_teaching_packet_stream(
     latest_prompt = _last_user_prompt(messages)
     saw_packet_return = any(
         isinstance(part, ToolReturnPart)
-        and part.tool_name == "publish_teaching_packet"
+        and part.tool_name == PUBLISH_TEACHING_PACKET_MCP_TOOL_NAME
         for part in _all_parts(messages)
     )
     if latest_prompt == "teach me with docs" and not saw_packet_return:
         yield {
             0: DeltaToolCall(
-                name="publish_teaching_packet",
+                name=PUBLISH_TEACHING_PACKET_MCP_TOOL_NAME,
                 json_args=json.dumps(
                     {
                         "title": "Docs only packet",
                         "concept": (
-                            "Documentation should be rejected for teaching "
-                            "packets."
+                            "Documentation should be rejected for teaching packets."
                         ),
                         "relationships": [
                             {
@@ -970,7 +972,7 @@ async def _doc_teaching_packet_stream(
                                 "path": "docs/goal.md",
                                 "start_line": 2,
                                 "end_line": 3,
-                            }
+                            },
                         ],
                     }
                 ),
@@ -988,7 +990,7 @@ def _first_generated_mcq(messages: list[ModelMessage]) -> dict[str, object] | No
     for part in _all_parts(messages):
         if (
             isinstance(part, ToolReturnPart)
-            and part.tool_name == "generate_mcq_from_teaching_packets"
+            and part.tool_name == GENERATE_MCQ_MCP_TOOL_NAME
             and isinstance(part.content, dict)
         ):
             return part.content
@@ -1002,7 +1004,7 @@ async def test_run_start_supports_live_onboarding_question_tool_without_dspy(
     workspace_root.mkdir()
     (workspace_root / "internal" / "jaca" / "app").mkdir(parents=True)
     (workspace_root / "internal" / "jaca" / "app" / "slash.go").write_text(
-        "package app\nvar slashCommands = []string{\"/onboard\"}\n",
+        'package app\nvar slashCommands = []string{"/onboard"}\n',
         encoding="utf-8",
     )
     sessions_root = tmp_path / "sessions"
@@ -1117,7 +1119,7 @@ async def test_run_start_supports_live_onboarding_question_tool_without_dspy(
         for message in session.message_history
         for part in message.parts
         if isinstance(part, ToolReturnPart)
-        and part.tool_name == "publish_teaching_packet"
+        and part.tool_name == PUBLISH_TEACHING_PACKET_MCP_TOOL_NAME
     )
 
     db_path = onboarding_db_path(
@@ -1154,8 +1156,7 @@ async def test_run_start_supports_live_onboarding_question_tool_without_dspy(
     assert json.loads(row[3]) == {"selected_index": 1}
     assert json.loads(row[4]) == {"correct_index": 1, "is_correct": True}
     assert any(
-        isinstance(part, ToolReturnPart)
-        and part.tool_name == "ask_mcq_question"
+        isinstance(part, ToolReturnPart) and part.tool_name == ASK_MCQ_MCP_TOOL_NAME
         for message in session.message_history
         for part in message.parts
     )
@@ -1168,7 +1169,7 @@ async def test_run_start_rejects_mcq_without_linked_teaching_packet(
     workspace_root.mkdir()
     (workspace_root / "internal" / "jaca" / "app").mkdir(parents=True)
     (workspace_root / "internal" / "jaca" / "app" / "slash.go").write_text(
-        "var slashCommands = []string{\"/onboard\"}\n",
+        'var slashCommands = []string{"/onboard"}\n',
         encoding="utf-8",
     )
     sessions_root = tmp_path / "sessions"
@@ -1197,7 +1198,7 @@ async def test_run_start_rejects_mcq_without_linked_teaching_packet(
         for message in run_messages
         if message["type"] == "rpc_event"
         and message["event"]["type"] == "tool_call_succeeded"
-        and message["event"]["tool_name"] == "ask_mcq_question"
+        and message["event"]["tool_name"] == ASK_MCQ_MCP_TOOL_NAME
     )
     assert mcq_result == {
         "ok": False,
@@ -1216,7 +1217,7 @@ async def test_run_start_supports_teaching_packet_tool_in_onboarding_mode(
     workspace_root.mkdir()
     (workspace_root / "internal" / "jaca" / "app").mkdir(parents=True)
     (workspace_root / "internal" / "jaca" / "app" / "slash.go").write_text(
-        "package app\nvar slashCommands = []string{\"/onboard\"}\n",
+        'package app\nvar slashCommands = []string{"/onboard"}\n',
         encoding="utf-8",
     )
     (workspace_root / "internal" / "jaca" / "app" / "model.go").write_text(
@@ -1249,45 +1250,22 @@ async def test_run_start_supports_teaching_packet_tool_in_onboarding_mode(
         for message in run_messages
         if message["type"] == "rpc_event"
         and message["event"]["type"] == "tool_call_succeeded"
-        and message["event"]["tool_name"] == "publish_teaching_packet"
+        and message["event"]["tool_name"] == PUBLISH_TEACHING_PACKET_MCP_TOOL_NAME
     )
-    assert succeeded_event["activity"]["title"] == "Slash command dispatch"
-    assert succeeded_event["activity"]["display_label"] == "Teach"
-    assert succeeded_event["activity"]["summary"] == "showing 2 snippets"
+    assert succeeded_event["activity"]["title"] == "Publish teaching packet"
+    assert succeeded_event["activity"]["display_label"] == "MCP"
+    assert succeeded_event["activity"]["summary"] is None
     assert succeeded_event["activity"]["details"] == {
-        "kind": "teaching_packet",
-        "concept": (
-            "Onboarding mode is a backend-owned run mode that changes tool "
-            "visibility for later turns."
-        ),
-        "relationships": [
-            {
-                "statement": (
-                    "The slash command triggers onboarding mode, and the "
-                    "backend persists that mode into session metadata."
-                )
-            },
-            {
-                "statement": (
-                    "The persisted run mode then determines which tool names "
-                    "the backend exposes on the next run."
-                )
-            },
-        ],
-        "snippets": [
-            {
-                "path": "internal/jaca/app/slash.go",
-                "start_line": 1,
-                "end_line": 2,
-                "text": 'package app\nvar slashCommands = []string{"/onboard"}',
-            },
-            {
-                "path": "internal/jaca/app/model.go",
-                "start_line": 1,
-                "end_line": 2,
-                "text": "package app\nfunc submitPrompt() {}",
-            },
-        ],
+        "kind": "mcp",
+        "server_id": "jaca_onboarding",
+        "tool_name": "publish_teaching_packet",
+        "model_tool_name": PUBLISH_TEACHING_PACKET_MCP_TOOL_NAME,
+        "provenance": {
+            "source": "top_level_model",
+            "parent_tool_call_id": None,
+            "code_mode_cell_id": None,
+        },
+        "failure": None,
     }
 
     session = load_session(
@@ -1303,7 +1281,7 @@ async def test_run_start_supports_teaching_packet_tool_in_onboarding_mode(
         for message in session.message_history
         for part in message.parts
         if isinstance(part, ToolReturnPart)
-        and part.tool_name == "publish_teaching_packet"
+        and part.tool_name == PUBLISH_TEACHING_PACKET_MCP_TOOL_NAME
     )
     assert isinstance(packet_return.content["packet_id"], str)
     assert packet_return.content["packet_id"] != ""
@@ -1357,7 +1335,7 @@ async def _generate_mcq_from_packet_stream(
     if latest_prompt == "teach me and then quiz me" and packet_id is None:
         yield {
             0: DeltaToolCall(
-                name="publish_teaching_packet",
+                name=PUBLISH_TEACHING_PACKET_MCP_TOOL_NAME,
                 json_args=json.dumps(
                     {
                         "title": "Slash command dispatch",
@@ -1394,8 +1372,7 @@ async def _generate_mcq_from_packet_stream(
                             },
                             {
                                 "path": (
-                                    "src/just_another_coding_agent/contracts/"
-                                    "session.py"
+                                    "src/just_another_coding_agent/contracts/session.py"
                                 ),
                                 "start_line": 1,
                                 "end_line": 2,
@@ -1407,8 +1384,7 @@ async def _generate_mcq_from_packet_stream(
                             },
                             {
                                 "path": (
-                                    "src/just_another_coding_agent/tools/"
-                                    "registry.py"
+                                    "src/just_another_coding_agent/tools/registry.py"
                                 ),
                                 "start_line": 1,
                                 "end_line": 2,
@@ -1427,7 +1403,7 @@ async def _generate_mcq_from_packet_stream(
     ):
         yield {
             0: DeltaToolCall(
-                name="generate_mcq_from_teaching_packets",
+                name=GENERATE_MCQ_MCP_TOOL_NAME,
                 json_args=json.dumps(
                     {
                         "packet_ids": [packet_id],
@@ -1444,7 +1420,7 @@ async def _generate_mcq_from_packet_stream(
     ):
         yield {
             0: DeltaToolCall(
-                name="ask_mcq_question",
+                name=ASK_MCQ_MCP_TOOL_NAME,
                 json_args=json.dumps(generated_mcq),
                 tool_call_id="tool-onboarding-1",
             )
@@ -1491,15 +1467,9 @@ async def test_run_start_can_generate_mcq_from_teaching_packet(
         "class SessionMetadata:\n    current_mode = DEFAULT_RUN_MODE\n",
         encoding="utf-8",
     )
-    (workspace_root / "src" / "just_another_coding_agent" / "rpc").mkdir(
-        parents=True
-    )
+    (workspace_root / "src" / "just_another_coding_agent" / "rpc").mkdir(parents=True)
     (
-        workspace_root
-        / "src"
-        / "just_another_coding_agent"
-        / "rpc"
-        / "stdio.py"
+        workspace_root / "src" / "just_another_coding_agent" / "rpc" / "stdio.py"
     ).write_text(
         "effective_run_mode = request.payload.mode if "
         "request.payload.mode is not None else "
@@ -1507,15 +1477,9 @@ async def test_run_start_can_generate_mcq_from_teaching_packet(
         "tool_names = resolve_tool_names_for_run_mode(effective_run_mode)\n",
         encoding="utf-8",
     )
-    (workspace_root / "src" / "just_another_coding_agent" / "tools").mkdir(
-        parents=True
-    )
+    (workspace_root / "src" / "just_another_coding_agent" / "tools").mkdir(parents=True)
     (
-        workspace_root
-        / "src"
-        / "just_another_coding_agent"
-        / "tools"
-        / "registry.py"
+        workspace_root / "src" / "just_another_coding_agent" / "tools" / "registry.py"
     ).write_text(
         "def resolve_tool_names_for_run_mode(mode):\n"
         "    if mode == ONBOARDING_RUN_MODE:\n"
@@ -1591,7 +1555,7 @@ async def test_run_start_can_generate_mcq_from_teaching_packet(
         for message in run_messages
         if message["type"] == "rpc_event"
         and message["event"]["type"] == "tool_call_succeeded"
-        and message["event"]["tool_name"] == "generate_mcq_from_teaching_packets"
+        and message["event"]["tool_name"] == GENERATE_MCQ_MCP_TOOL_NAME
     )
     assert generated_result["packet_ids"]
     assert generated_result["question"]
@@ -1636,7 +1600,7 @@ async def test_run_start_rejects_teaching_packet_with_docs_snippet(
         for message in run_messages
         if message["type"] == "rpc_event"
         and message["event"]["type"] == "tool_call_succeeded"
-        and message["event"]["tool_name"] == "publish_teaching_packet"
+        and message["event"]["tool_name"] == PUBLISH_TEACHING_PACKET_MCP_TOOL_NAME
     )
     assert packet_result == {
         "ok": False,

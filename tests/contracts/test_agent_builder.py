@@ -4,6 +4,7 @@ from pydantic_ai import capture_run_messages
 from pydantic_ai.messages import ModelMessage, ModelRequest, UserPromptPart
 from pydantic_ai.models.function import FunctionModel
 from pydantic_ai.models.openai import OpenAIResponsesModel
+from pydantic_ai.models.test import TestModel
 
 from just_another_coding_agent.contracts.sandbox import EffectiveCapabilities
 from just_another_coding_agent.runtime import (
@@ -47,9 +48,7 @@ async def test_build_canonical_agent_sets_default_instructions(tmp_path) -> None
 
     first_request = messages[0]
     assert isinstance(first_request, ModelRequest)
-    assert first_request.instructions == build_static_agent_instructions(
-        tool_names=[]
-    )
+    assert first_request.instructions == build_static_agent_instructions(tool_names=[])
     assert isinstance(first_request.parts[0], UserPromptPart)
     assert first_request.parts[0].content == "hi"
 
@@ -78,47 +77,40 @@ def test_build_canonical_instructions_include_dynamic_context(tmp_path) -> None:
     )
     assert (
         "Use only these tools: read, write, edit, shell, grep, ls, find, "
-        "subagent."
-        in instructions
+        "subagent." in instructions
     )
     assert "Use grep for content search across files." in instructions
     assert "Use ls for bounded directory listings." in instructions
     assert "Use find for file discovery by glob pattern." in instructions
     assert (
         "Use subagent for one bounded side task when either a fresh or "
-        "forked child pass would help."
-        in instructions
+        "forked child pass would help." in instructions
     )
     assert (
         "Good fits: locating relevant files or evidence, checking one "
         "claim against repository state, or inspecting one large "
-        "artifact for the parent."
-        in instructions
+        "artifact for the parent." in instructions
     )
     assert (
         "By default the child gets read, grep, find, and ls only; "
         "request shell capability only when the child needs local "
-        "commands or scripts."
-        in instructions
+        "commands or scripts." in instructions
     )
     assert (
         "Prefer spawn_mode='fork' so the child can build on the parent's "
         "current conversation or tool context; use spawn_mode='fresh' only "
-        "for an independent repo or artifact pass."
-        in instructions
+        "for an independent repo or artifact pass." in instructions
     )
     assert (
         "Do not use subagent for broad multi-step work or when the next "
-        "local command is already obvious."
-        in instructions
+        "local command is already obvious." in instructions
     )
     assert "ask_mcq_question" not in instructions
     assert (
         "When you spawn a child, make the task detailed enough to "
         "succeed: state the exact goal, relevant files or artifacts, "
         "constraints, stop condition, and desired report shape when "
-        "needed."
-        in instructions
+        "needed." in instructions
     )
     assert "Use shell for builds, commands, and verification." in instructions
     assert "Current shell family: powershell" in instructions
@@ -134,8 +126,7 @@ def test_build_canonical_instructions_include_dynamic_context(tmp_path) -> None:
     assert (
         "When the user asks to run tests, lint, or another obvious "
         "verification step, run the narrowest relevant command directly; "
-        "inspect first only if the command or scope is ambiguous."
-        in instructions
+        "inspect first only if the command or scope is ambiguous." in instructions
     )
     assert "Current date: 2026-03-26" in instructions
     assert f"Current workspace root: {workspace_root.resolve()}" in instructions
@@ -156,37 +147,63 @@ def test_build_onboarding_instructions_include_onboarding_tools_and_overlay(
 
     assert (
         "Use only these tools: read, write, edit, shell, grep, ls, find, "
-        "subagent, ask_mcq_question, generate_mcq_from_teaching_packets, "
-        "publish_teaching_packet."
-        in instructions
+        "subagent, mcp__jaca_onboarding__ask_mcq_question, "
+        "mcp__jaca_onboarding__generate_mcq_from_teaching_packets, "
+        "mcp__jaca_onboarding__publish_teaching_packet." in instructions
     )
     assert "This run is in onboarding mode." in instructions
     assert (
         "Teach the user this codebase intentionally using docs, code, and "
-        "recent changes when useful."
-        in instructions
+        "recent changes when useful." in instructions
     )
     assert (
-        "Use ask_mcq_question only when a quiz will help the user learn; "
-        "teaching in normal assistant text remains the default."
-        in instructions
+        "Use the jaca_onboarding MCP tools only when structured teaching "
+        "or a quiz will help; teaching in normal assistant text remains "
+        "the default." in instructions
     )
     assert (
-        "Use publish_teaching_packet when a compact, code-grounded packet "
-        "would help the user understand an implementation detail."
-        in instructions
+        "Use mcp__jaca_onboarding__publish_teaching_packet when a compact, "
+        "code-grounded packet would help the user understand an "
+        "implementation detail." in instructions
     )
     assert (
         "A teaching packet should teach one concept using 2 to 5 code "
-        "snippets and explicit relationship statements among them."
-        in instructions
+        "snippets and explicit relationship statements among them." in instructions
     )
     assert (
-        "If you use ask_mcq_question, first call publish_teaching_packet in "
-        "the same run. You may also generate an MCQ draft from those packet "
-        "ids before asking the question."
-        in instructions
+        "If you use mcp__jaca_onboarding__ask_mcq_question, first call "
+        "mcp__jaca_onboarding__publish_teaching_packet in the same run. "
+        "You may also generate an MCQ draft from those packet ids before "
+        "asking the question." in instructions
     )
+    assert " ask_mcq_question," not in instructions
+
+
+def test_build_canonical_agent_exposes_onboarding_mcp_tools_in_onboarding_mode(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    model = TestModel(call_tools=[], custom_output_text="ok")
+    agent = build_canonical_agent(
+        model=model,
+        workspace_root=workspace_root,
+        run_mode="onboarding",
+    )
+
+    agent.run_sync("What tools are available?", deps=WorkspaceDeps(workspace_root))
+
+    tool_names = [
+        tool.name for tool in model.last_model_request_parameters.function_tools
+    ]
+    assert "ask_mcq_question" not in tool_names
+    assert "generate_mcq_from_teaching_packets" not in tool_names
+    assert "publish_teaching_packet" not in tool_names
+    assert tool_names[-3:] == [
+        "mcp__jaca_onboarding__ask_mcq_question",
+        "mcp__jaca_onboarding__generate_mcq_from_teaching_packets",
+        "mcp__jaca_onboarding__publish_teaching_packet",
+    ]
 
 
 def test_static_agent_instructions_can_describe_explicit_code_mode_tools() -> None:
@@ -196,25 +213,21 @@ def test_static_agent_instructions_can_describe_explicit_code_mode_tools() -> No
     assert (
         "Use exec only when Code Mode is explicitly available and a small "
         "deterministic orchestration cell is clearer than another model "
-        "reasoning step."
-        in instructions
+        "reasoning step." in instructions
     )
     assert (
         "Code Mode cells must call tools through the provided bridge: "
         "tools.read, tools.grep, tools.ls, tools.find, tools.write, "
-        "tools.edit, and tools.shell."
-        in instructions
+        "tools.edit, and tools.shell." in instructions
     )
     assert (
         "Allowed imports are json, re, math, collections, statistics, "
         "itertools, functools, and decimal. Do not use open, subprocess, "
-        "or direct filesystem access inside Code Mode cells."
-        in instructions
+        "or direct filesystem access inside Code Mode cells." in instructions
     )
     assert (
         "Use wait only for a yielded Code Mode cell when you need more "
-        "output, completion, or termination."
-        in instructions
+        "output, completion, or termination." in instructions
     )
 
 
@@ -247,13 +260,11 @@ def test_static_agent_instructions_include_response_style_contract() -> None:
     assert "Default response style: brief, direct, and outcome-first." in instructions
     assert (
         "Do not restate the user's request or narrate routine process "
-        "unless that context is necessary."
-        in instructions
+        "unless that context is necessary." in instructions
     )
     assert (
         "During work, keep progress updates to one short sentence focused "
-        "on the next action or concrete finding."
-        in instructions
+        "on the next action or concrete finding." in instructions
     )
     assert (
         "Final answers should usually be one short paragraph: state what "
@@ -262,13 +273,11 @@ def test_static_agent_instructions_include_response_style_contract() -> None:
     )
     assert (
         "Use bullets only when there are multiple distinct findings, "
-        "steps, or options."
-        in instructions
+        "steps, or options." in instructions
     )
     assert (
         "If no files changed, answer the question directly without a "
-        "change-style summary."
-        in instructions
+        "change-style summary." in instructions
     )
 
 

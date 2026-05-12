@@ -374,11 +374,11 @@ Canonical tool set for the first maintained version:
 - `find`
 - `subagent`
 
-Onboarding-mode extension tools:
+Onboarding-mode model-visible extension tools:
 
-- `ask_mcq_question`
-- `generate_mcq_from_teaching_packets`
-- `publish_teaching_packet`
+- `mcp__jaca_onboarding__ask_mcq_question`
+- `mcp__jaca_onboarding__generate_mcq_from_teaching_packets`
+- `mcp__jaca_onboarding__publish_teaching_packet`
 
 Rules:
 
@@ -454,9 +454,12 @@ Expected tool-domain denial result:
 Initial executable tool slice:
 
 - canonical registry names: `read`, `write`, `edit`, `shell`, `grep`, `ls`, `find`, `subagent`
-- onboarding-mode extension registry names: `ask_mcq_question`, `generate_mcq_from_teaching_packets`, `publish_teaching_packet`
+- onboarding-mode extension registry names:
+  `mcp__jaca_onboarding__ask_mcq_question`,
+  `mcp__jaca_onboarding__generate_mcq_from_teaching_packets`,
+  `mcp__jaca_onboarding__publish_teaching_packet`
 - unknown tool names fail explicitly
-- initial concrete tool implementations: `read`, `write`, `edit`, `shell`, `grep`, `ls`, `find`, `subagent`, `ask_mcq_question`, `generate_mcq_from_teaching_packets`, `publish_teaching_packet`
+- initial concrete tool implementations: `read`, `write`, `edit`, `shell`, `grep`, `ls`, `find`, `subagent`, plus native onboarding implementations behind the `jaca_onboarding` MCP executor for `ask_mcq_question`, `generate_mcq_from_teaching_packets`, and `publish_teaching_packet`
 - `publish_teaching_packet` accepts only code-file snippet refs; documentation
   paths such as `docs/*`, `README*`, `AGENTS.md`, `CLAUDE.md`, or markdown-like
   files must fail explicitly
@@ -894,7 +897,8 @@ Rules for the initial activity slice:
 Canonical tool concurrency policy:
 
 - `read`, `grep`, `find`, and `ls` are parallel-eligible
-- `write`, `edit`, `shell`, `subagent`, and `ask_mcq_question` are sequential only
+- `write`, `edit`, `shell`, `subagent`, and
+  `mcp__jaca_onboarding__ask_mcq_question` are sequential only
 - the runtime must set tool execution mode explicitly instead of relying on framework defaults
 - provider-side `parallel_tool_calls` is enabled by default for canonical model/provider paths; carve-outs should be explicit when a specific model path is known not to support it correctly
 
@@ -1158,14 +1162,15 @@ Ordering rules for the RPC slice:
   `onboarding.start` attempt must reopen that same attempt instead of
   generating a second pending question
 - `onboarding.start` must fail with `InvalidRequest` if the session already has
-  a pending live `ask_mcq_question` attempt, because that tool-owned
-  question is owned by the normal run surface rather than the legacy
-  `onboarding.start` snippet-backed response contract
+  a pending live `mcp__jaca_onboarding__ask_mcq_question` attempt, because
+  that tool-owned question is owned by the normal run surface rather than the
+  legacy `onboarding.start` snippet-backed response contract
 - A valid `onboarding.submit` request yields exactly one `rpc_response` and
   resolves correctness from the persisted pending attempt rather than from a
   second model-generation step
-- `onboarding.submit` also resolves any live `ask_mcq_question` tool
-  request blocked inside an active run for the same session and attempt id
+- `onboarding.submit` also resolves any live
+  `mcp__jaca_onboarding__ask_mcq_question` tool request blocked inside an
+  active run for the same session and attempt id
 - `workspace.project_docs` must fail hard with `WorkspaceUntrusted` until trust
   is accepted for the current trust target
 - A valid `session.name` request must reference an existing `session_id`, append one backend-normalized `session_info` entry when the requested name changes, enforce workspace-local name uniqueness, and yield exactly one `rpc_response` containing that normalized session name
@@ -1187,9 +1192,11 @@ Ordering rules for the RPC slice:
 - `run.start` with `mode: "coding"` exposes only the canonical coding tool
   set
 - `run.start` with `mode: "onboarding"` exposes the canonical coding tools
-  plus onboarding-only tools such as `ask_mcq_question`,
-  `generate_mcq_from_teaching_packets`, and `publish_teaching_packet`, and
-  applies the onboarding prompt overlay in Python
+  plus the `jaca_onboarding` MCP tools
+  `mcp__jaca_onboarding__ask_mcq_question`,
+  `mcp__jaca_onboarding__generate_mcq_from_teaching_packets`, and
+  `mcp__jaca_onboarding__publish_teaching_packet`, and applies the onboarding
+  prompt overlay in Python
 - `run.start` with `enable_code_mode: true` appends the Code Mode `exec` and
   `wait` tools to that run's model-facing tool list only; it does not change
   the session's persisted mode and does not enable Code Mode for later runs

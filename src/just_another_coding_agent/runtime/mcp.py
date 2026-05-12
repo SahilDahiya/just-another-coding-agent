@@ -279,10 +279,12 @@ class McpToolset(AbstractToolset[WorkspaceDeps]):
         *,
         manager: McpManager,
         executor: McpToolExecutor,
+        tool_names: tuple[str, ...] | None = None,
         id: str | None = "jaca_mcp",
     ) -> None:
         self._manager = manager
         self._executor = executor
+        self._tool_names = tool_names
         self._id = id
 
     @property
@@ -311,8 +313,15 @@ class McpToolset(AbstractToolset[WorkspaceDeps]):
                 max_retries=0,
                 args_validator=_MCP_TOOL_ARGS_VALIDATOR,
             )
-            for tool in self._manager.discover_tools()
+            for tool in self._discover_requested_tools()
         }
+
+    def _discover_requested_tools(self) -> tuple[McpToolDefinition, ...]:
+        if self._tool_names is None:
+            return self._manager.discover_tools()
+        return tuple(
+            self._manager.get_tool(tool_name) for tool_name in self._tool_names
+        )
 
     async def call_tool(
         self,
@@ -500,8 +509,9 @@ def build_mcp_toolset(
     *,
     manager: McpManager,
     executor: McpToolExecutor,
+    tool_names: tuple[str, ...] | None = None,
 ) -> McpToolset:
-    return McpToolset(manager=manager, executor=executor)
+    return McpToolset(manager=manager, executor=executor, tool_names=tool_names)
 
 
 __all__ = [

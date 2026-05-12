@@ -98,8 +98,9 @@ The first runtime slices live in
 `McpManager`, built-in `jaca_onboarding` server metadata, a PydanticAI
 `McpToolset`, and an `McpToolExecutor` seam. The toolset can expose MCP-shaped
 tools to the model and route calls through the executor while returning typed
-`McpActivityDetails`. This still does not attach MCP tools to the canonical
-agent by default or replace native onboarding tools yet.
+`McpActivityDetails`. Default coding runs still expose only the canonical
+coding tools. Onboarding runs now attach the `jaca_onboarding` MCP toolset and
+do not expose native onboarding tools directly to the model.
 
 The first built-in executor is `JacaOnboardingMcpExecutor`. It adapts the
 `jaca_onboarding` MCP tool identities onto the existing backend onboarding
@@ -139,9 +140,9 @@ not add native onboarding tools to the model-facing registry.
 
 The onboarding MCP server may expose tools such as:
 
-- `ask_mcq_question`
-- `publish_teaching_packet`
-- `generate_mcq_from_teaching_packets`
+- `mcp__jaca_onboarding__ask_mcq_question`
+- `mcp__jaca_onboarding__publish_teaching_packet`
+- `mcp__jaca_onboarding__generate_mcq_from_teaching_packets`
 
 It may expose resources such as:
 

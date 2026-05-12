@@ -7,6 +7,7 @@ from typing import Any
 
 from pydantic_ai import Agent
 
+from just_another_coding_agent.contracts.mcp import MCP_TOOL_NAME_PREFIX
 from just_another_coding_agent.contracts.platform import (
     ShellFamily,
     detect_default_shell_family,
@@ -21,6 +22,11 @@ from just_another_coding_agent.contracts.sandbox import (
 )
 from just_another_coding_agent.contracts.thinking import ThinkingSetting
 from just_another_coding_agent.contracts.tools import CANONICAL_TOOL_NAMES
+from just_another_coding_agent.runtime.mcp import (
+    JacaOnboardingMcpExecutor,
+    build_default_mcp_manager,
+    build_mcp_toolset,
+)
 from just_another_coding_agent.runtime.models import resolve_canonical_model
 from just_another_coding_agent.runtime.prompt_layers import build_base_product_prompt
 from just_another_coding_agent.runtime.tool_args import (
@@ -122,13 +128,12 @@ def build_runtime_context_text(
     if model_label is not _UNSET:
         sections.append(f"Current model: {model_label}")
     if thinking is not _UNSET:
-        sections.append(
-            f"Current thinking setting: {_thinking_prompt_label(thinking)}"
+        sections.append(f"Current thinking setting: {_thinking_prompt_label(thinking)}")
+    if effective_capabilities is not _UNSET and effective_capabilities is not None:
+        approval_policy = describe_approval_policy(
+            mode=effective_capabilities.approval_mode,
+            by_kind=effective_capabilities.approval_by_kind,
         )
-    if (
-        effective_capabilities is not _UNSET
-        and effective_capabilities is not None
-    ):
         sections.extend(
             [
                 "Current filesystem access: "
@@ -136,11 +141,7 @@ def build_runtime_context_text(
                 f"Current network access: {effective_capabilities.network_access}",
                 "Current execution isolation: "
                 f"{effective_capabilities.execution_isolation}",
-                "Current approval policy: "
-                f"{describe_approval_policy(
-                    mode=effective_capabilities.approval_mode,
-                    by_kind=effective_capabilities.approval_by_kind,
-                )}",
+                f"Current approval policy: {approval_policy}",
             ]
         )
 
@@ -187,6 +188,25 @@ def build_canonical_agent(
         if tool_names is not None
         else resolve_tool_names_for_run_mode(run_mode)
     )
+    native_tool_names = tuple(
+        tool_name
+        for tool_name in resolved_tool_names
+        if not tool_name.startswith(MCP_TOOL_NAME_PREFIX)
+    )
+    mcp_tool_names = tuple(
+        tool_name
+        for tool_name in resolved_tool_names
+        if tool_name.startswith(MCP_TOOL_NAME_PREFIX)
+    )
+    toolsets = [build_canonical_toolset(native_tool_names)]
+    if mcp_tool_names:
+        toolsets.append(
+            build_mcp_toolset(
+                manager=build_default_mcp_manager(),
+                executor=JacaOnboardingMcpExecutor(),
+                tool_names=mcp_tool_names,
+            )
+        )
 
     # The canonical agent returns plain assistant text, not structured output.
     # Codex/pi-style interaction keeps the run alive until the model chooses to
@@ -212,7 +232,7 @@ def build_canonical_agent(
             else instructions
         ),
         deps_type=WorkspaceDeps,
-        toolsets=[build_canonical_toolset(resolved_tool_names)],
+        toolsets=toolsets,
         capabilities=[CanonicalValidatedToolArgsCapability()],
     )
     if agent.output_type is not str:

@@ -12,8 +12,10 @@ what it gets wrong architecturally, and the clean future direction.
 The current onboarding MVP no longer depends on DSPy on the critical path for
 basic MCQ delivery. `/onboard` now sets the active session into backend-owned
 onboarding mode, and that mode persists across later turns until `/exit-mode`.
-It can expose onboarding-only tools such as `ask_mcq_question`,
-`publish_teaching_packet`, and `generate_mcq_from_teaching_packets`.
+It exposes onboarding-only behavior through the `jaca_onboarding` MCP tools,
+such as `mcp__jaca_onboarding__ask_mcq_question`,
+`mcp__jaca_onboarding__publish_teaching_packet`, and
+`mcp__jaca_onboarding__generate_mcq_from_teaching_packets`.
 
 DSPy is still retained for future question-generation work. When that path is
 used, DSPy LM construction flows through the runtime-owned bridge in
