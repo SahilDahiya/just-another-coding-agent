@@ -157,6 +157,11 @@ def test_build_onboarding_instructions_include_onboarding_tools_and_overlay(
         "recent changes when useful." in instructions
     )
     assert (
+        "Use documentation as grounding and explanation material, but "
+        "do not pass documentation paths as teaching packet snippets."
+        in instructions
+    )
+    assert (
         "Use the jaca_onboarding MCP tools only when structured teaching "
         "or a quiz will help; teaching in normal assistant text remains "
         "the default." in instructions
@@ -167,8 +172,9 @@ def test_build_onboarding_instructions_include_onboarding_tools_and_overlay(
         "implementation detail." in instructions
     )
     assert (
-        "A teaching packet should teach one concept using 2 to 5 code "
-        "snippets and explicit relationship statements among them." in instructions
+        "A teaching packet should teach one concept using 2 to 5 snippets "
+        "from code files only and explicit relationship statements among "
+        "them." in instructions
     )
     assert (
         "If you use mcp__jaca_onboarding__ask_mcq_question, first call "

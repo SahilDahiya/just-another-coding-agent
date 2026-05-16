@@ -185,7 +185,8 @@ async def test_mcp_toolset_exposes_discovered_tools_to_model(tmp_path) -> None:
     ]
     publish_tool = {tool.name: tool for tool in function_tools}[_PUBLISH_TOOL_NAME]
     assert publish_tool.description == (
-        "Publish one code-grounded onboarding teaching packet."
+        "Publish one onboarding teaching packet with code-file snippets only; "
+        "use docs for grounding, not snippets."
     )
     assert publish_tool.sequential is True
     assert publish_tool.parameters_json_schema["type"] == "object"

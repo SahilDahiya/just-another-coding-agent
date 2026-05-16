@@ -475,7 +475,10 @@ DEFAULT_BUILTIN_MCP_SERVERS = (
                     tool_name=_PUBLISH_TEACHING_PACKET_TOOL_NAME,
                 ),
                 title="Publish teaching packet",
-                description="Publish one code-grounded onboarding teaching packet.",
+                description=(
+                    "Publish one onboarding teaching packet with code-file "
+                    "snippets only; use docs for grounding, not snippets."
+                ),
                 input_schema={
                     "type": "object",
                     "properties": {

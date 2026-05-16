@@ -438,9 +438,10 @@ def test_build_canonical_toolset_exposes_rich_model_facing_tool_descriptions(
     assert function_tools["publish_teaching_packet"].description == (
         "Publish one curated teaching packet into the transcript by resolving "
         "2 to 5 code-file snippet references into canonical file text. "
-        "Documentation paths are not allowed. Supply a short title, one "
-        "concept, one or more relationship statements, and snippet "
-        "references with path, start_line, and end_line."
+        "Documentation may be used as grounding, but documentation paths are "
+        "not allowed in snippets. Supply a short title, one concept, one or "
+        "more relationship statements, and snippet references with path, "
+        "start_line, and end_line."
     )
     assert (
         function_tools["publish_teaching_packet"].parameters_json_schema[

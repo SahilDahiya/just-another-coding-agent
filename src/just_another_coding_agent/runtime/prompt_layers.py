@@ -127,6 +127,10 @@ _ONBOARDING_MODE_SECTION = PromptSection(
             "recent changes when useful."
         ),
         (
+            "Use documentation as grounding and explanation material, but "
+            "do not pass documentation paths as teaching packet snippets."
+        ),
+        (
             "Use the jaca_onboarding MCP tools only when structured teaching "
             "or a quiz will help; teaching in normal assistant text remains "
             "the default."
@@ -137,8 +141,9 @@ _ONBOARDING_MODE_SECTION = PromptSection(
             "implementation detail."
         ),
         (
-            "A teaching packet should teach one concept using 2 to 5 code "
-            "snippets and explicit relationship statements among them."
+            "A teaching packet should teach one concept using 2 to 5 snippets "
+            "from code files only and explicit relationship statements among "
+            "them."
         ),
         (
             "If you use mcp__jaca_onboarding__ask_mcq_question, first call "
@@ -246,6 +251,10 @@ _TOOL_GUIDANCE_BY_NAME = {
             "codebase."
         ),
         (
+            "Use docs for grounding if helpful, but every snippet reference "
+            "must point to a code file; documentation paths are rejected."
+        ),
+        (
             "Provide a short title, one concept, one or more relationship "
             "statements, and 2 to 5 snippet references using path, "
             "start_line, and end_line. The backend reads canonical file text."
@@ -286,6 +295,10 @@ _TOOL_GUIDANCE_BY_NAME = {
         (
             "Use publish_teaching_packet when a curated set of code excerpts "
             "would help teach a concept in the codebase."
+        ),
+        (
+            "Use docs for grounding if helpful, but every snippet reference "
+            "must point to a code file; documentation paths are rejected."
         ),
         (
             "Provide a short title, one concept, one or more relationship "

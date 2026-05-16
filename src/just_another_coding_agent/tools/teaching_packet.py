@@ -179,9 +179,10 @@ PUBLISH_TEACHING_PACKET_TOOL = Tool(
     description=(
         "Publish one curated teaching packet into the transcript by resolving "
         "2 to 5 code-file snippet references into canonical file text. "
-        "Documentation paths are not allowed. Supply a short title, one "
-        "concept, one or more relationship statements, and snippet "
-        "references with path, start_line, and end_line."
+        "Documentation may be used as grounding, but documentation paths are "
+        "not allowed in snippets. Supply a short title, one concept, one or "
+        "more relationship statements, and snippet references with path, "
+        "start_line, and end_line."
     ),
     docstring_format="google",
     require_parameter_descriptions=True,

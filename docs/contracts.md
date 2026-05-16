@@ -463,6 +463,9 @@ Initial executable tool slice:
 - `publish_teaching_packet` accepts only code-file snippet refs; documentation
   paths such as `docs/*`, `README*`, `AGENTS.md`, `CLAUDE.md`, or markdown-like
   files must fail explicitly
+- documentation may still be used as grounding for onboarding explanations and
+  relationship statements; it just must not be referenced as a teaching packet
+  snippet
 - `publish_teaching_packet` requires:
   - one short `title`
   - one `concept`
