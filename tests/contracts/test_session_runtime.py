@@ -61,6 +61,7 @@ from just_another_coding_agent.runtime.mcp import (
     StaticMcpToolExecutor,
     build_effective_mcp_manager,
 )
+from just_another_coding_agent.runtime.mcp_inventory import McpToolInventory
 from just_another_coding_agent.runtime.project_docs import (
     PROJECT_DOC_MESSAGE_HEADER,
 )
@@ -175,6 +176,14 @@ class _FakeConfiguredMcpRuntime:
         )
         self.executor = StaticMcpToolExecutor(handlers={})
         self.configured_tool_names = (_DEMO_ECHO_TOOL_NAME,)
+        self.direct_tool_names = (_DEMO_ECHO_TOOL_NAME,)
+        self.deferred_tool_names = ()
+        self.model_visible_tool_names = (_DEMO_ECHO_TOOL_NAME,)
+        self.mcp_tool_inventory = McpToolInventory.from_manager(
+            self.manager,
+            direct_tool_names=self.direct_tool_names,
+            deferred_tool_names=self.deferred_tool_names,
+        )
         self.closed = 0
 
     async def close(self) -> None:
@@ -678,6 +687,108 @@ async def test_stream_session_run_events_mounts_configured_mcp_tools(
     assert "mcp__demo_echo__echo_message" in captured["function_tool_names"]
     deps = captured["deps"]
     assert isinstance(deps, WorkspaceDeps)
+    assert fake_runtime.closed == 1
+
+
+async def test_stream_session_run_events_defers_large_configured_mcp_inventory(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    session_path = tmp_path / "session-id-target.jsonl"
+    model = TestModel(call_tools=[], custom_output_text="ok")
+    configured_server = McpServerConfig(
+        server_id="demo_echo",
+        transport=McpStreamableHttpTransport(url="http://127.0.0.1:8000/mcp"),
+    )
+    captured: dict[str, object] = {}
+
+    class LargeFakeConfiguredMcpRuntime(_FakeConfiguredMcpRuntime):
+        def __init__(self) -> None:
+            super().__init__()
+            self.configured_tool_names = tuple(
+                f"mcp__demo_echo__tool_{index}" for index in range(101)
+            )
+            self.direct_tool_names = ()
+            self.deferred_tool_names = self.configured_tool_names
+            self.model_visible_tool_names = ("mcp_search",)
+            self.mcp_tool_inventory = McpToolInventory(
+                direct_tool_names=self.direct_tool_names,
+                deferred_tool_names=self.deferred_tool_names,
+            )
+
+    fake_runtime = LargeFakeConfiguredMcpRuntime()
+
+    async def fake_build_configured_mcp_runtime(*, configured_servers):
+        assert configured_servers == {"demo_echo": configured_server}
+        return fake_runtime
+
+    async def fake_stream_run_events(
+        *,
+        agent,
+        prompt,
+        message_history=None,
+        instructions=None,
+        thinking=None,
+        deps=None,
+        message_history_sink=None,
+        available_tool_names=None,
+        **_kwargs,
+    ):
+        del prompt, message_history, instructions, thinking
+        captured["available_tool_names"] = available_tool_names
+        captured["deps"] = deps
+        await agent.run("What tools are available?", deps=deps)
+        captured["function_tool_names"] = [
+            tool.name for tool in model.last_model_request_parameters.function_tools
+        ]
+        yield RunStartedEvent(run_id="run-1")
+        if message_history_sink is not None:
+            message_history_sink([ModelRequest(parts=[UserPromptPart(content="done")])])
+        yield RunSucceededEvent(run_id="run-1", output_text="done")
+
+    monkeypatch.setattr(
+        runtime_session_module,
+        "load_mcp_server_configs",
+        lambda: {"demo_echo": configured_server},
+    )
+    monkeypatch.setattr(
+        runtime_session_module,
+        "build_configured_mcp_runtime",
+        fake_build_configured_mcp_runtime,
+    )
+    monkeypatch.setattr(
+        runtime_session_module,
+        "stream_run_events",
+        fake_stream_run_events,
+    )
+
+    _ = [
+        event
+        async for event in stream_session_run_events(
+            model=model,
+            workspace_root=workspace_root,
+            session_path=session_path,
+            prompt="go",
+        )
+    ]
+
+    assert captured["available_tool_names"] == (
+        "read",
+        "write",
+        "edit",
+        "shell",
+        "grep",
+        "ls",
+        "find",
+        "subagent",
+        "mcp_search",
+    )
+    function_tool_names = captured["function_tool_names"]
+    assert "mcp_search" in function_tool_names
+    assert "mcp__demo_echo__tool_0" not in function_tool_names
+    assert isinstance(captured["deps"], WorkspaceDeps)
     assert fake_runtime.closed == 1
 
 

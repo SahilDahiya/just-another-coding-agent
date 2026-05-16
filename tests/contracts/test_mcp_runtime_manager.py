@@ -10,6 +10,7 @@ from pydantic_ai import Agent, RunContext
 from pydantic_ai.mcp import MCPServerStdio, MCPServerStreamableHTTP
 from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 from pydantic_ai.models.test import TestModel
+from pydantic_ai.usage import RunUsage
 
 from just_another_coding_agent.contracts.mcp import (
     JACA_ONBOARDING_MCP_SERVER_ID,
@@ -37,6 +38,7 @@ from just_another_coding_agent.runtime import (
 )
 from just_another_coding_agent.runtime.mcp import (
     DEFAULT_BUILTIN_MCP_SERVERS,
+    DIRECT_MCP_TOOL_EXPOSURE_THRESHOLD,
     JacaOnboardingMcpExecutor,
     McpDiscoveredTool,
     McpManager,
@@ -51,12 +53,15 @@ from just_another_coding_agent.runtime.mcp import (
     build_configured_mcp_runtime,
     build_default_mcp_manager,
     build_effective_mcp_manager,
+    build_mcp_tool_exposure,
     build_mcp_toolset,
     build_pydantic_ai_mcp_server,
     discover_pydantic_ai_mcp_tools,
 )
+from just_another_coding_agent.runtime.mcp_inventory import McpToolInventory
 from just_another_coding_agent.runtime.run import stream_run_events
 from just_another_coding_agent.tools.deps import RunSessionScope, WorkspaceDeps
+from just_another_coding_agent.tools.mcp_search import mcp_search
 from tests.read_only_worker_test_support import workspace_deps
 
 _PUBLISH_TOOL_NAME = "mcp__jaca_onboarding__publish_teaching_packet"
@@ -254,6 +259,77 @@ def test_effective_mcp_manager_filters_configured_tool_policy() -> None:
     assert [
         tool.model_tool_name for tool in manager.discover_tools(server_id="demo_echo")
     ] == [_DEMO_ECHO_TOOL_NAME]
+
+
+def test_mcp_tool_exposure_defers_large_configured_inventories() -> None:
+    tool_names = tuple(
+        f"mcp__demo_echo__tool_{index}"
+        for index in range(DIRECT_MCP_TOOL_EXPOSURE_THRESHOLD + 1)
+    )
+
+    exposure = build_mcp_tool_exposure(tool_names)
+
+    assert exposure.direct_tool_names == ()
+    assert exposure.deferred_tool_names == tool_names
+    assert exposure.search_tool_required
+
+
+async def test_mcp_search_activates_deferred_tool_for_toolset(
+    tmp_path,
+) -> None:
+    manager = build_effective_mcp_manager(
+        configured_servers={
+            "demo_echo": McpServerConfig(
+                server_id="demo_echo",
+                transport=McpStreamableHttpTransport(url="http://127.0.0.1:8000/mcp"),
+            ),
+        },
+        discovered_tools_by_server={
+            "demo_echo": (
+                McpDiscoveredTool(
+                    raw_tool_name="echo-message",
+                    title="Echo message",
+                    description="Echo one message.",
+                ),
+            ),
+        },
+        builtin_servers=(),
+    )
+    inventory = McpToolInventory.from_manager(
+        manager,
+        direct_tool_names=(),
+        deferred_tool_names=(_DEMO_ECHO_TOOL_NAME,),
+    )
+    deps = replace(workspace_deps(tmp_path), mcp_tool_inventory=inventory)
+    ctx = RunContext(
+        deps=deps,
+        model=TestModel(),
+        usage=RunUsage(),
+        tool_call_id=None,
+        tool_name=None,
+    )
+    toolset = build_mcp_toolset(
+        manager=manager,
+        executor=StaticMcpToolExecutor(handlers={}),
+        tool_names=(),
+        deferred_tool_names=(_DEMO_ECHO_TOOL_NAME,),
+    )
+
+    assert await toolset.get_tools(ctx) == {}
+
+    result = await mcp_search(ctx, query="echo", limit=5)
+
+    assert result.return_value["matches"] == [
+        {
+            "name": _DEMO_ECHO_TOOL_NAME,
+            "server_id": "demo_echo",
+            "tool_name": "echo_message",
+            "title": "Echo message",
+            "description": "Echo one message.",
+            "deferred": True,
+        }
+    ]
+    assert _DEMO_ECHO_TOOL_NAME in (await toolset.get_tools(ctx))
 
 
 def test_effective_mcp_manager_fails_hard_for_missing_discovery() -> None:

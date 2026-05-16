@@ -180,6 +180,16 @@ _TOOL_GUIDANCE_BY_NAME = {
     "grep": ("Use grep for content search across files.",),
     "ls": ("Use ls for bounded directory listings.",),
     "find": ("Use find for file discovery by glob pattern.",),
+    "mcp_search": (
+        (
+            "Use mcp_search to find deferred MCP tools when the exact "
+            "mcp__server__tool name is not already listed."
+        ),
+        (
+            "After mcp_search returns relevant matches, call the exact "
+            "returned mcp__server__tool name instead of guessing."
+        ),
+    ),
     "exec": (
         (
             "Use exec only when Code Mode is explicitly available and a small "

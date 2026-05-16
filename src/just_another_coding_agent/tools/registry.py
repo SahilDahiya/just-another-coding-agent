@@ -15,6 +15,7 @@ from just_another_coding_agent.contracts.run_mode import (
 from just_another_coding_agent.contracts.tools import (
     CANONICAL_TOOL_NAMES,
     KNOWN_TOOL_NAMES,
+    MCP_DISCOVERY_TOOL_NAMES,
     ONBOARDING_TOOL_NAMES,
     CanonicalToolName,
     OnboardingToolName,
@@ -29,6 +30,7 @@ from just_another_coding_agent.tools.errors import ErrorWrappingToolset
 from just_another_coding_agent.tools.find import FIND_TOOL
 from just_another_coding_agent.tools.grep import GREP_TOOL
 from just_another_coding_agent.tools.ls import LS_TOOL
+from just_another_coding_agent.tools.mcp_search import MCP_SEARCH_TOOL
 from just_another_coding_agent.tools.mcq_from_teaching_packets import (
     GENERATE_MCQ_FROM_TEACHING_PACKETS_TOOL,
 )
@@ -66,6 +68,7 @@ SEQUENTIAL_ONBOARDING_TOOL_NAMES = (
     "publish_teaching_packet",
 )
 SEQUENTIAL_CODE_MODE_TOOL_NAMES = CODE_MODE_TOOL_NAMES
+SEQUENTIAL_MCP_DISCOVERY_TOOL_NAMES = MCP_DISCOVERY_TOOL_NAMES
 
 _TOOLS_BY_NAME = {
     "ask_mcq_question": ASK_MCQ_QUESTION_TOOL,
@@ -75,6 +78,7 @@ _TOOLS_BY_NAME = {
     "generate_mcq_from_teaching_packets": (GENERATE_MCQ_FROM_TEACHING_PACKETS_TOOL),
     "grep": GREP_TOOL,
     "ls": LS_TOOL,
+    "mcp_search": MCP_SEARCH_TOOL,
     "publish_teaching_packet": PUBLISH_TEACHING_PACKET_TOOL,
     "read": READ_TOOL,
     "shell": SHELL_TOOL,
@@ -94,10 +98,15 @@ else:
 if set(PARALLEL_CANONICAL_TOOL_NAMES).isdisjoint(SEQUENTIAL_ONBOARDING_TOOL_NAMES):
     if set(PARALLEL_CANONICAL_TOOL_NAMES) | set(SEQUENTIAL_CANONICAL_TOOL_NAMES) | set(
         SEQUENTIAL_ONBOARDING_TOOL_NAMES
-    ) != set(KNOWN_TOOL_NAMES):
+    ) | set(SEQUENTIAL_MCP_DISCOVERY_TOOL_NAMES) != set(KNOWN_TOOL_NAMES):
         raise RuntimeError("Known tool concurrency policy must cover all tools")
 else:
     raise RuntimeError("Onboarding tool concurrency policy must be disjoint")
+
+if not set(SEQUENTIAL_ONBOARDING_TOOL_NAMES).isdisjoint(
+    SEQUENTIAL_MCP_DISCOVERY_TOOL_NAMES
+):
+    raise RuntimeError("MCP discovery tool concurrency policy must be disjoint")
 
 if not set(SEQUENTIAL_CODE_MODE_TOOL_NAMES).issubset(_TOOLS_BY_NAME):
     raise RuntimeError("Code Mode tool policy references unknown tools")
@@ -138,6 +147,7 @@ def build_canonical_toolset(
             tool_name in SEQUENTIAL_CANONICAL_TOOL_NAMES
             or tool_name in SEQUENTIAL_ONBOARDING_TOOL_NAMES
             or tool_name in SEQUENTIAL_CODE_MODE_TOOL_NAMES
+            or tool_name in SEQUENTIAL_MCP_DISCOVERY_TOOL_NAMES
         )
         if tool.sequential is not expected_sequential:
             raise RuntimeError(

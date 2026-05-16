@@ -36,6 +36,7 @@ from just_another_coding_agent.runtime.code_mode.service import (
     CodeModeCellService,
     CodeModeRunner,
 )
+from just_another_coding_agent.runtime.mcp_inventory import McpToolInventory
 from just_another_coding_agent.tools._workspace import (
     canonicalize_path_target,
     normalize_workspace_root,
@@ -308,6 +309,11 @@ class WorkspaceDeps:
     )
     runtime_resource_closers: tuple[RuntimeResourceCloser, ...] = field(
         default_factory=tuple,
+        compare=False,
+        repr=False,
+    )
+    mcp_tool_inventory: McpToolInventory = field(
+        default_factory=McpToolInventory,
         compare=False,
         repr=False,
     )

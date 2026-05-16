@@ -44,6 +44,7 @@ from just_another_coding_agent.contracts.teaching import (
     TeachingSnippetRef,
 )
 from just_another_coding_agent.contracts.tools import make_tool_denied_result
+from just_another_coding_agent.runtime.mcp_inventory import McpToolInventory
 from just_another_coding_agent.tools._activity import make_tool_return
 from just_another_coding_agent.tools._approval_flow import resolve_tool_approval
 from just_another_coding_agent.tools.deps import WorkspaceDeps
@@ -64,11 +65,45 @@ _ASK_MCQ_TOOL_NAME = "ask_mcq_question"
 _GENERATE_MCQ_TOOL_NAME = "generate_mcq_from_teaching_packets"
 _PUBLISH_TEACHING_PACKET_TOOL_NAME = "publish_teaching_packet"
 _MODEL_TOOL_NAME_INVALID_CHARS = re.compile(r"[^a-z0-9_]+")
+DIRECT_MCP_TOOL_EXPOSURE_THRESHOLD = 100
 
 McpToolHandler = Callable[
     [McpToolIdentity, dict[str, Any], RunContext[WorkspaceDeps], McpToolCallProvenance],
     Any | Awaitable[Any],
 ]
+
+
+@dataclass(frozen=True)
+class McpToolExposure:
+    direct_tool_names: tuple[str, ...]
+    deferred_tool_names: tuple[str, ...]
+
+    @property
+    def search_tool_required(self) -> bool:
+        return bool(self.deferred_tool_names)
+
+    @property
+    def model_visible_tool_names(self) -> tuple[str, ...]:
+        if self.search_tool_required:
+            return (*self.direct_tool_names, "mcp_search")
+        return self.direct_tool_names
+
+
+def build_mcp_tool_exposure(
+    tool_names: Sequence[str],
+    *,
+    direct_threshold: int = DIRECT_MCP_TOOL_EXPOSURE_THRESHOLD,
+) -> McpToolExposure:
+    resolved_tool_names = tuple(tool_names)
+    if len(resolved_tool_names) <= direct_threshold:
+        return McpToolExposure(
+            direct_tool_names=resolved_tool_names,
+            deferred_tool_names=(),
+        )
+    return McpToolExposure(
+        direct_tool_names=(),
+        deferred_tool_names=resolved_tool_names,
+    )
 
 
 class McpManagerError(RuntimeError):
@@ -571,6 +606,10 @@ class ConfiguredMcpRuntime:
     executor: McpToolExecutor
     servers_by_id: Mapping[str, PydanticAiMcpServerProtocol]
     configured_tool_names: tuple[str, ...]
+    direct_tool_names: tuple[str, ...] = ()
+    deferred_tool_names: tuple[str, ...] = ()
+    model_visible_tool_names: tuple[str, ...] = ()
+    mcp_tool_inventory: McpToolInventory = field(default_factory=McpToolInventory)
     _closed: bool = field(default=False, init=False, repr=False)
 
     @property
@@ -640,11 +679,13 @@ class McpToolset(AbstractToolset[WorkspaceDeps]):
         manager: McpManager,
         executor: McpToolExecutor,
         tool_names: tuple[str, ...] | None = None,
+        deferred_tool_names: tuple[str, ...] = (),
         id: str | None = "jaca_mcp",
     ) -> None:
         self._manager = manager
         self._executor = executor
         self._tool_names = tool_names
+        self._deferred_tool_names = deferred_tool_names
         self._id = id
 
     @property
@@ -655,7 +696,6 @@ class McpToolset(AbstractToolset[WorkspaceDeps]):
         self,
         ctx: RunContext[WorkspaceDeps],
     ) -> dict[str, ToolsetTool[WorkspaceDeps]]:
-        del ctx
         return {
             tool.model_tool_name: ToolsetTool(
                 toolset=self,
@@ -670,14 +710,24 @@ class McpToolset(AbstractToolset[WorkspaceDeps]):
                 max_retries=0,
                 args_validator=_MCP_TOOL_ARGS_VALIDATOR,
             )
-            for tool in self._discover_requested_tools()
+            for tool in self._discover_requested_tools(ctx)
         }
 
-    def _discover_requested_tools(self) -> tuple[McpToolDefinition, ...]:
+    def _discover_requested_tools(
+        self,
+        ctx: RunContext[WorkspaceDeps],
+    ) -> tuple[McpToolDefinition, ...]:
         if self._tool_names is None:
             return self._manager.discover_tools()
+        visible_tool_names = [*self._tool_names]
+        visible_tool_names.extend(
+            ctx.deps.mcp_tool_inventory.visible_deferred_tool_names()
+        )
         return tuple(
-            self._manager.get_tool(tool_name) for tool_name in self._tool_names
+            self._manager.get_tool(tool_name)
+            for tool_name in visible_tool_names
+            if tool_name not in self._deferred_tool_names
+            or tool_name in ctx.deps.mcp_tool_inventory.activated_deferred_tool_names
         )
 
     async def call_tool(
@@ -1096,11 +1146,21 @@ async def build_configured_mcp_runtime(
             for tool in manager.discover_tools()
             if tool.identity.server_id in servers_by_id
         )
+        exposure = build_mcp_tool_exposure(configured_tool_names)
+        mcp_tool_inventory = McpToolInventory.from_manager(
+            manager,
+            direct_tool_names=exposure.direct_tool_names,
+            deferred_tool_names=exposure.deferred_tool_names,
+        )
         return ConfiguredMcpRuntime(
             manager=manager,
             executor=executor,
             servers_by_id=servers_by_id,
             configured_tool_names=configured_tool_names,
+            direct_tool_names=exposure.direct_tool_names,
+            deferred_tool_names=exposure.deferred_tool_names,
+            model_visible_tool_names=exposure.model_visible_tool_names,
+            mcp_tool_inventory=mcp_tool_inventory,
         )
     except Exception:
         for server in reversed(tuple(servers_by_id.values())):
@@ -1117,8 +1177,14 @@ def build_mcp_toolset(
     manager: McpManager,
     executor: McpToolExecutor,
     tool_names: tuple[str, ...] | None = None,
+    deferred_tool_names: tuple[str, ...] = (),
 ) -> McpToolset:
-    return McpToolset(manager=manager, executor=executor, tool_names=tool_names)
+    return McpToolset(
+        manager=manager,
+        executor=executor,
+        tool_names=tool_names,
+        deferred_tool_names=deferred_tool_names,
+    )
 
 
 __all__ = [
@@ -1128,6 +1194,7 @@ __all__ = [
     "McpDiscoveredTool",
     "McpManagerError",
     "McpManager",
+    "McpToolExposure",
     "McpRuntimeFailureError",
     "PydanticAiMcpExecutor",
     "PydanticAiMcpServer",
@@ -1145,6 +1212,7 @@ __all__ = [
     "build_configured_mcp_runtime",
     "build_default_mcp_manager",
     "build_effective_mcp_manager",
+    "build_mcp_tool_exposure",
     "build_mcp_toolset",
     "build_pydantic_ai_mcp_server",
     "discover_pydantic_ai_mcp_tools",

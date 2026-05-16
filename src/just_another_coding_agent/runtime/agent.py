@@ -184,6 +184,7 @@ def build_canonical_agent(
     instructions: str | None = None,
     mcp_manager: McpManager | None = None,
     mcp_executor: McpToolExecutor | None = None,
+    mcp_deferred_tool_names: Sequence[str] = (),
 ) -> Agent[WorkspaceDeps, str]:
     normalize_workspace_root(workspace_root)
     resolved_model = resolve_canonical_model(model)
@@ -203,7 +204,8 @@ def build_canonical_agent(
         if tool_name.startswith(MCP_TOOL_NAME_PREFIX)
     )
     toolsets = [build_canonical_toolset(native_tool_names)]
-    if mcp_tool_names:
+    resolved_mcp_deferred_tool_names = tuple(mcp_deferred_tool_names)
+    if mcp_tool_names or resolved_mcp_deferred_tool_names:
         manager = build_default_mcp_manager() if mcp_manager is None else mcp_manager
         executor = JacaOnboardingMcpExecutor() if mcp_executor is None else mcp_executor
         toolsets.append(
@@ -211,6 +213,7 @@ def build_canonical_agent(
                 manager=manager,
                 executor=executor,
                 tool_names=mcp_tool_names,
+                deferred_tool_names=resolved_mcp_deferred_tool_names,
             )
         )
 

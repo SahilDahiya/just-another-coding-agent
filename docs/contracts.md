@@ -92,9 +92,14 @@ Rules:
 - MCP sampling must remain disabled for configured external MCP clients until
   a separate backend-owned sampling policy contract exists.
 - Session runs must load persisted configured MCP servers, discover enabled
-  external tools before agent construction, append discovered `mcp__...` tools
-  to the run-visible tool list, and close configured MCP clients through the
-  backend runtime-resource lifecycle.
+  external tools before agent construction, build a backend-owned MCP tool
+  inventory, expose only the bounded direct MCP tool set plus `mcp_search`
+  when tools are deferred, and close configured MCP clients through the backend
+  runtime-resource lifecycle.
+- Backend-known configured MCP tools and model-visible configured MCP tools are
+  distinct sets. Large configured MCP inventories must be searchable through
+  backend-owned `mcp_search` instead of being dumped entirely into the initial
+  tool list.
 - Configured MCP config, startup, and discovery failures that happen before a
   run starts must surface as typed session lifecycle events carrying
   `McpFailure`; they must not create partial session runs.

@@ -67,6 +67,7 @@ from just_another_coding_agent.runtime.mcp import (
     McpRuntimeFailureError,
     build_configured_mcp_runtime,
 )
+from just_another_coding_agent.runtime.mcp_inventory import McpToolInventory
 from just_another_coding_agent.runtime.run import stream_run_events
 from just_another_coding_agent.runtime.transcript_summary import (
     sync_run_transcript_summary_metrics,
@@ -105,7 +106,7 @@ def _append_configured_mcp_tool_names(
         return resolved_tool_names
     seen_tool_names = set(resolved_tool_names)
     appended_tool_names = list(resolved_tool_names)
-    for tool_name in mcp_runtime.configured_tool_names:
+    for tool_name in mcp_runtime.model_visible_tool_names:
         if tool_name not in seen_tool_names:
             appended_tool_names.append(tool_name)
             seen_tool_names.add(tool_name)
@@ -421,6 +422,11 @@ async def stream_session_run_events(
                 if configured_mcp_runtime is not None
                 else None
             ),
+            mcp_deferred_tool_names=(
+                configured_mcp_runtime.deferred_tool_names
+                if configured_mcp_runtime is not None
+                else ()
+            ),
         )
     except Exception:
         if configured_mcp_runtime is not None:
@@ -462,6 +468,11 @@ async def stream_session_run_events(
                     (configured_mcp_runtime.close,)
                     if configured_mcp_runtime is not None
                     else ()
+                ),
+                mcp_tool_inventory=(
+                    configured_mcp_runtime.mcp_tool_inventory
+                    if configured_mcp_runtime is not None
+                    else McpToolInventory()
                 ),
             ),
             message_history_sink=_record_message_history,

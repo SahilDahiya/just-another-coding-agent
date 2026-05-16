@@ -143,11 +143,27 @@ the request.
 
 Session construction now loads persisted user MCP config from
 `~/.jaca/config.json`, starts configured PydanticAI MCP clients for the run,
-discovers tools, appends discovered external `mcp__server__tool` names to the
-model-visible tool list, and registers the configured MCP runtime for cleanup
-through `WorkspaceDeps.close_runtime_resources`. Prompt policy treats dynamic
+discovers tools, builds a backend-owned MCP inventory, exposes a bounded direct
+set of discovered external `mcp__server__tool` names, and registers the
+configured MCP runtime for cleanup through
+`WorkspaceDeps.close_runtime_resources`. Prompt policy treats dynamic
 `mcp__...` names as backend-mounted tools instead of requiring every external
 tool name to be hardcoded in the static prompt registry.
+
+Configured MCP tool exposure is intentionally split:
+
+- the backend inventory knows every mounted configured MCP tool discovered for
+  the run
+- small configured MCP inventories are exposed directly as exact
+  `mcp__server__tool` names
+- inventories larger than the direct exposure threshold are deferred instead
+  of being dumped into the initial model-visible tool list
+- deferred inventories expose `mcp_search`; a successful search returns exact
+  MCP tool names and enables the returned deferred tools for the run
+
+This mirrors Codex's large-MCP-inventory shape: model-visible tools and
+backend-known tools are not the same set. The backend remains the authority for
+resolving and executing the selected `mcp__server__tool` name.
 
 Configured MCP config, startup, and discovery failures are wrapped in
 `McpRuntimeFailureError` with a typed `McpFailure`. Because these failures
@@ -237,7 +253,8 @@ domain seam and return a typed result.
    through `jaca_onboarding`.
 4. Route top-level MCP tool calls through the same backend policy and activity
    layer as canonical tools.
-5. Extend Code Mode's nested bridge to generated/namespaced MCP tool helpers.
-6. Add tests that prove ordinary model tool calls and Code Mode nested calls
+5. Add deferred MCP inventory/search for large configured MCP tool sets.
+6. Extend Code Mode's nested bridge to generated/namespaced MCP tool helpers.
+7. Add tests that prove ordinary model tool calls and Code Mode nested calls
    both reach the same MCP-backed onboarding tools with the same provenance and
    failure behavior.

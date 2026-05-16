@@ -21,7 +21,12 @@ ONBOARDING_TOOL_NAMES = (
     "generate_mcq_from_teaching_packets",
     "publish_teaching_packet",
 )
-KNOWN_TOOL_NAMES = (*CANONICAL_TOOL_NAMES, *ONBOARDING_TOOL_NAMES)
+MCP_DISCOVERY_TOOL_NAMES = ("mcp_search",)
+KNOWN_TOOL_NAMES = (
+    *CANONICAL_TOOL_NAMES,
+    *ONBOARDING_TOOL_NAMES,
+    *MCP_DISCOVERY_TOOL_NAMES,
+)
 
 CanonicalToolName = Literal[
     "read",
@@ -37,6 +42,7 @@ OnboardingToolName = Literal[
     "ask_mcq_question",
     "generate_mcq_from_teaching_packets",
     "publish_teaching_packet",
+    "mcp_search",
 ]
 KnownToolName = Literal[
     "read",
