@@ -349,12 +349,17 @@ def _run_mcp_add_argv(*, argv: Sequence[str], writer: TextIO) -> int:
 
 def _run_mcp_add(*, args: argparse.Namespace, writer: TextIO) -> int:
     existing_servers = load_mcp_server_configs()
-    if args.server_id in existing_servers:
-        raise RuntimeError(f"MCP server already exists: {args.server_id}")
     config = _build_mcp_add_config(args)
+    existing_config = existing_servers.get(config.server_id)
+    already_configured = existing_config is not None
+    if existing_config is not None and existing_config != config:
+        raise RuntimeError(
+            f"MCP server already exists with different config: {args.server_id}"
+        )
     updated_servers = dict(existing_servers)
     updated_servers[config.server_id] = config
-    save_mcp_server_configs(updated_servers)
+    if not already_configured:
+        save_mcp_server_configs(updated_servers)
 
     transport = config.transport
     if (
@@ -371,7 +376,18 @@ def _run_mcp_add(*, args: argparse.Namespace, writer: TextIO) -> int:
             writer.write(f"Run `jaca mcp login {config.server_id}` to retry.\n")
             writer.flush()
             return 1
-        writer.write(f"Added and logged in MCP server {config.server_id}.\n")
+        if already_configured:
+            writer.write(
+                f"MCP server {config.server_id} already configured; "
+                "OAuth login refreshed.\n"
+            )
+        else:
+            writer.write(f"Added and logged in MCP server {config.server_id}.\n")
+        writer.flush()
+        return 0
+
+    if already_configured:
+        writer.write(f"MCP server {config.server_id} already configured.\n")
         writer.flush()
         return 0
 

@@ -268,9 +268,21 @@ def test_jaca_mcp_add_stdio_writes_config(tmp_path, monkeypatch) -> None:
     assert output.getvalue() == "Added MCP server memory.\n"
 
 
-def test_jaca_mcp_add_rejects_duplicate_server(tmp_path, monkeypatch) -> None:
+def test_jaca_mcp_add_oauth_is_idempotent_for_identical_config(
+    tmp_path,
+    monkeypatch,
+) -> None:
     monkeypatch.setenv("HOME", str(tmp_path))
     _write_mcp_config(tmp_path)
+    seen = {}
+
+    async def fake_login(config, *, auth_url_handler, connect):
+        seen["server_id"] = config.server_id
+        seen["url"] = config.transport.url
+        await auth_url_handler("https://auth.example.test/login")
+        return SimpleNamespace(server_id=config.server_id)
+
+    monkeypatch.setattr(entry, "login_mcp_oauth_server", fake_login)
     output = StringIO()
 
     exit_code = entry.main(
@@ -285,8 +297,67 @@ def test_jaca_mcp_add_rejects_duplicate_server(tmp_path, monkeypatch) -> None:
         output_stream=output,
     )
 
+    assert exit_code == 0
+    assert seen == {
+        "server_id": "linear",
+        "url": "https://mcp.linear.app/mcp",
+    }
+    assert "https://auth.example.test/login" in output.getvalue()
+    assert "MCP server linear already configured; OAuth login refreshed." in (
+        output.getvalue()
+    )
+
+
+def test_jaca_mcp_add_is_idempotent_for_identical_stdio_config(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    output = StringIO()
+    add_argv = [
+        "mcp",
+        "add",
+        "memory",
+        "--",
+        "npx",
+        "-y",
+        "@modelcontextprotocol/server-memory",
+    ]
+
+    first_exit_code = entry.main(add_argv, output_stream=output)
+    second_exit_code = entry.main(add_argv, output_stream=output)
+
+    assert first_exit_code == 0
+    assert second_exit_code == 0
+    assert output.getvalue() == (
+        "Added MCP server memory.\nMCP server memory already configured.\n"
+    )
+
+
+def test_jaca_mcp_add_rejects_duplicate_server_with_different_config(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    _write_mcp_config(tmp_path)
+    output = StringIO()
+
+    exit_code = entry.main(
+        [
+            "mcp",
+            "add",
+            "linear",
+            "--url",
+            "https://mcp.linear.app/other",
+            "--oauth",
+        ],
+        output_stream=output,
+    )
+
     assert exit_code == 1
-    assert output.getvalue() == "Error: MCP server already exists: linear\n"
+    assert output.getvalue() == (
+        "Error: MCP server already exists with different config: linear\n"
+    )
 
 
 def test_jaca_mcp_add_rejects_ambiguous_auth(tmp_path, monkeypatch) -> None:

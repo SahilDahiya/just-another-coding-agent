@@ -202,7 +202,10 @@ MCP OAuth CLI contract:
 - `jaca mcp add <server_id> --url <url> --bearer-token-env-var <env>` writes
   bearer-env config but does not start the server or check the token.
 - `jaca mcp add <server_id> -- <command> [args...]` writes stdio config.
-- `jaca mcp add` must fail if the server id already exists.
+- `jaca mcp add` is idempotent when the existing server config is identical:
+  non-OAuth configs report already configured, while OAuth configs retry login.
+- `jaca mcp add` must fail if the server id already exists with different
+  config. Replacement requires a future explicit replace path.
 - `jaca mcp login <server_id>` starts OAuth login for a configured streamable
   HTTP MCP server and writes tokens/client info to the backend OAuth store.
 - `jaca mcp logout <server_id>` clears OAuth state for that exact configured

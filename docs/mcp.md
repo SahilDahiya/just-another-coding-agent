@@ -187,8 +187,11 @@ servers can be added with
 `jaca mcp add <server_id> --url <url> --oauth`, which writes validated config
 and immediately starts OAuth login. If login fails after config is written,
 the config remains valid durable state and `jaca mcp login <server_id>` is the
-retry path. `jaca mcp logout <server_id>` clears the OAuth record for the
-exact server config fingerprint.
+retry path. Re-running the same `jaca mcp add ... --oauth` command with
+identical config is also a login retry. Re-running `jaca mcp add` with a
+different config for the same server id fails until an explicit replace path
+exists. `jaca mcp logout <server_id>` clears the OAuth record for the exact
+server config fingerprint.
 
 External MCP tool approval is enforced inside the backend executor before
 PydanticAI `direct_call_tool` is invoked. `auto` allows the call, `prompt`
