@@ -130,6 +130,63 @@ def test_jaca_mcp_logout_clears_configured_server_credentials(
     assert output.getvalue() == "Logged out MCP server linear.\n"
 
 
+def test_jaca_mcp_list_reports_backend_auth_status(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("LINEAR_MCP_TOKEN", raising=False)
+    output = StringIO()
+
+    assert (
+        entry.main(
+            [
+                "mcp",
+                "add",
+                "linear",
+                "--url",
+                "https://mcp.linear.app/mcp",
+                "--bearer-token-env-var",
+                "LINEAR_MCP_TOKEN",
+            ],
+            output_stream=StringIO(),
+        )
+        == 0
+    )
+    assert (
+        entry.main(
+            [
+                "mcp",
+                "add",
+                "memory",
+                "--",
+                "npx",
+                "-y",
+                "@modelcontextprotocol/server-memory",
+            ],
+            output_stream=StringIO(),
+        )
+        == 0
+    )
+
+    exit_code = entry.main(["mcp", "list"], output_stream=output)
+
+    assert exit_code == 0
+    assert output.getvalue() == (
+        "server_id\ttransport\tauth\tconfigured\treason\tenv\n"
+        "linear\tstreamable_http\tbearer_env\tfalse\tmissing_bearer_env\t"
+        "LINEAR_MCP_TOKEN\n"
+        "memory\tstdio\tnone\ttrue\tno_auth_required\t-\n"
+    )
+
+
+def test_jaca_mcp_list_reports_empty_config(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    output = StringIO()
+
+    exit_code = entry.main(["mcp", "list"], output_stream=output)
+
+    assert exit_code == 0
+    assert output.getvalue() == "No MCP servers configured.\n"
+
+
 def test_jaca_mcp_login_fails_for_unknown_server(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("HOME", str(tmp_path))
     _write_mcp_config(tmp_path)

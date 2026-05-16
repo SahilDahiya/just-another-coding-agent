@@ -26,6 +26,7 @@ type stubBackend struct {
 	modelCatalogErr      error
 	authStatuses         map[string]rpc.AuthProviderStatus
 	oauthStatuses        map[string]rpc.OAuthProviderStatus
+	mcpStatuses          []rpc.McpServerAuthStatus
 	logfireStatus        rpc.TraceLogfireStatusResponse
 	permissionState      rpc.PermissionState
 	workspaceTrust       rpc.WorkspaceTrustStatusResponse
@@ -234,6 +235,7 @@ func (b *stubBackend) AuthStatus(_ context.Context) (rpc.AuthStatusResponse, err
 		OAuthProviders: []rpc.OAuthProviderStatus{
 			b.oauthStatuses["openai-codex"],
 		},
+		McpServers: b.mcpStatuses,
 	}, nil
 }
 
@@ -3706,6 +3708,57 @@ func TestLoginStatusCommandRendersProviderSources(t *testing.T) {
 	}
 	if strings.Contains(rendered, "acct-test") {
 		t.Fatalf("auth status should not expose account id: %q", rendered)
+	}
+}
+
+func TestMcpSlashRendersBackendAuthStatusValues(t *testing.T) {
+	envVar := "LINEAR_MCP_TOKEN"
+	backend := newStubBackend()
+	backend.mcpStatuses = []rpc.McpServerAuthStatus{
+		{
+			ServerID:      "linear",
+			TransportType: "streamable_http",
+			AuthKind:      "bearer_env",
+			Configured:    false,
+			Reason:        "missing_bearer_env",
+			EnvVar:        &envVar,
+		},
+		{
+			ServerID:      "memory",
+			TransportType: "stdio",
+			AuthKind:      "none",
+			Configured:    true,
+			Reason:        "no_auth_required",
+		},
+	}
+
+	m := newTestModel()
+	m.options.Backend = backend
+
+	m = sendRunes(m, "/mcp")
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	rendered := stripANSI(m.transcript.Render())
+	for _, want := range []string{
+		"linear: transport=streamable_http auth=bearer_env configured=false reason=missing_bearer_env env=LINEAR_MCP_TOKEN",
+		"memory: transport=stdio auth=none configured=true reason=no_auth_required",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("transcript missing %q in %q", want, rendered)
+		}
+	}
+}
+
+func TestMcpSlashRendersEmptyStatus(t *testing.T) {
+	m := newTestModel()
+	m.options.Backend = newStubBackend()
+
+	m = sendRunes(m, "/mcp")
+	m = sendKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	rendered := stripANSI(m.transcript.Render())
+	if !strings.Contains(rendered, "no MCP servers configured") {
+		t.Fatalf("transcript missing empty MCP status: %q", rendered)
 	}
 }
 

@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Callable, TextIO
 
 from just_another_coding_agent._pdeathsig import set_pdeathsig_in_child
+from just_another_coding_agent.auth import get_mcp_server_auth_statuses
 from just_another_coding_agent.config import (
     _has_explicit_trace_mode,
     apply_config_to_env,
@@ -264,6 +265,11 @@ def _run_mcp_mode(
     )
     add_parser.add_argument("server_id")
 
+    subparsers.add_parser(
+        "list",
+        help="List configured MCP server auth status",
+    )
+
     login_parser = subparsers.add_parser(
         "login",
         help="Start OAuth login for a configured MCP server",
@@ -278,6 +284,8 @@ def _run_mcp_mode(
 
     args = parser.parse_args(list(argv))
     try:
+        if args.command == "list":
+            return _run_mcp_list(writer=writer)
         config = _load_mcp_cli_server(args.server_id)
         if args.command == "login":
             return _run_mcp_login(config=config, writer=writer)
@@ -291,6 +299,23 @@ def _run_mcp_mode(
         writer.flush()
         return 1
     raise RuntimeError(f"Unsupported MCP command: {args.command}")
+
+
+def _run_mcp_list(*, writer: TextIO) -> int:
+    statuses = get_mcp_server_auth_statuses()
+    if not statuses:
+        writer.write("No MCP servers configured.\n")
+        writer.flush()
+        return 0
+    writer.write("server_id\ttransport\tauth\tconfigured\treason\tenv\n")
+    for status in statuses:
+        env_var = status.env_var if status.env_var is not None else "-"
+        writer.write(
+            f"{status.server_id}\t{status.transport_type}\t{status.auth_kind}\t"
+            f"{str(status.configured).lower()}\t{status.reason}\t{env_var}\n"
+        )
+    writer.flush()
+    return 0
 
 
 def _run_mcp_add_argv(*, argv: Sequence[str], writer: TextIO) -> int:

@@ -215,6 +215,9 @@ MCP OAuth CLI contract:
 - `auth.status` includes `mcp_servers`, the backend-owned auth readiness list
   for configured MCP servers. Clients must render those values instead of
   inferring MCP login or environment readiness from config.
+- `jaca mcp list` and the Go TUI `/mcp` view must use backend-owned MCP auth
+  status values. They must not inspect environment variables, OAuth token
+  files, or persisted MCP config to derive readiness locally.
 - The Go TUI may read string-valued preferences from `~/.jaca/config.json`, but
   it must ignore and preserve backend-owned nested config such as
   `mcp_servers`.

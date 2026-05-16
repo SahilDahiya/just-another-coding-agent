@@ -52,6 +52,7 @@ var slashCommands = []slashCommandSpec{
 	{Value: "/onboard", Description: "Enter onboarding mode for this session", AcceptsArgs: true, Execute: (*model).executeOnboardSlash},
 	{Value: "/approve", Description: "Approve the pending action", AllowedWhileStreaming: true, Execute: (*model).executeApproveSlash},
 	{Value: "/deny", Description: "Deny the pending action", AllowedWhileStreaming: true, Execute: (*model).executeDenySlash},
+	{Value: "/mcp", Description: "Show configured MCP server auth status", Execute: (*model).executeMcpSlash},
 	{Value: "/version", Description: "Show installed and available version info", Execute: (*model).executeVersionSlash},
 	{Value: "/trace", Description: "Set tracing mode", AcceptsArgs: true, ArgSuggestions: (*model).traceSlashSuggestions, Execute: (*model).executeTraceSlash},
 	{Value: "/thinking", Description: "Set thinking effort", AcceptsArgs: true, Execute: (*model).executeThinkingSlash},
@@ -425,6 +426,12 @@ func (m *model) executeNameSlash(arg string) (tea.Model, tea.Cmd) {
 
 func (m *model) executeLoginSlash(arg string) (tea.Model, tea.Cmd) {
 	return m.handleLoginCommand(strings.TrimSpace(arg))
+}
+
+func (m *model) executeMcpSlash(_ string) (tea.Model, tea.Cmd) {
+	m.writeMcpStatus()
+	m.refreshViewport()
+	return m, nil
 }
 
 func (m *model) executeTraceSlash(arg string) (tea.Model, tea.Cmd) {

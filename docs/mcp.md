@@ -194,7 +194,9 @@ exists. `jaca mcp logout <server_id>` clears the OAuth record for the exact
 server config fingerprint. The `auth.status` RPC reports backend-owned auth
 readiness for each configured MCP server, including no-auth, bearer-env,
 OAuth, disabled, and missing-login states; clients should render that status
-instead of deriving readiness from persisted config.
+instead of deriving readiness from persisted config. `jaca mcp list` and the
+Go TUI `/mcp` command are presentation surfaces over those backend status
+values, not independent auth checkers.
 
 External MCP tool approval is enforced inside the backend executor before
 PydanticAI `direct_call_tool` is invoked. `auto` allows the call, `prompt`

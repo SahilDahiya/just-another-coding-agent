@@ -183,6 +183,8 @@ func TestGoTUIRPCBackendHelperProcess(t *testing.T) {
 						"message":         nil,
 						"file_store_path": "",
 					},
+					"oauth_providers": []map[string]any{},
+					"mcp_servers":     []map[string]any{},
 				},
 			}); err != nil {
 				fmt.Fprintf(os.Stderr, "helper encode auth.status response: %v\n", err)
