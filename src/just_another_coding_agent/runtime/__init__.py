@@ -18,6 +18,8 @@ __all__ = [
     "build_default_mcp_manager",
     "build_effective_mcp_manager",
     "build_mcp_toolset",
+    "build_pydantic_ai_mcp_server",
+    "discover_pydantic_ai_mcp_tools",
     "resolve_canonical_model",
     "stream_run_events",
     "stream_session_run_events",
@@ -41,6 +43,8 @@ _LAZY_EXPORTS = {
     "build_default_mcp_manager": (".mcp", "build_default_mcp_manager"),
     "build_effective_mcp_manager": (".mcp", "build_effective_mcp_manager"),
     "build_mcp_toolset": (".mcp", "build_mcp_toolset"),
+    "build_pydantic_ai_mcp_server": (".mcp", "build_pydantic_ai_mcp_server"),
+    "discover_pydantic_ai_mcp_tools": (".mcp", "discover_pydantic_ai_mcp_tools"),
     "resolve_canonical_model": (".models", "resolve_canonical_model"),
     "CANONICAL_RUN_RECOVERY_RETRY_LIMIT": (
         ".recovery",

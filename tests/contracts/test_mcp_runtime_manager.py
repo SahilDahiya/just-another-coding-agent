@@ -5,13 +5,16 @@ from collections.abc import AsyncIterator
 from dataclasses import replace
 
 import pytest
+from mcp import types as mcp_types
 from pydantic_ai import Agent, RunContext
+from pydantic_ai.mcp import MCPServerStdio, MCPServerStreamableHTTP
 from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 from pydantic_ai.models.test import TestModel
 
 from just_another_coding_agent.contracts.mcp import (
     JACA_ONBOARDING_MCP_SERVER_ID,
     McpServerConfig,
+    McpStdioTransport,
     McpStreamableHttpTransport,
     McpToolCallProvenance,
     McpToolIdentity,
@@ -34,12 +37,15 @@ from just_another_coding_agent.runtime.mcp import (
     McpManagerError,
     McpServerDefinition,
     McpToolDefinition,
+    PydanticAiMcpExecutor,
     StaticMcpToolExecutor,
     UnknownMcpServerError,
     UnknownMcpToolError,
     build_default_mcp_manager,
     build_effective_mcp_manager,
     build_mcp_toolset,
+    build_pydantic_ai_mcp_server,
+    discover_pydantic_ai_mcp_tools,
 )
 from just_another_coding_agent.runtime.run import stream_run_events
 from just_another_coding_agent.tools.deps import RunSessionScope, WorkspaceDeps
@@ -255,6 +261,162 @@ def test_effective_mcp_manager_fails_hard_for_missing_discovery() -> None:
             },
             discovered_tools_by_server={},
         )
+
+
+def test_pydantic_ai_mcp_server_builder_uses_jaca_config_without_tool_prefix() -> None:
+    stdio_server = build_pydantic_ai_mcp_server(
+        McpServerConfig(
+            server_id="demo_stdio",
+            transport=McpStdioTransport(
+                command="uv",
+                args=["run", "demo"],
+                env={"DEMO": "1"},
+                cwd="/tmp/demo",
+            ),
+            startup_timeout_sec=2.5,
+            tool_timeout_sec=7.5,
+        )
+    )
+
+    assert isinstance(stdio_server, MCPServerStdio)
+    assert stdio_server.id == "demo_stdio"
+    assert stdio_server.tool_prefix is None
+    assert stdio_server.command == "uv"
+    assert stdio_server.args == ["run", "demo"]
+    assert stdio_server.env == {"DEMO": "1"}
+    assert stdio_server.cwd == "/tmp/demo"
+    assert stdio_server.timeout == 2.5
+    assert stdio_server.read_timeout == 7.5
+    assert stdio_server.allow_sampling is False
+    assert stdio_server.max_retries == 0
+
+
+def test_pydantic_ai_mcp_server_builder_resolves_streamable_http_token() -> None:
+    server = build_pydantic_ai_mcp_server(
+        McpServerConfig(
+            server_id="linear",
+            transport=McpStreamableHttpTransport(
+                url="https://mcp.linear.app/mcp",
+                bearer_token_env_var="LINEAR_MCP_TOKEN",
+            ),
+        ),
+        env={"LINEAR_MCP_TOKEN": "secret-token"},
+    )
+
+    assert isinstance(server, MCPServerStreamableHTTP)
+    assert server.id == "linear"
+    assert server.tool_prefix is None
+    assert server.url == "https://mcp.linear.app/mcp"
+    assert server.headers == {"Authorization": "Bearer secret-token"}
+    assert server.allow_sampling is False
+    assert server.max_retries == 0
+
+
+def test_pydantic_ai_mcp_server_builder_fails_for_missing_token() -> None:
+    with pytest.raises(McpManagerError, match="LINEAR_MCP_TOKEN"):
+        build_pydantic_ai_mcp_server(
+            McpServerConfig(
+                server_id="linear",
+                transport=McpStreamableHttpTransport(
+                    url="https://mcp.linear.app/mcp",
+                    bearer_token_env_var="LINEAR_MCP_TOKEN",
+                ),
+            ),
+            env={},
+        )
+
+
+async def test_pydantic_ai_mcp_discovery_maps_raw_tools() -> None:
+    server = _FakePydanticAiMcpServer(
+        tools=(
+            mcp_types.Tool(
+                name="echo-message",
+                title="Echo message",
+                description="Echo one message.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {"message": {"type": "string"}},
+                    "required": ["message"],
+                    "additionalProperties": False,
+                },
+            ),
+        )
+    )
+
+    discovered_tools = await discover_pydantic_ai_mcp_tools(server)
+
+    assert discovered_tools == (
+        McpDiscoveredTool(
+            raw_tool_name="echo-message",
+            title="Echo message",
+            description="Echo one message.",
+            input_schema={
+                "type": "object",
+                "properties": {"message": {"type": "string"}},
+                "required": ["message"],
+                "additionalProperties": False,
+            },
+        ),
+    )
+
+
+async def test_pydantic_ai_mcp_discovery_fails_for_missing_tool_text() -> None:
+    server = _FakePydanticAiMcpServer(
+        tools=(
+            mcp_types.Tool(
+                name="echo-message",
+                inputSchema={"type": "object", "properties": {}},
+            ),
+        )
+    )
+
+    with pytest.raises(McpManagerError, match="title"):
+        await discover_pydantic_ai_mcp_tools(server)
+
+
+async def test_pydantic_ai_mcp_executor_calls_raw_mounted_tool_name(tmp_path) -> None:
+    pydantic_ai_server = _FakePydanticAiMcpServer(tools=())
+    manager = build_effective_mcp_manager(
+        configured_servers={
+            "demo_echo": McpServerConfig(
+                server_id="demo_echo",
+                transport=McpStreamableHttpTransport(url="http://127.0.0.1:8000/mcp"),
+            ),
+        },
+        discovered_tools_by_server={
+            "demo_echo": (
+                McpDiscoveredTool(
+                    raw_tool_name="echo-message",
+                    title="Echo message",
+                    description="Echo one message.",
+                ),
+            ),
+        },
+        builtin_servers=(),
+    )
+    executor = PydanticAiMcpExecutor(
+        manager=manager,
+        servers_by_id={"demo_echo": pydantic_ai_server},
+    )
+
+    result = await executor.execute_tool(
+        identity=McpToolIdentity(server_id="demo_echo", tool_name="echo_message"),
+        arguments={"message": "hello"},
+        ctx=object(),
+        provenance=McpToolCallProvenance(source="top_level_model"),
+    )
+
+    assert result == {"echo": "hello"}
+    assert pydantic_ai_server.calls == [
+        (
+            "echo-message",
+            {"message": "hello"},
+            {
+                "jaca_model_tool_name": _DEMO_ECHO_TOOL_NAME,
+                "jaca_call_source": "top_level_model",
+            },
+        )
+    ]
 
 
 async def test_mcp_toolset_exposes_discovered_tools_to_model(tmp_path) -> None:
@@ -648,3 +810,21 @@ async def _call_demo_echo_then_done(
         return
 
     yield "done"
+
+
+class _FakePydanticAiMcpServer:
+    def __init__(self, *, tools: tuple[mcp_types.Tool, ...]) -> None:
+        self._tools = tools
+        self.calls: list[tuple[str, dict[str, object], dict[str, str] | None]] = []
+
+    async def list_tools(self) -> list[mcp_types.Tool]:
+        return list(self._tools)
+
+    async def direct_call_tool(
+        self,
+        name: str,
+        args: dict[str, object],
+        metadata: dict[str, str] | None = None,
+    ) -> dict[str, object]:
+        self.calls.append((name, args, metadata))
+        return {"echo": args["message"]}

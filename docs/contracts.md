@@ -84,6 +84,13 @@ Rules:
 - Runtime discovery must apply configured raw allow/deny policy before tools
   are mounted. Mounted tools must preserve their raw MCP tool name separately
   from the normalized `mcp__server__tool` identity.
+- The PydanticAI MCP adapter must not use PydanticAI `tool_prefix` as the
+  public namespacing mechanism. Backend-owned mounted identity remains the
+  only public MCP tool naming contract.
+- Streamable HTTP bearer tokens must be resolved from environment variables
+  and fail hard when the configured environment variable is missing or empty.
+- MCP sampling must remain disabled for configured external MCP clients until
+  a separate backend-owned sampling policy contract exists.
 - Code Mode MCP calls must carry the parent `exec` tool call id and Code Mode
   cell id.
 - Top-level MCP calls must not carry Code Mode parent fields.

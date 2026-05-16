@@ -1,13 +1,21 @@
 from __future__ import annotations
 
+import os
 import re
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from inspect import isawaitable
-from typing import Any, Protocol
+from typing import Any, Protocol, TypeAlias
 
+from mcp import types as mcp_types
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic_ai import RunContext
+from pydantic_ai.mcp import (
+    MCPServerStdio as PydanticAiMCPServerStdio,
+)
+from pydantic_ai.mcp import (
+    MCPServerStreamableHTTP as PydanticAiMCPServerStreamableHTTP,
+)
 from pydantic_ai.messages import ToolReturn
 from pydantic_ai.tools import ToolDefinition
 from pydantic_ai.toolsets import AbstractToolset, ToolsetTool
@@ -18,6 +26,8 @@ from just_another_coding_agent.contracts.mcp import (
     McpFailure,
     McpMountedToolIdentity,
     McpServerConfig,
+    McpStdioTransport,
+    McpStreamableHttpTransport,
     McpToolCallProvenance,
     McpToolIdentity,
     make_mcp_model_tool_name,
@@ -79,6 +89,26 @@ class McpToolExecutor(Protocol):
         provenance: McpToolCallProvenance,
     ) -> Any:
         """Execute one resolved MCP tool."""
+
+
+class PydanticAiMcpServerProtocol(Protocol):
+    async def list_tools(self) -> list[mcp_types.Tool]:
+        """Return raw MCP SDK tools from a PydanticAI MCP server."""
+
+    async def direct_call_tool(
+        self,
+        name: str,
+        args: dict[str, Any],
+        metadata: dict[str, Any] | None = None,
+    ) -> Any:
+        """Call one raw MCP tool directly on a PydanticAI MCP server."""
+
+
+PydanticAiMcpServer: TypeAlias = (
+    PydanticAiMCPServerStdio
+    | PydanticAiMCPServerStreamableHTTP
+    | PydanticAiMcpServerProtocol
+)
 
 
 def _normalize_raw_tool_name(raw_tool_name: str) -> str:
@@ -150,6 +180,67 @@ def _configured_server_allows_tool(
     if config.disabled_tools is not None and raw_tool_name in config.disabled_tools:
         return False
     return True
+
+
+def _mcp_timeout(value: float | None, default: float) -> float:
+    if value is None:
+        return default
+    return value
+
+
+def _pydantic_ai_mcp_metadata(
+    *,
+    definition: McpToolDefinition,
+    provenance: McpToolCallProvenance,
+) -> dict[str, Any]:
+    metadata: dict[str, Any] = {
+        "jaca_model_tool_name": definition.model_tool_name,
+        "jaca_call_source": provenance.source,
+    }
+    if provenance.parent_tool_call_id is not None:
+        metadata["jaca_parent_tool_call_id"] = provenance.parent_tool_call_id
+    if provenance.code_mode_cell_id is not None:
+        metadata["jaca_code_mode_cell_id"] = provenance.code_mode_cell_id
+    return metadata
+
+
+def _bearer_headers_from_env(
+    *,
+    server_id: str,
+    bearer_token_env_var: str | None,
+    env: Mapping[str, str],
+) -> dict[str, str] | None:
+    if bearer_token_env_var is None:
+        return None
+    token = env.get(bearer_token_env_var)
+    if not token:
+        raise McpManagerError(
+            f"MCP server {server_id!r} requires environment variable "
+            f"{bearer_token_env_var!r}"
+        )
+    return {"Authorization": f"Bearer {token}"}
+
+
+def _discovered_tool_from_mcp_sdk_tool(
+    mcp_tool: mcp_types.Tool,
+) -> McpDiscoveredTool:
+    if not mcp_tool.title:
+        raise McpManagerError(f"Discovered MCP tool {mcp_tool.name!r} is missing title")
+    if not mcp_tool.description:
+        raise McpManagerError(
+            f"Discovered MCP tool {mcp_tool.name!r} is missing description"
+        )
+    try:
+        return McpDiscoveredTool(
+            raw_tool_name=mcp_tool.name,
+            title=mcp_tool.title,
+            description=mcp_tool.description,
+            input_schema=mcp_tool.inputSchema,
+        )
+    except ValueError as error:
+        raise McpManagerError(
+            f"Invalid discovered MCP tool {mcp_tool.name!r}: {error}"
+        ) from error
 
 
 @dataclass(frozen=True)
@@ -304,6 +395,41 @@ class StaticMcpToolExecutor:
         if isawaitable(result):
             return await result
         return result
+
+
+@dataclass(frozen=True)
+class PydanticAiMcpExecutor:
+    manager: McpManager
+    servers_by_id: Mapping[str, PydanticAiMcpServerProtocol]
+
+    async def execute_tool(
+        self,
+        *,
+        identity: McpToolIdentity,
+        arguments: dict[str, Any],
+        ctx: RunContext[WorkspaceDeps],
+        provenance: McpToolCallProvenance,
+    ) -> Any:
+        del ctx
+        definition = self.manager.get_tool(identity.model_tool_name)
+        if definition.mounted_identity is None:
+            raise McpManagerError(
+                "PydanticAI MCP executor can only call mounted external MCP tools"
+            )
+        try:
+            server = self.servers_by_id[identity.server_id]
+        except KeyError as error:
+            raise UnknownMcpServerError(
+                f"Unknown PydanticAI MCP server: {identity.server_id}"
+            ) from error
+        return await server.direct_call_tool(
+            definition.mounted_identity.raw_tool_name,
+            arguments,
+            metadata=_pydantic_ai_mcp_metadata(
+                definition=definition,
+                provenance=provenance,
+            ),
+        )
 
 
 class JacaOnboardingMcpExecutor:
@@ -668,6 +794,55 @@ def build_effective_mcp_manager(
     return McpManager(tuple(servers))
 
 
+def build_pydantic_ai_mcp_server(
+    config: McpServerConfig,
+    *,
+    env: Mapping[str, str] | None = None,
+) -> PydanticAiMCPServerStdio | PydanticAiMCPServerStreamableHTTP:
+    resolved_env = os.environ if env is None else env
+    timeout = _mcp_timeout(config.startup_timeout_sec, default=5)
+    read_timeout = _mcp_timeout(config.tool_timeout_sec, default=5 * 60)
+    transport = config.transport
+    if isinstance(transport, McpStdioTransport):
+        return PydanticAiMCPServerStdio(
+            transport.command,
+            args=transport.args,
+            env=transport.env,
+            cwd=transport.cwd,
+            id=config.server_id,
+            tool_prefix=None,
+            timeout=timeout,
+            read_timeout=read_timeout,
+            allow_sampling=False,
+            max_retries=0,
+        )
+    if isinstance(transport, McpStreamableHttpTransport):
+        return PydanticAiMCPServerStreamableHTTP(
+            transport.url,
+            headers=_bearer_headers_from_env(
+                server_id=config.server_id,
+                bearer_token_env_var=transport.bearer_token_env_var,
+                env=resolved_env,
+            ),
+            id=config.server_id,
+            tool_prefix=None,
+            timeout=timeout,
+            read_timeout=read_timeout,
+            allow_sampling=False,
+            max_retries=0,
+        )
+    raise TypeError(f"Unsupported MCP transport: {type(transport).__name__}")
+
+
+async def discover_pydantic_ai_mcp_tools(
+    server: PydanticAiMcpServerProtocol,
+) -> tuple[McpDiscoveredTool, ...]:
+    return tuple(
+        _discovered_tool_from_mcp_sdk_tool(mcp_tool)
+        for mcp_tool in await server.list_tools()
+    )
+
+
 def build_default_mcp_manager() -> McpManager:
     return McpManager(DEFAULT_BUILTIN_MCP_SERVERS)
 
@@ -687,6 +862,9 @@ __all__ = [
     "McpDiscoveredTool",
     "McpManagerError",
     "McpManager",
+    "PydanticAiMcpExecutor",
+    "PydanticAiMcpServer",
+    "PydanticAiMcpServerProtocol",
     "McpServerDefinition",
     "McpToolExecutor",
     "McpToolDefinition",
@@ -699,4 +877,6 @@ __all__ = [
     "build_default_mcp_manager",
     "build_effective_mcp_manager",
     "build_mcp_toolset",
+    "build_pydantic_ai_mcp_server",
+    "discover_pydantic_ai_mcp_tools",
 ]

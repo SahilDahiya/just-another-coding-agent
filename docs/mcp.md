@@ -126,6 +126,22 @@ execution can retain the raw MCP tool name while the agent sees only the
 normalized name. This slice is deterministic runtime plumbing; it does not yet
 start live stdio or streamable HTTP MCP clients.
 
+The PydanticAI adapter boundary builds standard PydanticAI MCP client objects
+from JACA's typed config with `build_pydantic_ai_mcp_server`. JACA does not use
+PydanticAI `tool_prefix` for public names; namespacing remains the backend
+contract. Streamable HTTP bearer tokens are resolved from environment variables
+at construction time and fail hard when missing. MCP sampling is disabled at
+this boundary until JACA has an explicit policy contract for server-initiated
+model calls.
+
+Live discovery uses `discover_pydantic_ai_mcp_tools` to read raw MCP SDK tool
+metadata from the PydanticAI client and convert it into `McpDiscoveredTool`
+records. Live execution uses `PydanticAiMcpExecutor` to resolve the mounted
+tool identity through the backend manager and call the raw MCP tool name
+through PydanticAI `direct_call_tool`, preserving JACA provenance metadata on
+the request. Run/session construction does not yet load persisted user MCP
+config into this live adapter automatically.
+
 The first built-in executor is `JacaOnboardingMcpExecutor`. It adapts the
 `jaca_onboarding` MCP tool identities onto the existing backend onboarding
 implementations, unwrapping their native `ToolReturn` values for model-visible
