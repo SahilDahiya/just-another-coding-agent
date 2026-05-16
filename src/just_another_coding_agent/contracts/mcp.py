@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
@@ -15,11 +15,13 @@ JACA_ONBOARDING_MCP_TOOL_NAMES = (
 
 McpCallSource = Literal["top_level_model", "code_mode"]
 McpFailureKind = Literal[
+    "config_failed",
     "startup_failed",
     "discovery_failed",
     "tool_failed",
     "resource_failed",
 ]
+McpToolApprovalMode = Literal["auto", "prompt", "approve"]
 
 _MCP_NAME_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
 
@@ -60,6 +62,26 @@ class McpToolIdentity(_McpContractModel):
         )
 
 
+class McpMountedToolIdentity(_McpContractModel):
+    server_id: str = Field(min_length=1)
+    raw_tool_name: str = Field(min_length=1)
+    model_tool_name: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _validate_mounted_identity(self) -> "McpMountedToolIdentity":
+        _validate_mcp_name(value=self.server_id, field_name="server_id")
+        parsed = parse_mcp_model_tool_name(self.model_tool_name)
+        if parsed.server_id != self.server_id:
+            raise ValueError(
+                "model_tool_name server id must match mounted MCP server_id"
+            )
+        return self
+
+    @property
+    def model_identity(self) -> McpToolIdentity:
+        return parse_mcp_model_tool_name(self.model_tool_name)
+
+
 class McpToolCallProvenance(_McpContractModel):
     source: McpCallSource
     parent_tool_call_id: str | None = None
@@ -84,6 +106,65 @@ class McpToolCallProvenance(_McpContractModel):
         return self
 
 
+class McpServerToolConfig(_McpContractModel):
+    approval_mode: McpToolApprovalMode | None = None
+
+
+class McpStreamableHttpTransport(_McpContractModel):
+    type: Literal["streamable_http"] = "streamable_http"
+    url: str = Field(min_length=1)
+    bearer_token_env_var: str | None = Field(default=None, min_length=1)
+
+    @model_validator(mode="after")
+    def _validate_url(self) -> "McpStreamableHttpTransport":
+        if not self.url.startswith(("http://", "https://")):
+            raise ValueError(
+                "streamable HTTP MCP transport url must start with http:// or https://"
+            )
+        return self
+
+
+class McpStdioTransport(_McpContractModel):
+    type: Literal["stdio"] = "stdio"
+    command: str = Field(min_length=1)
+    args: list[str] = Field(default_factory=list)
+    env: dict[str, str] = Field(default_factory=dict)
+    cwd: str | None = Field(default=None, min_length=1)
+
+
+McpTransport = Annotated[
+    McpStreamableHttpTransport | McpStdioTransport,
+    Field(discriminator="type"),
+]
+
+
+class McpServerConfig(_McpContractModel):
+    server_id: str = Field(min_length=1)
+    transport: McpTransport
+    enabled: bool = True
+    required: bool = False
+    startup_timeout_sec: float | None = Field(default=None, gt=0)
+    tool_timeout_sec: float | None = Field(default=None, gt=0)
+    enabled_tools: list[str] | None = None
+    disabled_tools: list[str] | None = None
+    default_tool_approval: McpToolApprovalMode | None = None
+    tools: dict[str, McpServerToolConfig] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _validate_config(self) -> "McpServerConfig":
+        _validate_mcp_name(value=self.server_id, field_name="server_id")
+        enabled_tools = set(_validate_raw_tool_names(self.enabled_tools))
+        disabled_tools = set(_validate_raw_tool_names(self.disabled_tools))
+        overlapping_tools = enabled_tools & disabled_tools
+        if overlapping_tools:
+            raise ValueError(
+                "enabled_tools and disabled_tools must not contain the same tool"
+            )
+        for raw_tool_name in self.tools:
+            _validate_raw_tool_name(raw_tool_name)
+        return self
+
+
 class McpFailure(_McpContractModel):
     kind: McpFailureKind
     error_type: str = Field(min_length=1)
@@ -98,7 +179,7 @@ class McpFailure(_McpContractModel):
             _validate_mcp_name(value=self.server_id, field_name="server_id")
         if self.tool_name is not None:
             _validate_mcp_name(value=self.tool_name, field_name="tool_name")
-        if self.kind in {"startup_failed", "discovery_failed"}:
+        if self.kind in {"config_failed", "startup_failed", "discovery_failed"}:
             if self.server_id is None:
                 raise ValueError(f"{self.kind} failures require server_id")
             if self.tool_name is not None or self.resource_uri is not None:
@@ -139,6 +220,20 @@ def parse_mcp_model_tool_name(model_tool_name: str) -> McpToolIdentity:
     return McpToolIdentity(server_id=server_id, tool_name=tool_name)
 
 
+def _validate_raw_tool_name(raw_tool_name: str) -> str:
+    if raw_tool_name == "":
+        raise ValueError("raw MCP tool names must not be empty")
+    return raw_tool_name
+
+
+def _validate_raw_tool_names(raw_tool_names: list[str] | None) -> list[str]:
+    if raw_tool_names is None:
+        return []
+    for raw_tool_name in raw_tool_names:
+        _validate_raw_tool_name(raw_tool_name)
+    return raw_tool_names
+
+
 __all__ = [
     "JACA_ONBOARDING_MCP_SERVER_ID",
     "JACA_ONBOARDING_MCP_TOOL_NAMES",
@@ -146,8 +241,15 @@ __all__ = [
     "McpCallSource",
     "McpFailure",
     "McpFailureKind",
+    "McpMountedToolIdentity",
+    "McpServerConfig",
+    "McpServerToolConfig",
+    "McpStdioTransport",
+    "McpStreamableHttpTransport",
+    "McpToolApprovalMode",
     "McpToolCallProvenance",
     "McpToolIdentity",
+    "McpTransport",
     "make_mcp_model_tool_name",
     "parse_mcp_model_tool_name",
 ]

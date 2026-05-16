@@ -18,8 +18,15 @@ def test_mcp_contract_exports_expected_types() -> None:
         "McpCallSource",
         "McpFailure",
         "McpFailureKind",
+        "McpMountedToolIdentity",
+        "McpServerConfig",
+        "McpServerToolConfig",
+        "McpStdioTransport",
+        "McpStreamableHttpTransport",
+        "McpToolApprovalMode",
         "McpToolCallProvenance",
         "McpToolIdentity",
+        "McpTransport",
         "make_mcp_model_tool_name",
         "parse_mcp_model_tool_name",
     }
@@ -220,4 +227,115 @@ def test_mcp_activity_details_are_typed_for_tui_rendering() -> None:
             tool_name="ask_mcq_question",
             model_tool_name="mcp__jaca_onboarding__publish_teaching_packet",
             provenance=mcp.McpToolCallProvenance(source="top_level_model"),
+        )
+
+
+def test_mcp_server_config_models_streamable_http_transport() -> None:
+    config = mcp.McpServerConfig(
+        server_id="linear",
+        transport=mcp.McpStreamableHttpTransport(
+            url="https://mcp.linear.app/mcp",
+            bearer_token_env_var="LINEAR_MCP_TOKEN",
+        ),
+        required=True,
+        startup_timeout_sec=5.0,
+        tool_timeout_sec=15.0,
+        enabled_tools=["create-issue"],
+        disabled_tools=["delete-issue"],
+        default_tool_approval="prompt",
+        tools={
+            "create-issue": mcp.McpServerToolConfig(approval_mode="approve"),
+        },
+    )
+
+    assert config.model_dump(mode="json", exclude_none=True) == {
+        "server_id": "linear",
+        "transport": {
+            "type": "streamable_http",
+            "url": "https://mcp.linear.app/mcp",
+            "bearer_token_env_var": "LINEAR_MCP_TOKEN",
+        },
+        "enabled": True,
+        "required": True,
+        "startup_timeout_sec": 5.0,
+        "tool_timeout_sec": 15.0,
+        "enabled_tools": ["create-issue"],
+        "disabled_tools": ["delete-issue"],
+        "default_tool_approval": "prompt",
+        "tools": {
+            "create-issue": {
+                "approval_mode": "approve",
+            },
+        },
+    }
+
+
+def test_mcp_server_config_models_stdio_transport() -> None:
+    config = mcp.McpServerConfig(
+        server_id="memory",
+        transport=mcp.McpStdioTransport(
+            command="npx",
+            args=["-y", "@modelcontextprotocol/server-memory"],
+            env={"MEMORY_SCOPE": "session"},
+            cwd="/tmp",
+        ),
+    )
+
+    assert config.transport.type == "stdio"
+    assert config.transport.command == "npx"
+    assert config.transport.args == ["-y", "@modelcontextprotocol/server-memory"]
+    assert config.transport.env == {"MEMORY_SCOPE": "session"}
+    assert config.transport.cwd == "/tmp"
+
+
+def test_mcp_server_config_fails_hard_for_invalid_or_ambiguous_values() -> None:
+    with pytest.raises(ValidationError):
+        mcp.McpServerConfig(
+            server_id="Linear",
+            transport=mcp.McpStreamableHttpTransport(url="https://mcp.linear.app/mcp"),
+        )
+
+    with pytest.raises(ValidationError):
+        mcp.McpStreamableHttpTransport(
+            url="https://mcp.linear.app/mcp",
+            bearer_token="inline-secret",
+        )
+
+    with pytest.raises(ValidationError):
+        mcp.McpStreamableHttpTransport(url="file:///tmp/server")
+
+    with pytest.raises(ValidationError):
+        mcp.McpServerConfig(
+            server_id="linear",
+            transport=mcp.McpStreamableHttpTransport(url="https://mcp.linear.app/mcp"),
+            enabled_tools=["create-issue"],
+            disabled_tools=["create-issue"],
+        )
+
+    with pytest.raises(ValidationError):
+        mcp.McpServerConfig(
+            server_id="linear",
+            transport=mcp.McpStreamableHttpTransport(url="https://mcp.linear.app/mcp"),
+            startup_timeout_sec=0,
+        )
+
+
+def test_mounted_mcp_tool_identity_preserves_raw_and_model_names() -> None:
+    identity = mcp.McpMountedToolIdentity(
+        server_id="linear",
+        raw_tool_name="create-issue",
+        model_tool_name="mcp__linear__create_issue",
+    )
+
+    assert identity.raw_tool_name == "create-issue"
+    assert identity.model_identity == mcp.McpToolIdentity(
+        server_id="linear",
+        tool_name="create_issue",
+    )
+
+    with pytest.raises(ValidationError):
+        mcp.McpMountedToolIdentity(
+            server_id="linear",
+            raw_tool_name="create-issue",
+            model_tool_name="mcp__github__create_issue",
         )

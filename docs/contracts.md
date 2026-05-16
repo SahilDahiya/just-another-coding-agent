@@ -55,17 +55,29 @@ Initial MCP contract slice:
 - MCP model-facing tool names use `mcp__server__tool`.
 - MCP server and tool identifiers must be normalized before they become
   model-facing names.
+- External MCP config is backend-owned through typed server config models.
+  The initial contract supports streamable HTTP and stdio transports,
+  explicit enabled/required flags, startup/tool timeouts, raw tool allow/deny
+  lists, default tool approval mode, and per-tool approval overrides.
+- Mounted tool identity preserves raw MCP tool names separately from the
+  normalized model-facing tool name used by the agent.
 - The built-in onboarding server id is `jaca_onboarding`.
 - MCP call provenance distinguishes top-level model calls from Code Mode nested
   calls.
-- MCP failures are typed as startup, discovery, tool execution, or resource
-  read failures.
+- MCP failures are typed as config, startup, discovery, tool execution, or
+  resource read failures.
 - TUI/RPC clients receive typed `McpActivityDetails`; they must not parse MCP
   server, tool, provenance, or failure meaning from display text.
 
 Rules:
 
 - MCP namespacing is backend-owned and must fail hard for invalid names.
+- MCP config validation must fail hard for invalid server ids, unsafe inline
+  transport fields, non-HTTP streamable HTTP URLs, invalid timeouts, and
+  ambiguous tool allow/deny policy.
+- Raw MCP tool names must never be used as lossy display names for execution;
+  execution must retain the raw MCP name while exposing only normalized
+  model-facing names to the agent.
 - Code Mode MCP calls must carry the parent `exec` tool call id and Code Mode
   cell id.
 - Top-level MCP calls must not carry Code Mode parent fields.

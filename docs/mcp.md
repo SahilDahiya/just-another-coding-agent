@@ -84,10 +84,20 @@ The first contract slice lives in
 `src/just_another_coding_agent/contracts/mcp.py`. It defines:
 
 - stable model-facing MCP tool names with the form `mcp__server__tool`
+- typed MCP server config for streamable HTTP and stdio transports
+- explicit enabled/required server posture, startup/tool timeouts, raw tool
+  allow/deny lists, default tool approval mode, and per-tool approval overrides
+- mounted tool identity that preserves raw MCP tool names separately from the
+  normalized model-facing tool name used by the agent
 - the reserved built-in onboarding server id, `jaca_onboarding`
 - provenance for top-level model calls vs Code Mode nested calls
-- typed MCP failure kinds for startup, discovery, tool execution, and resource
-  reads
+- typed MCP failure kinds for config, startup, discovery, tool execution, and
+  resource reads
+
+External MCP config validation is fail-fast. Inline bearer tokens, invalid
+transport shapes, non-HTTP streamable HTTP URLs, invalid timeouts, invalid
+server ids, and contradictory raw tool allow/deny lists are rejected before the
+runtime can write or use invalid durable state.
 
 The TUI-facing activity contract uses `McpActivityDetails` in
 `contracts/run_events.py`; clients should render those typed fields instead of
