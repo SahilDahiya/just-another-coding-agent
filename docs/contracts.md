@@ -81,6 +81,9 @@ Rules:
 - Raw MCP tool names must never be used as lossy display names for execution;
   execution must retain the raw MCP name while exposing only normalized
   model-facing names to the agent.
+- Runtime discovery must apply configured raw allow/deny policy before tools
+  are mounted. Mounted tools must preserve their raw MCP tool name separately
+  from the normalized `mcp__server__tool` identity.
 - Code Mode MCP calls must carry the parent `exec` tool call id and Code Mode
   cell id.
 - Top-level MCP calls must not carry Code Mode parent fields.

@@ -117,6 +117,15 @@ tools to the model and route calls through the executor while returning typed
 coding tools. Onboarding runs now attach the `jaca_onboarding` MCP toolset and
 do not expose native onboarding tools directly to the model.
 
+Configured external server support begins at the effective manager boundary:
+`build_effective_mcp_manager` merges built-in server definitions with enabled
+typed `McpServerConfig` entries and their discovered tool metadata. Discovery
+normalizes raw server tool names into stable model-facing names, applies raw
+allow/deny policy before exposure, and stores `McpMountedToolIdentity` so later
+execution can retain the raw MCP tool name while the agent sees only the
+normalized name. This slice is deterministic runtime plumbing; it does not yet
+start live stdio or streamable HTTP MCP clients.
+
 The first built-in executor is `JacaOnboardingMcpExecutor`. It adapts the
 `jaca_onboarding` MCP tool identities onto the existing backend onboarding
 implementations, unwrapping their native `ToolReturn` values for model-visible

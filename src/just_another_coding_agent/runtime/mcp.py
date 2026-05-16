@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+import re
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from inspect import isawaitable
 from typing import Any, Protocol
@@ -15,6 +16,8 @@ from pydantic_core import SchemaValidator, core_schema
 from just_another_coding_agent.contracts.mcp import (
     JACA_ONBOARDING_MCP_SERVER_ID,
     McpFailure,
+    McpMountedToolIdentity,
+    McpServerConfig,
     McpToolCallProvenance,
     McpToolIdentity,
     make_mcp_model_tool_name,
@@ -42,6 +45,7 @@ _MCP_TOOL_ARGS_VALIDATOR = SchemaValidator(
 _ASK_MCQ_TOOL_NAME = "ask_mcq_question"
 _GENERATE_MCQ_TOOL_NAME = "generate_mcq_from_teaching_packets"
 _PUBLISH_TEACHING_PACKET_TOOL_NAME = "publish_teaching_packet"
+_MODEL_TOOL_NAME_INVALID_CHARS = re.compile(r"[^a-z0-9_]+")
 
 McpToolHandler = Callable[
     [McpToolIdentity, dict[str, Any], RunContext[WorkspaceDeps], McpToolCallProvenance],
@@ -75,6 +79,19 @@ class McpToolExecutor(Protocol):
         provenance: McpToolCallProvenance,
     ) -> Any:
         """Execute one resolved MCP tool."""
+
+
+def _normalize_raw_tool_name(raw_tool_name: str) -> str:
+    normalized = _MODEL_TOOL_NAME_INVALID_CHARS.sub(
+        "_",
+        raw_tool_name.strip().lower(),
+    )
+    normalized = re.sub(r"_+", "_", normalized).strip("_")
+    if not normalized:
+        raise ValueError("MCP raw tool name cannot normalize to an empty tool name")
+    if normalized[0].isdigit():
+        normalized = f"tool_{normalized}"
+    return normalized
 
 
 class _OnboardingMcpModel(BaseModel):
@@ -114,6 +131,27 @@ def _tool_return_metadata(value: Any) -> dict[str, Any]:
     return {}
 
 
+def _tool_metadata(tool: McpToolDefinition) -> dict[str, str]:
+    metadata = {
+        "mcp_server_id": tool.identity.server_id,
+        "mcp_tool_name": tool.identity.tool_name,
+    }
+    if tool.mounted_identity is not None:
+        metadata["raw_mcp_tool_name"] = tool.mounted_identity.raw_tool_name
+    return metadata
+
+
+def _configured_server_allows_tool(
+    config: McpServerConfig,
+    raw_tool_name: str,
+) -> bool:
+    if config.enabled_tools is not None and raw_tool_name not in config.enabled_tools:
+        return False
+    if config.disabled_tools is not None and raw_tool_name in config.disabled_tools:
+        return False
+    return True
+
+
 @dataclass(frozen=True)
 class McpToolDefinition:
     identity: McpToolIdentity
@@ -127,6 +165,7 @@ class McpToolDefinition:
         }
     )
     sequential: bool = True
+    mounted_identity: McpMountedToolIdentity | None = None
 
     def __post_init__(self) -> None:
         if not self.title:
@@ -135,10 +174,46 @@ class McpToolDefinition:
             raise ValueError("MCP tool description must not be empty")
         if self.input_schema.get("type") != "object":
             raise ValueError("MCP tool input_schema must be an object schema")
+        if (
+            self.mounted_identity is not None
+            and self.mounted_identity.model_identity != self.identity
+        ):
+            raise ValueError("MCP mounted identity must match tool identity")
 
     @property
     def model_tool_name(self) -> str:
         return self.identity.model_tool_name
+
+    @property
+    def raw_tool_name(self) -> str:
+        if self.mounted_identity is not None:
+            return self.mounted_identity.raw_tool_name
+        return self.identity.tool_name
+
+
+@dataclass(frozen=True)
+class McpDiscoveredTool:
+    raw_tool_name: str
+    title: str
+    description: str
+    input_schema: dict[str, Any] = field(
+        default_factory=lambda: {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
+        }
+    )
+    sequential: bool = True
+
+    def __post_init__(self) -> None:
+        if not self.raw_tool_name:
+            raise ValueError("MCP discovered raw_tool_name must not be empty")
+        if not self.title:
+            raise ValueError("MCP discovered tool title must not be empty")
+        if not self.description:
+            raise ValueError("MCP discovered tool description must not be empty")
+        if self.input_schema.get("type") != "object":
+            raise ValueError("MCP discovered input_schema must be an object schema")
 
 
 @dataclass(frozen=True)
@@ -307,10 +382,7 @@ class McpToolset(AbstractToolset[WorkspaceDeps]):
                     parameters_json_schema=tool.input_schema,
                     strict=None,
                     sequential=tool.sequential,
-                    metadata={
-                        "mcp_server_id": tool.identity.server_id,
-                        "mcp_tool_name": tool.identity.tool_name,
-                    },
+                    metadata=_tool_metadata(tool),
                 ),
                 max_retries=0,
                 args_validator=_MCP_TOOL_ARGS_VALIDATOR,
@@ -527,6 +599,75 @@ DEFAULT_BUILTIN_MCP_SERVERS = (
 )
 
 
+def _server_definition_from_config(
+    config: McpServerConfig,
+    discovered_tools: Sequence[McpDiscoveredTool],
+) -> McpServerDefinition:
+    tools: list[McpToolDefinition] = []
+    seen_model_tool_names: set[str] = set()
+    for discovered_tool in discovered_tools:
+        if not _configured_server_allows_tool(config, discovered_tool.raw_tool_name):
+            continue
+
+        normalized_tool_name = _normalize_raw_tool_name(discovered_tool.raw_tool_name)
+        model_tool_name = make_mcp_model_tool_name(
+            server_id=config.server_id,
+            tool_name=normalized_tool_name,
+        )
+        if model_tool_name in seen_model_tool_names:
+            raise McpManagerError(
+                "Discovered MCP tools normalize to the same model tool name: "
+                f"{model_tool_name}"
+            )
+        seen_model_tool_names.add(model_tool_name)
+        mounted_identity = McpMountedToolIdentity(
+            server_id=config.server_id,
+            raw_tool_name=discovered_tool.raw_tool_name,
+            model_tool_name=model_tool_name,
+        )
+        tools.append(
+            McpToolDefinition(
+                identity=mounted_identity.model_identity,
+                title=discovered_tool.title,
+                description=discovered_tool.description,
+                input_schema=discovered_tool.input_schema,
+                sequential=discovered_tool.sequential,
+                mounted_identity=mounted_identity,
+            )
+        )
+
+    return McpServerDefinition(
+        server_id=config.server_id,
+        display_name=config.server_id,
+        tools=tuple(tools),
+    )
+
+
+def build_effective_mcp_manager(
+    *,
+    configured_servers: Mapping[str, McpServerConfig],
+    discovered_tools_by_server: Mapping[str, Sequence[McpDiscoveredTool]],
+    builtin_servers: tuple[McpServerDefinition, ...] = DEFAULT_BUILTIN_MCP_SERVERS,
+) -> McpManager:
+    servers = list(builtin_servers)
+    for server_id, config in configured_servers.items():
+        if server_id != config.server_id:
+            raise ValueError(
+                "Configured MCP server mapping key must match config.server_id: "
+                f"{server_id!r} != {config.server_id!r}"
+            )
+        if not config.enabled:
+            continue
+        try:
+            discovered_tools = discovered_tools_by_server[server_id]
+        except KeyError as error:
+            raise McpManagerError(
+                f"No discovered tools for MCP server: {server_id}"
+            ) from error
+        servers.append(_server_definition_from_config(config, discovered_tools))
+    return McpManager(tuple(servers))
+
+
 def build_default_mcp_manager() -> McpManager:
     return McpManager(DEFAULT_BUILTIN_MCP_SERVERS)
 
@@ -543,6 +684,7 @@ def build_mcp_toolset(
 __all__ = [
     "DEFAULT_BUILTIN_MCP_SERVERS",
     "JacaOnboardingMcpExecutor",
+    "McpDiscoveredTool",
     "McpManagerError",
     "McpManager",
     "McpServerDefinition",
@@ -555,5 +697,6 @@ __all__ = [
     "UnknownMcpServerError",
     "UnknownMcpToolError",
     "build_default_mcp_manager",
+    "build_effective_mcp_manager",
     "build_mcp_toolset",
 ]

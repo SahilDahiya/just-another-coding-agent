@@ -16,6 +16,7 @@ __all__ = [
     "build_static_agent_instructions",
     "build_canonical_model_settings",
     "build_default_mcp_manager",
+    "build_effective_mcp_manager",
     "build_mcp_toolset",
     "resolve_canonical_model",
     "stream_run_events",
@@ -38,6 +39,7 @@ _LAZY_EXPORTS = {
         "build_canonical_model_settings",
     ),
     "build_default_mcp_manager": (".mcp", "build_default_mcp_manager"),
+    "build_effective_mcp_manager": (".mcp", "build_effective_mcp_manager"),
     "build_mcp_toolset": (".mcp", "build_mcp_toolset"),
     "resolve_canonical_model": (".models", "resolve_canonical_model"),
     "CANONICAL_RUN_RECOVERY_RETRY_LIMIT": (

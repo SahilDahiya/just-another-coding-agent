@@ -11,6 +11,8 @@ from pydantic_ai.models.test import TestModel
 
 from just_another_coding_agent.contracts.mcp import (
     JACA_ONBOARDING_MCP_SERVER_ID,
+    McpServerConfig,
+    McpStreamableHttpTransport,
     McpToolCallProvenance,
     McpToolIdentity,
 )
@@ -27,13 +29,16 @@ from just_another_coding_agent.runtime import (
 from just_another_coding_agent.runtime.mcp import (
     DEFAULT_BUILTIN_MCP_SERVERS,
     JacaOnboardingMcpExecutor,
+    McpDiscoveredTool,
     McpManager,
+    McpManagerError,
     McpServerDefinition,
     McpToolDefinition,
     StaticMcpToolExecutor,
     UnknownMcpServerError,
     UnknownMcpToolError,
     build_default_mcp_manager,
+    build_effective_mcp_manager,
     build_mcp_toolset,
 )
 from just_another_coding_agent.runtime.run import stream_run_events
@@ -41,6 +46,7 @@ from just_another_coding_agent.tools.deps import RunSessionScope, WorkspaceDeps
 from tests.read_only_worker_test_support import workspace_deps
 
 _PUBLISH_TOOL_NAME = "mcp__jaca_onboarding__publish_teaching_packet"
+_DEMO_ECHO_TOOL_NAME = "mcp__demo_echo__echo_message"
 
 
 def test_default_mcp_manager_discovers_builtin_onboarding_server() -> None:
@@ -161,6 +167,96 @@ def test_mcp_runtime_definitions_require_human_readable_text() -> None:
         )
 
 
+def test_effective_mcp_manager_mounts_configured_discovered_tools() -> None:
+    manager = build_effective_mcp_manager(
+        configured_servers={
+            "demo_echo": McpServerConfig(
+                server_id="demo_echo",
+                transport=McpStreamableHttpTransport(url="http://127.0.0.1:8000/mcp"),
+            ),
+        },
+        discovered_tools_by_server={
+            "demo_echo": (
+                McpDiscoveredTool(
+                    raw_tool_name="echo-message",
+                    title="Echo message",
+                    description="Echo one message.",
+                    input_schema={
+                        "type": "object",
+                        "properties": {"message": {"type": "string"}},
+                        "required": ["message"],
+                        "additionalProperties": False,
+                    },
+                ),
+            ),
+        },
+    )
+
+    assert [server.server_id for server in manager.list_servers()] == [
+        "jaca_onboarding",
+        "demo_echo",
+    ]
+    tool = manager.get_tool(_DEMO_ECHO_TOOL_NAME)
+    assert tool.identity == McpToolIdentity(
+        server_id="demo_echo",
+        tool_name="echo_message",
+    )
+    assert tool.mounted_identity is not None
+    assert tool.mounted_identity.raw_tool_name == "echo-message"
+    assert tool.mounted_identity.model_tool_name == _DEMO_ECHO_TOOL_NAME
+
+
+def test_effective_mcp_manager_filters_configured_tool_policy() -> None:
+    manager = build_effective_mcp_manager(
+        configured_servers={
+            "demo_echo": McpServerConfig(
+                server_id="demo_echo",
+                transport=McpStreamableHttpTransport(url="http://127.0.0.1:8000/mcp"),
+                enabled_tools=["echo-message"],
+                disabled_tools=["skip-message"],
+            ),
+        },
+        discovered_tools_by_server={
+            "demo_echo": (
+                McpDiscoveredTool(
+                    raw_tool_name="echo-message",
+                    title="Echo message",
+                    description="Echo one message.",
+                ),
+                McpDiscoveredTool(
+                    raw_tool_name="skip-message",
+                    title="Skip message",
+                    description="Skipped.",
+                ),
+                McpDiscoveredTool(
+                    raw_tool_name="other-message",
+                    title="Other message",
+                    description="Not allowlisted.",
+                ),
+            ),
+        },
+    )
+
+    assert [
+        tool.model_tool_name for tool in manager.discover_tools(server_id="demo_echo")
+    ] == [_DEMO_ECHO_TOOL_NAME]
+
+
+def test_effective_mcp_manager_fails_hard_for_missing_discovery() -> None:
+    with pytest.raises(McpManagerError, match="No discovered tools"):
+        build_effective_mcp_manager(
+            configured_servers={
+                "demo_echo": McpServerConfig(
+                    server_id="demo_echo",
+                    transport=McpStreamableHttpTransport(
+                        url="http://127.0.0.1:8000/mcp"
+                    ),
+                ),
+            },
+            discovered_tools_by_server={},
+        )
+
+
 async def test_mcp_toolset_exposes_discovered_tools_to_model(tmp_path) -> None:
     model = TestModel(call_tools=[], custom_output_text="ok")
     manager = build_default_mcp_manager()
@@ -197,6 +293,50 @@ async def test_mcp_toolset_exposes_discovered_tools_to_model(tmp_path) -> None:
         "snippets",
     ]
     assert publish_tool.parameters_json_schema["additionalProperties"] is False
+
+
+async def test_mcp_toolset_exposes_configured_discovered_tool_metadata(
+    tmp_path,
+) -> None:
+    model = TestModel(call_tools=[], custom_output_text="ok")
+    manager = build_effective_mcp_manager(
+        configured_servers={
+            "demo_echo": McpServerConfig(
+                server_id="demo_echo",
+                transport=McpStreamableHttpTransport(url="http://127.0.0.1:8000/mcp"),
+            ),
+        },
+        discovered_tools_by_server={
+            "demo_echo": (
+                McpDiscoveredTool(
+                    raw_tool_name="echo-message",
+                    title="Echo message",
+                    description="Echo one message.",
+                ),
+            ),
+        },
+        builtin_servers=(),
+    )
+    agent = Agent(
+        model,
+        toolsets=[
+            build_mcp_toolset(
+                manager=manager,
+                executor=StaticMcpToolExecutor(handlers={}),
+            )
+        ],
+        deps_type=WorkspaceDeps,
+    )
+
+    await agent.run("What tools are available?", deps=WorkspaceDeps(tmp_path))
+
+    function_tools = model.last_model_request_parameters.function_tools
+    assert [tool.name for tool in function_tools] == [_DEMO_ECHO_TOOL_NAME]
+    assert function_tools[0].metadata == {
+        "mcp_server_id": "demo_echo",
+        "mcp_tool_name": "echo_message",
+        "raw_mcp_tool_name": "echo-message",
+    }
 
 
 async def test_mcp_toolset_routes_fake_tool_execution_through_stream_events(
@@ -248,6 +388,81 @@ async def test_mcp_toolset_routes_fake_tool_execution_through_stream_events(
     assert isinstance(succeeded.activity.details, McpActivityDetails)
     assert succeeded.activity.details.server_id == "jaca_onboarding"
     assert succeeded.activity.details.tool_name == "publish_teaching_packet"
+    assert succeeded.activity.details.failure is None
+
+
+async def test_mcp_toolset_routes_configured_discovered_tool_execution(
+    tmp_path,
+) -> None:
+    async def echo_handler(
+        identity: McpToolIdentity,
+        arguments: dict[str, object],
+        ctx: RunContext[WorkspaceDeps],
+        provenance: McpToolCallProvenance,
+    ) -> dict[str, object]:
+        assert identity.model_tool_name == _DEMO_ECHO_TOOL_NAME
+        assert arguments == {"message": "hello"}
+        assert ctx.deps.workspace_root == tmp_path
+        assert provenance.source == "top_level_model"
+        return {"echo": arguments["message"]}
+
+    manager = build_effective_mcp_manager(
+        configured_servers={
+            "demo_echo": McpServerConfig(
+                server_id="demo_echo",
+                transport=McpStreamableHttpTransport(url="http://127.0.0.1:8000/mcp"),
+            ),
+        },
+        discovered_tools_by_server={
+            "demo_echo": (
+                McpDiscoveredTool(
+                    raw_tool_name="echo-message",
+                    title="Echo message",
+                    description="Echo one message.",
+                    input_schema={
+                        "type": "object",
+                        "properties": {"message": {"type": "string"}},
+                        "required": ["message"],
+                        "additionalProperties": False,
+                    },
+                ),
+            ),
+        },
+        builtin_servers=(),
+    )
+    agent = Agent(
+        FunctionModel(stream_function=_call_demo_echo_then_done),
+        output_type=str,
+        toolsets=[
+            build_mcp_toolset(
+                manager=manager,
+                executor=StaticMcpToolExecutor(
+                    handlers={_DEMO_ECHO_TOOL_NAME: echo_handler},
+                ),
+            )
+        ],
+        deps_type=WorkspaceDeps,
+    )
+
+    events = [
+        event
+        async for event in stream_run_events(
+            agent=agent,
+            prompt="go",
+            deps=WorkspaceDeps(tmp_path),
+            available_tool_names=(_DEMO_ECHO_TOOL_NAME,),
+        )
+    ]
+
+    succeeded = next(
+        event for event in events if isinstance(event, ToolCallSucceededEvent)
+    )
+    assert succeeded.tool_name == _DEMO_ECHO_TOOL_NAME
+    assert succeeded.result == {"echo": "hello"}
+    assert succeeded.activity is not None
+    assert isinstance(succeeded.activity.details, McpActivityDetails)
+    assert succeeded.activity.details.server_id == "demo_echo"
+    assert succeeded.activity.details.tool_name == "echo_message"
     assert succeeded.activity.details.failure is None
 
 
@@ -411,6 +626,23 @@ async def _call_real_publish_then_done(
                     }
                 ),
                 tool_call_id="call-mcp-publish",
+            )
+        }
+        return
+
+    yield "done"
+
+
+async def _call_demo_echo_then_done(
+    messages: object,
+    _agent_info: object,
+) -> AsyncIterator[str | dict[int, DeltaToolCall]]:
+    if len(messages) == 1:
+        yield {
+            0: DeltaToolCall(
+                name=_DEMO_ECHO_TOOL_NAME,
+                json_args='{"message": "hello"}',
+                tool_call_id="call-mcp-echo",
             )
         }
         return
