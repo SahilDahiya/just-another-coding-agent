@@ -20,8 +20,14 @@ from just_another_coding_agent.contracts.mcp import (
     McpToolIdentity,
 )
 from just_another_coding_agent.contracts.run_events import (
+    ApprovalRequestedEvent,
+    ApprovalResolvedEvent,
     McpActivityDetails,
     ToolCallSucceededEvent,
+)
+from just_another_coding_agent.contracts.sandbox import (
+    ApprovalDecision,
+    ApprovalRequest,
 )
 from just_another_coding_agent.runtime import (
     build_default_mcp_manager as lazy_build_default_mcp_manager,
@@ -725,6 +731,229 @@ async def test_mcp_toolset_routes_configured_discovered_tool_execution(
     assert succeeded.activity.details.failure is None
 
 
+async def test_external_mcp_tool_prompt_approval_wraps_call(tmp_path) -> None:
+    pydantic_ai_server = _FakePydanticAiMcpServer(tools=())
+    config = McpServerConfig(
+        server_id="demo_echo",
+        transport=McpStreamableHttpTransport(url="http://127.0.0.1:8000/mcp"),
+        default_tool_approval="prompt",
+    )
+    manager = build_effective_mcp_manager(
+        configured_servers={"demo_echo": config},
+        discovered_tools_by_server={
+            "demo_echo": (
+                McpDiscoveredTool(
+                    raw_tool_name="echo-message",
+                    title="Echo message",
+                    description="Echo one message.",
+                    input_schema={
+                        "type": "object",
+                        "properties": {"message": {"type": "string"}},
+                        "required": ["message"],
+                        "additionalProperties": False,
+                    },
+                ),
+            ),
+        },
+        builtin_servers=(),
+    )
+    requests: list[ApprovalRequest] = []
+
+    async def approve(request: ApprovalRequest) -> ApprovalDecision:
+        requests.append(request)
+        return ApprovalDecision(request_id=request.request_id, decision="approved")
+
+    agent = Agent(
+        FunctionModel(stream_function=_call_demo_echo_then_done),
+        output_type=str,
+        toolsets=[
+            build_mcp_toolset(
+                manager=manager,
+                executor=PydanticAiMcpExecutor(
+                    manager=manager,
+                    servers_by_id={"demo_echo": pydantic_ai_server},
+                    server_configs_by_id={"demo_echo": config},
+                ),
+            )
+        ],
+        deps_type=WorkspaceDeps,
+    )
+
+    events = [
+        event
+        async for event in stream_run_events(
+            agent=agent,
+            prompt="go",
+            deps=WorkspaceDeps(tmp_path),
+            available_tool_names=(_DEMO_ECHO_TOOL_NAME,),
+            resolve_approval_request=approve,
+        )
+    ]
+
+    assert [event.type for event in events] == [
+        "run_started",
+        "tool_call_started",
+        "approval_requested",
+        "approval_resolved",
+        "tool_call_succeeded",
+        "assistant_text_delta",
+        "run_succeeded",
+    ]
+    approval_requested = events[2]
+    approval_resolved = events[3]
+    assert isinstance(approval_requested, ApprovalRequestedEvent)
+    assert isinstance(approval_resolved, ApprovalResolvedEvent)
+    assert approval_requested.tool_name == _DEMO_ECHO_TOOL_NAME
+    assert approval_requested.tool_call_id == events[1].tool_call_id
+    assert approval_requested.request.request_kind == "permission_grant"
+    assert approval_requested.request.display_subject == _DEMO_ECHO_TOOL_NAME
+    assert approval_requested.request.grant_kind == "network_access"
+    assert requests == [approval_requested.request]
+    assert approval_resolved.decision.decision == "approved"
+    assert pydantic_ai_server.calls == [
+        (
+            "echo-message",
+            {"message": "hello"},
+            {
+                "jaca_model_tool_name": _DEMO_ECHO_TOOL_NAME,
+                "jaca_call_source": "top_level_model",
+            },
+        )
+    ]
+
+
+async def test_external_mcp_tool_denied_approval_returns_denial(tmp_path) -> None:
+    pydantic_ai_server = _FakePydanticAiMcpServer(tools=())
+    config = McpServerConfig(
+        server_id="demo_echo",
+        transport=McpStreamableHttpTransport(url="http://127.0.0.1:8000/mcp"),
+        tools={"echo-message": {"approval_mode": "prompt"}},
+    )
+    manager = build_effective_mcp_manager(
+        configured_servers={"demo_echo": config},
+        discovered_tools_by_server={
+            "demo_echo": (
+                McpDiscoveredTool(
+                    raw_tool_name="echo-message",
+                    title="Echo message",
+                    description="Echo one message.",
+                ),
+            ),
+        },
+        builtin_servers=(),
+    )
+
+    async def deny(request: ApprovalRequest) -> ApprovalDecision:
+        return ApprovalDecision(request_id=request.request_id, decision="denied")
+
+    agent = Agent(
+        FunctionModel(stream_function=_call_demo_echo_then_done),
+        output_type=str,
+        toolsets=[
+            build_mcp_toolset(
+                manager=manager,
+                executor=PydanticAiMcpExecutor(
+                    manager=manager,
+                    servers_by_id={"demo_echo": pydantic_ai_server},
+                    server_configs_by_id={"demo_echo": config},
+                ),
+            )
+        ],
+        deps_type=WorkspaceDeps,
+    )
+
+    events = [
+        event
+        async for event in stream_run_events(
+            agent=agent,
+            prompt="go",
+            deps=WorkspaceDeps(tmp_path),
+            available_tool_names=(_DEMO_ECHO_TOOL_NAME,),
+            resolve_approval_request=deny,
+        )
+    ]
+
+    succeeded = next(
+        event for event in events if isinstance(event, ToolCallSucceededEvent)
+    )
+    assert succeeded.result == {
+        "ok": False,
+        "outcome": "denied",
+        "denial_type": "approval_denied",
+        "approval_kind": "permission_grant",
+        "subject": _DEMO_ECHO_TOOL_NAME,
+        "message": (
+            f"Approval denied: allow MCP tool {_DEMO_ECHO_TOOL_NAME}. "
+            "The MCP tool was not called. Choose another approach or stop."
+        ),
+        "retry_same_request_allowed": False,
+    }
+    assert pydantic_ai_server.calls == []
+
+
+async def test_external_mcp_tool_approve_mode_prompts_once_per_runtime(
+    tmp_path,
+) -> None:
+    pydantic_ai_server = _FakePydanticAiMcpServer(tools=())
+    config = McpServerConfig(
+        server_id="demo_echo",
+        transport=McpStreamableHttpTransport(url="http://127.0.0.1:8000/mcp"),
+        default_tool_approval="approve",
+    )
+    manager = build_effective_mcp_manager(
+        configured_servers={"demo_echo": config},
+        discovered_tools_by_server={
+            "demo_echo": (
+                McpDiscoveredTool(
+                    raw_tool_name="echo-message",
+                    title="Echo message",
+                    description="Echo one message.",
+                ),
+            ),
+        },
+        builtin_servers=(),
+    )
+    requests: list[ApprovalRequest] = []
+
+    async def approve(request: ApprovalRequest) -> ApprovalDecision:
+        requests.append(request)
+        return ApprovalDecision(request_id=request.request_id, decision="approved")
+
+    agent = Agent(
+        FunctionModel(stream_function=_call_demo_echo_twice_then_done()),
+        output_type=str,
+        toolsets=[
+            build_mcp_toolset(
+                manager=manager,
+                executor=PydanticAiMcpExecutor(
+                    manager=manager,
+                    servers_by_id={"demo_echo": pydantic_ai_server},
+                    server_configs_by_id={"demo_echo": config},
+                ),
+            )
+        ],
+        deps_type=WorkspaceDeps,
+    )
+
+    events = [
+        event
+        async for event in stream_run_events(
+            agent=agent,
+            prompt="go",
+            deps=WorkspaceDeps(tmp_path),
+            available_tool_names=(_DEMO_ECHO_TOOL_NAME,),
+            resolve_approval_request=approve,
+        )
+    ]
+
+    assert [event.type for event in events].count("approval_requested") == 1
+    assert len(requests) == 1
+    assert [call[0] for call in pydantic_ai_server.calls] == [
+        "echo-message",
+        "echo-message",
+    ]
+
+
 async def test_onboarding_mcp_executor_routes_publish_to_native_tool(
     tmp_path,
 ) -> None:
@@ -907,6 +1136,31 @@ async def _call_demo_echo_then_done(
         return
 
     yield "done"
+
+
+def _call_demo_echo_twice_then_done():
+    call_count = 0
+
+    async def stream(
+        messages: object,
+        _agent_info: object,
+    ) -> AsyncIterator[str | dict[int, DeltaToolCall]]:
+        nonlocal call_count
+        del messages
+        if call_count < 2:
+            call_count += 1
+            yield {
+                0: DeltaToolCall(
+                    name=_DEMO_ECHO_TOOL_NAME,
+                    json_args='{"message": "hello"}',
+                    tool_call_id=f"call-mcp-echo-{call_count}",
+                )
+            }
+            return
+
+        yield "done"
+
+    return stream
 
 
 class _FakePydanticAiMcpServer:

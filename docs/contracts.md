@@ -98,6 +98,11 @@ Rules:
 - Configured MCP config, startup, and discovery failures that happen before a
   run starts must surface as typed session lifecycle events carrying
   `McpFailure`; they must not create partial session runs.
+- External MCP tool approval is enforced by backend MCP config, not by the Go
+  TUI. `auto` calls without prompting, `prompt` emits the standard backend
+  approval event for every call, and `approve` emits the same approval event
+  once per configured MCP runtime before reusing that approval for later calls
+  to the same mounted tool.
 - Code Mode MCP calls must carry the parent `exec` tool call id and Code Mode
   cell id.
 - Top-level MCP calls must not carry Code Mode parent fields.

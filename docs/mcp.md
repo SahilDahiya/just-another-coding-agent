@@ -155,6 +155,14 @@ happen before a run id exists, session streaming emits a
 `session_mcp_failed` lifecycle event and returns without starting
 `stream_run_events` or writing a partial run to the session file.
 
+External MCP tool approval is enforced inside the backend executor before
+PydanticAI `direct_call_tool` is invoked. `auto` allows the call, `prompt`
+emits the standard backend approval request for each call, and `approve` emits
+that request once per configured MCP runtime and then reuses the approval for
+later calls to the same mounted model-facing tool. Denied approvals return the
+same model-visible denial shape as native tools and do not call the external
+MCP server.
+
 The first built-in executor is `JacaOnboardingMcpExecutor`. It adapts the
 `jaca_onboarding` MCP tool identities onto the existing backend onboarding
 implementations, unwrapping their native `ToolReturn` values for model-visible

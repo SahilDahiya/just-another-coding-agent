@@ -6,6 +6,7 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from inspect import isawaitable
 from typing import Any, Literal, Protocol, TypeAlias
+from uuid import uuid4
 
 from mcp import types as mcp_types
 from pydantic import BaseModel, ConfigDict, Field
@@ -28,18 +29,25 @@ from just_another_coding_agent.contracts.mcp import (
     McpServerConfig,
     McpStdioTransport,
     McpStreamableHttpTransport,
+    McpToolApprovalMode,
     McpToolCallProvenance,
     McpToolIdentity,
     make_mcp_model_tool_name,
     parse_mcp_model_tool_name,
 )
 from just_another_coding_agent.contracts.run_events import McpActivityDetails
+from just_another_coding_agent.contracts.sandbox import (
+    PermissionGrantApprovalRequest,
+)
 from just_another_coding_agent.contracts.teaching import (
     TeachingRelationship,
     TeachingSnippetRef,
 )
+from just_another_coding_agent.contracts.tools import make_tool_denied_result
 from just_another_coding_agent.tools._activity import make_tool_return
+from just_another_coding_agent.tools._approval_flow import resolve_tool_approval
 from just_another_coding_agent.tools.deps import WorkspaceDeps
+from just_another_coding_agent.tools.errors import ToolApprovalDenied
 from just_another_coding_agent.tools.mcq_from_teaching_packets import (
     generate_mcq_from_teaching_packets,
 )
@@ -214,6 +222,36 @@ def _pydantic_ai_mcp_metadata(
     if provenance.code_mode_cell_id is not None:
         metadata["jaca_code_mode_cell_id"] = provenance.code_mode_cell_id
     return metadata
+
+
+def _mcp_tool_approval_mode(
+    *,
+    config: McpServerConfig | None,
+    raw_tool_name: str,
+) -> McpToolApprovalMode:
+    if config is None:
+        return "auto"
+    tool_config = config.tools.get(raw_tool_name)
+    if tool_config is not None and tool_config.approval_mode is not None:
+        return tool_config.approval_mode
+    if config.default_tool_approval is not None:
+        return config.default_tool_approval
+    return "auto"
+
+
+def _mcp_approval_request(
+    *,
+    ctx: RunContext[WorkspaceDeps],
+    definition: McpToolDefinition,
+) -> PermissionGrantApprovalRequest:
+    return PermissionGrantApprovalRequest(
+        request_id=uuid4().hex,
+        reason=f"allow MCP tool {definition.model_tool_name}",
+        grant_kind="network_access",
+        target=f"{definition.identity.server_id}:{definition.raw_tool_name}",
+        display_subject=definition.model_tool_name,
+        requested_capabilities=ctx.deps.permission_state.effective_capabilities,
+    )
 
 
 def _bearer_headers_from_env(
@@ -429,6 +467,12 @@ class StaticMcpToolExecutor:
 class PydanticAiMcpExecutor:
     manager: McpManager
     servers_by_id: Mapping[str, PydanticAiMcpServerProtocol]
+    server_configs_by_id: Mapping[str, McpServerConfig] = field(default_factory=dict)
+    _approved_model_tool_names: set[str] = field(
+        default_factory=set,
+        compare=False,
+        repr=False,
+    )
 
     async def execute_tool(
         self,
@@ -438,12 +482,15 @@ class PydanticAiMcpExecutor:
         ctx: RunContext[WorkspaceDeps],
         provenance: McpToolCallProvenance,
     ) -> Any:
-        del ctx
         definition = self.manager.get_tool(identity.model_tool_name)
         if definition.mounted_identity is None:
             raise McpManagerError(
                 "PydanticAI MCP executor can only call mounted external MCP tools"
             )
+        await self._ensure_approved(
+            definition=definition,
+            ctx=ctx,
+        )
         try:
             server = self.servers_by_id[identity.server_id]
         except KeyError as error:
@@ -458,6 +505,39 @@ class PydanticAiMcpExecutor:
                 provenance=provenance,
             ),
         )
+
+    async def _ensure_approved(
+        self,
+        *,
+        definition: McpToolDefinition,
+        ctx: RunContext[WorkspaceDeps],
+    ) -> None:
+        config = self.server_configs_by_id.get(definition.identity.server_id)
+        mode = _mcp_tool_approval_mode(
+            config=config,
+            raw_tool_name=definition.raw_tool_name,
+        )
+        if mode == "auto":
+            return
+        if (
+            mode == "approve"
+            and definition.model_tool_name in self._approved_model_tool_names
+        ):
+            return
+        request = _mcp_approval_request(ctx=ctx, definition=definition)
+        await resolve_tool_approval(
+            ctx=ctx,
+            request=request,
+            denied_message=(
+                f"Approval denied: allow MCP tool {definition.model_tool_name}. "
+                "The MCP tool was not called. Choose another approach or stop."
+            ),
+            missing_requester_message=(
+                "MCP tool approval is required, but no approval requester is available."
+            ),
+        )
+        if mode == "approve":
+            self._approved_model_tool_names.add(definition.model_tool_name)
 
 
 @dataclass(frozen=True)
@@ -616,6 +696,25 @@ class McpToolset(AbstractToolset[WorkspaceDeps]):
                 arguments=tool_args,
                 ctx=ctx,
                 provenance=provenance,
+            )
+        except ToolApprovalDenied as error:
+            return make_tool_return(
+                return_value=make_tool_denied_result(
+                    message=str(error),
+                    denial_type=error.denial_type,
+                    approval_kind=error.approval_kind,
+                    subject=error.subject,
+                    retry_same_request_allowed=error.retry_same_request_allowed,
+                ),
+                title=definition.title,
+                summary=str(error),
+                display_label="MCP",
+                details=McpActivityDetails(
+                    server_id=definition.identity.server_id,
+                    tool_name=definition.identity.tool_name,
+                    model_tool_name=definition.model_tool_name,
+                    provenance=provenance,
+                ),
             )
         except Exception as error:
             failure = McpFailure(
@@ -984,6 +1083,7 @@ async def build_configured_mcp_runtime(
         external_executor = PydanticAiMcpExecutor(
             manager=manager,
             servers_by_id=servers_by_id,
+            server_configs_by_id=configured_servers,
         )
         executor = RoutingMcpToolExecutor(
             executors_by_server_id={
