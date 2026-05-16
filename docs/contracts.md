@@ -64,8 +64,10 @@ Initial MCP contract slice:
 - The built-in onboarding server id is `jaca_onboarding`.
 - MCP call provenance distinguishes top-level model calls from Code Mode nested
   calls.
-- MCP failures are typed as config, startup, discovery, tool execution, or
-  resource read failures.
+- MCP failures are typed as auth, config, startup, discovery, tool execution,
+  or resource read failures.
+- MCP auth failures carry backend-owned recovery details such as bearer-env
+  variable name, OAuth provider error code, and recovery hint when applicable.
 - TUI/RPC clients receive typed `McpActivityDetails`; they must not parse MCP
   server, tool, provenance, or failure meaning from display text.
 
@@ -89,6 +91,18 @@ Rules:
   only public MCP tool naming contract.
 - Streamable HTTP bearer tokens must be resolved from environment variables
   and fail hard when the configured environment variable is missing or empty.
+- Streamable HTTP OAuth config is explicit durable config, but OAuth tokens and
+  dynamic client information are not. They are stored in the backend OAuth
+  store keyed by server id plus a stable config fingerprint.
+- A streamable HTTP MCP transport must not configure both bearer-env auth and
+  OAuth auth.
+- Missing streamable HTTP bearer-token environment variables must surface as
+  `McpFailure(kind="auth_failed")` with `McpAuthFailure(reason="missing_bearer_env")`;
+  they must not be collapsed into generic config or startup failures.
+- Missing MCP OAuth login must surface as `McpFailure(kind="auth_failed")` with
+  `McpAuthFailure(reason="oauth_login_required")`; OAuth refresh or SDK OAuth
+  failures must use `reason="oauth_refresh_failed"` instead of generic startup
+  failures.
 - MCP sampling must remain disabled for configured external MCP clients until
   a separate backend-owned sampling policy contract exists.
 - Session runs must load persisted configured MCP servers, discover enabled
@@ -174,6 +188,15 @@ OAuth login RPC contract:
 - Manual OpenAI completion and background browser-callback completion must
   resolve the same canonical login result; the shell must not race two
   different notions of success.
+
+MCP OAuth CLI contract:
+
+- `jaca mcp login <server_id>` starts OAuth login for a configured streamable
+  HTTP MCP server and writes tokens/client info to the backend OAuth store.
+- `jaca mcp logout <server_id>` clears OAuth state for that exact configured
+  server fingerprint.
+- MCP OAuth login/logout resolves server config through backend config loading;
+  the shell must not infer transport or auth state from display text.
 
 API-key setup RPC contract:
 

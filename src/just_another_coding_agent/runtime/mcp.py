@@ -8,7 +8,9 @@ from inspect import isawaitable
 from typing import Any, Literal, Protocol, TypeAlias
 from uuid import uuid4
 
+import httpx
 from mcp import types as mcp_types
+from mcp.client.auth.exceptions import OAuthFlowError, OAuthTokenError
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic_ai import RunContext
 from pydantic_ai.mcp import (
@@ -24,6 +26,7 @@ from pydantic_core import SchemaValidator, core_schema
 
 from just_another_coding_agent.contracts.mcp import (
     JACA_ONBOARDING_MCP_SERVER_ID,
+    McpAuthFailure,
     McpFailure,
     McpMountedToolIdentity,
     McpServerConfig,
@@ -44,6 +47,12 @@ from just_another_coding_agent.contracts.teaching import (
     TeachingSnippetRef,
 )
 from just_another_coding_agent.contracts.tools import make_tool_denied_result
+from just_another_coding_agent.mcp_oauth import (
+    McpOAuthError,
+    McpOAuthLoginRequiredError,
+    build_mcp_oauth_http_client,
+    require_mcp_oauth_login,
+)
 from just_another_coding_agent.runtime.mcp_inventory import McpToolInventory
 from just_another_coding_agent.tools._activity import make_tool_return
 from just_another_coding_agent.tools._approval_flow import resolve_tool_approval
@@ -164,6 +173,33 @@ PydanticAiMcpServer: TypeAlias = (
     | PydanticAiMCPServerStreamableHTTP
     | PydanticAiMcpServerProtocol
 )
+
+
+@dataclass
+class _HttpClientClosingMcpServer:
+    server: PydanticAiMCPServerStreamableHTTP
+    http_client: httpx.AsyncClient
+
+    async def __aenter__(self) -> "_HttpClientClosingMcpServer":
+        await self.server.__aenter__()
+        return self
+
+    async def __aexit__(self, *args: Any) -> Any:
+        try:
+            return await self.server.__aexit__(*args)
+        finally:
+            await self.http_client.aclose()
+
+    async def list_tools(self) -> list[mcp_types.Tool]:
+        return await self.server.list_tools()
+
+    async def direct_call_tool(
+        self,
+        name: str,
+        args: dict[str, Any],
+        metadata: dict[str, Any] | None = None,
+    ) -> Any:
+        return await self.server.direct_call_tool(name, args, metadata=metadata)
 
 
 def _normalize_raw_tool_name(raw_tool_name: str) -> str:
@@ -299,9 +335,23 @@ def _bearer_headers_from_env(
         return None
     token = env.get(bearer_token_env_var)
     if not token:
-        raise McpManagerError(
-            f"MCP server {server_id!r} requires environment variable "
-            f"{bearer_token_env_var!r}"
+        recovery_hint = f"Set {bearer_token_env_var} and retry the MCP server."
+        raise McpRuntimeFailureError(
+            McpFailure(
+                kind="auth_failed",
+                error_type="McpBearerEnvMissingError",
+                message=(
+                    f"MCP server {server_id!r} requires environment variable "
+                    f"{bearer_token_env_var!r}"
+                ),
+                server_id=server_id,
+                auth=McpAuthFailure(
+                    auth_kind="bearer_env",
+                    reason="missing_bearer_env",
+                    env_var=bearer_token_env_var,
+                    recovery_hint=recovery_hint,
+                ),
+            )
         )
     return {"Authorization": f"Bearer {token}"}
 
@@ -340,6 +390,39 @@ def _runtime_failure(
             error_type=type(error).__name__,
             message=str(error) or type(error).__name__,
             server_id=server_id,
+        )
+    )
+
+
+def _oauth_runtime_failure(
+    *,
+    server_id: str,
+    error: Exception,
+    reason: Literal["oauth_login_required", "oauth_refresh_failed"] | None = None,
+) -> McpRuntimeFailureError:
+    resolved_reason = reason
+    if resolved_reason is None:
+        resolved_reason = (
+            "oauth_login_required"
+            if isinstance(error, McpOAuthLoginRequiredError)
+            else "oauth_refresh_failed"
+        )
+    recovery_hint = (
+        f"Run `jaca mcp login {server_id}` and retry the MCP server."
+        if resolved_reason == "oauth_login_required"
+        else f"Run `jaca mcp login {server_id}` again and retry the MCP server."
+    )
+    return McpRuntimeFailureError(
+        McpFailure(
+            kind="auth_failed",
+            error_type=type(error).__name__,
+            message=str(error) or type(error).__name__,
+            server_id=server_id,
+            auth=McpAuthFailure(
+                auth_kind="oauth",
+                reason=resolved_reason,
+                recovery_hint=recovery_hint,
+            ),
         )
     )
 
@@ -1043,6 +1126,28 @@ def build_pydantic_ai_mcp_server(
             max_retries=0,
         )
     if isinstance(transport, McpStreamableHttpTransport):
+        if transport.oauth is not None:
+            try:
+                require_mcp_oauth_login(config)
+            except McpOAuthError as error:
+                raise _oauth_runtime_failure(
+                    server_id=config.server_id,
+                    error=error,
+                ) from error
+            http_client = build_mcp_oauth_http_client(config)
+            return _HttpClientClosingMcpServer(
+                server=PydanticAiMCPServerStreamableHTTP(
+                    transport.url,
+                    http_client=http_client,
+                    id=config.server_id,
+                    tool_prefix=None,
+                    timeout=timeout,
+                    read_timeout=read_timeout,
+                    allow_sampling=False,
+                    max_retries=0,
+                ),
+                http_client=http_client,
+            )
         return PydanticAiMCPServerStreamableHTTP(
             transport.url,
             headers=_bearer_headers_from_env(
@@ -1094,6 +1199,8 @@ async def build_configured_mcp_runtime(
                 continue
             try:
                 server = factory(config)
+            except McpRuntimeFailureError:
+                raise
             except Exception as error:
                 raise _runtime_failure(
                     kind="config_failed",
@@ -1102,6 +1209,12 @@ async def build_configured_mcp_runtime(
                 ) from error
             try:
                 await server.__aenter__()
+            except (OAuthFlowError, OAuthTokenError) as error:
+                raise _oauth_runtime_failure(
+                    server_id=server_id,
+                    error=error,
+                    reason="oauth_refresh_failed",
+                ) from error
             except Exception as error:
                 raise _runtime_failure(
                     kind="startup_failed",

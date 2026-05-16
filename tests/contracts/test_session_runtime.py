@@ -22,6 +22,7 @@ from pydantic_ai.models.test import TestModel
 import just_another_coding_agent.runtime.session as runtime_session_module
 from just_another_coding_agent.contracts.compaction import CompactionBudgetReport
 from just_another_coding_agent.contracts.mcp import (
+    McpAuthFailure,
     McpFailure,
     McpServerConfig,
     McpStreamableHttpTransport,
@@ -852,6 +853,82 @@ async def test_stream_session_run_events_surfaces_configured_mcp_failure(
     assert failed.failure.server_id == "demo_echo"
     assert failed.failure.error_type == "RuntimeError"
     assert failed.failure.message == "server unavailable"
+    assert not session_path.exists()
+
+
+async def test_stream_session_run_events_surfaces_configured_mcp_auth_failure(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    session_path = tmp_path / "session-id-target.jsonl"
+    configured_server = McpServerConfig(
+        server_id="linear",
+        transport=McpStreamableHttpTransport(
+            url="https://mcp.linear.app/mcp",
+            bearer_token_env_var="LINEAR_MCP_TOKEN",
+        ),
+    )
+
+    async def fake_build_configured_mcp_runtime(*, configured_servers):
+        assert configured_servers == {"linear": configured_server}
+        raise McpRuntimeFailureError(
+            McpFailure(
+                kind="auth_failed",
+                error_type="McpBearerEnvMissingError",
+                message=(
+                    "MCP server 'linear' requires environment variable "
+                    "'LINEAR_MCP_TOKEN'"
+                ),
+                server_id="linear",
+                auth=McpAuthFailure(
+                    auth_kind="bearer_env",
+                    reason="missing_bearer_env",
+                    env_var="LINEAR_MCP_TOKEN",
+                    recovery_hint=("Set LINEAR_MCP_TOKEN and retry the MCP server."),
+                ),
+            )
+        )
+
+    async def unexpected_stream_run_events(**_kwargs):
+        raise AssertionError("stream_run_events must not start after MCP auth failure")
+        yield
+
+    monkeypatch.setattr(
+        runtime_session_module,
+        "load_mcp_server_configs",
+        lambda: {"linear": configured_server},
+    )
+    monkeypatch.setattr(
+        runtime_session_module,
+        "build_configured_mcp_runtime",
+        fake_build_configured_mcp_runtime,
+    )
+    monkeypatch.setattr(
+        runtime_session_module,
+        "stream_run_events",
+        unexpected_stream_run_events,
+    )
+
+    events = [
+        event
+        async for event in stream_session_run_events(
+            model=FunctionModel(stream_function=text_only_stream),
+            workspace_root=workspace_root,
+            session_path=session_path,
+            prompt="go",
+        )
+    ]
+
+    assert len(events) == 1
+    failed = events[0]
+    assert isinstance(failed, SessionMcpFailedEvent)
+    assert failed.failure.kind == "auth_failed"
+    assert failed.failure.server_id == "linear"
+    assert failed.failure.auth is not None
+    assert failed.failure.auth.reason == "missing_bearer_env"
+    assert failed.failure.auth.env_var == "LINEAR_MCP_TOKEN"
     assert not session_path.exists()
 
 

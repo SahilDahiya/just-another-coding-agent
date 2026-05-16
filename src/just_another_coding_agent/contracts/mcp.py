@@ -15,11 +15,19 @@ JACA_ONBOARDING_MCP_TOOL_NAMES = (
 
 McpCallSource = Literal["top_level_model", "code_mode"]
 McpFailureKind = Literal[
+    "auth_failed",
     "config_failed",
     "startup_failed",
     "discovery_failed",
     "tool_failed",
     "resource_failed",
+]
+McpAuthKind = Literal["bearer_env", "oauth"]
+McpAuthFailureReason = Literal[
+    "missing_bearer_env",
+    "oauth_login_required",
+    "oauth_refresh_failed",
+    "unsupported",
 ]
 McpToolApprovalMode = Literal["auto", "prompt", "approve"]
 
@@ -110,16 +118,36 @@ class McpServerToolConfig(_McpContractModel):
     approval_mode: McpToolApprovalMode | None = None
 
 
+class McpOAuthConfig(_McpContractModel):
+    type: Literal["oauth"] = "oauth"
+    callback_port: int = Field(default=1456, ge=1024, le=65535)
+    scopes: list[str] = Field(default_factory=list)
+    client_id: str | None = Field(default=None, min_length=1)
+
+    @model_validator(mode="after")
+    def _validate_oauth_config(self) -> "McpOAuthConfig":
+        for scope in self.scopes:
+            if scope.strip() == "":
+                raise ValueError("OAuth MCP scopes must not be empty")
+        return self
+
+
 class McpStreamableHttpTransport(_McpContractModel):
     type: Literal["streamable_http"] = "streamable_http"
     url: str = Field(min_length=1)
     bearer_token_env_var: str | None = Field(default=None, min_length=1)
+    oauth: McpOAuthConfig | None = None
 
     @model_validator(mode="after")
     def _validate_url(self) -> "McpStreamableHttpTransport":
         if not self.url.startswith(("http://", "https://")):
             raise ValueError(
                 "streamable HTTP MCP transport url must start with http:// or https://"
+            )
+        if self.bearer_token_env_var is not None and self.oauth is not None:
+            raise ValueError(
+                "streamable HTTP MCP transport must not configure both "
+                "bearer_token_env_var and oauth"
             )
         return self
 
@@ -165,6 +193,35 @@ class McpServerConfig(_McpContractModel):
         return self
 
 
+class McpAuthFailure(_McpContractModel):
+    auth_kind: McpAuthKind
+    reason: McpAuthFailureReason
+    recovery_hint: str = Field(min_length=1)
+    env_var: str | None = Field(default=None, min_length=1)
+    provider_error_code: str | None = Field(default=None, min_length=1)
+
+    @model_validator(mode="after")
+    def _validate_auth_failure(self) -> "McpAuthFailure":
+        if self.auth_kind == "bearer_env":
+            if self.reason != "missing_bearer_env":
+                raise ValueError(
+                    "bearer_env MCP auth failures must use missing_bearer_env"
+                )
+            if self.env_var is None:
+                raise ValueError("missing_bearer_env requires env_var")
+            if self.provider_error_code is not None:
+                raise ValueError(
+                    "bearer_env MCP auth failures must not carry provider_error_code"
+                )
+            return self
+
+        if self.reason == "missing_bearer_env":
+            raise ValueError("missing_bearer_env requires bearer_env auth_kind")
+        if self.env_var is not None:
+            raise ValueError("OAuth MCP auth failures must not carry env_var")
+        return self
+
+
 class McpFailure(_McpContractModel):
     kind: McpFailureKind
     error_type: str = Field(min_length=1)
@@ -172,6 +229,7 @@ class McpFailure(_McpContractModel):
     server_id: str | None = None
     tool_name: str | None = None
     resource_uri: str | None = None
+    auth: McpAuthFailure | None = None
 
     @model_validator(mode="after")
     def _validate_failure_subject(self) -> "McpFailure":
@@ -179,25 +237,39 @@ class McpFailure(_McpContractModel):
             _validate_mcp_name(value=self.server_id, field_name="server_id")
         if self.tool_name is not None:
             _validate_mcp_name(value=self.tool_name, field_name="tool_name")
-        if self.kind in {"config_failed", "startup_failed", "discovery_failed"}:
+        if self.kind in {
+            "auth_failed",
+            "config_failed",
+            "startup_failed",
+            "discovery_failed",
+        }:
             if self.server_id is None:
                 raise ValueError(f"{self.kind} failures require server_id")
             if self.tool_name is not None or self.resource_uri is not None:
                 raise ValueError(
                     f"{self.kind} failures must not carry tool_name or resource_uri"
                 )
+            if self.kind == "auth_failed":
+                if self.auth is None:
+                    raise ValueError("auth_failed failures require auth")
+            elif self.auth is not None:
+                raise ValueError(f"{self.kind} failures must not carry auth")
         if self.kind == "tool_failed":
             if self.server_id is None or self.tool_name is None:
                 raise ValueError("tool_failed failures require server_id and tool_name")
-            if self.resource_uri is not None:
-                raise ValueError("tool_failed failures must not carry resource_uri")
+            if self.resource_uri is not None or self.auth is not None:
+                raise ValueError(
+                    "tool_failed failures must not carry resource_uri or auth"
+                )
         if self.kind == "resource_failed":
             if self.server_id is None or self.resource_uri is None:
                 raise ValueError(
                     "resource_failed failures require server_id and resource_uri"
                 )
-            if self.tool_name is not None:
-                raise ValueError("resource_failed failures must not carry tool_name")
+            if self.tool_name is not None or self.auth is not None:
+                raise ValueError(
+                    "resource_failed failures must not carry tool_name or auth"
+                )
         return self
 
 
@@ -238,10 +310,14 @@ __all__ = [
     "JACA_ONBOARDING_MCP_SERVER_ID",
     "JACA_ONBOARDING_MCP_TOOL_NAMES",
     "MCP_TOOL_NAME_PREFIX",
+    "McpAuthFailure",
+    "McpAuthFailureReason",
+    "McpAuthKind",
     "McpCallSource",
     "McpFailure",
     "McpFailureKind",
     "McpMountedToolIdentity",
+    "McpOAuthConfig",
     "McpServerConfig",
     "McpServerToolConfig",
     "McpStdioTransport",

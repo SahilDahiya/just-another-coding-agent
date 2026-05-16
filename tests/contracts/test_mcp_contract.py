@@ -15,10 +15,14 @@ def test_mcp_contract_exports_expected_types() -> None:
         "JACA_ONBOARDING_MCP_SERVER_ID",
         "JACA_ONBOARDING_MCP_TOOL_NAMES",
         "MCP_TOOL_NAME_PREFIX",
+        "McpAuthFailure",
+        "McpAuthFailureReason",
+        "McpAuthKind",
         "McpCallSource",
         "McpFailure",
         "McpFailureKind",
         "McpMountedToolIdentity",
+        "McpOAuthConfig",
         "McpServerConfig",
         "McpServerToolConfig",
         "McpStdioTransport",
@@ -136,6 +140,7 @@ def test_mcp_failure_shape_is_strict_and_typed() -> None:
         "server_id": "jaca_onboarding",
         "tool_name": "ask_mcq_question",
         "resource_uri": None,
+        "auth": None,
     }
 
     with pytest.raises(ValidationError):
@@ -162,6 +167,65 @@ def test_mcp_failure_shape_is_strict_and_typed() -> None:
             server_id="jaca_onboarding",
             tool_name="ask_mcq_question",
             resource_uri="jaca://onboarding/guide",
+        )
+
+
+def test_mcp_auth_failure_shape_is_first_class() -> None:
+    auth = mcp.McpAuthFailure(
+        auth_kind="bearer_env",
+        reason="missing_bearer_env",
+        env_var="LINEAR_MCP_TOKEN",
+        recovery_hint="Set LINEAR_MCP_TOKEN and retry the MCP server.",
+    )
+    failure = mcp.McpFailure(
+        kind="auth_failed",
+        error_type="McpBearerEnvMissingError",
+        message="MCP server 'linear' requires environment variable 'LINEAR_MCP_TOKEN'",
+        server_id="linear",
+        auth=auth,
+    )
+
+    assert failure.model_dump(mode="json") == {
+        "kind": "auth_failed",
+        "error_type": "McpBearerEnvMissingError",
+        "message": (
+            "MCP server 'linear' requires environment variable 'LINEAR_MCP_TOKEN'"
+        ),
+        "server_id": "linear",
+        "tool_name": None,
+        "resource_uri": None,
+        "auth": {
+            "auth_kind": "bearer_env",
+            "reason": "missing_bearer_env",
+            "recovery_hint": "Set LINEAR_MCP_TOKEN and retry the MCP server.",
+            "env_var": "LINEAR_MCP_TOKEN",
+            "provider_error_code": None,
+        },
+    }
+
+    with pytest.raises(ValidationError):
+        mcp.McpFailure(
+            kind="auth_failed",
+            error_type="McpBearerEnvMissingError",
+            message="missing auth",
+            server_id="linear",
+        )
+
+    with pytest.raises(ValidationError):
+        mcp.McpFailure(
+            kind="startup_failed",
+            error_type="RuntimeError",
+            message="server failed",
+            server_id="linear",
+            auth=auth,
+        )
+
+    with pytest.raises(ValidationError):
+        mcp.McpAuthFailure(
+            auth_kind="bearer_env",
+            reason="oauth_refresh_failed",
+            env_var="LINEAR_MCP_TOKEN",
+            recovery_hint="retry",
         )
 
 
@@ -270,6 +334,35 @@ def test_mcp_server_config_models_streamable_http_transport() -> None:
     }
 
 
+def test_mcp_server_config_models_oauth_streamable_http_transport() -> None:
+    config = mcp.McpServerConfig(
+        server_id="linear",
+        transport=mcp.McpStreamableHttpTransport(
+            url="https://mcp.linear.app/mcp",
+            oauth=mcp.McpOAuthConfig(
+                callback_port=1456,
+                scopes=["read", "write"],
+                client_id="linear-client",
+            ),
+        ),
+    )
+
+    assert config.transport.oauth is not None
+    assert config.transport.oauth.callback_port == 1456
+    assert config.transport.oauth.scopes == ["read", "write"]
+    assert config.transport.oauth.client_id == "linear-client"
+    assert config.model_dump(mode="json", exclude_none=True)["transport"] == {
+        "type": "streamable_http",
+        "url": "https://mcp.linear.app/mcp",
+        "oauth": {
+            "type": "oauth",
+            "callback_port": 1456,
+            "scopes": ["read", "write"],
+            "client_id": "linear-client",
+        },
+    }
+
+
 def test_mcp_server_config_models_stdio_transport() -> None:
     config = mcp.McpServerConfig(
         server_id="memory",
@@ -303,6 +396,19 @@ def test_mcp_server_config_fails_hard_for_invalid_or_ambiguous_values() -> None:
 
     with pytest.raises(ValidationError):
         mcp.McpStreamableHttpTransport(url="file:///tmp/server")
+
+    with pytest.raises(ValidationError):
+        mcp.McpStreamableHttpTransport(
+            url="https://mcp.linear.app/mcp",
+            bearer_token_env_var="LINEAR_MCP_TOKEN",
+            oauth=mcp.McpOAuthConfig(),
+        )
+
+    with pytest.raises(ValidationError):
+        mcp.McpOAuthConfig(callback_port=80)
+
+    with pytest.raises(ValidationError):
+        mcp.McpOAuthConfig(scopes=["read", ""])
 
     with pytest.raises(ValidationError):
         mcp.McpServerConfig(

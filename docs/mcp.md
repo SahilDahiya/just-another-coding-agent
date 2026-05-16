@@ -91,8 +91,8 @@ The first contract slice lives in
   normalized model-facing tool name used by the agent
 - the reserved built-in onboarding server id, `jaca_onboarding`
 - provenance for top-level model calls vs Code Mode nested calls
-- typed MCP failure kinds for config, startup, discovery, tool execution, and
-  resource reads
+- typed MCP failure kinds for auth, config, startup, discovery, tool execution,
+  and resource reads
 
 External MCP config validation is fail-fast. Inline bearer tokens, invalid
 transport shapes, non-HTTP streamable HTTP URLs, invalid timeouts, invalid
@@ -130,9 +130,17 @@ The PydanticAI adapter boundary builds standard PydanticAI MCP client objects
 from JACA's typed config with `build_pydantic_ai_mcp_server`. JACA does not use
 PydanticAI `tool_prefix` for public names; namespacing remains the backend
 contract. Streamable HTTP bearer tokens are resolved from environment variables
-at construction time and fail hard when missing. MCP sampling is disabled at
-this boundary until JACA has an explicit policy contract for server-initiated
-model calls.
+at construction time and fail hard when missing. Missing bearer-token env vars
+surface as `McpFailure(kind="auth_failed")` with a nested `McpAuthFailure` that
+identifies `reason="missing_bearer_env"`, the missing env var, and the recovery
+hint. Streamable HTTP OAuth config is mutually exclusive with bearer-token env
+auth. OAuth tokens and dynamic client info live in the backend OAuth store keyed
+by server id plus a config fingerprint, not in `~/.jaca/config.json`. Missing
+login surfaces as `auth_failed` with `oauth_login_required`; OAuth refresh or
+SDK OAuth failures surface as `oauth_refresh_failed`. These auth failures are
+not collapsed into generic config or startup failures. MCP sampling is disabled
+at this boundary until JACA has an explicit policy contract for
+server-initiated model calls.
 
 Live discovery uses `discover_pydantic_ai_mcp_tools` to read raw MCP SDK tool
 metadata from the PydanticAI client and convert it into `McpDiscoveredTool`
@@ -170,6 +178,14 @@ Configured MCP config, startup, and discovery failures are wrapped in
 happen before a run id exists, session streaming emits a
 `session_mcp_failed` lifecycle event and returns without starting
 `stream_run_events` or writing a partial run to the session file.
+
+Auth failures use the same pre-run failure path but carry auth-specific
+recovery detail. For example, a Linear-style streamable HTTP server configured
+with a missing bearer-token env var should yield `auth_failed` with
+`missing_bearer_env`, not `startup_failed`. OAuth-configured streamable HTTP
+servers require `jaca mcp login <server_id>` before runtime startup can use
+them. `jaca mcp logout <server_id>` clears the OAuth record for the exact
+server config fingerprint.
 
 External MCP tool approval is enforced inside the backend executor before
 PydanticAI `direct_call_tool` is invoked. `auto` allows the call, `prompt`

@@ -19,8 +19,10 @@ from just_another_coding_agent.config import (
     apply_config_to_env,
     apply_trace_mode_to_env,
     load_config,
+    load_mcp_server_configs,
     resolve_default_model,
 )
+from just_another_coding_agent.contracts.mcp import McpStreamableHttpTransport
 from just_another_coding_agent.go_tui import (
     available_installed_update,
     default_backend_command,
@@ -29,6 +31,11 @@ from just_another_coding_agent.go_tui import (
     package_version,
     refresh_cached_release_version_in_background,
     resolve_go_tui_launch,
+)
+from just_another_coding_agent.mcp_oauth import (
+    McpOAuthError,
+    clear_mcp_oauth_credentials,
+    login_mcp_oauth_server,
 )
 from just_another_coding_agent.rpc import serve_rpc_stdio
 from just_another_coding_agent.rpc.session_store import (
@@ -85,6 +92,8 @@ def main(
             default_model=default_model,
             subprocess_env=subprocess_env,
         )
+    if raw_args and raw_args[0] == "mcp":
+        return _run_mcp_mode(argv=raw_args[1:], output_stream=output_stream)
 
     parser = argparse.ArgumentParser(
         prog="jaca",
@@ -224,6 +233,99 @@ def _run_fork_mode(
         forked_from_session_id=source.session_id,
         forked_from_session_name=source.name,
     )
+
+
+def _run_mcp_mode(
+    *,
+    argv: Sequence[str],
+    output_stream: TextIO | None = None,
+) -> int:
+    writer = sys.stdout if output_stream is None else output_stream
+    parser = argparse.ArgumentParser(
+        prog="jaca mcp",
+        description="Manage configured MCP server authentication.",
+    )
+    _add_version_arg(parser)
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    login_parser = subparsers.add_parser(
+        "login",
+        help="Start OAuth login for a configured MCP server",
+    )
+    login_parser.add_argument("server_id")
+
+    logout_parser = subparsers.add_parser(
+        "logout",
+        help="Clear OAuth credentials for a configured MCP server",
+    )
+    logout_parser.add_argument("server_id")
+
+    args = parser.parse_args(list(argv))
+    try:
+        config = _load_mcp_cli_server(args.server_id)
+        if args.command == "login":
+            return _run_mcp_login(config=config, writer=writer)
+        if args.command == "logout":
+            clear_mcp_oauth_credentials(config)
+            writer.write(f"Logged out MCP server {config.server_id}.\n")
+            writer.flush()
+            return 0
+    except Exception as error:
+        writer.write(f"Error: {error}\n")
+        writer.flush()
+        return 1
+    raise RuntimeError(f"Unsupported MCP command: {args.command}")
+
+
+def _load_mcp_cli_server(server_id: str):
+    servers = load_mcp_server_configs()
+    try:
+        return servers[server_id]
+    except KeyError as error:
+        raise RuntimeError(f"Unknown MCP server: {server_id}") from error
+
+
+def _run_mcp_login(*, config, writer: TextIO) -> int:
+    transport = config.transport
+    if not isinstance(transport, McpStreamableHttpTransport):
+        raise RuntimeError("MCP OAuth login requires streamable_http transport")
+    if transport.oauth is None:
+        raise RuntimeError("MCP server does not have OAuth configured")
+
+    async def auth_url_handler(auth_url: str) -> None:
+        writer.write(f"Open this URL to authenticate {config.server_id}:\n")
+        writer.write(f"{auth_url}\n")
+        writer.flush()
+
+    async def connect(client) -> None:
+        from pydantic_ai.mcp import MCPServerStreamableHTTP
+
+        server = MCPServerStreamableHTTP(
+            transport.url,
+            http_client=client,
+            id=config.server_id,
+            tool_prefix=None,
+            timeout=config.startup_timeout_sec or 5,
+            read_timeout=config.tool_timeout_sec or 5 * 60,
+            allow_sampling=False,
+            max_retries=0,
+        )
+        async with server:
+            pass
+
+    try:
+        result = asyncio.run(
+            login_mcp_oauth_server(
+                config,
+                auth_url_handler=auth_url_handler,
+                connect=connect,
+            )
+        )
+    except McpOAuthError:
+        raise
+    writer.write(f"Logged in MCP server {result.server_id}.\n")
+    writer.flush()
+    return 0
 
 
 def _select_session_to_resume(

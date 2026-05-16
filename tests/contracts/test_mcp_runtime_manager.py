@@ -14,6 +14,7 @@ from pydantic_ai.usage import RunUsage
 
 from just_another_coding_agent.contracts.mcp import (
     JACA_ONBOARDING_MCP_SERVER_ID,
+    McpOAuthConfig,
     McpServerConfig,
     McpStdioTransport,
     McpStreamableHttpTransport,
@@ -397,7 +398,7 @@ def test_pydantic_ai_mcp_server_builder_resolves_streamable_http_token() -> None
 
 
 def test_pydantic_ai_mcp_server_builder_fails_for_missing_token() -> None:
-    with pytest.raises(McpManagerError, match="LINEAR_MCP_TOKEN"):
+    with pytest.raises(McpRuntimeFailureError, match="LINEAR_MCP_TOKEN") as exc_info:
         build_pydantic_ai_mcp_server(
             McpServerConfig(
                 server_id="linear",
@@ -408,6 +409,49 @@ def test_pydantic_ai_mcp_server_builder_fails_for_missing_token() -> None:
             ),
             env={},
         )
+
+    failure = exc_info.value.failure
+    assert failure.kind == "auth_failed"
+    assert failure.server_id == "linear"
+    assert failure.error_type == "McpBearerEnvMissingError"
+    assert failure.auth is not None
+    assert failure.auth.auth_kind == "bearer_env"
+    assert failure.auth.reason == "missing_bearer_env"
+    assert failure.auth.env_var == "LINEAR_MCP_TOKEN"
+    assert failure.auth.recovery_hint == (
+        "Set LINEAR_MCP_TOKEN and retry the MCP server."
+    )
+
+
+def test_pydantic_ai_mcp_server_builder_fails_for_missing_oauth_login(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    with pytest.raises(
+        McpRuntimeFailureError, match="requires OAuth login"
+    ) as exc_info:
+        build_pydantic_ai_mcp_server(
+            McpServerConfig(
+                server_id="linear",
+                transport=McpStreamableHttpTransport(
+                    url="https://mcp.linear.app/mcp",
+                    oauth=McpOAuthConfig(),
+                ),
+            )
+        )
+
+    failure = exc_info.value.failure
+    assert failure.kind == "auth_failed"
+    assert failure.server_id == "linear"
+    assert failure.error_type == "McpOAuthLoginRequiredError"
+    assert failure.auth is not None
+    assert failure.auth.auth_kind == "oauth"
+    assert failure.auth.reason == "oauth_login_required"
+    assert failure.auth.recovery_hint == (
+        "Run `jaca mcp login linear` and retry the MCP server."
+    )
 
 
 async def test_pydantic_ai_mcp_discovery_maps_raw_tools() -> None:
@@ -596,6 +640,30 @@ async def test_configured_mcp_runtime_surfaces_startup_failure() -> None:
     assert fake_server.exited == 0
     assert exc_info.value.failure.kind == "startup_failed"
     assert exc_info.value.failure.server_id == "demo_echo"
+
+
+async def test_configured_mcp_runtime_preserves_auth_failure(monkeypatch) -> None:
+    monkeypatch.delenv("LINEAR_MCP_TOKEN", raising=False)
+
+    with pytest.raises(McpRuntimeFailureError, match="LINEAR_MCP_TOKEN") as exc_info:
+        await build_configured_mcp_runtime(
+            configured_servers={
+                "linear": McpServerConfig(
+                    server_id="linear",
+                    transport=McpStreamableHttpTransport(
+                        url="https://mcp.linear.app/mcp",
+                        bearer_token_env_var="LINEAR_MCP_TOKEN",
+                    ),
+                ),
+            },
+        )
+
+    failure = exc_info.value.failure
+    assert failure.kind == "auth_failed"
+    assert failure.server_id == "linear"
+    assert failure.auth is not None
+    assert failure.auth.reason == "missing_bearer_env"
+    assert failure.auth.env_var == "LINEAR_MCP_TOKEN"
 
 
 async def test_mcp_toolset_exposes_discovered_tools_to_model(tmp_path) -> None:
