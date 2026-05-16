@@ -31,16 +31,16 @@ func Load() (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	data, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return map[string]string{}, nil
-	}
+	rawConfig, err := loadRawConfig(path)
 	if err != nil {
 		return nil, err
 	}
 	config := map[string]string{}
-	if err := json.Unmarshal(data, &config); err != nil {
-		return nil, fmt.Errorf("invalid config JSON at %s: %w", path, err)
+	for key, rawValue := range rawConfig {
+		value, ok := rawStringValue(rawValue)
+		if ok {
+			config[key] = value
+		}
 	}
 	return config, nil
 }
@@ -53,7 +53,25 @@ func Save(config map[string]string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(config, "", "  ")
+	rawConfig, err := loadRawConfig(path)
+	if err != nil {
+		return err
+	}
+	merged := map[string]json.RawMessage{}
+	for key, rawValue := range rawConfig {
+		_, ok := rawStringValue(rawValue)
+		if !ok {
+			merged[key] = rawValue
+		}
+	}
+	for key, value := range config {
+		rawValue, err := json.Marshal(value)
+		if err != nil {
+			return err
+		}
+		merged[key] = rawValue
+	}
+	data, err := json.MarshalIndent(merged, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -62,6 +80,29 @@ func Save(config map[string]string) error {
 		return err
 	}
 	return nil
+}
+
+func loadRawConfig(path string) (map[string]json.RawMessage, error) {
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return map[string]json.RawMessage{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	rawConfig := map[string]json.RawMessage{}
+	if err := json.Unmarshal(data, &rawConfig); err != nil {
+		return nil, fmt.Errorf("invalid config JSON at %s: %w", path, err)
+	}
+	return rawConfig, nil
+}
+
+func rawStringValue(rawValue json.RawMessage) (string, bool) {
+	var value string
+	if err := json.Unmarshal(rawValue, &value); err == nil {
+		return value, true
+	}
+	return "", false
 }
 
 func ApplyToEnv(config map[string]string) {

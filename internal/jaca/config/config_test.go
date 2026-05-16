@@ -49,6 +49,76 @@ func TestSaveDefaultModelPersistsSelection(t *testing.T) {
 	}
 }
 
+func TestLoadIgnoresBackendOwnedNestedConfig(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	path, err := ConfigPath()
+	if err != nil {
+		t.Fatalf("ConfigPath() returned error: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll() returned error: %v", err)
+	}
+	if err := os.WriteFile(
+		path,
+		[]byte(`{"default_model":"openai-responses:gpt-5.4","mcp_servers":{"linear":{"transport":{"type":"streamable_http","url":"https://mcp.linear.app/mcp"}}}}`),
+		0o600,
+	); err != nil {
+		t.Fatalf("WriteFile() returned error: %v", err)
+	}
+
+	got, err := Load()
+	if err != nil {
+		t.Fatalf("Load() returned error: %v", err)
+	}
+	if got["default_model"] != "openai-responses:gpt-5.4" {
+		t.Fatalf("default_model = %q", got["default_model"])
+	}
+	if _, ok := got["mcp_servers"]; ok {
+		t.Fatalf("mcp_servers unexpectedly loaded as string config: %#v", got)
+	}
+}
+
+func TestSavePreservesBackendOwnedNestedConfig(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	path, err := ConfigPath()
+	if err != nil {
+		t.Fatalf("ConfigPath() returned error: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll() returned error: %v", err)
+	}
+	if err := os.WriteFile(
+		path,
+		[]byte(`{"default_model":"openai-responses:gpt-5.4","mcp_servers":{"linear":{"transport":{"type":"streamable_http","url":"https://mcp.linear.app/mcp"}}}}`),
+		0o600,
+	); err != nil {
+		t.Fatalf("WriteFile() returned error: %v", err)
+	}
+
+	if err := SaveTraceMode("local"); err != nil {
+		t.Fatalf("SaveTraceMode() returned error: %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile() returned error: %v", err)
+	}
+	text := string(data)
+	if !strings.Contains(text, `"mcp_servers": {`) {
+		t.Fatalf("config.json missing mcp_servers: %s", text)
+	}
+	if !strings.Contains(text, `"linear": {`) {
+		t.Fatalf("config.json missing linear MCP server: %s", text)
+	}
+	if !strings.Contains(text, `"trace_mode": "local"`) {
+		t.Fatalf("config.json missing trace mode: %s", text)
+	}
+}
+
 func TestSaveDefaultProviderAcceptsAnthropic(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
