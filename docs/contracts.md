@@ -191,6 +191,15 @@ OAuth login RPC contract:
 
 MCP OAuth CLI contract:
 
+- `jaca mcp add <server_id> --url <url> --oauth` writes validated streamable
+  HTTP OAuth config, then immediately starts OAuth login for that server.
+- If OAuth login fails after a successful `add`, the valid MCP config remains
+  persisted and the command returns a retry path through
+  `jaca mcp login <server_id>`.
+- `jaca mcp add <server_id> --url <url> --bearer-token-env-var <env>` writes
+  bearer-env config but does not start the server or check the token.
+- `jaca mcp add <server_id> -- <command> [args...]` writes stdio config.
+- `jaca mcp add` must fail if the server id already exists.
 - `jaca mcp login <server_id>` starts OAuth login for a configured streamable
   HTTP MCP server and writes tokens/client info to the backend OAuth store.
 - `jaca mcp logout <server_id>` clears OAuth state for that exact configured

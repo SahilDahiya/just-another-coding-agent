@@ -183,9 +183,12 @@ Auth failures use the same pre-run failure path but carry auth-specific
 recovery detail. For example, a Linear-style streamable HTTP server configured
 with a missing bearer-token env var should yield `auth_failed` with
 `missing_bearer_env`, not `startup_failed`. OAuth-configured streamable HTTP
-servers require `jaca mcp login <server_id>` before runtime startup can use
-them. `jaca mcp logout <server_id>` clears the OAuth record for the exact
-server config fingerprint.
+servers can be added with
+`jaca mcp add <server_id> --url <url> --oauth`, which writes validated config
+and immediately starts OAuth login. If login fails after config is written,
+the config remains valid durable state and `jaca mcp login <server_id>` is the
+retry path. `jaca mcp logout <server_id>` clears the OAuth record for the
+exact server config fingerprint.
 
 External MCP tool approval is enforced inside the backend executor before
 PydanticAI `direct_call_tool` is invoked. `auto` allows the call, `prompt`

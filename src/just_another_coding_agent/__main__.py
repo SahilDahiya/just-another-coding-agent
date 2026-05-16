@@ -21,8 +21,14 @@ from just_another_coding_agent.config import (
     load_config,
     load_mcp_server_configs,
     resolve_default_model,
+    save_mcp_server_configs,
 )
-from just_another_coding_agent.contracts.mcp import McpStreamableHttpTransport
+from just_another_coding_agent.contracts.mcp import (
+    McpOAuthConfig,
+    McpServerConfig,
+    McpStdioTransport,
+    McpStreamableHttpTransport,
+)
 from just_another_coding_agent.go_tui import (
     available_installed_update,
     default_backend_command,
@@ -241,12 +247,21 @@ def _run_mcp_mode(
     output_stream: TextIO | None = None,
 ) -> int:
     writer = sys.stdout if output_stream is None else output_stream
+    if argv and argv[0] == "add":
+        return _run_mcp_add_argv(argv=argv[1:], writer=writer)
+
     parser = argparse.ArgumentParser(
         prog="jaca mcp",
         description="Manage configured MCP server authentication.",
     )
     _add_version_arg(parser)
     subparsers = parser.add_subparsers(dest="command", required=True)
+
+    add_parser = subparsers.add_parser(
+        "add",
+        help="Add a configured MCP server",
+    )
+    add_parser.add_argument("server_id")
 
     login_parser = subparsers.add_parser(
         "login",
@@ -277,6 +292,141 @@ def _run_mcp_mode(
     raise RuntimeError(f"Unsupported MCP command: {args.command}")
 
 
+def _run_mcp_add_argv(*, argv: Sequence[str], writer: TextIO) -> int:
+    parser = argparse.ArgumentParser(
+        prog="jaca mcp add",
+        description="Add a configured MCP server.",
+    )
+    parser.add_argument("server_id")
+    parser.add_argument(
+        "--url",
+        default=None,
+        help="Streamable HTTP MCP endpoint URL",
+    )
+    parser.add_argument(
+        "--oauth",
+        action="store_true",
+        help="Configure OAuth auth and start login after writing config",
+    )
+    parser.add_argument(
+        "--bearer-token-env-var",
+        default=None,
+        help="Environment variable containing the streamable HTTP bearer token",
+    )
+    parser.add_argument(
+        "--callback-port",
+        type=int,
+        default=1456,
+        help="OAuth callback port for --oauth (default: 1456)",
+    )
+    parser.add_argument(
+        "--scope",
+        action="append",
+        default=[],
+        help="OAuth scope to request; repeat for multiple scopes",
+    )
+    parser.add_argument(
+        "--client-id",
+        default=None,
+        help="Static OAuth client id for servers that require one",
+    )
+    option_argv = list(argv)
+    stdio_command: list[str] = []
+    if "--" in option_argv:
+        separator_index = option_argv.index("--")
+        stdio_command = option_argv[separator_index + 1 :]
+        option_argv = option_argv[:separator_index]
+    args = parser.parse_args(option_argv)
+    args.stdio_command = stdio_command
+    try:
+        return _run_mcp_add(args=args, writer=writer)
+    except Exception as error:
+        writer.write(f"Error: {error}\n")
+        writer.flush()
+        return 1
+
+
+def _run_mcp_add(*, args: argparse.Namespace, writer: TextIO) -> int:
+    existing_servers = load_mcp_server_configs()
+    if args.server_id in existing_servers:
+        raise RuntimeError(f"MCP server already exists: {args.server_id}")
+    config = _build_mcp_add_config(args)
+    updated_servers = dict(existing_servers)
+    updated_servers[config.server_id] = config
+    save_mcp_server_configs(updated_servers)
+
+    transport = config.transport
+    if (
+        isinstance(transport, McpStreamableHttpTransport)
+        and transport.oauth is not None
+    ):
+        try:
+            _perform_mcp_login(config=config, writer=writer)
+        except Exception as error:
+            writer.write(
+                f"MCP server {config.server_id} was added, "
+                f"but OAuth login failed: {error}\n"
+            )
+            writer.write(f"Run `jaca mcp login {config.server_id}` to retry.\n")
+            writer.flush()
+            return 1
+        writer.write(f"Added and logged in MCP server {config.server_id}.\n")
+        writer.flush()
+        return 0
+
+    if isinstance(transport, McpStreamableHttpTransport):
+        if transport.bearer_token_env_var is not None:
+            writer.write(
+                f"Added MCP server {config.server_id}. "
+                f"Set {transport.bearer_token_env_var} before use.\n"
+            )
+        else:
+            writer.write(f"Added MCP server {config.server_id}.\n")
+    else:
+        writer.write(f"Added MCP server {config.server_id}.\n")
+    writer.flush()
+    return 0
+
+
+def _build_mcp_add_config(args: argparse.Namespace) -> McpServerConfig:
+    stdio_command = list(args.stdio_command)
+    if stdio_command and stdio_command[0] == "--":
+        stdio_command = stdio_command[1:]
+    has_stdio = bool(stdio_command)
+    has_url = args.url is not None
+    if has_url == has_stdio:
+        raise RuntimeError("MCP add requires exactly one of --url or stdio command")
+    if args.oauth and args.bearer_token_env_var is not None:
+        raise RuntimeError("--oauth and --bearer-token-env-var are mutually exclusive")
+    if has_stdio:
+        if args.oauth or args.bearer_token_env_var is not None:
+            raise RuntimeError("stdio MCP servers do not support HTTP auth options")
+        return McpServerConfig(
+            server_id=args.server_id,
+            transport=McpStdioTransport(
+                command=stdio_command[0],
+                args=stdio_command[1:],
+            ),
+        )
+    oauth = (
+        McpOAuthConfig(
+            callback_port=args.callback_port,
+            scopes=args.scope,
+            client_id=args.client_id,
+        )
+        if args.oauth
+        else None
+    )
+    return McpServerConfig(
+        server_id=args.server_id,
+        transport=McpStreamableHttpTransport(
+            url=args.url,
+            bearer_token_env_var=args.bearer_token_env_var,
+            oauth=oauth,
+        ),
+    )
+
+
 def _load_mcp_cli_server(server_id: str):
     servers = load_mcp_server_configs()
     try:
@@ -286,6 +436,19 @@ def _load_mcp_cli_server(server_id: str):
 
 
 def _run_mcp_login(*, config, writer: TextIO) -> int:
+    transport = config.transport
+    if not isinstance(transport, McpStreamableHttpTransport):
+        raise RuntimeError("MCP OAuth login requires streamable_http transport")
+    if transport.oauth is None:
+        raise RuntimeError("MCP server does not have OAuth configured")
+
+    result = _perform_mcp_login(config=config, writer=writer)
+    writer.write(f"Logged in MCP server {result.server_id}.\n")
+    writer.flush()
+    return 0
+
+
+def _perform_mcp_login(*, config: McpServerConfig, writer: TextIO):
     transport = config.transport
     if not isinstance(transport, McpStreamableHttpTransport):
         raise RuntimeError("MCP OAuth login requires streamable_http transport")
@@ -314,7 +477,7 @@ def _run_mcp_login(*, config, writer: TextIO) -> int:
             pass
 
     try:
-        result = asyncio.run(
+        return asyncio.run(
             login_mcp_oauth_server(
                 config,
                 auth_url_handler=auth_url_handler,
@@ -323,9 +486,6 @@ def _run_mcp_login(*, config, writer: TextIO) -> int:
         )
     except McpOAuthError:
         raise
-    writer.write(f"Logged in MCP server {result.server_id}.\n")
-    writer.flush()
-    return 0
 
 
 def _select_session_to_resume(
