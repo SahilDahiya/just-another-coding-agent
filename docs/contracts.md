@@ -212,6 +212,9 @@ MCP OAuth CLI contract:
   server fingerprint.
 - MCP OAuth login/logout resolves server config through backend config loading;
   the shell must not infer transport or auth state from display text.
+- `auth.status` includes `mcp_servers`, the backend-owned auth readiness list
+  for configured MCP servers. Clients must render those values instead of
+  inferring MCP login or environment readiness from config.
 - The Go TUI may read string-valued preferences from `~/.jaca/config.json`, but
   it must ignore and preserve backend-owned nested config such as
   `mcp_servers`.

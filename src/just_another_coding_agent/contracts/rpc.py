@@ -11,7 +11,7 @@ from pydantic import (
 )
 
 from .auth import LocalSecretStoreStatus as RpcLocalSecretStoreStatus
-from .auth import OAuthProviderStatus
+from .auth import McpServerAuthStatus, OAuthProviderStatus
 from .auth import ProviderAuthStatus as AuthProviderStatus
 from .model_catalog import ProviderName
 from .run_events import RunEvent, SessionLifecycleEvent
@@ -377,6 +377,7 @@ class AuthStatusResponse(_RpcModel):
     providers: list[AuthProviderStatus]
     local_secret_store: RpcLocalSecretStoreStatus
     oauth_providers: list[OAuthProviderStatus]
+    mcp_servers: list[McpServerAuthStatus]
 
 
 class TraceLogfireStatusResponse(_RpcModel):
@@ -565,6 +566,7 @@ __all__ = [
     "TraceLogfireStatusRequest",
     "TraceLogfireStatusResponse",
     "RpcLocalSecretStoreStatus",
+    "McpServerAuthStatus",
     "RpcErrorEnvelope",
     "RpcEventEnvelope",
     "RpcRequest",

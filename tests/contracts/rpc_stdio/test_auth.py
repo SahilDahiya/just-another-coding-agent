@@ -127,6 +127,20 @@ async def test_handle_rpc_json_line_returns_auth_status(
             },
         ],
     )
+    monkeypatch.setattr(
+        "just_another_coding_agent.rpc.handlers.auth.get_mcp_server_auth_statuses",
+        lambda: [
+            {
+                "server_id": "linear",
+                "transport_type": "streamable_http",
+                "enabled": True,
+                "auth_kind": "oauth",
+                "configured": False,
+                "reason": "oauth_login_required",
+                "env_var": None,
+            },
+        ],
+    )
 
     messages = await rpc_messages(
         request_payload={
@@ -175,6 +189,17 @@ async def test_handle_rpc_json_line_returns_auth_status(
                         "logged_in": True,
                         "account_id": "acct-123",
                         "expires_at": 1760000000000,
+                    }
+                ],
+                "mcp_servers": [
+                    {
+                        "server_id": "linear",
+                        "transport_type": "streamable_http",
+                        "enabled": True,
+                        "auth_kind": "oauth",
+                        "configured": False,
+                        "reason": "oauth_login_required",
+                        "env_var": None,
                     }
                 ],
             },
@@ -710,9 +735,7 @@ async def test_prune_stale_login_flows_keeps_completed_openai_task_until_waited(
     assert "done-flow" in rpc_runtime_state.openai_codex_login_flows
     assert rpc_runtime_state.openai_codex_login_flows["done-flow"].task is task
     assert rpc_runtime_state.openai_codex_login_flows["done-flow"].result is None
-    assert (
-        rpc_runtime_state.openai_codex_login_flows["done-flow"].started_at == 9_999.0
-    )
+    assert rpc_runtime_state.openai_codex_login_flows["done-flow"].started_at == 9_999.0
 
 
 async def test_handle_rpc_json_line_sets_provider_secret(

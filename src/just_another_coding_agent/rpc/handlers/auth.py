@@ -12,6 +12,7 @@ from just_another_coding_agent.auth import (
     clear_provider_secret,
     complete_openai_codex_oauth_login,
     get_local_secret_store_status,
+    get_mcp_server_auth_statuses,
     get_oauth_provider_statuses,
     list_provider_auth_statuses,
     prepare_provider_secret_file,
@@ -62,6 +63,7 @@ async def _handle_auth_status(
             providers=providers,
             local_secret_store=get_local_secret_store_status(),
             oauth_providers=get_oauth_provider_statuses(),
+            mcp_servers=get_mcp_server_auth_statuses(),
         ),
     ).model_dump_json()
 

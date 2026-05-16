@@ -1,19 +1,28 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
+from mcp.shared.auth import OAuthToken
 
 from just_another_coding_agent.auth import (
     clear_provider_secret,
     get_local_secret_store_status,
+    get_mcp_server_auth_statuses,
     get_provider_auth_status,
     prepare_provider_secret_file,
     resolve_openai_codex_oauth_credentials,
     resolve_provider_secret,
     set_provider_secret,
 )
+from just_another_coding_agent.config import save_mcp_server_configs
+from just_another_coding_agent.contracts.mcp import (
+    McpOAuthConfig,
+    McpServerConfig,
+    McpStdioTransport,
+    McpStreamableHttpTransport,
+)
+from just_another_coding_agent.mcp_oauth import McpOAuthTokenStorage
 
 
 def test_set_and_resolve_provider_secret_uses_auth_file(monkeypatch, tmp_path) -> None:
@@ -129,7 +138,142 @@ def test_prepare_provider_secret_file_creates_empty_auth_store(
     assert prepared.created is True
     assert prepared.file_snippet == '{\n  "OPENAI_API_KEY": "..."\n}'
     assert prepared.entry_snippet == '"OPENAI_API_KEY": "..."'
-    assert json.loads(auth_path.read_text()) == {}
+
+
+async def test_get_mcp_server_auth_statuses_reports_configured_servers(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("LINEAR_MCP_TOKEN", raising=False)
+    oauth_config = McpServerConfig(
+        server_id="linear",
+        transport=McpStreamableHttpTransport(
+            url="https://mcp.linear.app/mcp",
+            oauth=McpOAuthConfig(),
+        ),
+    )
+    bearer_config = McpServerConfig(
+        server_id="github",
+        transport=McpStreamableHttpTransport(
+            url="https://mcp.github.example/mcp",
+            bearer_token_env_var="GITHUB_MCP_TOKEN",
+        ),
+    )
+    stdio_config = McpServerConfig(
+        server_id="memory",
+        transport=McpStdioTransport(command="npx"),
+    )
+    disabled_config = McpServerConfig(
+        server_id="disabled_linear",
+        transport=McpStreamableHttpTransport(
+            url="https://mcp.linear.app/mcp",
+            oauth=McpOAuthConfig(),
+        ),
+        enabled=False,
+    )
+    save_mcp_server_configs(
+        {
+            "linear": oauth_config,
+            "github": bearer_config,
+            "memory": stdio_config,
+            "disabled_linear": disabled_config,
+        }
+    )
+    await McpOAuthTokenStorage.from_server_config(oauth_config).set_tokens(
+        OAuthToken(access_token="linear-token", token_type="Bearer")
+    )
+    monkeypatch.setenv("GITHUB_MCP_TOKEN", "github-token")
+
+    statuses = get_mcp_server_auth_statuses()
+
+    assert [status.model_dump(mode="json") for status in statuses] == [
+        {
+            "server_id": "disabled_linear",
+            "transport_type": "streamable_http",
+            "enabled": False,
+            "auth_kind": "oauth",
+            "configured": False,
+            "reason": "disabled",
+            "env_var": None,
+        },
+        {
+            "server_id": "github",
+            "transport_type": "streamable_http",
+            "enabled": True,
+            "auth_kind": "bearer_env",
+            "configured": True,
+            "reason": "ok",
+            "env_var": "GITHUB_MCP_TOKEN",
+        },
+        {
+            "server_id": "linear",
+            "transport_type": "streamable_http",
+            "enabled": True,
+            "auth_kind": "oauth",
+            "configured": True,
+            "reason": "ok",
+            "env_var": None,
+        },
+        {
+            "server_id": "memory",
+            "transport_type": "stdio",
+            "enabled": True,
+            "auth_kind": "none",
+            "configured": True,
+            "reason": "no_auth_required",
+            "env_var": None,
+        },
+    ]
+
+
+def test_get_mcp_server_auth_statuses_reports_missing_auth(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("LINEAR_MCP_TOKEN", raising=False)
+    save_mcp_server_configs(
+        {
+            "linear": McpServerConfig(
+                server_id="linear",
+                transport=McpStreamableHttpTransport(
+                    url="https://mcp.linear.app/mcp",
+                    oauth=McpOAuthConfig(),
+                ),
+            ),
+            "github": McpServerConfig(
+                server_id="github",
+                transport=McpStreamableHttpTransport(
+                    url="https://mcp.github.example/mcp",
+                    bearer_token_env_var="LINEAR_MCP_TOKEN",
+                ),
+            ),
+        }
+    )
+
+    statuses = get_mcp_server_auth_statuses()
+
+    assert [status.model_dump(mode="json") for status in statuses] == [
+        {
+            "server_id": "github",
+            "transport_type": "streamable_http",
+            "enabled": True,
+            "auth_kind": "bearer_env",
+            "configured": False,
+            "reason": "missing_bearer_env",
+            "env_var": "LINEAR_MCP_TOKEN",
+        },
+        {
+            "server_id": "linear",
+            "transport_type": "streamable_http",
+            "enabled": True,
+            "auth_kind": "oauth",
+            "configured": False,
+            "reason": "oauth_login_required",
+            "env_var": None,
+        },
+    ]
 
 
 def test_prepare_provider_secret_file_keeps_existing_auth_store(

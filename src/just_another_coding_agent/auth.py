@@ -24,10 +24,17 @@ from just_another_coding_agent import secret_store
 from just_another_coding_agent.contracts.auth import (
     AuthStorageKind,
     LocalSecretStoreStatus,
+    McpServerAuthStatus,
     OAuthProviderStatus,
     ProviderAuthStatus,
 )
+from just_another_coding_agent.contracts.mcp import (
+    McpServerConfig,
+    McpStdioTransport,
+    McpStreamableHttpTransport,
+)
 from just_another_coding_agent.contracts.model_catalog import ProviderName
+from just_another_coding_agent.mcp_oauth import mcp_oauth_config_fingerprint
 from just_another_coding_agent.oauth_openai_codex import (
     OpenAICodexLoginFlow as _OpenAICodexLoginFlow,
 )
@@ -41,7 +48,9 @@ from just_another_coding_agent.oauth_openai_codex import (
 from just_another_coding_agent.oauth_store import (
     OpenAICodexCredentials,
     clear_openai_codex_credentials,
+    get_mcp_oauth_record,
     get_openai_codex_credentials,
+    load_oauth_store,
     set_openai_codex_credentials,
 )
 from just_another_coding_agent.provider_readiness import (
@@ -141,6 +150,17 @@ def get_oauth_provider_statuses() -> list[OAuthProviderStatus]:
         )
 
     return statuses
+
+
+def get_mcp_server_auth_statuses() -> list[McpServerAuthStatus]:
+    from just_another_coding_agent.config import load_mcp_server_configs
+
+    servers = load_mcp_server_configs()
+    oauth_store = load_oauth_store()
+    return [
+        _mcp_server_auth_status(servers[server_id], oauth_store=oauth_store)
+        for server_id in sorted(servers)
+    ]
 
 
 def start_openai_codex_oauth_login() -> tuple[OpenAICodexLoginFlow, str, str, str]:
@@ -272,6 +292,77 @@ def _get_openai_codex_env_credentials() -> OpenAICodexCredentials | None:
     )
 
 
+def _mcp_server_auth_status(
+    config: McpServerConfig, *, oauth_store
+) -> McpServerAuthStatus:
+    transport = config.transport
+    if isinstance(transport, McpStdioTransport):
+        return McpServerAuthStatus(
+            server_id=config.server_id,
+            transport_type="stdio",
+            enabled=config.enabled,
+            auth_kind="none",
+            configured=config.enabled,
+            reason="no_auth_required" if config.enabled else "disabled",
+        )
+    if isinstance(transport, McpStreamableHttpTransport):
+        if not config.enabled:
+            return McpServerAuthStatus(
+                server_id=config.server_id,
+                transport_type="streamable_http",
+                enabled=False,
+                auth_kind=_streamable_http_auth_kind(transport),
+                configured=False,
+                reason="disabled",
+                env_var=transport.bearer_token_env_var,
+            )
+        if transport.bearer_token_env_var is not None:
+            token = os.environ.get(transport.bearer_token_env_var, "").strip()
+            return McpServerAuthStatus(
+                server_id=config.server_id,
+                transport_type="streamable_http",
+                enabled=True,
+                auth_kind="bearer_env",
+                configured=bool(token),
+                reason="ok" if token else "missing_bearer_env",
+                env_var=transport.bearer_token_env_var,
+            )
+        if transport.oauth is not None:
+            record = get_mcp_oauth_record(
+                server_id=config.server_id,
+                config_fingerprint=mcp_oauth_config_fingerprint(config),
+                store=oauth_store,
+            )
+            logged_in = record is not None and record.tokens is not None
+            return McpServerAuthStatus(
+                server_id=config.server_id,
+                transport_type="streamable_http",
+                enabled=True,
+                auth_kind="oauth",
+                configured=logged_in,
+                reason="ok" if logged_in else "oauth_login_required",
+            )
+        return McpServerAuthStatus(
+            server_id=config.server_id,
+            transport_type="streamable_http",
+            enabled=True,
+            auth_kind="none",
+            configured=True,
+            reason="no_auth_required",
+        )
+    raise TypeError(f"Unsupported MCP transport: {type(transport).__name__}")
+
+
+def _streamable_http_auth_kind(
+    transport: McpStreamableHttpTransport,
+):
+    if transport.bearer_token_env_var is not None:
+        return "bearer_env"
+    if transport.oauth is not None:
+        return "oauth"
+    return "none"
+
+
 def _to_openai_codex_login_flow(
     flow: OpenAICodexLoginFlow,
 ) -> _OpenAICodexLoginFlow:
@@ -298,6 +389,7 @@ __all__ = [
     "complete_openai_codex_oauth_login",
     "get_provider_auth_status",
     "get_local_secret_store_status",
+    "get_mcp_server_auth_statuses",
     "get_oauth_provider_statuses",
     "list_provider_auth_statuses",
     "prepare_provider_secret_file",

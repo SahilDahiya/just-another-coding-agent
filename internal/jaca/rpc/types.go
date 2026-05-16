@@ -299,10 +299,21 @@ type OAuthProviderStatus struct {
 	ExpiresAt *int64  `json:"expires_at"`
 }
 
+type McpServerAuthStatus struct {
+	ServerID      string  `json:"server_id"`
+	TransportType string  `json:"transport_type"`
+	Enabled       bool    `json:"enabled"`
+	AuthKind      string  `json:"auth_kind"`
+	Configured    bool    `json:"configured"`
+	Reason        string  `json:"reason"`
+	EnvVar        *string `json:"env_var"`
+}
+
 type AuthStatusResponse struct {
 	Providers        []AuthProviderStatus   `json:"providers"`
 	LocalSecretStore LocalSecretStoreStatus `json:"local_secret_store"`
 	OAuthProviders   []OAuthProviderStatus  `json:"oauth_providers"`
+	McpServers       []McpServerAuthStatus  `json:"mcp_servers"`
 }
 
 type TraceLogfireStatusResponse struct {
