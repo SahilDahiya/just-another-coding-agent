@@ -75,6 +75,9 @@ Rules:
 - MCP config validation must fail hard for invalid server ids, unsafe inline
   transport fields, non-HTTP streamable HTTP URLs, invalid timeouts, and
   ambiguous tool allow/deny policy.
+- Persistent `~/.jaca/config.json` handling must preserve typed `mcp_servers`
+  entries without dropping existing non-MCP preferences. Invalid config JSON
+  must fail explicitly instead of being treated as an empty config.
 - Raw MCP tool names must never be used as lossy display names for execution;
   execution must retain the raw MCP name while exposing only normalized
   model-facing names to the agent.

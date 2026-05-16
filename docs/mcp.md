@@ -99,6 +99,11 @@ transport shapes, non-HTTP streamable HTTP URLs, invalid timeouts, invalid
 server ids, and contradictory raw tool allow/deny lists are rejected before the
 runtime can write or use invalid durable state.
 
+Persistent config integration lives under `~/.jaca/config.json`. The
+backend-owned config helpers load and save typed `mcp_servers` entries while
+preserving existing non-MCP preferences. Invalid config JSON is an explicit
+startup/configuration error, not an empty-config fallback.
+
 The TUI-facing activity contract uses `McpActivityDetails` in
 `contracts/run_events.py`; clients should render those typed fields instead of
 parsing MCP meaning from display text.
