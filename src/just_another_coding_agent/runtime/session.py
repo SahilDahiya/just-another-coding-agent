@@ -21,6 +21,7 @@ from just_another_coding_agent.contracts.run_events import (
     SessionCompactionCompletedEvent,
     SessionCompactionStartedEvent,
     SessionLifecycleEvent,
+    SessionMcpFailedEvent,
     SessionTurnContextStatusEvent,
     ToolCallFailedEvent,
     ToolCallStartedEvent,
@@ -63,6 +64,7 @@ from just_another_coding_agent.runtime.compaction import (
 )
 from just_another_coding_agent.runtime.mcp import (
     ConfiguredMcpRuntime,
+    McpRuntimeFailureError,
     build_configured_mcp_runtime,
 )
 from just_another_coding_agent.runtime.run import stream_run_events
@@ -385,14 +387,18 @@ async def stream_session_run_events(
         resolved_permission_memory.remember_session_grants(
             loaded_session.latest_permission_grants.grants
         )
-    configured_mcp_servers = load_mcp_server_configs()
-    configured_mcp_runtime = (
-        await build_configured_mcp_runtime(
-            configured_servers=configured_mcp_servers,
+    try:
+        configured_mcp_servers = load_mcp_server_configs()
+        configured_mcp_runtime = (
+            await build_configured_mcp_runtime(
+                configured_servers=configured_mcp_servers,
+            )
+            if configured_mcp_servers
+            else None
         )
-        if configured_mcp_servers
-        else None
-    )
+    except McpRuntimeFailureError as error:
+        yield SessionMcpFailedEvent(failure=error.failure)
+        return
     effective_tool_names = _append_configured_mcp_tool_names(
         tool_names,
         configured_mcp_runtime,

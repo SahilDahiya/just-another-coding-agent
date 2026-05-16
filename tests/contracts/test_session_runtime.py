@@ -22,6 +22,7 @@ from pydantic_ai.models.test import TestModel
 import just_another_coding_agent.runtime.session as runtime_session_module
 from just_another_coding_agent.contracts.compaction import CompactionBudgetReport
 from just_another_coding_agent.contracts.mcp import (
+    McpFailure,
     McpServerConfig,
     McpStreamableHttpTransport,
 )
@@ -31,6 +32,7 @@ from just_another_coding_agent.contracts.run_events import (
     RunFailedEvent,
     RunStartedEvent,
     RunSucceededEvent,
+    SessionMcpFailedEvent,
     SessionTurnContextStatusEvent,
     ToolActivity,
     ToolCallFailedEvent,
@@ -55,6 +57,7 @@ from just_another_coding_agent.runtime.compaction import (
 )
 from just_another_coding_agent.runtime.mcp import (
     McpDiscoveredTool,
+    McpRuntimeFailureError,
     StaticMcpToolExecutor,
     build_effective_mcp_manager,
 )
@@ -676,6 +679,69 @@ async def test_stream_session_run_events_mounts_configured_mcp_tools(
     deps = captured["deps"]
     assert isinstance(deps, WorkspaceDeps)
     assert fake_runtime.closed == 1
+
+
+async def test_stream_session_run_events_surfaces_configured_mcp_failure(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    session_path = tmp_path / "session-id-target.jsonl"
+    configured_server = McpServerConfig(
+        server_id="demo_echo",
+        transport=McpStreamableHttpTransport(url="http://127.0.0.1:8000/mcp"),
+    )
+
+    async def fake_build_configured_mcp_runtime(*, configured_servers):
+        assert configured_servers == {"demo_echo": configured_server}
+        raise McpRuntimeFailureError(
+            McpFailure(
+                kind="startup_failed",
+                error_type="RuntimeError",
+                message="server unavailable",
+                server_id="demo_echo",
+            )
+        )
+
+    async def unexpected_stream_run_events(**_kwargs):
+        raise AssertionError("stream_run_events must not start after MCP failure")
+        yield
+
+    monkeypatch.setattr(
+        runtime_session_module,
+        "load_mcp_server_configs",
+        lambda: {"demo_echo": configured_server},
+    )
+    monkeypatch.setattr(
+        runtime_session_module,
+        "build_configured_mcp_runtime",
+        fake_build_configured_mcp_runtime,
+    )
+    monkeypatch.setattr(
+        runtime_session_module,
+        "stream_run_events",
+        unexpected_stream_run_events,
+    )
+
+    events = [
+        event
+        async for event in stream_session_run_events(
+            model=FunctionModel(stream_function=text_only_stream),
+            workspace_root=workspace_root,
+            session_path=session_path,
+            prompt="go",
+        )
+    ]
+
+    assert len(events) == 1
+    failed = events[0]
+    assert isinstance(failed, SessionMcpFailedEvent)
+    assert failed.failure.kind == "startup_failed"
+    assert failed.failure.server_id == "demo_echo"
+    assert failed.failure.error_type == "RuntimeError"
+    assert failed.failure.message == "server unavailable"
+    assert not session_path.exists()
 
 
 async def test_stream_session_run_events_resumes_with_pydanticai_message_history(

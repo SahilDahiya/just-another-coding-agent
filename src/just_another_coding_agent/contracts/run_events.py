@@ -355,6 +355,13 @@ class SessionTurnContextStatusEvent(BaseModel):
     persisted_run_id: str | None = None
 
 
+class SessionMcpFailedEvent(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    type: Literal["session_mcp_failed"] = "session_mcp_failed"
+    failure: McpFailure
+
+
 class SessionQueueStateEvent(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -377,6 +384,7 @@ SessionLifecycleEvent = (
     SessionCompactionStartedEvent
     | SessionCompactionCompletedEvent
     | SessionTurnContextStatusEvent
+    | SessionMcpFailedEvent
     | SessionQueueStateEvent
     | SessionQueuedPromptBatchSubmittedEvent
 )
@@ -422,6 +430,7 @@ __all__ = [
     "SessionCompactionCompletedEvent",
     "SessionCompactionStartedEvent",
     "SessionLifecycleEvent",
+    "SessionMcpFailedEvent",
     "SessionQueueStateEvent",
     "SessionQueuedPromptBatchSubmittedEvent",
     "SessionTurnContextStatusEvent",

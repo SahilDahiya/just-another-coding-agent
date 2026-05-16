@@ -95,6 +95,9 @@ Rules:
   external tools before agent construction, append discovered `mcp__...` tools
   to the run-visible tool list, and close configured MCP clients through the
   backend runtime-resource lifecycle.
+- Configured MCP config, startup, and discovery failures that happen before a
+  run starts must surface as typed session lifecycle events carrying
+  `McpFailure`; they must not create partial session runs.
 - Code Mode MCP calls must carry the parent `exec` tool call id and Code Mode
   cell id.
 - Top-level MCP calls must not carry Code Mode parent fields.

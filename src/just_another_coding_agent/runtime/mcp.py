@@ -5,7 +5,7 @@ import re
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from inspect import isawaitable
-from typing import Any, Protocol, TypeAlias
+from typing import Any, Literal, Protocol, TypeAlias
 
 from mcp import types as mcp_types
 from pydantic import BaseModel, ConfigDict, Field
@@ -77,6 +77,12 @@ class UnknownMcpToolError(McpManagerError):
 
 class MissingMcpToolHandlerError(McpManagerError):
     """Raised when the mounted tool has no execution handler."""
+
+
+class McpRuntimeFailureError(McpManagerError):
+    def __init__(self, failure: McpFailure) -> None:
+        super().__init__(failure.message)
+        self.failure = failure
 
 
 class McpToolExecutor(Protocol):
@@ -247,6 +253,22 @@ def _discovered_tool_from_mcp_sdk_tool(
         raise McpManagerError(
             f"Invalid discovered MCP tool {mcp_tool.name!r}: {error}"
         ) from error
+
+
+def _runtime_failure(
+    *,
+    kind: Literal["config_failed", "startup_failed", "discovery_failed"],
+    server_id: str,
+    error: Exception,
+) -> McpRuntimeFailureError:
+    return McpRuntimeFailureError(
+        McpFailure(
+            kind=kind,
+            error_type=type(error).__name__,
+            message=str(error) or type(error).__name__,
+            server_id=server_id,
+        )
+    )
 
 
 @dataclass(frozen=True)
@@ -921,16 +943,44 @@ async def build_configured_mcp_runtime(
                 )
             if not config.enabled:
                 continue
-            server = factory(config)
-            await server.__aenter__()
+            try:
+                server = factory(config)
+            except Exception as error:
+                raise _runtime_failure(
+                    kind="config_failed",
+                    server_id=server_id,
+                    error=error,
+                ) from error
+            try:
+                await server.__aenter__()
+            except Exception as error:
+                raise _runtime_failure(
+                    kind="startup_failed",
+                    server_id=server_id,
+                    error=error,
+                ) from error
             servers_by_id[server_id] = server
-            discovered_tools_by_server[
-                server_id
-            ] = await discover_pydantic_ai_mcp_tools(server)
-        manager = build_effective_mcp_manager(
-            configured_servers=configured_servers,
-            discovered_tools_by_server=discovered_tools_by_server,
-        )
+            try:
+                discovered_tools_by_server[
+                    server_id
+                ] = await discover_pydantic_ai_mcp_tools(server)
+            except Exception as error:
+                raise _runtime_failure(
+                    kind="discovery_failed",
+                    server_id=server_id,
+                    error=error,
+                ) from error
+        try:
+            manager = build_effective_mcp_manager(
+                configured_servers=configured_servers,
+                discovered_tools_by_server=discovered_tools_by_server,
+            )
+        except Exception as error:
+            raise _runtime_failure(
+                kind="discovery_failed",
+                server_id=next(iter(discovered_tools_by_server), "unknown"),
+                error=error,
+            ) from error
         external_executor = PydanticAiMcpExecutor(
             manager=manager,
             servers_by_id=servers_by_id,
@@ -978,6 +1028,7 @@ __all__ = [
     "McpDiscoveredTool",
     "McpManagerError",
     "McpManager",
+    "McpRuntimeFailureError",
     "PydanticAiMcpExecutor",
     "PydanticAiMcpServer",
     "PydanticAiMcpServerProtocol",

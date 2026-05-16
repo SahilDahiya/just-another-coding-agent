@@ -149,6 +149,12 @@ through `WorkspaceDeps.close_runtime_resources`. Prompt policy treats dynamic
 `mcp__...` names as backend-mounted tools instead of requiring every external
 tool name to be hardcoded in the static prompt registry.
 
+Configured MCP config, startup, and discovery failures are wrapped in
+`McpRuntimeFailureError` with a typed `McpFailure`. Because these failures
+happen before a run id exists, session streaming emits a
+`session_mcp_failed` lifecycle event and returns without starting
+`stream_run_events` or writing a partial run to the session file.
+
 The first built-in executor is `JacaOnboardingMcpExecutor`. It adapts the
 `jaca_onboarding` MCP tool identities onto the existing backend onboarding
 implementations, unwrapping their native `ToolReturn` values for model-visible

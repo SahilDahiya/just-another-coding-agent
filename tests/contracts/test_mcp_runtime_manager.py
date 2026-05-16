@@ -35,6 +35,7 @@ from just_another_coding_agent.runtime.mcp import (
     McpDiscoveredTool,
     McpManager,
     McpManagerError,
+    McpRuntimeFailureError,
     McpServerDefinition,
     McpToolDefinition,
     PydanticAiMcpExecutor,
@@ -471,7 +472,7 @@ async def test_configured_mcp_runtime_closes_clients_after_discovery_failure() -
         )
     )
 
-    with pytest.raises(McpManagerError, match="missing title"):
+    with pytest.raises(McpRuntimeFailureError, match="missing title") as exc_info:
         await build_configured_mcp_runtime(
             configured_servers={
                 "demo_echo": McpServerConfig(
@@ -486,6 +487,33 @@ async def test_configured_mcp_runtime_closes_clients_after_discovery_failure() -
 
     assert fake_server.entered == 1
     assert fake_server.exited == 1
+    assert exc_info.value.failure.kind == "discovery_failed"
+    assert exc_info.value.failure.server_id == "demo_echo"
+
+
+async def test_configured_mcp_runtime_surfaces_startup_failure() -> None:
+    fake_server = _FakePydanticAiMcpServer(
+        tools=(),
+        enter_error=RuntimeError("server unavailable"),
+    )
+
+    with pytest.raises(McpRuntimeFailureError, match="server unavailable") as exc_info:
+        await build_configured_mcp_runtime(
+            configured_servers={
+                "demo_echo": McpServerConfig(
+                    server_id="demo_echo",
+                    transport=McpStreamableHttpTransport(
+                        url="http://127.0.0.1:8000/mcp"
+                    ),
+                ),
+            },
+            mcp_server_factory=lambda _config: fake_server,
+        )
+
+    assert fake_server.entered == 1
+    assert fake_server.exited == 0
+    assert exc_info.value.failure.kind == "startup_failed"
+    assert exc_info.value.failure.server_id == "demo_echo"
 
 
 async def test_mcp_toolset_exposes_discovered_tools_to_model(tmp_path) -> None:
@@ -882,14 +910,22 @@ async def _call_demo_echo_then_done(
 
 
 class _FakePydanticAiMcpServer:
-    def __init__(self, *, tools: tuple[mcp_types.Tool, ...]) -> None:
+    def __init__(
+        self,
+        *,
+        tools: tuple[mcp_types.Tool, ...],
+        enter_error: Exception | None = None,
+    ) -> None:
         self._tools = tools
+        self._enter_error = enter_error
         self.calls: list[tuple[str, dict[str, object], dict[str, str] | None]] = []
         self.entered = 0
         self.exited = 0
 
     async def __aenter__(self) -> "_FakePydanticAiMcpServer":
         self.entered += 1
+        if self._enter_error is not None:
+            raise self._enter_error
         return self
 
     async def __aexit__(self, *args: object) -> None:
