@@ -60,6 +60,7 @@ OnboardingQuestionRequester: TypeAlias = Callable[
     [OnboardingQuestionRequest],
     Awaitable[OnboardingAnswerResult],
 ]
+RuntimeResourceCloser: TypeAlias = Callable[[], Awaitable[None]]
 RunSessionKind: TypeAlias = Literal["root", "subagent"]
 
 
@@ -116,9 +117,7 @@ class SessionPermissionMemory:
                 SandboxPermissionGrant(
                     permissions=AdditionalSandboxPermissions(
                         extra_read_roots=tuple(sorted(self.approved_read_roots)),
-                        extra_write_roots=tuple(
-                            sorted(self.approved_write_roots)
-                        ),
+                        extra_write_roots=tuple(sorted(self.approved_write_roots)),
                     ),
                     scope="session",
                 )
@@ -307,6 +306,11 @@ class WorkspaceDeps:
         compare=False,
         repr=False,
     )
+    runtime_resource_closers: tuple[RuntimeResourceCloser, ...] = field(
+        default_factory=tuple,
+        compare=False,
+        repr=False,
+    )
 
     @classmethod
     def from_workspace_root(
@@ -324,6 +328,8 @@ class WorkspaceDeps:
     async def close_runtime_resources(self) -> None:
         await self.code_mode_source_runtime.close()
         await self.read_only_worker.close()
+        for close_resource in self.runtime_resource_closers:
+            await close_resource()
 
 
 __all__ = [
@@ -332,6 +338,7 @@ __all__ = [
     "RunSessionScope",
     "ApprovalRequester",
     "OnboardingQuestionRequester",
+    "RuntimeResourceCloser",
     "SessionPermissionMemory",
     "TeachingPacketRecord",
     "TeachingPacketRegistry",

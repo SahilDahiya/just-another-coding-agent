@@ -24,6 +24,8 @@ from just_another_coding_agent.contracts.thinking import ThinkingSetting
 from just_another_coding_agent.contracts.tools import CANONICAL_TOOL_NAMES
 from just_another_coding_agent.runtime.mcp import (
     JacaOnboardingMcpExecutor,
+    McpManager,
+    McpToolExecutor,
     build_default_mcp_manager,
     build_mcp_toolset,
 )
@@ -180,6 +182,8 @@ def build_canonical_agent(
     tool_names: Sequence[str] | None = None,
     run_mode: RunMode = DEFAULT_RUN_MODE,
     instructions: str | None = None,
+    mcp_manager: McpManager | None = None,
+    mcp_executor: McpToolExecutor | None = None,
 ) -> Agent[WorkspaceDeps, str]:
     normalize_workspace_root(workspace_root)
     resolved_model = resolve_canonical_model(model)
@@ -200,10 +204,12 @@ def build_canonical_agent(
     )
     toolsets = [build_canonical_toolset(native_tool_names)]
     if mcp_tool_names:
+        manager = build_default_mcp_manager() if mcp_manager is None else mcp_manager
+        executor = JacaOnboardingMcpExecutor() if mcp_executor is None else mcp_executor
         toolsets.append(
             build_mcp_toolset(
-                manager=build_default_mcp_manager(),
-                executor=JacaOnboardingMcpExecutor(),
+                manager=manager,
+                executor=executor,
                 tool_names=mcp_tool_names,
             )
         )

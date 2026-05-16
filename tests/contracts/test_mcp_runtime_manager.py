@@ -41,6 +41,7 @@ from just_another_coding_agent.runtime.mcp import (
     StaticMcpToolExecutor,
     UnknownMcpServerError,
     UnknownMcpToolError,
+    build_configured_mcp_runtime,
     build_default_mcp_manager,
     build_effective_mcp_manager,
     build_mcp_toolset,
@@ -417,6 +418,74 @@ async def test_pydantic_ai_mcp_executor_calls_raw_mounted_tool_name(tmp_path) ->
             },
         )
     ]
+
+
+async def test_configured_mcp_runtime_starts_discovers_and_closes_clients() -> None:
+    fake_server = _FakePydanticAiMcpServer(
+        tools=(
+            mcp_types.Tool(
+                name="echo-message",
+                title="Echo message",
+                description="Echo one message.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {"message": {"type": "string"}},
+                    "required": ["message"],
+                    "additionalProperties": False,
+                },
+            ),
+        )
+    )
+
+    runtime = await build_configured_mcp_runtime(
+        configured_servers={
+            "demo_echo": McpServerConfig(
+                server_id="demo_echo",
+                transport=McpStreamableHttpTransport(url="http://127.0.0.1:8000/mcp"),
+            ),
+        },
+        mcp_server_factory=lambda _config: fake_server,
+    )
+
+    assert fake_server.entered == 1
+    assert [tool.model_tool_name for tool in runtime.configured_tools] == [
+        _DEMO_ECHO_TOOL_NAME
+    ]
+    assert runtime.manager.get_tool(_DEMO_ECHO_TOOL_NAME).raw_tool_name == (
+        "echo-message"
+    )
+
+    await runtime.close()
+    await runtime.close()
+
+    assert fake_server.exited == 1
+
+
+async def test_configured_mcp_runtime_closes_clients_after_discovery_failure() -> None:
+    fake_server = _FakePydanticAiMcpServer(
+        tools=(
+            mcp_types.Tool(
+                name="bad-message",
+                inputSchema={"type": "object", "properties": {}},
+            ),
+        )
+    )
+
+    with pytest.raises(McpManagerError, match="missing title"):
+        await build_configured_mcp_runtime(
+            configured_servers={
+                "demo_echo": McpServerConfig(
+                    server_id="demo_echo",
+                    transport=McpStreamableHttpTransport(
+                        url="http://127.0.0.1:8000/mcp"
+                    ),
+                ),
+            },
+            mcp_server_factory=lambda _config: fake_server,
+        )
+
+    assert fake_server.entered == 1
+    assert fake_server.exited == 1
 
 
 async def test_mcp_toolset_exposes_discovered_tools_to_model(tmp_path) -> None:
@@ -816,6 +885,15 @@ class _FakePydanticAiMcpServer:
     def __init__(self, *, tools: tuple[mcp_types.Tool, ...]) -> None:
         self._tools = tools
         self.calls: list[tuple[str, dict[str, object], dict[str, str] | None]] = []
+        self.entered = 0
+        self.exited = 0
+
+    async def __aenter__(self) -> "_FakePydanticAiMcpServer":
+        self.entered += 1
+        return self
+
+    async def __aexit__(self, *args: object) -> None:
+        self.exited += 1
 
     async def list_tools(self) -> list[mcp_types.Tool]:
         return list(self._tools)

@@ -139,8 +139,15 @@ metadata from the PydanticAI client and convert it into `McpDiscoveredTool`
 records. Live execution uses `PydanticAiMcpExecutor` to resolve the mounted
 tool identity through the backend manager and call the raw MCP tool name
 through PydanticAI `direct_call_tool`, preserving JACA provenance metadata on
-the request. Run/session construction does not yet load persisted user MCP
-config into this live adapter automatically.
+the request.
+
+Session construction now loads persisted user MCP config from
+`~/.jaca/config.json`, starts configured PydanticAI MCP clients for the run,
+discovers tools, appends discovered external `mcp__server__tool` names to the
+model-visible tool list, and registers the configured MCP runtime for cleanup
+through `WorkspaceDeps.close_runtime_resources`. Prompt policy treats dynamic
+`mcp__...` names as backend-mounted tools instead of requiring every external
+tool name to be hardcoded in the static prompt registry.
 
 The first built-in executor is `JacaOnboardingMcpExecutor`. It adapts the
 `jaca_onboarding` MCP tool identities onto the existing backend onboarding

@@ -8,7 +8,10 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic_ai.messages import ModelMessage
 
-from just_another_coding_agent.contracts.mcp import JACA_ONBOARDING_MCP_TOOL_NAMES
+from just_another_coding_agent.contracts.mcp import (
+    JACA_ONBOARDING_MCP_TOOL_NAMES,
+    MCP_TOOL_NAME_PREFIX,
+)
 from just_another_coding_agent.contracts.run_mode import (
     DEFAULT_RUN_MODE,
     ONBOARDING_RUN_MODE,
@@ -355,7 +358,22 @@ def build_tool_policy_lines(
     if not resolved_tool_names:
         return ("No tools are available in this run.",)
     lines = [f"Use only these tools: {', '.join(resolved_tool_names)}."]
+    mcp_guidance_added = False
     for tool_name in resolved_tool_names:
+        if tool_name.startswith(MCP_TOOL_NAME_PREFIX):
+            if not mcp_guidance_added:
+                lines.extend(
+                    (
+                        (
+                            "MCP tools are backend-mounted external tools; "
+                            "call the exact listed mcp__server__tool name and "
+                            "let the backend enforce server routing, policy, "
+                            "and provenance."
+                        ),
+                    )
+                )
+                mcp_guidance_added = True
+            continue
         try:
             lines.extend(_TOOL_GUIDANCE_BY_NAME[tool_name])
         except KeyError as error:

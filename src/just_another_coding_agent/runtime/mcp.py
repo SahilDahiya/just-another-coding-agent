@@ -92,6 +92,12 @@ class McpToolExecutor(Protocol):
 
 
 class PydanticAiMcpServerProtocol(Protocol):
+    async def __aenter__(self) -> PydanticAiMcpServerProtocol:
+        """Start the MCP client connection."""
+
+    async def __aexit__(self, *args: Any) -> Any:
+        """Close the MCP client connection."""
+
     async def list_tools(self) -> list[mcp_types.Tool]:
         """Return raw MCP SDK tools from a PydanticAI MCP server."""
 
@@ -430,6 +436,55 @@ class PydanticAiMcpExecutor:
                 provenance=provenance,
             ),
         )
+
+
+@dataclass(frozen=True)
+class RoutingMcpToolExecutor:
+    executors_by_server_id: Mapping[str, McpToolExecutor]
+    fallback_executor: McpToolExecutor
+
+    async def execute_tool(
+        self,
+        *,
+        identity: McpToolIdentity,
+        arguments: dict[str, Any],
+        ctx: RunContext[WorkspaceDeps],
+        provenance: McpToolCallProvenance,
+    ) -> Any:
+        executor = self.executors_by_server_id.get(
+            identity.server_id,
+            self.fallback_executor,
+        )
+        return await executor.execute_tool(
+            identity=identity,
+            arguments=arguments,
+            ctx=ctx,
+            provenance=provenance,
+        )
+
+
+@dataclass
+class ConfiguredMcpRuntime:
+    manager: McpManager
+    executor: McpToolExecutor
+    servers_by_id: Mapping[str, PydanticAiMcpServerProtocol]
+    configured_tool_names: tuple[str, ...]
+    _closed: bool = field(default=False, init=False, repr=False)
+
+    @property
+    def configured_tools(self) -> tuple[McpToolDefinition, ...]:
+        return tuple(
+            tool
+            for tool in self.manager.discover_tools()
+            if tool.identity.server_id in self.servers_by_id
+        )
+
+    async def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        for server in reversed(tuple(self.servers_by_id.values())):
+            await server.__aexit__(None, None, None)
 
 
 class JacaOnboardingMcpExecutor:
@@ -843,6 +898,66 @@ async def discover_pydantic_ai_mcp_tools(
     )
 
 
+async def build_configured_mcp_runtime(
+    *,
+    configured_servers: Mapping[str, McpServerConfig],
+    mcp_server_factory: (
+        Callable[[McpServerConfig], PydanticAiMcpServerProtocol] | None
+    ) = None,
+) -> ConfiguredMcpRuntime:
+    factory = (
+        build_pydantic_ai_mcp_server
+        if mcp_server_factory is None
+        else mcp_server_factory
+    )
+    servers_by_id: dict[str, PydanticAiMcpServerProtocol] = {}
+    discovered_tools_by_server: dict[str, tuple[McpDiscoveredTool, ...]] = {}
+    try:
+        for server_id, config in configured_servers.items():
+            if server_id != config.server_id:
+                raise ValueError(
+                    "Configured MCP server mapping key must match config.server_id: "
+                    f"{server_id!r} != {config.server_id!r}"
+                )
+            if not config.enabled:
+                continue
+            server = factory(config)
+            await server.__aenter__()
+            servers_by_id[server_id] = server
+            discovered_tools_by_server[
+                server_id
+            ] = await discover_pydantic_ai_mcp_tools(server)
+        manager = build_effective_mcp_manager(
+            configured_servers=configured_servers,
+            discovered_tools_by_server=discovered_tools_by_server,
+        )
+        external_executor = PydanticAiMcpExecutor(
+            manager=manager,
+            servers_by_id=servers_by_id,
+        )
+        executor = RoutingMcpToolExecutor(
+            executors_by_server_id={
+                server_id: external_executor for server_id in servers_by_id
+            },
+            fallback_executor=JacaOnboardingMcpExecutor(),
+        )
+        configured_tool_names = tuple(
+            tool.model_tool_name
+            for tool in manager.discover_tools()
+            if tool.identity.server_id in servers_by_id
+        )
+        return ConfiguredMcpRuntime(
+            manager=manager,
+            executor=executor,
+            servers_by_id=servers_by_id,
+            configured_tool_names=configured_tool_names,
+        )
+    except Exception:
+        for server in reversed(tuple(servers_by_id.values())):
+            await server.__aexit__(None, None, None)
+        raise
+
+
 def build_default_mcp_manager() -> McpManager:
     return McpManager(DEFAULT_BUILTIN_MCP_SERVERS)
 
@@ -857,6 +972,7 @@ def build_mcp_toolset(
 
 
 __all__ = [
+    "ConfiguredMcpRuntime",
     "DEFAULT_BUILTIN_MCP_SERVERS",
     "JacaOnboardingMcpExecutor",
     "McpDiscoveredTool",
@@ -865,6 +981,7 @@ __all__ = [
     "PydanticAiMcpExecutor",
     "PydanticAiMcpServer",
     "PydanticAiMcpServerProtocol",
+    "RoutingMcpToolExecutor",
     "McpServerDefinition",
     "McpToolExecutor",
     "McpToolDefinition",
@@ -874,6 +991,7 @@ __all__ = [
     "StaticMcpToolExecutor",
     "UnknownMcpServerError",
     "UnknownMcpToolError",
+    "build_configured_mcp_runtime",
     "build_default_mcp_manager",
     "build_effective_mcp_manager",
     "build_mcp_toolset",

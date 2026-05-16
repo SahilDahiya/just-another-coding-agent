@@ -21,6 +21,10 @@ from pydantic_ai.models.test import TestModel
 
 import just_another_coding_agent.runtime.session as runtime_session_module
 from just_another_coding_agent.contracts.compaction import CompactionBudgetReport
+from just_another_coding_agent.contracts.mcp import (
+    McpServerConfig,
+    McpStreamableHttpTransport,
+)
 from just_another_coding_agent.contracts.platform import detect_default_shell_family
 from just_another_coding_agent.contracts.run_events import (
     ReadActivityDetails,
@@ -48,6 +52,11 @@ from just_another_coding_agent.runtime.compaction import (
 )
 from just_another_coding_agent.runtime.compaction import (
     trigger as trigger_module,
+)
+from just_another_coding_agent.runtime.mcp import (
+    McpDiscoveredTool,
+    StaticMcpToolExecutor,
+    build_effective_mcp_manager,
 )
 from just_another_coding_agent.runtime.project_docs import (
     PROJECT_DOC_MESSAGE_HEADER,
@@ -80,6 +89,7 @@ from just_another_coding_agent.tools.deps import WorkspaceDeps
 from just_another_coding_agent.tools.sandbox_executor import HostSandboxExecutor
 
 _SHELL_FAMILY = detect_default_shell_family()
+_DEMO_ECHO_TOOL_NAME = "mcp__demo_echo__echo_message"
 
 
 def _all_parts(messages: list[ModelMessage]):
@@ -119,11 +129,7 @@ def _user_prompts(messages: list[ModelMessage]) -> list[str]:
 
 
 def _assistant_texts(messages: list[ModelMessage]) -> list[str]:
-    return [
-        part.content
-        for part in _all_parts(messages)
-        if isinstance(part, TextPart)
-    ]
+    return [part.content for part in _all_parts(messages) if isinstance(part, TextPart)]
 
 
 def _runtime_context_texts(messages: list[ModelMessage]) -> list[str]:
@@ -140,6 +146,36 @@ def _runtime_context_update_texts(messages: list[ModelMessage]) -> list[str]:
         for text in _assistant_texts(messages)
         if text.startswith(RUNTIME_CONTEXT_UPDATE_MESSAGE_HEADER)
     ]
+
+
+class _FakeConfiguredMcpRuntime:
+    def __init__(self) -> None:
+        self.manager = build_effective_mcp_manager(
+            configured_servers={
+                "demo_echo": McpServerConfig(
+                    server_id="demo_echo",
+                    transport=McpStreamableHttpTransport(
+                        url="http://127.0.0.1:8000/mcp"
+                    ),
+                ),
+            },
+            discovered_tools_by_server={
+                "demo_echo": (
+                    McpDiscoveredTool(
+                        raw_tool_name="echo-message",
+                        title="Echo message",
+                        description="Echo one message.",
+                    ),
+                ),
+            },
+            builtin_servers=(),
+        )
+        self.executor = StaticMcpToolExecutor(handlers={})
+        self.configured_tool_names = (_DEMO_ECHO_TOOL_NAME,)
+        self.closed = 0
+
+    async def close(self) -> None:
+        self.closed += 1
 
 
 def _project_doc_texts(messages: list[ModelMessage]) -> list[str]:
@@ -530,9 +566,7 @@ async def test_stream_session_run_events_passes_root_session_id_in_deps(
         captured["deps"] = deps
         yield RunStartedEvent(run_id="run-1")
         if message_history_sink is not None:
-            message_history_sink(
-                [ModelRequest(parts=[UserPromptPart(content="done")])]
-            )
+            message_history_sink([ModelRequest(parts=[UserPromptPart(content="done")])])
         yield RunSucceededEvent(run_id="run-1", output_text="done")
 
     monkeypatch.setattr(
@@ -556,6 +590,92 @@ async def test_stream_session_run_events_passes_root_session_id_in_deps(
     assert deps.session_scope.run_id is None
     assert deps.session_scope.parent_session_id is None
     assert deps.session_scope.parent_run_id is None
+
+
+async def test_stream_session_run_events_mounts_configured_mcp_tools(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    session_path = tmp_path / "session-id-target.jsonl"
+    model = TestModel(call_tools=[], custom_output_text="ok")
+    configured_server = McpServerConfig(
+        server_id="demo_echo",
+        transport=McpStreamableHttpTransport(url="http://127.0.0.1:8000/mcp"),
+    )
+    fake_runtime = _FakeConfiguredMcpRuntime()
+    captured: dict[str, object] = {}
+
+    async def fake_build_configured_mcp_runtime(*, configured_servers):
+        assert configured_servers == {"demo_echo": configured_server}
+        return fake_runtime
+
+    async def fake_stream_run_events(
+        *,
+        agent,
+        prompt,
+        message_history=None,
+        instructions=None,
+        thinking=None,
+        deps=None,
+        message_history_sink=None,
+        available_tool_names=None,
+        **_kwargs,
+    ):
+        del prompt, message_history, instructions, thinking
+        captured["deps"] = deps
+        captured["available_tool_names"] = available_tool_names
+        await agent.run("What tools are available?", deps=deps)
+        captured["function_tool_names"] = [
+            tool.name for tool in model.last_model_request_parameters.function_tools
+        ]
+        yield RunStartedEvent(run_id="run-1")
+        if message_history_sink is not None:
+            message_history_sink([ModelRequest(parts=[UserPromptPart(content="done")])])
+        yield RunSucceededEvent(run_id="run-1", output_text="done")
+
+    monkeypatch.setattr(
+        runtime_session_module,
+        "load_mcp_server_configs",
+        lambda: {"demo_echo": configured_server},
+    )
+    monkeypatch.setattr(
+        runtime_session_module,
+        "build_configured_mcp_runtime",
+        fake_build_configured_mcp_runtime,
+    )
+    monkeypatch.setattr(
+        runtime_session_module,
+        "stream_run_events",
+        fake_stream_run_events,
+    )
+
+    _ = [
+        event
+        async for event in stream_session_run_events(
+            model=model,
+            workspace_root=workspace_root,
+            session_path=session_path,
+            prompt="go",
+        )
+    ]
+
+    assert captured["available_tool_names"] == (
+        "read",
+        "write",
+        "edit",
+        "shell",
+        "grep",
+        "ls",
+        "find",
+        "subagent",
+        "mcp__demo_echo__echo_message",
+    )
+    assert "mcp__demo_echo__echo_message" in captured["function_tool_names"]
+    deps = captured["deps"]
+    assert isinstance(deps, WorkspaceDeps)
+    assert fake_runtime.closed == 1
 
 
 async def test_stream_session_run_events_resumes_with_pydanticai_message_history(
@@ -652,9 +772,7 @@ async def test_stream_session_run_events_persists_shell_approval_events(
         event
         async for event in stream_session_run_events(
             model=FunctionModel(
-                stream_function=make_shell_approval_stream(
-                    f"touch {outside_file}"
-                )
+                stream_function=make_shell_approval_stream(f"touch {outside_file}")
             ),
             workspace_root=workspace_root,
             session_path=session_path,
@@ -730,9 +848,7 @@ async def test_stream_session_run_events_restores_session_command_grants_across_
         event
         async for event in stream_session_run_events(
             model=FunctionModel(
-                stream_function=make_shell_approval_stream(
-                    "curl https://example.com"
-                )
+                stream_function=make_shell_approval_stream("curl https://example.com")
             ),
             workspace_root=workspace_root,
             session_path=session_path,
@@ -1047,9 +1163,7 @@ async def test_stream_session_run_events_emits_runtime_context_diff_on_shell_cha
         captured["message_history"] = message_history
         yield RunStartedEvent(run_id="run-2")
         if message_history_sink is not None:
-            message_history_sink(
-                [ModelRequest(parts=[UserPromptPart(content="done")])]
-            )
+            message_history_sink([ModelRequest(parts=[UserPromptPart(content="done")])])
         yield RunSucceededEvent(run_id="run-2", output_text="done")
 
     monkeypatch.setattr(
@@ -1091,7 +1205,9 @@ async def test_stream_session_run_events_emits_runtime_context_diff_on_shell_cha
     assert _runtime_context_update_texts(captured["message_history"]) == [
         build_runtime_context_update_message(
             "Current shell family changed to powershell"
-        ).parts[0].content
+        )
+        .parts[0]
+        .content
     ]
 
 
@@ -1251,7 +1367,9 @@ def test_build_runtime_context_injection_plan_uses_diff_for_date_change(
                 workspace_root=workspace_root,
                 current_date=date.today(),
             )
-        ).parts[0].content
+        )
+        .parts[0]
+        .content
     ]
 
 
@@ -1292,7 +1410,9 @@ def test_build_runtime_context_injection_plan_uses_diff_for_model_change(
                 workspace_root=workspace_root,
                 current_date=date.today(),
             )
-        ).parts[0].content
+        )
+        .parts[0]
+        .content
     ]
 
 
@@ -1338,7 +1458,9 @@ def test_build_runtime_context_injection_plan_uses_diff_for_thinking_change(
                 current_date=date.today(),
                 thinking="low",
             )
-        ).parts[0].content
+        )
+        .parts[0]
+        .content
     ]
 
 
@@ -1395,7 +1517,9 @@ def test_build_runtime_context_injection_plan_uses_diff_for_capability_change(
                 current_date=date.today(),
                 effective_capabilities=new_capabilities,
             )
-        ).parts[0].content
+        )
+        .parts[0]
+        .content
     ]
 
 
@@ -1453,7 +1577,9 @@ def test_build_runtime_context_injection_plan_uses_diff_for_approval_override_ch
                 current_date=date.today(),
                 effective_capabilities=new_capabilities,
             )
-        ).parts[0].content
+        )
+        .parts[0]
+        .content
     ]
 
 
@@ -1499,7 +1625,9 @@ def test_build_runtime_context_injection_plan_uses_diff_for_timezone_change(
                 current_date=date.today(),
                 timezone="America/New_York",
             )
-        ).parts[0].content
+        )
+        .parts[0]
+        .content
     ]
 
 
@@ -1614,9 +1742,7 @@ async def test_stream_session_run_events_inherits_last_persisted_thinking_when_o
         captured["message_history_sink"] = message_history_sink
         yield RunStartedEvent(run_id="run-2")
         if message_history_sink is not None:
-            message_history_sink(
-                [ModelRequest(parts=[UserPromptPart(content="done")])]
-            )
+            message_history_sink([ModelRequest(parts=[UserPromptPart(content="done")])])
         yield RunSucceededEvent(run_id="run-2", output_text="done")
 
     monkeypatch.setattr(
@@ -1697,9 +1823,7 @@ async def test_stream_session_run_events_injects_workspace_project_docs(
         captured["message_history"] = message_history
         yield RunStartedEvent(run_id="run-1")
         if message_history_sink is not None:
-            message_history_sink(
-                [ModelRequest(parts=[UserPromptPart(content="done")])]
-            )
+            message_history_sink([ModelRequest(parts=[UserPromptPart(content="done")])])
         yield RunSucceededEvent(run_id="run-1", output_text="done")
 
     monkeypatch.setattr(
@@ -1916,7 +2040,7 @@ async def test_stream_session_run_events_replays_replacement_history(
             model=FunctionModel(stream_function=probe_stream),
             workspace_root=workspace_root,
         ),
-        _summary_message_content("- Goal: continue after compaction")
+        _summary_message_content("- Goal: continue after compaction"),
     ]
     assert observed["tool_return"] is True
 
@@ -2030,10 +2154,7 @@ async def test_summarize_session_for_compaction_uses_model_output_and_previous_s
         assert "Completed Work:" in instructions
         assert "Important Files/Paths:" in instructions
         assert "Do not include code snippets" in instructions
-        yield (
-            "- Goal: ship the verified fix\n"
-            "- Important path: src/app.py"
-        )
+        yield ("- Goal: ship the verified fix\n- Important path: src/app.py")
 
     summary = await summarize_session_for_compaction(
         model=FunctionModel(stream_function=summary_probe),
@@ -2365,9 +2486,7 @@ async def test_stream_session_run_events_auto_compacts_stale_session_before_resu
     loaded = load_session(path=session_path, workspace_root=workspace_root)
     assert extract_compaction_summary_text(
         loaded.latest_compaction.replacement_messages
-    ) == (
-        "- Goal: continue after compaction"
-    )
+    ) == ("- Goal: continue after compaction")
     assert _user_prompts(loaded.runs[-1].messages) == ["follow-up"]
 
 
@@ -2432,7 +2551,11 @@ async def test_stream_session_run_events_continues_after_repeated_auto_compactio
         del agent, prompt, message_history, instructions, thinking, deps
         if message_history_sink is not None:
             message_history_sink(
-                [ModelRequest(parts=[UserPromptPart(content="after-second-compaction")])]
+                [
+                    ModelRequest(
+                        parts=[UserPromptPart(content="after-second-compaction")]
+                    )
+                ]
             )
         yield RunStartedEvent(run_id="run-4")
         yield RunSucceededEvent(run_id="run-4", output_text="done")
@@ -2472,9 +2595,7 @@ async def test_stream_session_run_events_continues_after_repeated_auto_compactio
     assert len(loaded.compactions) == 2
     assert extract_compaction_summary_text(
         loaded.latest_compaction.replacement_messages
-    ) == (
-        "- Goal: second compaction"
-    )
+    ) == ("- Goal: second compaction")
 
 
 async def test_stream_session_run_events_records_auto_compaction_failures(
@@ -2665,7 +2786,9 @@ async def test_stream_session_run_events_does_not_recompact_without_new_complete
     ):
         del agent, prompt, message_history, instructions, thinking, deps
         if message_history_sink is not None:
-            message_history_sink([ModelRequest(parts=[UserPromptPart(content="follow-up")])])
+            message_history_sink(
+                [ModelRequest(parts=[UserPromptPart(content="follow-up")])]
+            )
         yield RunStartedEvent(run_id="run-3")
         yield RunSucceededEvent(run_id="run-3", output_text="done")
 
@@ -3079,6 +3202,7 @@ async def test_stream_session_run_events_trim_failed_correction_tail_from_histor
             ]
         ),
     ]
+
     async def failed_correction_stream_run_events(
         *,
         agent,
@@ -3202,6 +3326,7 @@ async def test_stream_session_run_events_resume_after_failed_correction_is_clean
             ]
         ),
     ]
+
     async def failed_correction_stream_run_events(
         *,
         agent,

@@ -8,6 +8,7 @@ from typing import Any
 
 from pydantic_ai.messages import ModelMessage
 
+from just_another_coding_agent.config import load_mcp_server_configs
 from just_another_coding_agent.contracts.onboarding import (
     OnboardingAnswerResult,
     OnboardingQuestionRequest,
@@ -60,6 +61,10 @@ from just_another_coding_agent.runtime.compaction import (
     build_runtime_framed_resume_message_history,
     summarize_and_append_compaction_to_session,
 )
+from just_another_coding_agent.runtime.mcp import (
+    ConfiguredMcpRuntime,
+    build_configured_mcp_runtime,
+)
 from just_another_coding_agent.runtime.run import stream_run_events
 from just_another_coding_agent.runtime.transcript_summary import (
     sync_run_transcript_summary_metrics,
@@ -87,6 +92,22 @@ from just_another_coding_agent.tools.deps import (
 )
 
 MAX_CONSECUTIVE_AUTO_COMPACTION_FAILURES = 3
+
+
+def _append_configured_mcp_tool_names(
+    tool_names: Sequence[str],
+    mcp_runtime: ConfiguredMcpRuntime | None,
+) -> tuple[str, ...]:
+    resolved_tool_names = tuple(tool_names)
+    if mcp_runtime is None:
+        return resolved_tool_names
+    seen_tool_names = set(resolved_tool_names)
+    appended_tool_names = list(resolved_tool_names)
+    for tool_name in mcp_runtime.configured_tool_names:
+        if tool_name not in seen_tool_names:
+            appended_tool_names.append(tool_name)
+            seen_tool_names.add(tool_name)
+    return tuple(appended_tool_names)
 
 
 def _estimated_compaction_percent_saved(
@@ -199,12 +220,10 @@ async def stream_session_run_events(
         Callable[[ApprovalRequest], Awaitable[ApprovalDecision]] | None
     ) = None,
     resolve_onboarding_question: (
-        Callable[[OnboardingQuestionRequest], Awaitable[OnboardingAnswerResult]]
-        | None
+        Callable[[OnboardingQuestionRequest], Awaitable[OnboardingAnswerResult]] | None
     ) = None,
-    activate_steer_boundary: (
-        Callable[[Callable[[list[str]], None]], Awaitable[None]]
-    ) | None = None,
+    activate_steer_boundary: (Callable[[Callable[[list[str]], None]], Awaitable[None]])
+    | None = None,
     submit_steer_boundary: Callable[[], Awaitable[None]] | None = None,
     deactivate_steer_boundary: Callable[[], Awaitable[None]] | None = None,
 ) -> AsyncIterator[RunEvent | SessionLifecycleEvent]:
@@ -331,9 +350,7 @@ async def stream_session_run_events(
             current_date=current_date,
             shell_family=shell_family,
             thinking=resolved_thinking,
-            effective_capabilities=(
-                resolved_permission_state.effective_capabilities
-            ),
+            effective_capabilities=(resolved_permission_state.effective_capabilities),
             has_persisted_history=loaded_session.has_persisted_turn_context_history,
         )
         yield SessionTurnContextStatusEvent(
@@ -368,14 +385,41 @@ async def stream_session_run_events(
         resolved_permission_memory.remember_session_grants(
             loaded_session.latest_permission_grants.grants
         )
-    agent = build_canonical_agent(
-        model=model,
-        workspace_root=normalized_workspace_root,
-        current_date=current_date,
-        shell_family=shell_family,
-        tool_names=tool_names,
-        run_mode=run_mode,
+    configured_mcp_servers = load_mcp_server_configs()
+    configured_mcp_runtime = (
+        await build_configured_mcp_runtime(
+            configured_servers=configured_mcp_servers,
+        )
+        if configured_mcp_servers
+        else None
     )
+    effective_tool_names = _append_configured_mcp_tool_names(
+        tool_names,
+        configured_mcp_runtime,
+    )
+    try:
+        agent = build_canonical_agent(
+            model=model,
+            workspace_root=normalized_workspace_root,
+            current_date=current_date,
+            shell_family=shell_family,
+            tool_names=effective_tool_names,
+            run_mode=run_mode,
+            mcp_manager=(
+                configured_mcp_runtime.manager
+                if configured_mcp_runtime is not None
+                else None
+            ),
+            mcp_executor=(
+                configured_mcp_runtime.executor
+                if configured_mcp_runtime is not None
+                else None
+            ),
+        )
+    except Exception:
+        if configured_mcp_runtime is not None:
+            await configured_mcp_runtime.close()
+        raise
     run_appender = None
     run_turn_context = None
     authoritative_messages: list[ModelMessage] | None = None
@@ -408,9 +452,14 @@ async def stream_session_run_events(
                 ),
                 permission_state=resolved_permission_state,
                 permission_memory=resolved_permission_memory,
+                runtime_resource_closers=(
+                    (configured_mcp_runtime.close,)
+                    if configured_mcp_runtime is not None
+                    else ()
+                ),
             ),
             message_history_sink=_record_message_history,
-            available_tool_names=tool_names,
+            available_tool_names=effective_tool_names,
             resolve_approval_request=resolve_approval_request,
             resolve_onboarding_question=resolve_onboarding_question,
         )
@@ -419,15 +468,9 @@ async def stream_session_run_events(
             and submit_steer_boundary is not None
             and deactivate_steer_boundary is not None
         ):
-            stream_run_kwargs["activate_steer_boundary"] = (
-                activate_steer_boundary
-            )
-            stream_run_kwargs["submit_steer_boundary"] = (
-                submit_steer_boundary
-            )
-            stream_run_kwargs["deactivate_steer_boundary"] = (
-                deactivate_steer_boundary
-            )
+            stream_run_kwargs["activate_steer_boundary"] = activate_steer_boundary
+            stream_run_kwargs["submit_steer_boundary"] = submit_steer_boundary
+            stream_run_kwargs["deactivate_steer_boundary"] = deactivate_steer_boundary
         async for event in stream_run_events(**stream_run_kwargs):
             if run_appender is None:
                 active_run_id = event.run_id
@@ -594,6 +637,8 @@ async def stream_session_run_events(
         finally:
             if run_appender is not None:
                 run_appender.close()
+            if configured_mcp_runtime is not None:
+                await configured_mcp_runtime.close()
 
 
 __all__ = ["stream_session_run_events"]

@@ -91,6 +91,10 @@ Rules:
   and fail hard when the configured environment variable is missing or empty.
 - MCP sampling must remain disabled for configured external MCP clients until
   a separate backend-owned sampling policy contract exists.
+- Session runs must load persisted configured MCP servers, discover enabled
+  external tools before agent construction, append discovered `mcp__...` tools
+  to the run-visible tool list, and close configured MCP clients through the
+  backend runtime-resource lifecycle.
 - Code Mode MCP calls must carry the parent `exec` tool call id and Code Mode
   cell id.
 - Top-level MCP calls must not carry Code Mode parent fields.
