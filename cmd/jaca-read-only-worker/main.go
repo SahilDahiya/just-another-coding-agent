@@ -855,27 +855,34 @@ func executeGrep(ctx context.Context, req grepRequest) (grepResult, errorRespons
 		Matches:     make([]grepMatch, 0),
 	}
 	outputBytes := 0
+	stoppedEarly := false
+	stopCommand := func() {
+		stoppedEarly = true
+		if command.Process != nil {
+			_ = command.Process.Kill()
+		}
+	}
 	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	var protocolErr error
 	for scanner.Scan() {
 		var event matchEvent
 		if err := json.Unmarshal(scanner.Bytes(), &event); err != nil {
-			return grepResult{}, errorResponse{
-				baseMessage: baseMessage{RequestID: req.RequestID},
-				Type:        "error",
-				ErrorCode:   "protocol_error",
-				Message:     err.Error(),
-			}, false
+			protocolErr = err
+			stopCommand()
+			break
 		}
 		if event.Type != "match" {
 			continue
 		}
 		if result.LimitHit || result.ByteLimitHit {
-			continue
+			stopCommand()
+			break
 		}
 		if len(result.Matches) >= req.Limit {
 			result.LimitHit = true
-			continue
+			stopCommand()
+			break
 		}
 
 		matchText, textTruncated := truncateMatchText(event.Data.Lines.Text, req.MaxLineChars)
@@ -887,7 +894,8 @@ func executeGrep(ctx context.Context, req grepRequest) (grepResult, errorRespons
 		itemBytes := len([]byte(rendered)) + 1
 		if outputBytes+itemBytes > req.MaxBytes {
 			result.ByteLimitHit = true
-			continue
+			stopCommand()
+			break
 		}
 		result.Matches = append(result.Matches, grepMatch{
 			Path:          matchPath,
@@ -908,13 +916,24 @@ func executeGrep(ctx context.Context, req grepRequest) (grepResult, errorRespons
 			Message:     "request cancelled",
 		}, false
 	}
-	if scanner.Err() != nil {
+	if scanner.Err() != nil && !stoppedEarly {
 		return grepResult{}, errorResponse{
 			baseMessage: baseMessage{RequestID: req.RequestID},
 			Type:        "error",
 			ErrorCode:   "command_error",
 			Message:     scanner.Err().Error(),
 		}, false
+	}
+	if protocolErr != nil {
+		return grepResult{}, errorResponse{
+			baseMessage: baseMessage{RequestID: req.RequestID},
+			Type:        "error",
+			ErrorCode:   "protocol_error",
+			Message:     protocolErr.Error(),
+		}, false
+	}
+	if stoppedEarly {
+		return result, errorResponse{}, true
 	}
 	if waitErr != nil {
 		var exitErr *exec.ExitError
