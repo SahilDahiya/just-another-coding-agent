@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from io import StringIO
 from types import SimpleNamespace
 
@@ -52,6 +53,60 @@ def test_jaca_mcp_login_uses_configured_server(tmp_path, monkeypatch) -> None:
     }
     assert "https://auth.example.test/login" in output.getvalue()
     assert "Logged in MCP server linear." in output.getvalue()
+
+
+def test_jaca_mcp_login_uses_oauth_sized_initialize_timeout(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    _write_mcp_config(tmp_path)
+    captured = {}
+
+    class FakeMCPServerStreamableHTTP:
+        def __init__(
+            self,
+            url,
+            *,
+            http_client,
+            id,
+            tool_prefix,
+            timeout,
+            read_timeout,
+            allow_sampling,
+            max_retries,
+        ):
+            captured["url"] = url
+            captured["timeout"] = timeout
+            captured["read_timeout"] = read_timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+    monkeypatch.setattr(
+        sys.modules["pydantic_ai.mcp"],
+        "MCPServerStreamableHTTP",
+        FakeMCPServerStreamableHTTP,
+    )
+
+    async def fake_login(config, *, auth_url_handler, connect):
+        await auth_url_handler("https://auth.example.test/login")
+        await connect(object())
+        return SimpleNamespace(server_id=config.server_id)
+
+    monkeypatch.setattr(entry, "login_mcp_oauth_server", fake_login)
+
+    exit_code = entry.main(["mcp", "login", "linear"], output_stream=StringIO())
+
+    assert exit_code == 0
+    assert captured == {
+        "url": "https://mcp.linear.app/mcp",
+        "timeout": 300.0,
+        "read_timeout": 300.0,
+    }
 
 
 def test_jaca_mcp_logout_clears_configured_server_credentials(

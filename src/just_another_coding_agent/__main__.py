@@ -67,6 +67,7 @@ from just_another_coding_agent.tools.windows_search_tools import (
 _RESUME_PICKER_MAX_SESSIONS = 10
 _RESUME_PICKER_LABEL_MAX_CHARS = 72
 _RESUME_PICKER_SUBTITLE_MAX_CHARS = 96
+_MCP_OAUTH_LOGIN_TIMEOUT_SECONDS = 300.0
 
 
 @dataclass(frozen=True)
@@ -286,7 +287,7 @@ def _run_mcp_mode(
             writer.flush()
             return 0
     except Exception as error:
-        writer.write(f"Error: {error}\n")
+        writer.write(f"Error: {_format_cli_error(error)}\n")
         writer.flush()
         return 1
     raise RuntimeError(f"Unsupported MCP command: {args.command}")
@@ -341,7 +342,7 @@ def _run_mcp_add_argv(*, argv: Sequence[str], writer: TextIO) -> int:
     try:
         return _run_mcp_add(args=args, writer=writer)
     except Exception as error:
-        writer.write(f"Error: {error}\n")
+        writer.write(f"Error: {_format_cli_error(error)}\n")
         writer.flush()
         return 1
 
@@ -365,7 +366,7 @@ def _run_mcp_add(*, args: argparse.Namespace, writer: TextIO) -> int:
         except Exception as error:
             writer.write(
                 f"MCP server {config.server_id} was added, "
-                f"but OAuth login failed: {error}\n"
+                f"but OAuth login failed: {_format_cli_error(error)}\n"
             )
             writer.write(f"Run `jaca mcp login {config.server_id}` to retry.\n")
             writer.flush()
@@ -468,8 +469,14 @@ def _perform_mcp_login(*, config: McpServerConfig, writer: TextIO):
             http_client=client,
             id=config.server_id,
             tool_prefix=None,
-            timeout=config.startup_timeout_sec or 5,
-            read_timeout=config.tool_timeout_sec or 5 * 60,
+            timeout=max(
+                config.startup_timeout_sec or 0,
+                _MCP_OAUTH_LOGIN_TIMEOUT_SECONDS,
+            ),
+            read_timeout=max(
+                config.tool_timeout_sec or 0,
+                _MCP_OAUTH_LOGIN_TIMEOUT_SECONDS,
+            ),
             allow_sampling=False,
             max_retries=0,
         )
@@ -486,6 +493,28 @@ def _perform_mcp_login(*, config: McpServerConfig, writer: TextIO):
         )
     except McpOAuthError:
         raise
+
+
+def _format_cli_error(error: BaseException) -> str:
+    if isinstance(error, BaseExceptionGroup):
+        leaf_messages = [
+            _format_cli_error(leaf) for leaf in _flatten_exception_group(error)
+        ]
+        unique_messages = list(
+            dict.fromkeys(message for message in leaf_messages if message)
+        )
+        if unique_messages:
+            return "; ".join(unique_messages)
+    return str(error) or type(error).__name__
+
+
+def _flatten_exception_group(error: BaseException) -> list[BaseException]:
+    if isinstance(error, BaseExceptionGroup):
+        flattened: list[BaseException] = []
+        for nested in error.exceptions:
+            flattened.extend(_flatten_exception_group(nested))
+        return flattened
+    return [error]
 
 
 def _select_session_to_resume(

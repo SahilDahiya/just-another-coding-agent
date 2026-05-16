@@ -193,6 +193,9 @@ MCP OAuth CLI contract:
 
 - `jaca mcp add <server_id> --url <url> --oauth` writes validated streamable
   HTTP OAuth config, then immediately starts OAuth login for that server.
+- MCP OAuth login uses an OAuth-sized interactive timeout rather than the
+  normal MCP startup timeout, because the initialize request may need to wait
+  for the browser callback.
 - If OAuth login fails after a successful `add`, the valid MCP config remains
   persisted and the command returns a retry path through
   `jaca mcp login <server_id>`.
