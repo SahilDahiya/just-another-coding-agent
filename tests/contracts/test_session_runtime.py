@@ -41,7 +41,11 @@ from just_another_coding_agent.contracts.run_events import (
     ToolCallSucceededEvent,
 )
 from just_another_coding_agent.contracts.sandbox import EffectiveCapabilities
-from just_another_coding_agent.contracts.session import SessionTurnContextEntry
+from just_another_coding_agent.contracts.session import (
+    SessionMcpInventorySnapshot,
+    SessionMcpInventoryTool,
+    SessionTurnContextEntry,
+)
 from just_another_coding_agent.runtime import stream_session_run_events
 from just_another_coding_agent.runtime.compaction import (
     build_resume_message_history,
@@ -95,6 +99,15 @@ from just_another_coding_agent.tools.sandbox_executor import HostSandboxExecutor
 
 _SHELL_FAMILY = detect_default_shell_family()
 _DEMO_ECHO_TOOL_NAME = "mcp__demo_echo__echo_message"
+
+
+@pytest.fixture(autouse=True)
+def _default_empty_mcp_config(monkeypatch) -> None:
+    monkeypatch.setattr(
+        runtime_session_module,
+        "load_mcp_server_configs",
+        lambda: {},
+    )
 
 
 def _all_parts(messages: list[ModelMessage]):
@@ -689,6 +702,33 @@ async def test_stream_session_run_events_mounts_configured_mcp_tools(
     deps = captured["deps"]
     assert isinstance(deps, WorkspaceDeps)
     assert fake_runtime.closed == 1
+    loaded = load_session(path=session_path, workspace_root=workspace_root)
+    assert loaded.latest_mcp_inventory is not None
+    assert loaded.latest_mcp_inventory.run_id == "run-1"
+    assert [
+        tool.model_dump()
+        for tool in loaded.latest_mcp_inventory.tools
+    ] == [
+        {
+            "name": "mcp__demo_echo__echo_message",
+            "server_id": "demo_echo",
+            "tool_name": "echo_message",
+            "raw_tool_name": "echo-message",
+            "title": "Echo message",
+            "description": "Echo one message.",
+            "exposure": "direct",
+            "activated": False,
+        }
+    ]
+    assert loaded.latest_turn_context is not None
+    assert loaded.latest_turn_context.mcp_inventory is not None
+    assert loaded.latest_turn_context.mcp_inventory.tools == (
+        loaded.latest_mcp_inventory.tools
+    )
+    assert (
+        "Current MCP tools: 1 discovered across 1 server; 1 direct, 0 deferred"
+        in loaded.latest_turn_context.runtime_context_text
+    )
 
 
 async def test_stream_session_run_events_defers_large_configured_mcp_inventory(
@@ -1581,6 +1621,64 @@ def test_evaluate_turn_context_baseline_clears_on_effective_capabilities_mismatc
     assert decision.status == "cleared"
     assert decision.reason == "effective_capabilities_mismatch"
     assert decision.entry == entry
+
+
+def test_evaluate_turn_context_baseline_clears_on_mcp_inventory_mismatch(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    model = FunctionModel(stream_function=text_only_stream)
+    previous_inventory = SessionMcpInventorySnapshot(
+        tools=(
+            SessionMcpInventoryTool(
+                name="mcp__linear__list_issues",
+                server_id="linear",
+                tool_name="list_issues",
+                raw_tool_name="list-issues",
+                title="List issues",
+                description="List Linear issues.",
+                exposure="direct",
+            ),
+        )
+    )
+    current_inventory = SessionMcpInventorySnapshot(
+        tools=(
+            SessionMcpInventoryTool(
+                name="mcp__linear__create_issue",
+                server_id="linear",
+                tool_name="create_issue",
+                raw_tool_name="create-issue",
+                title="Create issue",
+                description="Create a Linear issue.",
+                exposure="direct",
+            ),
+        )
+    )
+    entry = build_session_turn_context_entry(
+        run_id="run-1",
+        model=model,
+        workspace_root=workspace_root,
+        current_date=date.today(),
+        mcp_inventory=previous_inventory,
+    )
+
+    decision = evaluate_turn_context_baseline(
+        entry=entry,
+        model=model,
+        workspace_root=workspace_root,
+        current_date=date.today(),
+        mcp_inventory=current_inventory,
+        has_persisted_history=True,
+    )
+
+    assert decision.status == "cleared"
+    assert decision.reason == "mcp_inventory_mismatch"
+    assert decision.entry == entry
+    assert (
+        "Current MCP tools: 1 discovered across 1 server"
+        in entry.runtime_context_text
+    )
 
 
 def test_build_runtime_context_injection_plan_uses_diff_for_date_change(

@@ -40,6 +40,7 @@ from just_another_coding_agent.contracts.sandbox import (
 from just_another_coding_agent.contracts.session import (
     LoadedSession,
     SessionHeaderEntry,
+    SessionMcpInventoryEntry,
     SessionPermissionGrantsEntry,
     SessionRunRecord,
 )
@@ -134,6 +135,7 @@ def _build_loaded_session_after_success(
     thinking: ThinkingSetting | None,
     messages: Sequence[ModelMessage],
     turn_context,
+    mcp_inventory: SessionMcpInventoryEntry | None = None,
 ) -> LoadedSession:
     if loaded_session is None:
         header = SessionHeaderEntry(
@@ -154,6 +156,7 @@ def _build_loaded_session_after_success(
             thinking=thinking,
             messages=list(messages),
             events=[],
+            mcp_inventory=mcp_inventory,
         )
     )
     return LoadedSession(
@@ -162,6 +165,15 @@ def _build_loaded_session_after_success(
         name=loaded_session.name if loaded_session is not None else None,
         runs=runs,
         latest_turn_context=turn_context,
+        latest_mcp_inventory=(
+            mcp_inventory
+            if mcp_inventory is not None
+            else (
+                loaded_session.latest_mcp_inventory
+                if loaded_session is not None
+                else None
+            )
+        ),
         latest_permission_grants=(
             loaded_session.latest_permission_grants
             if loaded_session is not None
@@ -184,6 +196,7 @@ def _estimate_next_request_context_window_used(
     prompt: str,
     messages: Sequence[ModelMessage],
     turn_context,
+    mcp_inventory: SessionMcpInventoryEntry | None = None,
 ) -> float | None:
     projected_session = _build_loaded_session_after_success(
         loaded_session=loaded_session,
@@ -194,6 +207,7 @@ def _estimate_next_request_context_window_used(
         thinking=thinking,
         messages=messages,
         turn_context=turn_context,
+        mcp_inventory=mcp_inventory,
     )
     report = build_auto_compact_session_budget_report(
         projected_session,
@@ -345,6 +359,27 @@ async def stream_session_run_events(
                 ),
                 estimated_headroom_gain_tokens=estimated_headroom_gain_tokens,
             )
+    try:
+        configured_mcp_servers = load_mcp_server_configs()
+        configured_mcp_runtime = (
+            await build_configured_mcp_runtime(
+                configured_servers=configured_mcp_servers,
+            )
+            if configured_mcp_servers
+            else None
+        )
+    except McpRuntimeFailureError as error:
+        yield SessionMcpFailedEvent(failure=error.failure)
+        return
+    current_mcp_inventory = (
+        configured_mcp_runtime.mcp_tool_inventory.to_session_snapshot()
+        if configured_mcp_runtime is not None
+        else None
+    )
+    effective_tool_names = _append_configured_mcp_tool_names(
+        tool_names,
+        configured_mcp_runtime,
+    )
     if loaded_session is not None:
         turn_context_baseline = evaluate_turn_context_baseline(
             entry=loaded_session.latest_turn_context,
@@ -354,6 +389,7 @@ async def stream_session_run_events(
             shell_family=shell_family,
             thinking=resolved_thinking,
             effective_capabilities=(resolved_permission_state.effective_capabilities),
+            mcp_inventory=current_mcp_inventory,
             has_persisted_history=loaded_session.has_persisted_turn_context_history,
         )
         yield SessionTurnContextStatusEvent(
@@ -374,7 +410,8 @@ async def stream_session_run_events(
         shell_family=shell_family,
         thinking=resolved_thinking,
         effective_capabilities=resolved_permission_state.effective_capabilities,
-        tool_names=tool_names,
+        mcp_inventory=current_mcp_inventory,
+        tool_names=effective_tool_names,
     )
     resolved_permission_memory = (
         permission_memory
@@ -388,22 +425,6 @@ async def stream_session_run_events(
         resolved_permission_memory.remember_session_grants(
             loaded_session.latest_permission_grants.grants
         )
-    try:
-        configured_mcp_servers = load_mcp_server_configs()
-        configured_mcp_runtime = (
-            await build_configured_mcp_runtime(
-                configured_servers=configured_mcp_servers,
-            )
-            if configured_mcp_servers
-            else None
-        )
-    except McpRuntimeFailureError as error:
-        yield SessionMcpFailedEvent(failure=error.failure)
-        return
-    effective_tool_names = _append_configured_mcp_tool_names(
-        tool_names,
-        configured_mcp_runtime,
-    )
     try:
         agent = build_canonical_agent(
             model=model,
@@ -439,6 +460,33 @@ async def stream_session_run_events(
     active_run_id: str | None = None
     should_finalize = False
     failed_terminal = False
+
+    def _current_mcp_inventory_snapshot():
+        if configured_mcp_runtime is None:
+            return None
+        return configured_mcp_runtime.mcp_tool_inventory.to_session_snapshot()
+
+    def _current_mcp_inventory_entry(run_id: str):
+        if configured_mcp_runtime is None:
+            return None
+        return configured_mcp_runtime.mcp_tool_inventory.to_session_entry(
+            run_id=run_id
+        )
+
+    def _build_run_turn_context(run_id: str):
+        return build_session_turn_context_entry(
+            run_id=run_id,
+            model=model,
+            workspace_root=normalized_workspace_root,
+            current_date=current_date,
+            shell_family=shell_family,
+            timezone=current_timezone,
+            thinking=resolved_thinking,
+            effective_capabilities=(
+                resolved_permission_state.effective_capabilities
+            ),
+            mcp_inventory=_current_mcp_inventory_snapshot(),
+        )
 
     def _record_message_history(messages: Sequence[ModelMessage]) -> None:
         nonlocal authoritative_messages
@@ -491,17 +539,7 @@ async def stream_session_run_events(
         async for event in stream_run_events(**stream_run_kwargs):
             if run_appender is None:
                 active_run_id = event.run_id
-                run_turn_context = build_session_turn_context_entry(
-                    run_id=event.run_id,
-                    model=model,
-                    workspace_root=normalized_workspace_root,
-                    current_date=current_date,
-                    shell_family=shell_family,
-                    thinking=resolved_thinking,
-                    effective_capabilities=(
-                        resolved_permission_state.effective_capabilities
-                    ),
-                )
+                run_turn_context = _build_run_turn_context(event.run_id)
                 run_appender = start_run_to_session(
                     path=session_path,
                     workspace_root=normalized_workspace_root,
@@ -511,6 +549,7 @@ async def stream_session_run_events(
                     thinking=resolved_thinking,
                 )
             if isinstance(event, RunSucceededEvent):
+                run_turn_context = _build_run_turn_context(event.run_id)
                 if authoritative_messages is None:
                     raise RuntimeError(
                         "Cannot finalize successful run without authoritative "
@@ -534,6 +573,9 @@ async def stream_session_run_events(
                                 prompt=prompt,
                                 messages=finalized_messages,
                                 turn_context=run_turn_context,
+                                mcp_inventory=_current_mcp_inventory_entry(
+                                    event.run_id
+                                ),
                             )
                         )
                     }
@@ -643,8 +685,15 @@ async def stream_session_run_events(
                         finalized_messages
                     )
                 finalized_messages = strip_internal_prompt_state(finalized_messages)
+                if active_run_id is not None:
+                    run_turn_context = _build_run_turn_context(active_run_id)
                 run_appender.finalize(
                     messages=finalized_messages,
+                    mcp_inventory=(
+                        _current_mcp_inventory_entry(active_run_id)
+                        if active_run_id is not None
+                        else None
+                    ),
                     turn_context=run_turn_context,
                     permission_grants=SessionPermissionGrantsEntry(
                         run_id=active_run_id,

@@ -21,7 +21,10 @@ from just_another_coding_agent.contracts.sandbox import (
     build_default_permission_state,
     describe_approval_policy,
 )
-from just_another_coding_agent.contracts.session import SessionTurnContextEntry
+from just_another_coding_agent.contracts.session import (
+    SessionMcpInventorySnapshot,
+    SessionTurnContextEntry,
+)
 from just_another_coding_agent.contracts.thinking import ThinkingSetting
 from just_another_coding_agent.runtime.agent import (
     build_runtime_context_text,
@@ -44,6 +47,7 @@ _DIFFABLE_TURN_CONTEXT_CLEAR_REASONS = frozenset(
         "current_date_mismatch",
         "timezone_mismatch",
         "effective_capabilities_mismatch",
+        "mcp_inventory_mismatch",
         "runtime_context_mismatch",
     }
 )
@@ -72,6 +76,7 @@ def evaluate_turn_context_baseline(
     timezone: str | None = None,
     thinking: ThinkingSetting | None = None,
     effective_capabilities: EffectiveCapabilities | None = None,
+    mcp_inventory: SessionMcpInventorySnapshot | None = None,
     has_persisted_history: bool = False,
 ) -> TurnContextBaselineDecision:
     if entry is None:
@@ -102,6 +107,7 @@ def evaluate_turn_context_baseline(
         model_label=resolved_model,
         thinking=thinking,
         effective_capabilities=resolved_effective_capabilities,
+        mcp_inventory=mcp_inventory,
     )
 
     if entry.workspace_root != str(resolved_workspace_root):
@@ -146,6 +152,12 @@ def evaluate_turn_context_baseline(
             reason="effective_capabilities_mismatch",
             entry=entry,
         )
+    if entry.mcp_inventory != mcp_inventory:
+        return TurnContextBaselineDecision(
+            status="cleared",
+            reason="mcp_inventory_mismatch",
+            entry=entry,
+        )
     if entry.runtime_context_text != expected_runtime_context_text:
         return TurnContextBaselineDecision(
             status="cleared",
@@ -170,6 +182,7 @@ def build_session_turn_context_entry(
     timezone: str | None = None,
     thinking: ThinkingSetting | None = None,
     effective_capabilities: EffectiveCapabilities | None = None,
+    mcp_inventory: SessionMcpInventorySnapshot | None = None,
 ) -> SessionTurnContextEntry:
     resolved_workspace_root = normalize_workspace_root(workspace_root)
     resolved_shell_family = shell_family or detect_default_shell_family()
@@ -189,6 +202,7 @@ def build_session_turn_context_entry(
         model_label=resolved_model,
         thinking=thinking,
         effective_capabilities=resolved_effective_capabilities,
+        mcp_inventory=mcp_inventory,
     )
 
     return SessionTurnContextEntry(
@@ -196,6 +210,7 @@ def build_session_turn_context_entry(
         model=resolved_model,
         thinking=thinking,
         effective_capabilities=resolved_effective_capabilities,
+        mcp_inventory=mcp_inventory,
         workspace_root=str(resolved_workspace_root),
         shell_family=resolved_shell_family,
         current_date=resolved_current_date.isoformat(),
@@ -246,6 +261,7 @@ def build_runtime_context_prefix_messages(
     model: Any | None = None,
     thinking: ThinkingSetting | None = None,
     effective_capabilities: EffectiveCapabilities | None = None,
+    mcp_inventory: SessionMcpInventorySnapshot | None = None,
 ) -> list[ModelMessage]:
     if entry is not None:
         return [build_runtime_context_message(entry.runtime_context_text)]
@@ -264,6 +280,7 @@ def build_runtime_context_prefix_messages(
         "effective_capabilities": _resolve_effective_capabilities(
             effective_capabilities
         ),
+        "mcp_inventory": mcp_inventory,
     }
     if model is not None:
         runtime_context_kwargs["model_label"] = _describe_turn_context_model(model)
@@ -285,6 +302,7 @@ def build_runtime_context_injection_plan(
     timezone: str | None = None,
     thinking: ThinkingSetting | None = None,
     effective_capabilities: EffectiveCapabilities | None = None,
+    mcp_inventory: SessionMcpInventorySnapshot | None = None,
 ) -> RuntimeContextInjectionPlan:
     resolved_timezone = (
         detect_current_timezone_label() if timezone is None else timezone
@@ -301,6 +319,7 @@ def build_runtime_context_injection_plan(
         model_label=resolved_model,
         thinking=thinking,
         effective_capabilities=resolved_effective_capabilities,
+        mcp_inventory=mcp_inventory,
     )
     current_message = build_runtime_context_message(current_runtime_context_text)
 
@@ -346,6 +365,7 @@ def build_runtime_context_injection_plan(
         timezone=resolved_timezone,
         thinking=thinking,
         effective_capabilities=resolved_effective_capabilities,
+        mcp_inventory=mcp_inventory,
     )
     return RuntimeContextInjectionPlan(
         before_history_messages=(previous_message,),
@@ -365,6 +385,7 @@ def build_runtime_context_update_text(
     timezone: str | None = None,
     thinking: ThinkingSetting | None = None,
     effective_capabilities: EffectiveCapabilities | None = None,
+    mcp_inventory: SessionMcpInventorySnapshot | None = None,
 ) -> str:
     resolved_workspace_root = normalize_workspace_root(workspace_root)
     resolved_shell_family = shell_family or detect_default_shell_family()
@@ -444,6 +465,8 @@ def build_runtime_context_update_text(
                         by_kind=resolved_effective_capabilities.approval_by_kind,
                     )}"
                 )
+    if entry.mcp_inventory != mcp_inventory:
+        update_lines.append("Current MCP tool inventory changed")
     if (
         not update_lines
         and entry.runtime_context_text
@@ -455,6 +478,7 @@ def build_runtime_context_update_text(
             model_label=resolved_model,
             thinking=thinking,
             effective_capabilities=resolved_effective_capabilities,
+            mcp_inventory=mcp_inventory,
         )
     ):
         update_lines.append("Runtime context framing changed")

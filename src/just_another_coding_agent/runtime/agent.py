@@ -20,6 +20,7 @@ from just_another_coding_agent.contracts.sandbox import (
     EffectiveCapabilities,
     describe_approval_policy,
 )
+from just_another_coding_agent.contracts.session import SessionMcpInventorySnapshot
 from just_another_coding_agent.contracts.thinking import ThinkingSetting
 from just_another_coding_agent.contracts.tools import CANONICAL_TOOL_NAMES
 from just_another_coding_agent.runtime.mcp import (
@@ -109,6 +110,7 @@ def build_runtime_context_text(
     model_label: str | object = _UNSET,
     thinking: ThinkingSetting | None | object = _UNSET,
     effective_capabilities: EffectiveCapabilities | None | object = _UNSET,
+    mcp_inventory: SessionMcpInventorySnapshot | None | object = _UNSET,
 ) -> str:
     root = normalize_workspace_root(workspace_root)
     resolved_date = current_date or date.today()
@@ -146,8 +148,58 @@ def build_runtime_context_text(
                 f"Current approval policy: {approval_policy}",
             ]
         )
+    if mcp_inventory is not _UNSET:
+        sections.extend(_mcp_inventory_context_lines(mcp_inventory))
 
     return "\n".join(sections)
+
+
+def _mcp_inventory_context_lines(
+    inventory: SessionMcpInventorySnapshot | None,
+) -> list[str]:
+    if inventory is None or not inventory.tools:
+        return ["Current MCP tools: none."]
+
+    server_counts: dict[str, int] = {}
+    direct_tool_names: list[str] = []
+    activated_tool_names: list[str] = []
+    deferred_count = 0
+    for tool in inventory.tools:
+        server_counts[tool.server_id] = server_counts.get(tool.server_id, 0) + 1
+        if tool.exposure == "direct":
+            direct_tool_names.append(tool.name)
+        else:
+            deferred_count += 1
+        if tool.activated:
+            activated_tool_names.append(tool.name)
+
+    server_summary = ", ".join(
+        f"{server_id} ({count} tool{'s' if count != 1 else ''})"
+        for server_id, count in sorted(server_counts.items())
+    )
+    lines = [
+        (
+            "Current MCP tools: "
+            f"{len(inventory.tools)} discovered across "
+            f"{len(server_counts)} server{'s' if len(server_counts) != 1 else ''}; "
+            f"{len(direct_tool_names)} direct, {deferred_count} deferred, "
+            f"{len(activated_tool_names)} activated deferred."
+        ),
+        f"Current MCP servers: {server_summary}.",
+    ]
+    if direct_tool_names:
+        lines.append(f"Current direct MCP tools: {', '.join(direct_tool_names)}.")
+    if deferred_count:
+        lines.append(
+            "Use mcp_search to discover deferred MCP tools before calling exact "
+            "mcp__server__tool names."
+        )
+    if activated_tool_names:
+        lines.append(
+            "Current activated deferred MCP tools: "
+            f"{', '.join(activated_tool_names)}."
+        )
+    return lines
 
 
 def build_canonical_instructions(

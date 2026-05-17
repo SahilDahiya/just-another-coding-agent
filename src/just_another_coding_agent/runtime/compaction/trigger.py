@@ -231,6 +231,7 @@ def _estimate_resume_history_budget_components(
         current_date=current_date,
         shell_family=resolved_shell_family,
         thinking=thinking,
+        mcp_inventory=getattr(loaded_session, "latest_mcp_inventory", None),
         has_persisted_history=loaded_session.has_persisted_turn_context_history,
     )
     runtime_context_estimate = estimate_messages_tokens(
@@ -243,6 +244,7 @@ def _estimate_resume_history_budget_components(
             current_date=current_date,
             shell_family=resolved_shell_family,
             thinking=thinking,
+            mcp_inventory=getattr(loaded_session, "latest_mcp_inventory", None),
         ),
     )
     resume_history_estimate = estimate_messages_tokens(

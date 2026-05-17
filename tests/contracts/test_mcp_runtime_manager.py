@@ -325,6 +325,7 @@ async def test_mcp_search_activates_deferred_tool_for_toolset(
             "name": _DEMO_ECHO_TOOL_NAME,
             "server_id": "demo_echo",
             "tool_name": "echo_message",
+            "raw_tool_name": "echo-message",
             "title": "Echo message",
             "description": "Echo one message.",
             "deferred": True,

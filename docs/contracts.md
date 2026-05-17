@@ -110,6 +110,11 @@ Rules:
   inventory, expose only the bounded direct MCP tool set plus `mcp_search`
   when tools are deferred, and close configured MCP clients through the backend
   runtime-resource lifecycle.
+- Completed session runs with configured MCP inventory must persist a
+  `session_mcp_inventory` entry that records the discovered model-facing tool
+  name, raw MCP tool name, server id, exposure mode, and deferred activation
+  state. This durable inventory is resume and compaction memory only; current
+  configured MCP state remains the authority for what can execute now.
 - Backend-known configured MCP tools and model-visible configured MCP tools are
   distinct sets. Large configured MCP inventories must be searchable through
   backend-owned `mcp_search` instead of being dumped entirely into the initial

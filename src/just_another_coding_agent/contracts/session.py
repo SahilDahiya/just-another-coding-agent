@@ -76,6 +76,7 @@ class SessionTurnContextEntry(_SessionEntryBase):
     model: str
     thinking: ThinkingSetting | None = None
     effective_capabilities: EffectiveCapabilities | None = None
+    mcp_inventory: "SessionMcpInventorySnapshot | None" = None
     workspace_root: str
     shell_family: ShellFamily = "posix"
     current_date: str | None = None
@@ -87,6 +88,26 @@ class SessionPermissionGrantsEntry(_SessionEntryBase):
     type: Literal["session_permission_grants"] = "session_permission_grants"
     run_id: str
     grants: tuple[SandboxPermissionGrant, ...] = ()
+
+
+class SessionMcpInventoryTool(_SessionEntryBase):
+    name: str
+    server_id: str
+    tool_name: str
+    raw_tool_name: str
+    title: str
+    description: str
+    exposure: Literal["direct", "deferred"]
+    activated: bool = False
+
+
+class SessionMcpInventorySnapshot(_SessionEntryBase):
+    tools: tuple[SessionMcpInventoryTool, ...] = ()
+
+
+class SessionMcpInventoryEntry(SessionMcpInventorySnapshot):
+    type: Literal["session_mcp_inventory"] = "session_mcp_inventory"
+    run_id: str
 
 
 class SessionCompactionEntry(_SessionEntryBase):
@@ -103,6 +124,7 @@ SessionEntry = Annotated[
     | SessionProjectDocsEntry
     | SessionRunEntry
     | SessionMessagesEntry
+    | SessionMcpInventoryEntry
     | SessionEventEntry
     | SessionTurnContextEntry
     | SessionPermissionGrantsEntry
@@ -117,6 +139,7 @@ class SessionRunRecord(_SessionEntryBase):
     thinking: ThinkingSetting | None = None
     messages: list[ModelMessage]
     events: list[RunEvent]
+    mcp_inventory: SessionMcpInventoryEntry | None = None
 
 
 class LoadedSession(_SessionEntryBase):
@@ -126,6 +149,7 @@ class LoadedSession(_SessionEntryBase):
     project_docs: SessionProjectDocsEntry | None = None
     runs: list[SessionRunRecord]
     latest_turn_context: SessionTurnContextEntry | None = None
+    latest_mcp_inventory: SessionMcpInventoryEntry | None = None
     latest_permission_grants: SessionPermissionGrantsEntry | None = None
     has_persisted_turn_context_history: bool = False
     compactions: list[SessionCompactionEntry] = Field(default_factory=list)
@@ -178,6 +202,9 @@ __all__ = [
     "SessionForkEntry",
     "SessionHeaderEntry",
     "SessionInfoEntry",
+    "SessionMcpInventoryEntry",
+    "SessionMcpInventorySnapshot",
+    "SessionMcpInventoryTool",
     "SessionMessagesEntry",
     "SessionMetadata",
     "SessionName",

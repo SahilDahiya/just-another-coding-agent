@@ -26,6 +26,7 @@ from just_another_coding_agent.runtime.project_docs import (
 if TYPE_CHECKING:
     from just_another_coding_agent.contracts.platform import ShellFamily
     from just_another_coding_agent.contracts.sandbox import EffectiveCapabilities
+    from just_another_coding_agent.contracts.session import SessionMcpInventorySnapshot
     from just_another_coding_agent.contracts.thinking import ThinkingSetting
     from just_another_coding_agent.runtime.turn_context import (
         TurnContextBaselineDecision,
@@ -504,6 +505,7 @@ def build_prompt_context_layers(
     timezone: str | None = None,
     thinking: "ThinkingSetting | None" = None,
     effective_capabilities: EffectiveCapabilities | None = None,
+    mcp_inventory: SessionMcpInventorySnapshot | None = None,
     tool_names: Sequence[str] = CANONICAL_TOOL_NAMES,
     run_mode: RunMode = DEFAULT_RUN_MODE,
     project_doc_total_byte_budget: int = PROJECT_DOC_TOTAL_BYTE_BUDGET,
@@ -525,6 +527,7 @@ def build_prompt_context_layers(
         timezone=timezone,
         thinking=thinking,
         effective_capabilities=effective_capabilities,
+        mcp_inventory=mcp_inventory,
     )
     return PromptContextLayers(
         base_instructions=build_base_product_prompt(

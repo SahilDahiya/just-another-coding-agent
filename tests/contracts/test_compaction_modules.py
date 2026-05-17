@@ -17,11 +17,16 @@ from just_another_coding_agent.contracts.run_events import (
     RunStartedEvent,
     RunSucceededEvent,
 )
+from just_another_coding_agent.contracts.session import (
+    SessionMcpInventoryEntry,
+    SessionMcpInventoryTool,
+)
 from just_another_coding_agent.runtime.compaction import (
     build_resume_message_history,
     resume,
     session_summary,
     should_auto_compact_session,
+    source_builder,
     summarize_and_append_compaction_to_session,
     summarize_session_for_compaction,
     trigger,
@@ -58,6 +63,47 @@ def test_summarize_compaction_source_is_exported_through_package() -> None:
     from just_another_coding_agent.runtime.compaction import summarize_compaction_source
 
     assert session_summary.summarize_compaction_source is summarize_compaction_source
+
+
+def test_compaction_source_includes_durable_mcp_inventory(tmp_path) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    session_path = tmp_path / "session.jsonl"
+
+    append_run_to_session(
+        path=session_path,
+        workspace_root=workspace_root,
+        prompt="list Linear issues",
+        events=[
+            RunStartedEvent(run_id="run-1"),
+            RunSucceededEvent(run_id="run-1", output_text="done"),
+        ],
+        messages=[ModelRequest(parts=[UserPromptPart(content="go")])],
+        mcp_inventory=SessionMcpInventoryEntry(
+            run_id="run-1",
+            tools=(
+                SessionMcpInventoryTool(
+                    name="mcp__linear__list_issues",
+                    server_id="linear",
+                    tool_name="list_issues",
+                    raw_tool_name="list-issues",
+                    title="List issues",
+                    description="List Linear issues.",
+                    exposure="deferred",
+                    activated=True,
+                ),
+            ),
+        ),
+    )
+
+    source = source_builder.build_compaction_source(
+        load_session(path=session_path, workspace_root=workspace_root),
+        model="test:model",
+    )
+
+    assert "MCP tool inventory:" in source
+    assert "1 discovered MCP tool(s) across linear (1); 0 direct, 1 deferred" in source
+    assert "Activated deferred MCP tools: mcp__linear__list_issues" in source
 
 
 @pytest.mark.anyio

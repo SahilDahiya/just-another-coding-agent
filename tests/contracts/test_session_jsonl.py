@@ -32,6 +32,9 @@ from just_another_coding_agent.contracts.run_events import (
 from just_another_coding_agent.contracts.sandbox import EffectiveCapabilities
 from just_another_coding_agent.contracts.session import (
     SESSION_FORMAT_VERSION,
+    SessionMcpInventoryEntry,
+    SessionMcpInventorySnapshot,
+    SessionMcpInventoryTool,
     SessionPermissionGrantsEntry,
     SessionTurnContextEntry,
 )
@@ -245,6 +248,51 @@ def test_append_run_persists_turn_context_snapshot(tmp_path) -> None:
 
     assert loaded.latest_turn_context == turn_context
     assert loaded.has_persisted_turn_context_history is True
+
+
+def test_append_run_persists_mcp_inventory_snapshot(tmp_path) -> None:
+    path = tmp_path / "session.jsonl"
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    tool = SessionMcpInventoryTool(
+        name="mcp__linear__list_issues",
+        server_id="linear",
+        tool_name="list_issues",
+        raw_tool_name="list-issues",
+        title="List issues",
+        description="List Linear issues.",
+        exposure="deferred",
+        activated=True,
+    )
+    inventory = SessionMcpInventoryEntry(run_id="run-1", tools=(tool,))
+    turn_context = SessionTurnContextEntry(
+        run_id="run-1",
+        model="openai-responses:gpt-5.3-codex",
+        workspace_root=str(workspace_root.resolve()),
+        shell_family=_SHELL_FAMILY,
+        current_date="2026-04-04",
+        runtime_context_text="Current workspace root: /workspace",
+        mcp_inventory=SessionMcpInventorySnapshot(tools=(tool,)),
+    )
+
+    append_run_to_session(
+        path=path,
+        workspace_root=workspace_root,
+        prompt="go",
+        events=[
+            RunStartedEvent(run_id="run-1"),
+            RunSucceededEvent(run_id="run-1", output_text="done"),
+        ],
+        messages=[ModelRequest(parts=[UserPromptPart(content="go")])],
+        mcp_inventory=inventory,
+        turn_context=turn_context,
+    )
+
+    loaded = load_session(path=path, workspace_root=workspace_root)
+
+    assert loaded.runs[0].mcp_inventory == inventory
+    assert loaded.latest_mcp_inventory == inventory
+    assert loaded.latest_turn_context == turn_context
 
 
 def test_append_run_persists_turn_context_effective_capabilities(tmp_path) -> None:

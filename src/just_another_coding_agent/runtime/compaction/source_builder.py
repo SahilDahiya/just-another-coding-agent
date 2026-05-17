@@ -113,8 +113,12 @@ def _render_run(run: SessionRunRecord) -> str:
 
     terminal_lines = _render_terminal_run_outcome(run)
     tool_lines = _render_tool_activity_lines(run)
+    mcp_inventory_lines = _render_mcp_inventory_lines(run)
     if terminal_lines:
         lines.extend(terminal_lines)
+    if mcp_inventory_lines:
+        lines.append("MCP tool inventory:")
+        lines.extend(f"- {line}" for line in mcp_inventory_lines)
     if tool_lines:
         lines.append("Tool evidence:")
         lines.extend(f"- {line}" for line in tool_lines)
@@ -162,6 +166,42 @@ def _render_tool_activity_lines(run: SessionRunRecord) -> list[str]:
     if len(rendered) > MAX_COMPACTION_TOOL_ACTIVITY_LINES:
         rendered = rendered[-MAX_COMPACTION_TOOL_ACTIVITY_LINES:]
     return rendered
+
+
+def _render_mcp_inventory_lines(run: SessionRunRecord) -> list[str]:
+    inventory = run.mcp_inventory
+    if inventory is None or not inventory.tools:
+        return []
+
+    server_counts: dict[str, int] = {}
+    direct_count = 0
+    deferred_count = 0
+    activated_tool_names: list[str] = []
+    for tool in inventory.tools:
+        server_counts[tool.server_id] = server_counts.get(tool.server_id, 0) + 1
+        if tool.exposure == "direct":
+            direct_count += 1
+        else:
+            deferred_count += 1
+        if tool.activated:
+            activated_tool_names.append(tool.name)
+
+    server_summary = ", ".join(
+        f"{server_id} ({count})" for server_id, count in sorted(server_counts.items())
+    )
+    lines = [
+        compact_text(
+            f"{len(inventory.tools)} discovered MCP tool(s) across {server_summary}; "
+            f"{direct_count} direct, {deferred_count} deferred"
+        )
+    ]
+    if activated_tool_names:
+        lines.append(
+            compact_text(
+                "Activated deferred MCP tools: " + ", ".join(activated_tool_names)
+            )
+        )
+    return lines
 
 
 def _format_tool_activity_line(title: str, summary: str | None) -> str | None:

@@ -9,7 +9,10 @@ from pydantic_ai.messages import ModelMessage
 
 from just_another_coding_agent.contracts.platform import ShellFamily
 from just_another_coding_agent.contracts.sandbox import EffectiveCapabilities
-from just_another_coding_agent.contracts.session import LoadedSession
+from just_another_coding_agent.contracts.session import (
+    LoadedSession,
+    SessionMcpInventorySnapshot,
+)
 from just_another_coding_agent.contracts.thinking import ThinkingSetting
 from just_another_coding_agent.contracts.tools import CANONICAL_TOOL_NAMES
 from just_another_coding_agent.runtime.compaction.boundary import run_index_for_id
@@ -52,6 +55,7 @@ def build_runtime_framed_resume_message_history(
     timezone: str | None = None,
     thinking: ThinkingSetting | None = None,
     effective_capabilities: EffectiveCapabilities | None = None,
+    mcp_inventory: SessionMcpInventorySnapshot | None = None,
     tool_names: Sequence[str] = CANONICAL_TOOL_NAMES,
 ) -> list[ModelMessage]:
     resume_history = (
@@ -68,6 +72,7 @@ def build_runtime_framed_resume_message_history(
         timezone=timezone,
         thinking=thinking,
         effective_capabilities=effective_capabilities,
+        mcp_inventory=mcp_inventory,
         tool_names=tool_names,
     )
     return [

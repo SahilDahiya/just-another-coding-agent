@@ -123,8 +123,7 @@ typed `McpServerConfig` entries and their discovered tool metadata. Discovery
 normalizes raw server tool names into stable model-facing names, applies raw
 allow/deny policy before exposure, and stores `McpMountedToolIdentity` so later
 execution can retain the raw MCP tool name while the agent sees only the
-normalized name. This slice is deterministic runtime plumbing; it does not yet
-start live stdio or streamable HTTP MCP clients.
+normalized name.
 
 The PydanticAI adapter boundary builds standard PydanticAI MCP client objects
 from JACA's typed config with `build_pydantic_ai_mcp_server`. JACA does not use
@@ -157,6 +156,17 @@ configured MCP runtime for cleanup through
 `WorkspaceDeps.close_runtime_resources`. Prompt policy treats dynamic
 `mcp__...` names as backend-mounted tools instead of requiring every external
 tool name to be hardcoded in the static prompt registry.
+
+Completed runs persist the configured MCP inventory as `session_mcp_inventory`
+durable state. The entry records each discovered tool's model-facing name, raw
+MCP tool name, server id, title, description, direct/deferred exposure, and
+whether a deferred tool was activated by `mcp_search`. Runtime context includes
+a bounded summary of the current MCP surface and treats inventory changes as a
+turn-context change signal on resume. Compaction source rendering includes the
+durable per-run MCP inventory summary so prior MCP activity has explicit
+context after summarization. This persisted inventory is memory only; it does
+not authorize calls to tools that are no longer configured, enabled, or
+authenticated in the current run.
 
 Configured MCP tool exposure is intentionally split:
 

@@ -44,6 +44,7 @@ from just_another_coding_agent.contracts.session import (
     SessionForkEntry,
     SessionHeaderEntry,
     SessionInfoEntry,
+    SessionMcpInventoryEntry,
     SessionMessagesEntry,
     SessionMetadata,
     SessionName,
@@ -149,6 +150,7 @@ class SessionRunAppender:
         self,
         *,
         messages: Sequence[ModelMessage],
+        mcp_inventory: SessionMcpInventoryEntry | None = None,
         turn_context: SessionTurnContextEntry | None = None,
         permission_grants: SessionPermissionGrantsEntry | None = None,
     ) -> None:
@@ -168,6 +170,13 @@ class SessionRunAppender:
                 file_handle,
                 SessionMessagesEntry(run_id=self._run_id, messages=list(messages)),
             )
+            if mcp_inventory is not None:
+                if mcp_inventory.run_id != self._run_id:
+                    raise SessionFormatError(
+                        "Session MCP inventory entry run_id must belong to "
+                        "the current run"
+                    )
+                _write_entry(file_handle, mcp_inventory)
             if turn_context is not None:
                 if turn_context.run_id != self._run_id:
                     raise SessionFormatError(
@@ -288,6 +297,7 @@ def append_run_to_session(
     thinking: ThinkingSetting | None = None,
     events: Sequence[RunEvent],
     messages: Sequence[ModelMessage],
+    mcp_inventory: SessionMcpInventoryEntry | None = None,
     turn_context: SessionTurnContextEntry | None = None,
     permission_grants: SessionPermissionGrantsEntry | None = None,
 ) -> None:
@@ -306,6 +316,7 @@ def append_run_to_session(
         appender.append_event(event)
     appender.finalize(
         messages=run_messages,
+        mcp_inventory=mcp_inventory,
         turn_context=turn_context,
         permission_grants=permission_grants,
     )
@@ -517,6 +528,7 @@ def load_session(
     project_docs: SessionProjectDocsEntry | None = None
     runs: list[SessionRunRecord] = []
     latest_turn_context: SessionTurnContextEntry | None = None
+    latest_mcp_inventory: SessionMcpInventoryEntry | None = None
     latest_permission_grants: SessionPermissionGrantsEntry | None = None
     has_persisted_turn_context_history = False
     compactions: list[SessionCompactionEntry] = []
@@ -608,6 +620,31 @@ def load_session(
             runs.append(current_run)
             run_order.append(current_run.run_id)
             current_run = None
+            continue
+
+        if isinstance(entry, SessionMcpInventoryEntry):
+            if current_run is not None:
+                raise SessionFormatError(
+                    "Session MCP inventory entry must follow a complete run"
+                )
+            if not runs:
+                raise SessionFormatError(
+                    "Session MCP inventory entry must follow a complete run"
+                )
+            if entry.run_id != runs[-1].run_id:
+                raise SessionFormatError(
+                    "Session MCP inventory entry must belong to the latest "
+                    "complete run"
+                )
+            if (
+                latest_mcp_inventory is not None
+                and latest_mcp_inventory.run_id == entry.run_id
+            ):
+                raise SessionFormatError(
+                    "Session MCP inventory entry must appear at most once per run"
+                )
+            runs[-1] = runs[-1].model_copy(update={"mcp_inventory": entry})
+            latest_mcp_inventory = entry
             continue
 
         if isinstance(entry, SessionTurnContextEntry):
@@ -730,6 +767,7 @@ def load_session(
         project_docs=project_docs,
         runs=runs,
         latest_turn_context=latest_turn_context,
+        latest_mcp_inventory=latest_mcp_inventory,
         latest_permission_grants=latest_permission_grants,
         has_persisted_turn_context_history=has_persisted_turn_context_history,
         compactions=compactions,
